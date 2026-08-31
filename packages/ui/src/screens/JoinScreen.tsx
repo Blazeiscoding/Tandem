@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerInfo } from "@slackoss/protocol";
 import { Api, ApiError, normalizeServerUrl } from "@slackoss/client-core";
-import type { DiscoveredServer, Platform, SavedServer } from "../platform.js";
+import type { DiscoveredServer, HostingStatus, Platform, SavedServer } from "../platform.js";
 
 interface Props {
   platform: Platform;
@@ -28,11 +28,16 @@ export function JoinScreen({
 }: Props) {
   const [stage, setStage] = useState<Stage>({ view: "browse" });
   const [lanServers, setLanServers] = useState<DiscoveredServer[]>([]);
+  const [hosting, setHosting] = useState<HostingStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!platform.discoverLan) return;
     return platform.discoverLan(setLanServers);
+  }, [platform]);
+
+  useEffect(() => {
+    void platform.hosting?.status().then(setHosting);
   }, [platform]);
 
   useEffect(() => {
@@ -104,6 +109,7 @@ export function JoinScreen({
               lanSupported={!!platform.discoverLan}
               probing={stage.view === "probing" ? stage.url : null}
               error={error}
+              hostedPort={hosting?.running ? (hosting.port ?? null) : null}
               onSelect={probe}
               onOpenSaved={openSaved}
               onForget={onForget}
@@ -122,6 +128,8 @@ function BrowseCard(props: {
   lanSupported: boolean;
   probing: string | null;
   error: string | null;
+  /** Port of the workspace this machine is hosting, if any. */
+  hostedPort: number | null;
   onSelect: (address: string) => void;
   onOpenSaved: (saved: SavedServer) => void;
   onForget: (url: string) => void;
@@ -171,7 +179,8 @@ function BrowseCard(props: {
                 key={`${l.host}:${l.port}`}
                 title={l.name}
                 subtitle={`${l.host}:${l.port}`}
-                meta={`v${l.serverVersion}`}
+                // Our own advertisement comes back over mDNS like any other.
+                meta={l.port === props.hostedPort ? "hosted here" : `v${l.serverVersion}`}
                 busy={props.probing?.includes(l.host) ?? false}
                 onClick={() => props.onSelect(`${l.host}:${l.port}`)}
               />
@@ -215,10 +224,22 @@ function BrowseCard(props: {
 
       {props.onHostClick && (
         <p className="pt-2 text-center text-sm text-ink-dim">
-          Nothing here yet?{" "}
-          <button onClick={props.onHostClick} className="font-medium text-copper hover:underline">
-            Host a workspace on this computer
-          </button>
+          {props.hostedPort !== null ? (
+            <>
+              You're hosting on port{" "}
+              <span className="font-mono text-copper">{props.hostedPort}</span>.{" "}
+              <button onClick={props.onHostClick} className="font-medium text-copper hover:underline">
+                Manage hosting
+              </button>
+            </>
+          ) : (
+            <>
+              Nothing here yet?{" "}
+              <button onClick={props.onHostClick} className="font-medium text-copper hover:underline">
+                Host a workspace on this computer
+              </button>
+            </>
+          )}
         </p>
       )}
     </div>

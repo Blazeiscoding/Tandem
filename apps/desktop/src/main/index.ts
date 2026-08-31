@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { Bonjour, type Service } from "bonjour-service";
-import { MDNS_SERVICE_TYPE } from "@slackoss/protocol";
+import { DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
@@ -113,12 +113,22 @@ ipcMain.handle(
         .replaceAll(/[^a-z0-9]+/g, "-")
         .replaceAll(/^-|-$/g, "") || "workspace";
     const dataDir = join(app.getPath("userData"), "hosted", slug);
-    hosted = await createWorkspaceServer({
-      dataDir,
-      port: opts.port ?? 8543,
-      workspaceName: opts.workspaceName,
-      mdns: true,
-    });
+    const start = (port: number) =>
+      createWorkspaceServer({
+        dataDir,
+        port,
+        workspaceName: opts.workspaceName,
+        mdns: true,
+      });
+
+    try {
+      hosted = await start(opts.port ?? DEFAULT_PORT);
+    } catch (err) {
+      // Something else already has the default port (often another workspace on
+      // this machine). Take any free one — mDNS advertises whatever we land on.
+      if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
+      hosted = await start(0);
+    }
     hostedName = opts.workspaceName;
     const s = await readSettings();
     s["lastHosted"] = { workspaceName: opts.workspaceName, port: hosted.port };
