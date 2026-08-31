@@ -387,6 +387,26 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return { messages };
   });
 
+  app.get<{ Params: { id: string; messageId: string } }>(
+    "/api/channels/:id/messages/around/:messageId",
+    async (req) => {
+      const me = requireUser(req);
+      requireChannelAccess(req.params.id, me);
+      const limit = Math.min(Number((req.query as { limit?: string }).limit) || 50, 200);
+      return store.listMessagesAround(req.params.id, req.params.messageId, limit);
+    },
+  );
+
+  app.get<{ Params: { id: string; messageId: string } }>(
+    "/api/channels/:id/messages/after/:messageId",
+    async (req) => {
+      const me = requireUser(req);
+      requireChannelAccess(req.params.id, me);
+      const limit = Math.min(Number((req.query as { limit?: string }).limit) || 50, 200);
+      return { messages: store.listMessagesAfter(req.params.id, req.params.messageId, limit) };
+    },
+  );
+
   app.post<{ Params: { id: string } }>("/api/channels/:id/messages", async (req, reply) => {
     const me = requireUser(req);
     const channel = requireChannelAccess(req.params.id, me);

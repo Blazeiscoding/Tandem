@@ -141,7 +141,10 @@ function SearchHints({ query }: { query: string }) {
 }
 
 /** Full-text message search over the workspace. */
-export function SearchDialog(props: { onClose: () => void; onJump: (channelId: ID) => void }) {
+export function SearchDialog(props: {
+  onClose: () => void;
+  onJump: (channelId: ID, messageId: ID) => void;
+}) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
@@ -182,7 +185,7 @@ export function SearchDialog(props: { onClose: () => void; onJump: (channelId: I
             return (
               <li key={m.id}>
                 <button
-                  onClick={() => props.onJump(m.channelId)}
+                  onClick={() => props.onJump(m.channelId, m.id)}
                   className="w-full rounded-lg border border-edge bg-ground p-3 text-left transition-colors hover:border-copper/50"
                 >
                   <div className="mb-1 flex items-baseline gap-2 text-[12px] text-ink-faint">

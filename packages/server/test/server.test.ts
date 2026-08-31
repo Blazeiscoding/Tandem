@@ -579,6 +579,68 @@ describe("workspace server", () => {
     expect(cleared.data.user.dndUntil).toBeNull();
   });
 
+  it("loads a window of history around one message", async () => {
+    const room = await api<{ channel: Channel }>("/api/channels", {
+      token: aliceToken,
+      body: { type: "public", name: "history" },
+    });
+    const channelId = room.data.channel.id;
+
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const posted = await api<{ message: Message }>(`/api/channels/${channelId}/messages`, {
+        token: aliceToken,
+        body: { text: `message ${i}` },
+      });
+      ids.push(posted.data.message.id);
+    }
+
+    const middle = ids[15]!;
+    const around = await api<{
+      messages: Message[];
+      hasMoreOlder: boolean;
+      hasMoreNewer: boolean;
+    }>(`/api/channels/${channelId}/messages/around/${middle}?limit=10`, { token: aliceToken });
+
+    expect(around.status).toBe(200);
+    // The target sits inside the window, with context on both sides.
+    expect(around.data.messages.map((m) => m.id)).toContain(middle);
+    expect(around.data.hasMoreOlder).toBe(true);
+    expect(around.data.hasMoreNewer).toBe(true);
+    // Newest-first, matching the plain history endpoint.
+    const returned = around.data.messages.map((m) => m.id);
+    expect([...returned].sort().reverse()).toEqual(returned);
+
+    // A window on the very first message has nothing older.
+    const atStart = await api<{ hasMoreOlder: boolean; hasMoreNewer: boolean }>(
+      `/api/channels/${channelId}/messages/around/${ids[0]}?limit=10`,
+      { token: aliceToken },
+    );
+    expect(atStart.data.hasMoreOlder).toBe(false);
+    expect(atStart.data.hasMoreNewer).toBe(true);
+
+    // Paging forward from the middle walks toward the tail.
+    const after = await api<{ messages: Message[] }>(
+      `/api/channels/${channelId}/messages/after/${middle}?limit=5`,
+      { token: aliceToken },
+    );
+    expect(after.data.messages).toHaveLength(5);
+    expect(after.data.messages.every((m) => m.id > middle)).toBe(true);
+  });
+
+  it("will not load history around a message in a hidden channel", async () => {
+    const secret = server.store.getChannelByName("secret-plans")!;
+    const posted = await api<{ message: Message }>(`/api/channels/${secret.id}/messages`, {
+      token: aliceToken,
+      body: { text: "still classified" },
+    });
+    const res = await api(
+      `/api/channels/${secret.id}/messages/around/${posted.data.message.id}`,
+      { token: bobToken },
+    );
+    expect(res.status).toBe(404);
+  });
+
   it("marks channels read", async () => {
     const general = server.store.getChannelByName("general")!;
     const res = await api(`/api/channels/${general.id}/read`, {

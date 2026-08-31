@@ -87,10 +87,15 @@ from:@alice  in:#general  has:link  has:file  after:2026-01-01  before:2026-02-0
 Modifiers combine with each other and with free text, and never widen what you
 are allowed to see — naming a channel you are not in returns nothing.
 
+Search hits, pins and saved items open the channel scrolled to that exact
+message, with the surrounding history loaded around it. Every message has a
+`slackoss://message?…` permalink, and `slackoss://` links open the desktop app
+directly — an invite link lands on the join screen with the code filled in.
+
 ## Roadmap
 
-- **Next**: scheduled send, message permalinks and forwarding, keyboard-shortcut
-  help, sidebar sections.
+- **Next**: scheduled send, message forwarding, keyboard-shortcut help,
+  sidebar sections.
 - **Then**: huddles — WebRTC audio, video and screen share, signalled over the
   existing socket, with an optional SFU for larger rooms.
 - **After**: a Slack-compatible integration API (incoming webhooks, slash

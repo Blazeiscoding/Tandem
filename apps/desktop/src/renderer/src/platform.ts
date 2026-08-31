@@ -8,6 +8,8 @@ interface SlackossBridge {
   hostingStatus: () => Promise<HostingStatus>;
   hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
   hostingStop: () => Promise<void>;
+  consumeDeepLink: () => Promise<string | null>;
+  onDeepLink: (cb: (url: string) => void) => () => void;
 }
 
 declare global {
@@ -30,6 +32,10 @@ export function electronPlatform(): Platform {
     discoverLan: (cb) => {
       void bridge.lanSnapshot().then(cb);
       return bridge.onLanServers(cb);
+    },
+    deepLinks: {
+      consumePending: () => bridge.consumeDeepLink(),
+      subscribe: (cb) => bridge.onDeepLink(cb),
     },
     hosting: {
       status: () => bridge.hostingStatus(),

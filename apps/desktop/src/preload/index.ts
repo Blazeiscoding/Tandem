@@ -8,6 +8,9 @@ export interface SlackossBridge {
   hostingStatus: () => Promise<unknown>;
   hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<unknown>;
   hostingStop: () => Promise<void>;
+  /** A slackoss:// link that launched the app, if any. */
+  consumeDeepLink: () => Promise<string | null>;
+  onDeepLink: (cb: (url: string) => void) => () => void;
 }
 
 const bridge: SlackossBridge = {
@@ -22,6 +25,12 @@ const bridge: SlackossBridge = {
   hostingStatus: () => ipcRenderer.invoke("hosting:status"),
   hostingStart: (opts) => ipcRenderer.invoke("hosting:start", opts),
   hostingStop: () => ipcRenderer.invoke("hosting:stop"),
+  consumeDeepLink: () => ipcRenderer.invoke("deeplink:consume"),
+  onDeepLink: (cb) => {
+    const listener = (_e: unknown, url: string) => cb(url);
+    ipcRenderer.on("deeplink", listener);
+    return () => ipcRenderer.removeListener("deeplink", listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("slackoss", bridge);

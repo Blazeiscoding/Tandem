@@ -36,6 +36,13 @@ export interface Platform {
   notify: (title: string, body: string) => void;
   /** Subscribe to LAN server discovery. Returns unsubscribe. Desktop only. */
   discoverLan?: (cb: (servers: DiscoveredServer[]) => void) => () => void;
+  /** slackoss:// links. Desktop only — browsers have no protocol handler. */
+  deepLinks?: {
+    /** A link that launched the app, consumed once. */
+    consumePending: () => Promise<string | null>;
+    /** Links arriving while the app is already running. */
+    subscribe: (cb: (url: string) => void) => () => void;
+  };
   /** "Open to LAN" — run a workspace server inside this app. Desktop only. */
   hosting?: {
     status: () => Promise<HostingStatus>;

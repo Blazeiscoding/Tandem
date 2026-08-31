@@ -5,7 +5,7 @@ import { ClientContext, useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import { channelTitle } from "../lib/format.js";
 import { Sidebar } from "../components/Sidebar.js";
-import { MessageTimeline } from "../components/MessageTimeline.js";
+import { JumpToLatestBar, MessageTimeline } from "../components/MessageTimeline.js";
 import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
 import {
@@ -22,6 +22,8 @@ import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 interface Props {
   client: WorkspaceClient;
   platform: Platform;
+  /** A message to open on arrival, from a slackoss://message link. */
+  initialTarget?: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
 }
 
@@ -40,30 +42,56 @@ type DialogKind =
 /** Only one right-hand panel is open at a time. */
 type SidePanel = { kind: "none" } | { kind: "thread"; rootId: ID } | { kind: "pins" } | { kind: "later" };
 
-export function WorkspaceScreen({ client, platform, onLeaveWorkspace }: Props) {
+export function WorkspaceScreen({ client, platform, initialTarget, onLeaveWorkspace }: Props) {
   return (
     <ClientContext.Provider value={client}>
-      <WorkspaceInner platform={platform} onLeaveWorkspace={onLeaveWorkspace} />
+      <WorkspaceInner
+        platform={platform}
+        initialTarget={initialTarget ?? null}
+        onLeaveWorkspace={onLeaveWorkspace}
+      />
     </ClientContext.Provider>
   );
 }
 
 function WorkspaceInner({
   platform,
+  initialTarget,
   onLeaveWorkspace,
 }: {
   platform: Platform;
+  initialTarget: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
 }) {
   const status = useWorkspace((s) => s.status);
   const channels = useWorkspace((s) => s.channels);
   const users = useWorkspace((s) => s.users);
   const self = useWorkspace((s) => s.self);
-  const [activeChannelId, setActiveChannelId] = useState<ID | null>(null);
+  const [activeChannelId, setActiveChannelId] = useState<ID | null>(
+    initialTarget?.channelId ?? null,
+  );
+  const [highlightMessageId, setHighlightMessageId] = useState<ID | null>(
+    initialTarget?.messageId ?? null,
+  );
   const [panel, setPanel] = useState<SidePanel>({ kind: "none" });
   const [dialog, setDialog] = useState<DialogKind>({ kind: "none" });
   const clientFromCtx = useClient();
   const drafts = useWorkspace((s) => s.drafts);
+
+  // Load the linked message's surrounding history, then navigate to it. This
+  // must set state rather than rely on the useState initialisers above: the
+  // screen keeps its key across deep links, so it re-renders without remounting.
+  useEffect(() => {
+    if (!initialTarget) return;
+    const { channelId, messageId } = initialTarget;
+    void clientFromCtx
+      .jumpToMessage(channelId, messageId)
+      .then(() => {
+        setActiveChannelId(channelId);
+        setHighlightMessageId(messageId);
+      })
+      .catch(() => setHighlightMessageId(null));
+  }, [clientFromCtx, initialTarget]);
 
   // Pick #general (or the first channel) once the snapshot lands.
   useEffect(() => {
@@ -135,8 +163,18 @@ function WorkspaceInner({
 
   function openChannel(id: ID) {
     setActiveChannelId(id);
+    setHighlightMessageId(null);
     setPanel({ kind: "none" });
     setDialog({ kind: "none" });
+  }
+
+  /** Opens a channel scrolled to one message, from search, pins or Later. */
+  function jumpToMessage(channelId: ID, messageId: ID) {
+    setDialog({ kind: "none" });
+    void clientFromCtx.jumpToMessage(channelId, messageId).then(() => {
+      setActiveChannelId(channelId);
+      setHighlightMessageId(messageId);
+    });
   }
 
   const closeDialog = () => setDialog({ kind: "none" });
@@ -219,10 +257,12 @@ function WorkspaceInner({
           <>
             <MessageTimeline
               channelId={activeChannelId}
+              highlightMessageId={highlightMessageId}
               onOpenThread={(rootId) => setPanel({ kind: "thread", rootId })}
               onChannelClick={openChannel}
               onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
             />
+            <JumpToLatestBar channelId={activeChannelId} />
             <Composer
               channelId={activeChannelId}
               placeholder={isRoom ? `Message #${title}` : `Message ${title}`}
@@ -249,11 +289,11 @@ function WorkspaceInner({
         <PinsPanel
           channelId={activeChannelId}
           onClose={() => setPanel({ kind: "none" })}
-          onJump={openChannel}
+          onJump={jumpToMessage}
         />
       )}
       {panel.kind === "later" && (
-        <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />
+        <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
       )}
 
       {dialog.kind === "new-channel" && (
@@ -265,7 +305,7 @@ function WorkspaceInner({
       {dialog.kind === "new-dm" && <NewDmDialog onClose={closeDialog} onOpen={openChannel} />}
       {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
       {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
-      {dialog.kind === "search" && <SearchDialog onClose={closeDialog} onJump={openChannel} />}
+      {dialog.kind === "search" && <SearchDialog onClose={closeDialog} onJump={jumpToMessage} />}
       {dialog.kind === "edit-profile" && <EditProfileDialog onClose={closeDialog} />}
       {dialog.kind === "profile" && (
         <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />

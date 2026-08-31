@@ -12,7 +12,7 @@ interface Props {
   /** Re-runs `load` whenever this changes (channel switch, save toggled). */
   reloadKey: string;
   onClose: () => void;
-  onJump: (channelId: ID) => void;
+  onJump: (channelId: ID, messageId: ID) => void;
 }
 
 /**
@@ -68,7 +68,7 @@ export function MessageListPanel(props: Props) {
             return (
               <li key={m.id}>
                 <button
-                  onClick={() => props.onJump(m.channelId)}
+                  onClick={() => props.onJump(m.channelId, m.id)}
                   className="w-full rounded-xl border border-edge bg-raised p-3 text-left transition-colors hover:border-copper/50"
                 >
                   <div className="mb-1.5 flex items-center gap-2 text-[11px] text-ink-faint">
@@ -114,7 +114,11 @@ export function MessageListPanel(props: Props) {
 }
 
 /** Pinned messages for one channel. */
-export function PinsPanel(props: { channelId: ID; onClose: () => void; onJump: (id: ID) => void }) {
+export function PinsPanel(props: {
+  channelId: ID;
+  onClose: () => void;
+  onJump: (channelId: ID, messageId: ID) => void;
+}) {
   const client = useClient();
   // Re-fetch whenever the set of pinned messages in view changes.
   const pinSignature = useWorkspace((s) =>
@@ -136,7 +140,10 @@ export function PinsPanel(props: { channelId: ID; onClose: () => void; onJump: (
 }
 
 /** The user's saved messages, across every channel they can see. */
-export function LaterPanel(props: { onClose: () => void; onJump: (id: ID) => void }) {
+export function LaterPanel(props: {
+  onClose: () => void;
+  onJump: (channelId: ID, messageId: ID) => void;
+}) {
   const client = useClient();
   const savedCount = useWorkspace((s) => Object.keys(s.saved).length);
   return (

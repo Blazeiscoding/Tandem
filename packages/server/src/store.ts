@@ -539,6 +539,59 @@ export class Store {
     return this.hydrateMessages(rows);
   }
 
+  /**
+   * A window of messages centred on one message, for jumping to a search hit
+   * or a pinned message. Returns newest-first like listMessages, plus whether
+   * more exist on either side so the client knows it is not at the tail.
+   */
+  listMessagesAround(
+    channelId: ID,
+    messageId: ID,
+    limit: number,
+  ): { messages: Message[]; hasMoreOlder: boolean; hasMoreNewer: boolean } {
+    const half = Math.max(1, Math.floor(limit / 2));
+
+    // Ask for one extra on each side purely to detect whether more exist.
+    const olderRows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE channel_id = ? AND thread_root_id IS NULL AND deleted_at IS NULL AND id < ?
+         ORDER BY id DESC LIMIT ?`,
+      )
+      .all(channelId, messageId, half + 1) as unknown as MessageRow[];
+    const newerRows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE channel_id = ? AND thread_root_id IS NULL AND deleted_at IS NULL AND id > ?
+         ORDER BY id ASC LIMIT ?`,
+      )
+      .all(channelId, messageId, half + 1) as unknown as MessageRow[];
+    const targetRow = this.db
+      .prepare("SELECT * FROM messages WHERE id = ? AND deleted_at IS NULL")
+      .get(messageId) as MessageRow | undefined;
+
+    const hasMoreOlder = olderRows.length > half;
+    const hasMoreNewer = newerRows.length > half;
+    const older = olderRows.slice(0, half);
+    const newer = newerRows.slice(0, half).reverse(); // newest-first
+
+    const rows = [...newer, ...(targetRow ? [targetRow] : []), ...older];
+    return { messages: this.hydrateMessages(rows), hasMoreOlder, hasMoreNewer };
+  }
+
+  /** Page forward from a message, for scrolling back down toward the tail. */
+  listMessagesAfter(channelId: ID, afterId: ID, limit: number): Message[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE channel_id = ? AND thread_root_id IS NULL AND deleted_at IS NULL AND id > ?
+         ORDER BY id ASC LIMIT ?`,
+      )
+      .all(channelId, afterId, limit) as unknown as MessageRow[];
+    // Callers expect newest-first.
+    return this.hydrateMessages(rows.reverse());
+  }
+
   private hydrateMessages(rows: MessageRow[]): Message[] {
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);

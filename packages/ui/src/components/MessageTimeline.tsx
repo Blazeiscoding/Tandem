@@ -11,6 +11,8 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 interface Props {
   channelId: ID;
+  /** When set, scroll to this message and flash it. */
+  highlightMessageId?: ID | null;
   onOpenThread: (rootId: ID) => void;
   onChannelClick: (id: ID) => void;
   onOpenProfile: (userId: ID) => void;
@@ -18,6 +20,7 @@ interface Props {
 
 export function MessageTimeline({
   channelId,
+  highlightMessageId,
   onOpenThread,
   onChannelClick,
   onOpenProfile,
@@ -33,34 +36,98 @@ export function MessageTimeline({
   const pinnedToBottom = useRef(true);
   const loadingOlder = useRef(false);
   const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
+  const loadingNewer = useRef(false);
+  const highlightRef = useRef<HTMLDivElement>(null);
+  const lastScrollTop = useRef(0);
+  /** Suppresses paging while a jump's programmatic scroll settles. */
+  const settlingJump = useRef(false);
 
   useEffect(() => {
+    // A jump anchors the view; only a plain channel open tails the newest.
+    if (highlightMessageId) return;
     pinnedToBottom.current = true;
     void client.loadTimeline(channelId);
-  }, [client, channelId]);
+  }, [client, channelId, highlightMessageId]);
 
   const items = timeline?.items ?? [];
   const channelPending = pending.filter((p) => p.channelId === channelId && !p.threadRootId);
+  // Bring the jumped-to message into view once it has rendered.
+  useEffect(() => {
+    if (!highlightMessageId) return;
+    pinnedToBottom.current = false;
+    settlingJump.current = true;
+    const frame = requestAnimationFrame(() => {
+      highlightRef.current?.scrollIntoView({ block: "center" });
+    });
+    // scrollIntoView fires scroll events of its own; ignore them.
+    const settle = setTimeout(() => {
+      settlingJump.current = false;
+      lastScrollTop.current = scroller.current?.scrollTop ?? 0;
+    }, 500);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(settle);
+    };
+  }, [highlightMessageId, items.length]);
   const typers = Object.keys(typing ?? {})
     .filter((id) => id !== selfId)
     .map((id) => users[id]?.displayName ?? "someone");
 
   // Keep the view pinned to the newest message unless the user scrolled up.
+  // An anchored view must never be yanked to the bottom: that both loses the
+  // jumped-to message and reads as a scroll-to-bottom, which pages forward.
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [items.length, channelPending.length, typers.length, channelId]);
+    if (!el || !pinnedToBottom.current) return;
+    if (highlightMessageId || timeline?.hasMoreNewer) return;
+    el.scrollTop = el.scrollHeight;
+  }, [
+    items.length,
+    channelPending.length,
+    typers.length,
+    channelId,
+    highlightMessageId,
+    timeline?.hasMoreNewer,
+  ]);
+
+  // The scroller is reused across channels, so its position carries over.
+  useEffect(() => {
+    lastScrollTop.current = scroller.current?.scrollTop ?? 0;
+  }, [channelId]);
 
   // Reading the latest message marks the channel read.
   useEffect(() => {
+    // Only reading the newest messages counts as catching up.
+    if (timeline?.hasMoreNewer) return;
     if (pinnedToBottom.current && document.hasFocus()) client.markRead(channelId);
-  }, [client, channelId, items.length]);
+  }, [client, channelId, items.length, timeline?.hasMoreNewer]);
 
   function onScroll() {
     const el = scroller.current;
     if (!el) return;
     pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    if (pinnedToBottom.current && document.hasFocus()) client.markRead(channelId);
+    if (pinnedToBottom.current && document.hasFocus() && !timeline?.hasMoreNewer) {
+      client.markRead(channelId);
+    }
+
+    // Page forward only when the user actively scrolls down to the bottom of
+    // an anchored view — otherwise a window shorter than the viewport would
+    // cascade through every page back to the tail on its own.
+    const scrolledDown = el.scrollTop > lastScrollTop.current + 1;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    lastScrollTop.current = el.scrollTop;
+    if (
+      scrolledDown &&
+      atBottom &&
+      !settlingJump.current &&
+      timeline?.hasMoreNewer &&
+      !loadingNewer.current
+    ) {
+      loadingNewer.current = true;
+      void client.loadNewer(channelId).finally(() => {
+        loadingNewer.current = false;
+      });
+    }
 
     if (el.scrollTop < 400 && timeline?.hasMore && !loadingOlder.current) {
       loadingOlder.current = true;
@@ -90,7 +157,7 @@ export function MessageTimeline({
           msg.createdAt - prev.createdAt < GROUP_WINDOW_MS &&
           prev.replyCount === 0;
         return (
-          <div key={msg.id}>
+          <div key={msg.id} ref={msg.id === highlightMessageId ? highlightRef : undefined}>
             {newDay && <DayDivider ts={msg.createdAt} />}
             <MessageItem
               message={msg}
@@ -99,6 +166,7 @@ export function MessageTimeline({
               onChannelClick={onChannelClick}
               onOpenImage={setLightboxFile}
               onOpenProfile={onOpenProfile}
+              highlighted={msg.id === highlightMessageId}
             />
           </div>
         );
@@ -113,6 +181,23 @@ export function MessageTimeline({
       {lightboxFile && (
         <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />
       )}
+    </div>
+  );
+}
+
+/** Shown while the view is parked mid-history after a jump. */
+export function JumpToLatestBar({ channelId }: { channelId: ID }) {
+  const client = useClient();
+  const anchored = useWorkspace((s) => s.timelines[channelId]?.hasMoreNewer ?? false);
+  if (!anchored) return null;
+  return (
+    <div className="flex justify-center px-5 pb-1">
+      <button
+        onClick={() => void client.jumpToLatest(channelId)}
+        className="rounded-full border border-copper/50 bg-copper/15 px-3 py-1 text-[12px] font-medium text-copper transition-colors hover:bg-copper/25"
+      >
+        You're viewing older messages · Jump to latest ↓
+      </button>
     </div>
   );
 }

@@ -43,7 +43,14 @@ export interface PendingMessage {
 export interface ChannelTimeline {
   /** Oldest → newest, top-level messages only. */
   items: Message[];
+  /** More history exists before the first loaded message. */
   hasMore: boolean;
+  /**
+   * True when the view is anchored mid-history (after a jump) rather than at
+   * the tail. Live messages are not appended while this holds, since they are
+   * not actually adjacent to what is on screen.
+   */
+  hasMoreNewer: boolean;
   loaded: boolean;
 }
 
@@ -287,7 +294,8 @@ export class WorkspaceClient {
           }
         } else {
           const tl = s.timelines[message.channelId];
-          if (tl?.loaded) {
+          // Appending to an anchored view would fake adjacency across a gap.
+          if (tl?.loaded && !tl.hasMoreNewer) {
             patch.timelines = {
               ...s.timelines,
               [message.channelId]: { ...tl, items: sortedInsert(tl.items, message) },
@@ -500,10 +508,74 @@ export class WorkspaceClient {
       return {
         timelines: {
           ...s.timelines,
-          [channelId]: { items, hasMore: messages.length === 50, loaded: true },
+          [channelId]: {
+            items,
+            hasMore: messages.length === 50,
+            // loadTimeline always lands at the tail.
+            hasMoreNewer: opts.older ? (existing?.hasMoreNewer ?? false) : false,
+            loaded: true,
+          },
         },
       };
     });
+  }
+
+  /**
+   * Replaces the timeline with a window centred on `messageId`, for jumping to
+   * a search hit or a pinned message.
+   */
+  async jumpToMessage(channelId: ID, messageId: ID): Promise<void> {
+    const existing = this.state.timelines[channelId];
+    // Already on screen in a tail view — nothing to reload.
+    if (existing?.loaded && !existing.hasMoreNewer && existing.items.some((m) => m.id === messageId)) {
+      return;
+    }
+    const { messages, hasMoreOlder, hasMoreNewer } = await this.api.listMessagesAround(
+      channelId,
+      messageId,
+    );
+    this.store.setState((s) => ({
+      timelines: {
+        ...s.timelines,
+        [channelId]: {
+          items: [...messages].reverse(),
+          hasMore: hasMoreOlder,
+          hasMoreNewer,
+          loaded: true,
+        },
+      },
+    }));
+  }
+
+  /** Pages forward from an anchored view back toward the newest messages. */
+  async loadNewer(channelId: ID): Promise<void> {
+    const tl = this.state.timelines[channelId];
+    if (!tl?.loaded || !tl.hasMoreNewer || tl.items.length === 0) return;
+    const newest = tl.items[tl.items.length - 1]!;
+    const { messages } = await this.api.listMessagesAfter(channelId, newest.id, 50);
+    this.store.setState((s) => {
+      const current = s.timelines[channelId];
+      if (!current) return {};
+      return {
+        timelines: {
+          ...s.timelines,
+          [channelId]: {
+            ...current,
+            items: [...current.items, ...[...messages].reverse()],
+            hasMoreNewer: messages.length === 50,
+          },
+        },
+      };
+    });
+  }
+
+  /** Drops an anchored view and returns to the live tail. */
+  async jumpToLatest(channelId: ID): Promise<void> {
+    this.store.setState((s) => {
+      const { [channelId]: _dropped, ...rest } = s.timelines;
+      return { timelines: rest };
+    });
+    await this.loadTimeline(channelId);
   }
 
   async loadThread(threadRootId: ID, channelId: ID): Promise<void> {

@@ -16,6 +16,8 @@ interface Props {
   onChannelClick?: (id: ID) => void;
   onOpenImage?: (file: FileMeta) => void;
   onOpenProfile?: (userId: ID) => void;
+  /** Briefly flagged after jumping here from search, pins or a link. */
+  highlighted?: boolean;
 }
 
 export function MessageItem({
@@ -26,6 +28,7 @@ export function MessageItem({
   onChannelClick,
   onOpenImage,
   onOpenProfile,
+  highlighted,
 }: Props) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
@@ -33,6 +36,7 @@ export function MessageItem({
   const self = useWorkspace((s) => s.self);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [copied, setCopied] = useState(false);
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
   const mine = message.userId === self?.id;
@@ -47,8 +51,10 @@ export function MessageItem({
 
   return (
     <div
-      className={`group relative px-5 py-0.5 hover:bg-raised/60 ${compact ? "" : "mt-2.5"} ${
-        mentionsMe ? "border-l-2 border-copper bg-mention hover:bg-mention" : ""
+      className={`group relative px-5 py-0.5 transition-colors hover:bg-raised/60 ${
+        compact ? "" : "mt-2.5"
+      } ${mentionsMe ? "border-l-2 border-copper bg-mention hover:bg-mention" : ""} ${
+        highlighted ? "bg-copper/15 hover:bg-copper/15" : ""
       }`}
     >
       <div className="flex gap-2.5">
@@ -180,6 +186,19 @@ export function MessageItem({
           {!inThread && (
             <ToolbarButton label="↩" title="Reply in thread" onClick={() => onOpenThread?.(message.id)} />
           )}
+          <ToolbarButton
+            label={copied ? "✓" : "🔗"}
+            title="Copy link to message"
+            onClick={() => {
+              void navigator.clipboard.writeText(
+                `slackoss://message?host=${encodeURIComponent(
+                  client.baseUrl.replace(/^https?:\/\//, ""),
+                )}&channel=${message.channelId}&id=${message.id}`,
+              );
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1200);
+            }}
+          />
           <ToolbarButton
             label="🔖"
             title={isSaved ? "Remove from Later" : "Save for later"}

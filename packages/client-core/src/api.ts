@@ -143,6 +143,25 @@ export class Api {
     return this.request("GET", `/api/channels/${channelId}/messages${qs}`);
   }
 
+  /** A window of messages centred on one, for jumping to it. */
+  listMessagesAround(
+    channelId: ID,
+    messageId: ID,
+    limit = 50,
+  ): Promise<{ messages: Message[]; hasMoreOlder: boolean; hasMoreNewer: boolean }> {
+    return this.request(
+      "GET",
+      `/api/channels/${channelId}/messages/around/${messageId}?limit=${limit}`,
+    );
+  }
+
+  listMessagesAfter(channelId: ID, afterId: ID, limit = 50): Promise<{ messages: Message[] }> {
+    return this.request(
+      "GET",
+      `/api/channels/${channelId}/messages/after/${afterId}?limit=${limit}`,
+    );
+  }
+
   sendMessage(channelId: ID, body: SendMessageBody): Promise<{ message: Message }> {
     return this.request("POST", `/api/channels/${channelId}/messages`, body);
   }

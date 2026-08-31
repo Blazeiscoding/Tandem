@@ -3,13 +3,70 @@ import { join } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { Bonjour, type Service } from "bonjour-service";
-import { DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
+import { DEEP_LINK_PROTOCOL, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 let mainWindow: BrowserWindow | null = null;
 
 if (isDev) app.commandLine.appendSwitch("remote-debugging-port", "9222");
+
+// ---------- slackoss:// deep links ----------
+
+/** Held until a window exists to receive it (cold start via a link). */
+let pendingDeepLink: string | null = null;
+
+function deliverDeepLink(url: string): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win) {
+    pendingDeepLink = url;
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.focus();
+  win.webContents.send("deeplink", url);
+}
+
+function deepLinkFromArgv(argv: string[]): string | null {
+  return argv.find((a) => a.startsWith(`${DEEP_LINK_PROTOCOL}://`)) ?? null;
+}
+
+// A second launch must hand its link to the running instance, not open a
+// second window with its own embedded server.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", (_e, argv) => {
+    const url = deepLinkFromArgv(argv);
+    if (url) deliverDeepLink(url);
+    else {
+      const win = BrowserWindow.getAllWindows()[0];
+      win?.focus();
+    }
+  });
+}
+
+// macOS delivers links through this event rather than argv.
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  deliverDeepLink(url);
+});
+
+if (isDev && process.platform === "win32") {
+  // In dev the executable is electron.exe, so the protocol must point at it
+  // plus this project's entry, or Windows would launch a bare Electron.
+  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
+    join(import.meta.dirname, "../.."),
+  ]);
+} else {
+  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+}
+
+ipcMain.handle("deeplink:consume", () => {
+  const url = pendingDeepLink;
+  pendingDeepLink = null;
+  return url;
+});
 
 // ---------- settings storage (plain JSON in userData) ----------
 
@@ -183,6 +240,9 @@ function createWindow(): void {
 void app.whenReady().then(() => {
   createWindow();
   startDiscovery();
+  // A cold start from a link arrives in argv rather than as an event.
+  const initial = deepLinkFromArgv(process.argv);
+  if (initial) pendingDeepLink = initial;
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

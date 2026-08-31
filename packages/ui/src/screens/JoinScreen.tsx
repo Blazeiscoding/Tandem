@@ -8,6 +8,8 @@ interface Props {
   savedServers: SavedServer[];
   /** Probe this address immediately on mount (used after "Open to LAN" starts). */
   autoProbe?: string;
+  /** Prefilled from a slackoss://join link. */
+  inviteCode?: string;
   onConnected: (server: SavedServer) => void;
   onForget: (url: string) => void;
   onHostClick?: () => void;
@@ -22,6 +24,7 @@ export function JoinScreen({
   platform,
   savedServers,
   autoProbe,
+  inviteCode,
   onConnected,
   onForget,
   onHostClick,
@@ -99,6 +102,7 @@ export function JoinScreen({
               url={stage.url}
               info={stage.info}
               savedHandle={savedServers.find((s) => s.url === stage.url)?.handle}
+              presetInviteCode={inviteCode}
               onBack={() => setStage({ view: "browse" })}
               onConnected={onConnected}
             />
@@ -307,6 +311,7 @@ function AuthCard(props: {
   url: string;
   info: ServerInfo;
   savedHandle?: string;
+  presetInviteCode?: string;
   onBack: () => void;
   onConnected: (server: SavedServer) => void;
 }) {
@@ -319,7 +324,7 @@ function AuthCard(props: {
   const [handle, setHandle] = useState(props.savedHandle ?? "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
+  const [inviteCode, setInviteCode] = useState(props.presetInviteCode ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const firstField = useRef<HTMLInputElement>(null);
