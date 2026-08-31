@@ -20,6 +20,7 @@ import { ScheduledPanel } from "../components/ScheduledPanel.js";
 import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
 import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
+import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
 
 interface Props {
   client: WorkspaceClient;
@@ -235,6 +236,7 @@ function WorkspaceInner({
               {activeChannel?.topic || "Add a topic"}
             </p>
           </button>
+          {activeChannelId && <HuddleButton channelId={activeChannelId} />}
           <button
             onClick={() =>
               setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
@@ -291,6 +293,7 @@ function WorkspaceInner({
               onChannelClick={openChannel}
               onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
             />
+            <HuddleBar />
             <JumpToLatestBar channelId={activeChannelId} />
             <Composer
               channelId={activeChannelId}

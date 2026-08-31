@@ -64,6 +64,8 @@ function state(over: Partial<WorkspaceState> = {}): WorkspaceState {
     pending: [],
     saved: {},
     drafts: {},
+    huddles: {},
+    huddle: null,
     ...over,
   };
 }

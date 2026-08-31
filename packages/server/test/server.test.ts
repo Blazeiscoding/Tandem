@@ -719,6 +719,122 @@ describe("workspace server", () => {
     expect(res.status).toBe(404);
   });
 
+  it("tracks huddle participants and relays signalling between them", async () => {
+    const general = server.store.getChannelByName("general")!;
+    const a = connectWs(aliceToken);
+    const b = connectWs(bobToken);
+    await a.next((m) => m.type === "ready");
+    await b.next((m) => m.type === "ready");
+
+    a.ws.send(JSON.stringify({ type: "huddle.join", channelId: general.id }));
+    // Bob is in the channel, so he learns a huddle started.
+    const started = await b.next(
+      (m) =>
+        m.type === "ephemeral" &&
+        m.event.type === "huddle.participants" &&
+        m.event.userIds.length === 1,
+    );
+    expect(started.type).toBe("ephemeral");
+
+    b.ws.send(JSON.stringify({ type: "huddle.join", channelId: general.id }));
+    await a.next(
+      (m) =>
+        m.type === "ephemeral" &&
+        m.event.type === "huddle.participants" &&
+        m.event.userIds.length === 2,
+    );
+    expect(server.gateway.huddleParticipants(general.id).sort()).toEqual(
+      [alice.id, bob.id].sort(),
+    );
+
+    // An offer from Alice reaches Bob untouched.
+    const offer = { kind: "offer", sdp: "v=0 fake-offer" };
+    a.ws.send(
+      JSON.stringify({
+        type: "huddle.signal",
+        channelId: general.id,
+        to: bob.id,
+        signal: offer,
+      }),
+    );
+    const relayed = await b.next(
+      (m) => m.type === "ephemeral" && m.event.type === "huddle.signal",
+    );
+    if (relayed.type !== "ephemeral" || relayed.event.type !== "huddle.signal") throw new Error();
+    expect(relayed.event.from).toBe(alice.id);
+    expect(relayed.event.signal).toEqual(offer);
+
+    // Leaving empties the room.
+    a.ws.send(JSON.stringify({ type: "huddle.leave", channelId: general.id }));
+    await b.next(
+      (m) =>
+        m.type === "ephemeral" &&
+        m.event.type === "huddle.participants" &&
+        m.event.userIds.length === 1,
+    );
+
+    // And dropping the socket removes the last one, rather than leaving a ghost.
+    b.ws.close();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(server.gateway.huddleParticipants(general.id)).toEqual([]);
+    a.ws.close();
+  });
+
+  it("will not relay huddle signals to someone outside the huddle", async () => {
+    const general = server.store.getChannelByName("general")!;
+    const a = connectWs(aliceToken);
+    const b = connectWs(bobToken);
+    await a.next((m) => m.type === "ready");
+    await b.next((m) => m.type === "ready");
+
+    // Only Alice joins; Bob is in the channel but not the call.
+    a.ws.send(JSON.stringify({ type: "huddle.join", channelId: general.id }));
+    await b.next((m) => m.type === "ephemeral" && m.event.type === "huddle.participants");
+
+    a.ws.send(
+      JSON.stringify({
+        type: "huddle.signal",
+        channelId: general.id,
+        to: bob.id,
+        signal: { kind: "offer", sdp: "should not arrive" },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 250));
+    const leaked = b.received.some(
+      (m) => m.type === "ephemeral" && m.event.type === "huddle.signal",
+    );
+    expect(leaked).toBe(false);
+
+    a.ws.close();
+    b.ws.close();
+  });
+
+  it("keeps huddles in private channels invisible to outsiders", async () => {
+    const secret = server.store.getChannelByName("secret-plans")!;
+    const a = connectWs(aliceToken);
+    const b = connectWs(bobToken);
+    await a.next((m) => m.type === "ready");
+    await b.next((m) => m.type === "ready");
+
+    a.ws.send(JSON.stringify({ type: "huddle.join", channelId: secret.id }));
+    await new Promise((r) => setTimeout(r, 250));
+    const sawIt = b.received.some(
+      (m) =>
+        m.type === "ephemeral" &&
+        m.event.type === "huddle.participants" &&
+        m.event.channelId === secret.id,
+    );
+    expect(sawIt).toBe(false);
+
+    // Bob cannot start one there either.
+    b.ws.send(JSON.stringify({ type: "huddle.join", channelId: secret.id }));
+    await new Promise((r) => setTimeout(r, 250));
+    expect(server.gateway.huddleParticipants(secret.id)).toEqual([alice.id]);
+
+    a.ws.close();
+    b.ws.close();
+  });
+
   it("marks channels read", async () => {
     const general = server.store.getChannelByName("general")!;
     const res = await api(`/api/channels/${general.id}/read`, {

@@ -97,11 +97,18 @@ called back from the Scheduled panel. The queue lives on the server, so a
 message still goes out if the sender's app is closed, and one scheduled while
 the server was down is sent the next time it starts.
 
+### Huddles
+
+Any channel or DM can start a huddle: live audio plus screen share, over
+WebRTC. The server only relays the handshake — media goes peer to peer and
+never touches it, so a self-hosted workspace stays private by construction.
+Connections form a mesh, which suits the handful of people a small team puts
+in a call; an SFU is the answer beyond that.
+
 ## Roadmap
 
-- **Next**: message forwarding, keyboard-shortcut help, sidebar sections.
-- **Then**: huddles — WebRTC audio, video and screen share, signalled over the
-  existing socket, with an optional SFU for larger rooms.
+- **Next**: video in huddles alongside screen share, an SFU for larger rooms,
+  message forwarding, sidebar sections.
 - **After**: a Slack-compatible integration API (incoming webhooks, slash
   commands, bot tokens, Block Kit rendering) so existing Slack apps port over,
   plus an admin console, optional Postgres and S3, and SSO.

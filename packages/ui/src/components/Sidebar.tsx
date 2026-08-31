@@ -27,6 +27,7 @@ export function Sidebar(props: Props) {
   const self = useWorkspace((s) => s.self);
   const drafts = useWorkspace((s) => s.drafts);
   const prefs = useWorkspace((s) => s.prefs);
+  const huddles = useWorkspace((s) => s.huddles);
   const dndUntil = useWorkspace((s) => s.self?.dndUntil ?? null);
   const snoozed = dndUntil !== null && dndUntil > Date.now();
   const baseHost = client.baseUrl.replace(/^https?:\/\//, "");
@@ -51,6 +52,7 @@ export function Sidebar(props: Props) {
   const hasDraft = (id: ID) => !!drafts[id];
   // Muted channels still show unread state, just quietly.
   const isMuted = (id: ID) => prefs[id]?.muted ?? false;
+  const huddleCount = (id: ID) => huddles[id]?.length ?? 0;
 
   return (
     <nav className="flex h-full w-[250px] shrink-0 flex-col border-r border-edge bg-raised">
@@ -80,6 +82,7 @@ export function Sidebar(props: Props) {
               unread={isUnread(ch.id)}
               muted={isMuted(ch.id)}
               draft={hasDraft(ch.id)}
+              huddle={huddleCount(ch.id)}
               onClick={() => props.onSelect(ch.id)}
               icon={ch.type === "private" ? "🔒" : "#"}
               label={ch.name}
@@ -102,6 +105,7 @@ export function Sidebar(props: Props) {
                 unread={isUnread(ch.id)}
                 muted={isMuted(ch.id)}
                 draft={hasDraft(ch.id)}
+                huddle={huddleCount(ch.id)}
                 onClick={() => props.onSelect(ch.id)}
                 icon={<PresenceDot online={online} />}
                 label={channelTitle(ch, users, self?.id)}
@@ -235,6 +239,8 @@ function ChannelRow(props: {
   unread: boolean;
   muted: boolean;
   draft: boolean;
+  /** How many people are in this channel’s huddle; 0 for none. */
+  huddle: number;
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
@@ -257,6 +263,11 @@ function ChannelRow(props: {
           {props.icon}
         </span>
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
+        {props.huddle > 0 && (
+          <span className="shrink-0 text-[10px] text-online" title="Huddle in progress">
+            🎧
+          </span>
+        )}
         {props.draft && !props.active && (
           <span className="shrink-0 font-mono text-[10px] text-ink-faint">draft</span>
         )}

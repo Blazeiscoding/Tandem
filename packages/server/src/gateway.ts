@@ -28,6 +28,12 @@ interface Client {
 export class Gateway {
   private clients = new Set<Client>();
   private byUser = new Map<ID, Set<Client>>();
+  /**
+   * channelId -> user ids currently in that channel's huddle. Purely live
+   * state: a huddle exists only while people are in it, so it is never
+   * written to the event log and does not survive a restart.
+   */
+  private huddles = new Map<ID, Set<ID>>();
   private heartbeat: NodeJS.Timeout;
 
   constructor(
@@ -122,6 +128,7 @@ export class Gateway {
           channelLastSeq: this.store.channelLastSeqMap(user.id),
           presence: this.presenceMap(),
           savedMessageIds: this.store.savedMessageIds(user.id),
+          huddles: this.huddlesVisibleTo(user.id),
           workspaceName: this.workspaceName(),
         };
         this.send(ws, snapshot);
@@ -147,6 +154,23 @@ export class Gateway {
             { type: "typing", channelId: msg.channelId, userId: client.userId },
             this.audienceForChannel(msg.channelId),
           );
+        }
+      } else if (msg.type === "huddle.join") {
+        if (this.store.canAccess(msg.channelId, client.userId)) {
+          this.joinHuddle(msg.channelId, client.userId);
+        }
+      } else if (msg.type === "huddle.leave") {
+        this.leaveHuddle(msg.channelId, client.userId);
+      } else if (msg.type === "huddle.signal") {
+        // Only relay between two people actually in the same huddle.
+        const room = this.huddles.get(msg.channelId);
+        if (room?.has(client.userId) && room.has(msg.to)) {
+          this.sendToUser(msg.to, {
+            type: "huddle.signal",
+            channelId: msg.channelId,
+            from: client.userId,
+            signal: msg.signal,
+          });
         }
       }
     });
@@ -176,12 +200,56 @@ export class Gateway {
       set.delete(client);
       if (set.size === 0) {
         this.byUser.delete(client.userId);
+        // Dropping offline must also drop them from any huddle, or the room
+        // keeps a ghost participant nobody can call.
+        for (const channelId of [...this.huddles.keys()]) {
+          this.leaveHuddle(channelId, client.userId);
+        }
         this.broadcastEphemeral(
           { type: "presence", userId: client.userId, presence: "offline" },
           null,
         );
       }
     }
+  }
+
+  // ---------- huddles ----------
+
+  private huddlesVisibleTo(userId: ID): Record<ID, ID[]> {
+    const out: Record<ID, ID[]> = {};
+    for (const [channelId, members] of this.huddles) {
+      if (this.store.canAccess(channelId, userId)) out[channelId] = [...members];
+    }
+    return out;
+  }
+
+  private joinHuddle(channelId: ID, userId: ID): void {
+    let room = this.huddles.get(channelId);
+    if (!room) this.huddles.set(channelId, (room = new Set()));
+    if (room.has(userId)) return;
+    room.add(userId);
+    this.publishHuddle(channelId);
+  }
+
+  private leaveHuddle(channelId: ID, userId: ID): void {
+    const room = this.huddles.get(channelId);
+    if (!room?.delete(userId)) return;
+    // An empty huddle is no huddle at all.
+    if (room.size === 0) this.huddles.delete(channelId);
+    this.publishHuddle(channelId);
+  }
+
+  /** Tells the channel who is in its huddle now. */
+  private publishHuddle(channelId: ID): void {
+    this.broadcastEphemeral(
+      { type: "huddle.participants", channelId, userIds: [...(this.huddles.get(channelId) ?? [])] },
+      this.audienceForChannel(channelId),
+    );
+  }
+
+  /** Participants of one channel's huddle, for tests and diagnostics. */
+  huddleParticipants(channelId: ID): ID[] {
+    return [...(this.huddles.get(channelId) ?? [])];
   }
 
   /** null audience = all connected users. */

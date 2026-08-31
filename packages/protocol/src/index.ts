@@ -3,3 +3,4 @@ export * from "./events.js";
 export * from "./rest.js";
 export * from "./discovery.js";
 export * from "./search.js";
+export * from "./huddle.js";

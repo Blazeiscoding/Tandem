@@ -15,6 +15,7 @@ import {
 } from "@slackoss/protocol";
 import { Api } from "./api.js";
 import { FileCache } from "./fileCache.js";
+import { HuddleSession, type HuddleState } from "./huddle.js";
 
 export type ConnectionStatus = "connecting" | "online" | "reconnecting" | "auth_failed" | "closed";
 
@@ -78,6 +79,10 @@ export interface WorkspaceState {
   saved: Record<ID, true>;
   /** channelId -> unsent composer text, restored when you come back. */
   drafts: Record<ID, string>;
+  /** channelId -> who is in that channel's huddle right now. */
+  huddles: Record<ID, ID[]>;
+  /** The huddle this client is in, if any. */
+  huddle: HuddleState | null;
 }
 
 const initialState: WorkspaceState = {
@@ -97,6 +102,8 @@ const initialState: WorkspaceState = {
   pending: [],
   saved: {},
   drafts: {},
+  huddles: {},
+  huddle: null,
 };
 
 function sortedInsert(items: Message[], msg: Message): Message[] {
@@ -146,6 +153,8 @@ export class WorkspaceClient {
 
   destroy(): void {
     this.stopped = true;
+    // Release the microphone before the socket goes, so no call is left open.
+    this.leaveHuddle();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.typingSweep) clearInterval(this.typingSweep);
     this.typingSweep = null;
@@ -245,12 +254,14 @@ export class WorkspaceClient {
       channelLastSeq: snap.channelLastSeq,
       presence: snap.presence,
       saved,
+      huddles: snap.huddles,
       lastSeq: Math.max(prev.lastSeq, snap.seq),
       // Keep loaded timelines — replayed events patch them incrementally.
       timelines: prev.timelines,
       threads: prev.threads,
       pending: prev.pending,
       drafts: prev.drafts,
+      huddle: prev.huddle,
       typing: {},
     }));
   }
@@ -457,6 +468,20 @@ export class WorkspaceClient {
     const s = this.store.getState();
     if (event.type === "presence") {
       this.store.setState({ presence: { ...s.presence, [event.userId]: event.presence } });
+    } else if (event.type === "huddle.participants") {
+      const huddles = { ...s.huddles };
+      if (event.userIds.length > 0) huddles[event.channelId] = event.userIds;
+      else delete huddles[event.channelId];
+      this.store.setState({ huddles });
+      // Reconcile our own mesh against the new roster.
+      if (this.session?.channelId === event.channelId) {
+        this.session.syncParticipants(event.userIds);
+        this.publishHuddleState();
+      }
+    } else if (event.type === "huddle.signal") {
+      if (this.session?.channelId === event.channelId) {
+        void this.session.handleSignal(event.from, event.signal);
+      }
     } else if (event.type === "prefs") {
       this.store.setState({ prefs: { ...s.prefs, [event.channelId]: event.prefs } });
     } else if (event.type === "saved") {
@@ -766,6 +791,63 @@ export class WorkspaceClient {
     return until !== null && until > now;
   }
 
+  // ---------- huddles ----------
+
+  private session: HuddleSession | null = null;
+
+  /** Mirrors the live session into the store so React can render it. */
+  private publishHuddleState(): void {
+    this.store.setState({ huddle: this.session?.state() ?? null });
+  }
+
+  /**
+   * Joins the channel's huddle, starting one if nobody is in it. Throws if the
+   * microphone is unavailable, leaving no half-joined room behind.
+   */
+  async joinHuddle(channelId: ID): Promise<void> {
+    if (this.session) this.leaveHuddle();
+    const selfId = this.state.self?.id;
+    if (!selfId) return;
+
+    const session = new HuddleSession(channelId, selfId, {
+      send: (msg) => this.sendSocket(msg),
+    });
+    try {
+      await session.startLocalAudio();
+    } catch (err) {
+      session.destroy();
+      throw err;
+    }
+    session.onChange = () => this.publishHuddleState();
+    this.session = session;
+
+    this.sendSocket({ type: "huddle.join", channelId });
+    // Dial whoever is already there; later arrivals come via participants events.
+    session.syncParticipants(this.state.huddles[channelId] ?? []);
+    this.publishHuddleState();
+  }
+
+  leaveHuddle(): void {
+    const session = this.session;
+    if (!session) return;
+    this.session = null;
+    this.sendSocket({ type: "huddle.leave", channelId: session.channelId });
+    session.destroy();
+    this.publishHuddleState();
+  }
+
+  toggleMic(): void {
+    this.session?.toggleMic();
+  }
+
+  async toggleScreenShare(): Promise<void> {
+    await this.session?.toggleScreenShare();
+  }
+
+  private sendSocket(msg: unknown): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  }
+
   setDraft(channelId: ID, text: string): void {
     this.store.setState((s) => {
       const drafts = { ...s.drafts };
@@ -789,9 +871,7 @@ export class WorkspaceClient {
   }
 
   sendTyping(channelId: ID): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: "typing", channelId }));
-    }
+    this.sendSocket({ type: "typing", channelId });
   }
 
   async openDm(userIds: ID[]): Promise<Channel> {

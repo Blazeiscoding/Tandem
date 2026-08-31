@@ -9,7 +9,12 @@ import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 let mainWindow: BrowserWindow | null = null;
 
-if (isDev) app.commandLine.appendSwitch("remote-debugging-port", "9222");
+if (isDev) {
+  app.commandLine.appendSwitch("remote-debugging-port", "9222");
+  // Fake mic/camera so huddles can be exercised without real hardware.
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
+}
 
 // ---------- slackoss:// deep links ----------
 
@@ -223,6 +228,12 @@ function createWindow(): void {
   });
 
   mainWindow.setMenuBarVisibility(false);
+
+  // Huddles need the microphone, and screen share needs display capture.
+  // Grant those to our own renderer; refuse everything else.
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === "media" || permission === "display-capture");
+  });
 
   // External links open in the OS browser, never inside the app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
