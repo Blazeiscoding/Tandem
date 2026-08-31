@@ -1,0 +1,23 @@
+{
+  "name": "slackoss-server",
+  "version": "0.1.0",
+  "description": "Self-hosted SlackOSS workspace server — run it on a VPS or your own PC",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "slackoss-server": "./dist/slackoss-server.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup && node scripts/postbuild.mjs",
+    "typecheck": "echo skip",
+    "start": "node dist/slackoss-server.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@slackoss/server": "workspace:*",
+    "@slackoss/web": "workspace:*",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  }
+}

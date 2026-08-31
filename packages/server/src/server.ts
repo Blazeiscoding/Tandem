@@ -1,6 +1,8 @@
 import { join } from "node:path";
-import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { existsSync } from "node:fs";
+import Fastify, { type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { ZodError } from "zod";
 import {
   PROTOCOL_VERSION,
@@ -40,6 +42,8 @@ export interface ServerOptions {
   inviteOnly?: boolean;
   /** Advertise on the LAN via mDNS. Default true. */
   mdns?: boolean;
+  /** Directory with the built web client; served at / so browsers can join too. */
+  webDistPath?: string;
   logger?: boolean;
 }
 
@@ -86,6 +90,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   const app = Fastify({ logger: opts.logger ?? false });
   await app.register(cors, { origin: true });
+
+  // Serve the browser client (if bundled) so teammates without the app can join.
+  if (opts.webDistPath && existsSync(join(opts.webDistPath, "index.html"))) {
+    await app.register(fastifyStatic, { root: opts.webDistPath });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.raw.url?.startsWith("/api/") || req.raw.url?.startsWith("/ws")) {
+        return reply.status(404).send({ error: "not_found" });
+      }
+      return reply.sendFile("index.html");
+    });
+  }
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ZodError) {

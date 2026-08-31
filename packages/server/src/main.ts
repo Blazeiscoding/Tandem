@@ -1,6 +1,8 @@
 import { parseArgs } from "node:util";
 import { networkInterfaces } from "node:os";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_PORT } from "@slackoss/protocol";
 import { createWorkspaceServer, SERVER_VERSION } from "./server.js";
 
@@ -12,6 +14,7 @@ const { values } = parseArgs({
     name: { type: "string" },
     "invite-only": { type: "boolean" },
     "no-mdns": { type: "boolean", default: false },
+    web: { type: "string" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -27,6 +30,7 @@ Usage: slackoss-server [options]
   --name <name>     Workspace name (persisted on first run)
   --invite-only     Require an invite code to register
   --no-mdns         Do not advertise on the local network
+  --web <dir>       Serve the browser client from this directory
 `);
   process.exit(0);
 }
@@ -41,6 +45,11 @@ function lanAddresses(): string[] {
   return out;
 }
 
+// A `web/` folder next to the executable is picked up automatically (how the
+// bundled CLI and Docker image ship the browser client).
+const besideScript = join(dirname(fileURLToPath(import.meta.url)), "web");
+const webDistPath = values.web ? resolve(values.web) : existsSync(besideScript) ? besideScript : undefined;
+
 const server = await createWorkspaceServer({
   dataDir: resolve(values.data),
   port: Number(values.port),
@@ -48,6 +57,7 @@ const server = await createWorkspaceServer({
   workspaceName: values.name,
   inviteOnly: values["invite-only"],
   mdns: !values["no-mdns"],
+  webDistPath,
   logger: true,
 });
 

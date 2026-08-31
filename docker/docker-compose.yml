@@ -1,0 +1,14 @@
+services:
+  slackoss:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8543:8543"
+    volumes:
+      - slackoss-data:/data
+    command: ["--name", "My Workspace", "--invite-only"]
+    restart: unless-stopped
+
+volumes:
+  slackoss-data:
