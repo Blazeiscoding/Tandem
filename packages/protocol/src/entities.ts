@@ -1,0 +1,90 @@
+/** All ids are ULID-style sortable strings. */
+export type ID = string;
+
+export type Role = "owner" | "admin" | "member";
+
+export interface User {
+  id: ID;
+  handle: string;
+  displayName: string;
+  role: Role;
+  statusText: string;
+  statusEmoji: string;
+  isBot: boolean;
+  deactivated: boolean;
+  createdAt: number;
+}
+
+export type ChannelType = "public" | "private" | "dm" | "group_dm";
+
+export interface Channel {
+  id: ID;
+  type: ChannelType;
+  /** Empty for dm/group_dm — clients derive the title from member names. */
+  name: string;
+  topic: string;
+  description: string;
+  creatorId: ID;
+  archived: boolean;
+  createdAt: number;
+  /** Present on dm/group_dm so clients can render the counterpart(s). */
+  memberIds?: ID[];
+}
+
+export interface ChannelMembership {
+  channelId: ID;
+  userId: ID;
+  lastReadSeq: number;
+  joinedAt: number;
+}
+
+export interface ReactionGroup {
+  emoji: string;
+  userIds: ID[];
+}
+
+export interface Message {
+  id: ID;
+  channelId: ID;
+  userId: ID;
+  /**
+   * Slack-mrkdwn-compatible text: *bold*, _italic_, `code`, ```blocks```,
+   * <@USER_ID> mentions, <#CHANNEL_ID> channel links, plain URLs.
+   */
+  text: string;
+  threadRootId: ID | null;
+  /**
+   * Event-log seq of this message's message.created event; used for unread math.
+   * Note: inside a live `message.created` event payload this can be 0 — clients
+   * must set it from the envelope's seq when applying the event.
+   */
+  seq: number;
+  createdAt: number;
+  editedAt: number | null;
+  /** Client-generated idempotency key; lets the sender reconcile optimistic messages. */
+  nonce: string | null;
+  replyCount: number;
+  reactions: ReactionGroup[];
+}
+
+export interface Invite {
+  code: string;
+  createdBy: ID;
+  createdAt: number;
+  expiresAt: number | null;
+  maxUses: number | null;
+  uses: number;
+}
+
+/** Unauthenticated probe of a server — what the Join screen shows. */
+export interface ServerInfo {
+  app: "slackoss";
+  protocolVersion: number;
+  serverVersion: string;
+  workspaceName: string;
+  userCount: number;
+  /** True once an owner exists; joining then requires an invite code. */
+  requiresInvite: boolean;
+}
+
+export const PROTOCOL_VERSION = 1;
