@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ID, User } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
+import { formatBytes } from "../lib/format.js";
 
 interface Props {
   channelId: ID;
@@ -18,8 +19,23 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const [text, setText] = useState("");
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [attached, setAttached] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
+  const dragDepth = useRef(0);
+
+  // Clearing attachments when switching conversations keeps drafts from crossing over.
+  useEffect(() => {
+    setAttached([]);
+  }, [channelId, threadRootId]);
+
+  function addFiles(files: FileList | File[] | null) {
+    if (!files) return;
+    const incoming = [...files];
+    if (incoming.length > 0) setAttached((prev) => [...prev, ...incoming].slice(0, 10));
+  }
 
   useEffect(() => {
     if (autoFocus) box.current?.focus();
@@ -60,9 +76,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   function send() {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    client.send(channelId, trimmed, threadRootId);
+    if (!trimmed && attached.length === 0) return;
+    client.send(channelId, trimmed, { threadRootId, files: attached });
     setText("");
+    setAttached([]);
     setMentionQuery(null);
     if (box.current) box.current.style.height = "auto";
   }
@@ -93,7 +110,28 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }
 
   return (
-    <div className="relative px-5 pb-5">
+    <div
+      className="relative px-5 pb-5"
+      onDragEnter={(e) => {
+        if (![...e.dataTransfer.types].includes("Files")) return;
+        dragDepth.current++;
+        setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if ([...e.dataTransfer.types].includes("Files")) e.preventDefault();
+      }}
+      onDragLeave={() => {
+        // Nested elements fire leave events; only the outermost one ends the drag.
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        addFiles(e.dataTransfer.files);
+      }}
+    >
       {mentionQuery && candidates.length > 0 && (
         <ul className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
           {candidates.map((u, i) => (
@@ -117,12 +155,43 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           ))}
         </ul>
       )}
-      <div className="rounded-xl border border-edge bg-raised transition-colors focus-within:border-copper/60">
+      <div
+        className={`rounded-xl border bg-raised transition-colors ${
+          dragging ? "border-copper bg-copper/5" : "border-edge focus-within:border-copper/60"
+        }`}
+      >
+        {attached.length > 0 && (
+          <ul className="flex flex-wrap gap-2 border-b border-edge p-2.5">
+            {attached.map((f, i) => (
+              <li
+                key={`${f.name}-${i}`}
+                className="flex items-center gap-2 rounded-lg border border-edge bg-ground py-1 pl-2 pr-1 text-sm"
+              >
+                <span className="max-w-[180px] truncate">{f.name}</span>
+                <span className="font-mono text-[11px] text-ink-faint">{formatBytes(f.size)}</span>
+                <button
+                  onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
+                  aria-label={`Remove ${f.name}`}
+                  className="rounded px-1 text-ink-faint transition-colors hover:text-alert"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <textarea
           ref={box}
           value={text}
           rows={1}
-          placeholder={placeholder}
+          placeholder={dragging ? "Drop files to attach" : placeholder}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files];
+            if (files.length > 0) {
+              e.preventDefault();
+              addFiles(files);
+            }
+          }}
           onChange={(e) => {
             setText(e.target.value);
             refreshMentionState(e.target.value, e.target.selectionStart);
@@ -137,6 +206,28 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           onKeyDown={onKeyDown}
           onBlur={() => setMentionQuery(null)}
           className="block max-h-[220px] w-full resize-none bg-transparent px-4 py-3 text-[15px] outline-none placeholder:text-ink-faint"
+        />
+        <div className="flex items-center justify-between px-2.5 pb-2">
+          <button
+            onClick={() => filePicker.current?.click()}
+            title="Attach a file"
+            className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+          >
+            📎
+          </button>
+          <span className="pr-1 font-mono text-[10px] text-ink-faint">
+            {text.trim() || attached.length > 0 ? "Enter to send · Shift+Enter for a new line" : ""}
+          </span>
+        </div>
+        <input
+          ref={filePicker}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            addFiles(e.target.files);
+            e.target.value = "";
+          }}
         />
       </div>
     </div>

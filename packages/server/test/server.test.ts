@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import WebSocket from "ws";
 import {
   PROTOCOL_VERSION,
@@ -12,10 +15,13 @@ import { createWorkspaceServer, type WorkspaceServer } from "../src/index.js";
 
 let server: WorkspaceServer;
 let base: string;
+let dataDir: string;
 
 beforeAll(async () => {
+  // A real directory (not :memory:) so file uploads are exercised too.
+  dataDir = mkdtempSync(join(tmpdir(), "slackoss-test-"));
   server = await createWorkspaceServer({
-    dataDir: ":memory:",
+    dataDir,
     port: 0,
     workspaceName: "Test Workspace",
     mdns: false,
@@ -26,6 +32,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server.stop();
+  rmSync(dataDir, { recursive: true, force: true });
 });
 
 async function api<T>(
@@ -268,6 +275,80 @@ describe("workspace server", () => {
       token: aliceToken,
     });
     expect(aliceSearch.data.messages).toHaveLength(2);
+  });
+
+  it("uploads a file, attaches it to a message, and gates access by channel", async () => {
+    const general = server.store.getChannelByName("general")!;
+
+    // A 1x1 red PNG — real bytes, so the header parser has something to measure.
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const form = new FormData();
+    form.append("file", new Blob([png], { type: "image/png" }), "red-dot.png");
+
+    const uploadRes = await fetch(`${base}/api/channels/${general.id}/files`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${aliceToken}` },
+      body: form,
+    });
+    expect(uploadRes.status).toBe(201);
+    const { file } = (await uploadRes.json()) as { file: { id: string; width: number; height: number; size: number } };
+    expect(file.width).toBe(1);
+    expect(file.height).toBe(1);
+    expect(file.size).toBe(png.byteLength);
+
+    const sent = await api<{ message: Message }>(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+      body: { text: "", fileIds: [file.id] },
+    });
+    expect(sent.status).toBe(201);
+    expect(sent.data.message.files).toHaveLength(1);
+    expect(sent.data.message.files[0]!.name).toBe("red-dot.png");
+
+    // Bob is in #general, so he can fetch the bytes.
+    const download = await fetch(`${base}/api/files/${file.id}`, {
+      headers: { authorization: `Bearer ${bobToken}` },
+    });
+    expect(download.status).toBe(200);
+    expect(download.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await download.arrayBuffer()).equals(png)).toBe(true);
+
+    // Anonymous requests get nothing.
+    expect((await fetch(`${base}/api/files/${file.id}`)).status).toBe(401);
+
+    // Deleting the message removes the blob too.
+    const del = await api(`/api/messages/${sent.data.message.id}`, {
+      method: "DELETE",
+      token: aliceToken,
+    });
+    expect(del.status).toBe(200);
+    const afterDelete = await fetch(`${base}/api/files/${file.id}`, {
+      headers: { authorization: `Bearer ${aliceToken}` },
+    });
+    expect(afterDelete.status).toBe(404);
+  });
+
+  it("rejects an empty message with no attachments", async () => {
+    const general = server.store.getChannelByName("general")!;
+    const res = await api(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+      body: { text: "   " },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("keeps uploads out of channels the user cannot see", async () => {
+    const secret = server.store.getChannelByName("secret-plans")!;
+    const form = new FormData();
+    form.append("file", new Blob([Buffer.from("classified")], { type: "text/plain" }), "plan.txt");
+    const res = await fetch(`${base}/api/channels/${secret.id}/files`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${bobToken}` },
+      body: form,
+    });
+    expect(res.status).toBe(404);
   });
 
   it("marks channels read", async () => {

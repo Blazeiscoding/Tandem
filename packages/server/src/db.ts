@@ -94,6 +94,7 @@ const MIGRATIONS: string[] = [
   );
 
   CREATE VIRTUAL TABLE messages_fts USING fts5(text, content='messages', content_rowid='rowid');
+
   CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
     INSERT INTO messages_fts(rowid, text) VALUES (new.rowid, new.text);
   END;
@@ -104,6 +105,24 @@ const MIGRATIONS: string[] = [
     INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
     INSERT INTO messages_fts(rowid, text) VALUES (new.rowid, new.text);
   END;
+  `,
+
+  // v2 — file attachments
+  `
+  CREATE TABLE files (
+    id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL REFERENCES channels(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    message_id TEXT REFERENCES messages(id),
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_files_message ON files(message_id);
+  CREATE INDEX idx_files_channel ON files(channel_id);
   `,
 ];
 

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import type { ID, Message } from "@slackoss/protocol";
+import type { FileMeta, ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { formatTime } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
+import { MessageAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
@@ -13,9 +14,17 @@ interface Props {
   inThread?: boolean;
   onOpenThread?: (rootId: ID) => void;
   onChannelClick?: (id: ID) => void;
+  onOpenImage?: (file: FileMeta) => void;
 }
 
-export function MessageItem({ message, compact, inThread, onOpenThread, onChannelClick }: Props) {
+export function MessageItem({
+  message,
+  compact,
+  inThread,
+  onOpenThread,
+  onChannelClick,
+  onOpenImage,
+}: Props) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
@@ -76,18 +85,26 @@ export function MessageItem({ message, compact, inThread, onOpenThread, onChanne
               <p className="mt-1 text-xs text-ink-faint">Enter to save · Esc to cancel</p>
             </div>
           ) : (
-            <div className="text-[15px]">
-              <Mrkdwn
-                text={message.text}
-                users={users}
-                channels={channels}
-                selfId={self?.id}
-                onChannelClick={onChannelClick}
-              />
-              {message.editedAt && (
-                <span className="ml-1.5 text-[11px] text-ink-faint">(edited)</span>
+            <>
+              {message.text && (
+                <div className="text-[15px]">
+                  <Mrkdwn
+                    text={message.text}
+                    users={users}
+                    channels={channels}
+                    selfId={self?.id}
+                    onChannelClick={onChannelClick}
+                  />
+                  {message.editedAt && (
+                    <span className="ml-1.5 text-[11px] text-ink-faint">(edited)</span>
+                  )}
+                </div>
               )}
-            </div>
+              <MessageAttachments
+                files={message.files}
+                onOpenImage={(f) => onOpenImage?.(f)}
+              />
+            </>
           )}
 
           {message.reactions.length > 0 && (

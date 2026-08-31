@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   Channel,
   ChannelType,
+  FileMeta,
   ID,
   Invite,
   Message,
@@ -501,6 +502,20 @@ export class Store {
       .all(...ids) as { thread_root_id: string; c: number }[];
     const replyCounts = new Map(replyRows.map((r) => [r.thread_root_id, r.c]));
 
+    const fileRows = this.db
+      .prepare(
+        `SELECT id, message_id, name, mime, size, width, height FROM files
+         WHERE message_id IN (${ph}) ORDER BY created_at`,
+      )
+      .all(...ids) as unknown as (FileMeta & { message_id: string })[];
+    const filesByMsg = new Map<string, FileMeta[]>();
+    for (const f of fileRows) {
+      const { message_id, ...meta } = f;
+      const list = filesByMsg.get(message_id);
+      if (list) list.push(meta);
+      else filesByMsg.set(message_id, [meta]);
+    }
+
     return rows.map((r) => ({
       id: r.id,
       channelId: r.channel_id,
@@ -513,7 +528,94 @@ export class Store {
       nonce: r.nonce,
       replyCount: replyCounts.get(r.id) ?? 0,
       reactions: reactionsByMsg.get(r.id) ?? [],
+      files: filesByMsg.get(r.id) ?? [],
     }));
+  }
+
+  // ---------- files ----------
+
+  createFile(input: {
+    channelId: ID;
+    userId: ID;
+    name: string;
+    mime: string;
+    size: number;
+    width: number | null;
+    height: number | null;
+  }): FileMeta {
+    const id = ulid();
+    this.db
+      .prepare(
+        `INSERT INTO files (id, channel_id, user_id, name, mime, size, width, height, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.channelId,
+        input.userId,
+        input.name,
+        input.mime,
+        input.size,
+        input.width,
+        input.height,
+        Date.now(),
+      );
+    return {
+      id,
+      name: input.name,
+      mime: input.mime,
+      size: input.size,
+      width: input.width,
+      height: input.height,
+    };
+  }
+
+  getFile(id: ID): (FileMeta & { channelId: ID; userId: ID }) | null {
+    const r = this.db.prepare("SELECT * FROM files WHERE id = ?").get(id) as
+      | {
+          id: string;
+          channel_id: string;
+          user_id: string;
+          name: string;
+          mime: string;
+          size: number;
+          width: number | null;
+          height: number | null;
+        }
+      | undefined;
+    if (!r) return null;
+    return {
+      id: r.id,
+      channelId: r.channel_id,
+      userId: r.user_id,
+      name: r.name,
+      mime: r.mime,
+      size: r.size,
+      width: r.width,
+      height: r.height,
+    };
+  }
+
+  /** Binds uploads to their message. Only the uploader's own unattached files in this channel. */
+  attachFiles(fileIds: ID[], messageId: ID, channelId: ID, userId: ID): void {
+    const stmt = this.db.prepare(
+      `UPDATE files SET message_id = ?
+       WHERE id = ? AND user_id = ? AND channel_id = ? AND message_id IS NULL`,
+    );
+    for (const fileId of fileIds) stmt.run(messageId, fileId, userId, channelId);
+  }
+
+  /** File ids belonging to a message — used to delete blobs when the message goes. */
+  fileIdsForMessage(messageId: ID): ID[] {
+    const rows = this.db
+      .prepare("SELECT id FROM files WHERE message_id = ?")
+      .all(messageId) as { id: string }[];
+    return rows.map((r) => r.id);
+  }
+
+  deleteFiles(fileIds: ID[]): void {
+    const stmt = this.db.prepare("DELETE FROM files WHERE id = ?");
+    for (const id of fileIds) stmt.run(id);
   }
 
   // ---------- reactions ----------

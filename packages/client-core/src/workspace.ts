@@ -13,8 +13,18 @@ import {
   type User,
 } from "@slackoss/protocol";
 import { Api } from "./api.js";
+import { FileCache } from "./fileCache.js";
 
 export type ConnectionStatus = "connecting" | "online" | "reconnecting" | "auth_failed" | "closed";
+
+/** A file shown in the composer or in an optimistic message, before the server has it. */
+export interface LocalAttachment {
+  name: string;
+  size: number;
+  mime: string;
+  /** Object URL for instant local preview of images. */
+  previewUrl: string | null;
+}
 
 export interface PendingMessage {
   nonce: string;
@@ -24,6 +34,9 @@ export interface PendingMessage {
   userId: ID;
   createdAt: number;
   failed: boolean;
+  attachments: LocalAttachment[];
+  /** 0–1 while uploading attachments; null once the message itself is in flight. */
+  uploadProgress: number | null;
 }
 
 export interface ChannelTimeline {
@@ -85,6 +98,7 @@ function sortedInsert(items: Message[], msg: Message): Message[] {
 export class WorkspaceClient {
   readonly store: StoreApi<WorkspaceState>;
   readonly api: Api;
+  readonly files: FileCache;
   private ws: WebSocket | null = null;
   private reconnectDelay = 1000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,6 +113,7 @@ export class WorkspaceClient {
     private token: string,
   ) {
     this.api = new Api(baseUrl, token);
+    this.files = new FileCache(this.api);
     this.store = createStore<WorkspaceState>(() => ({ ...initialState }));
   }
 
@@ -119,6 +134,10 @@ export class WorkspaceClient {
     this.typingSweep = null;
     this.ws?.close();
     this.ws = null;
+    for (const p of this.state.pending) {
+      for (const a of p.attachments) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    }
+    this.files.dispose();
     this.store.setState({ status: "closed" });
   }
 
@@ -220,7 +239,15 @@ export class WorkspaceClient {
       case "message.created": {
         const message = { ...event.message, seq };
         patch.channelLastSeq = { ...s.channelLastSeq, [message.channelId]: seq };
-        patch.pending = s.pending.filter((p) => p.nonce !== message.nonce);
+        // The real message replaces our optimistic one — release its previews.
+        const settled = s.pending.find((p) => p.nonce === message.nonce);
+        if (settled) {
+          for (const a of settled.attachments) {
+            if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+          }
+          this.retryFiles.delete(settled.nonce);
+          patch.pending = s.pending.filter((p) => p.nonce !== message.nonce);
+        }
         if (message.threadRootId) {
           const replies = s.threads[message.threadRootId];
           if (replies) {
@@ -452,38 +479,110 @@ export class WorkspaceClient {
     }));
   }
 
-  /** Optimistic send: shows instantly, reconciled by nonce when the event echoes back. */
-  send(channelId: ID, text: string, threadRootId?: ID): void {
+  /** Files held for a retry, keyed by nonce — never exposed to the store. */
+  private retryFiles = new Map<string, File[]>();
+
+  /**
+   * Optimistic send: the message (and local image previews) appear instantly,
+   * then attachments upload and the server event reconciles it by nonce.
+   */
+  send(
+    channelId: ID,
+    text: string,
+    opts: { threadRootId?: ID; files?: File[] } = {},
+  ): void {
     const self = this.state.self;
     if (!self) return;
+    const files = opts.files ?? [];
+    if (!text.trim() && files.length === 0) return;
+
     const nonce = `${self.id}-${Date.now()}-${++this.nonceCounter}`;
+    const attachments: LocalAttachment[] = files.map((f) => ({
+      name: f.name,
+      size: f.size,
+      mime: f.type,
+      previewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : null,
+    }));
     const pendingMsg: PendingMessage = {
       nonce,
       channelId,
-      threadRootId: threadRootId ?? null,
+      threadRootId: opts.threadRootId ?? null,
       text,
       userId: self.id,
       createdAt: Date.now(),
       failed: false,
+      attachments,
+      uploadProgress: files.length > 0 ? 0 : null,
     };
     this.store.setState((s) => ({ pending: [...s.pending, pendingMsg] }));
+    if (files.length > 0) this.retryFiles.set(nonce, files);
 
-    const body: SendMessageBody = { text, nonce, ...(threadRootId ? { threadRootId } : {}) };
-    this.api.sendMessage(channelId, body).catch(() => {
+    void this.deliver(channelId, text, files, nonce, opts.threadRootId);
+  }
+
+  private async deliver(
+    channelId: ID,
+    text: string,
+    files: File[],
+    nonce: string,
+    threadRootId?: ID,
+  ): Promise<void> {
+    const setProgress = (fraction: number) =>
       this.store.setState((s) => ({
-        pending: s.pending.map((p) => (p.nonce === nonce ? { ...p, failed: true } : p)),
+        pending: s.pending.map((p) =>
+          p.nonce === nonce ? { ...p, uploadProgress: fraction } : p,
+        ),
       }));
-    });
+
+    try {
+      const fileIds: ID[] = [];
+      for (const [i, file] of files.entries()) {
+        const { file: uploaded } = await this.api.uploadFile(channelId, file, file.name, {
+          onProgress: (fraction) => setProgress((i + fraction) / files.length),
+        });
+        fileIds.push(uploaded.id);
+      }
+      if (files.length > 0) setProgress(1);
+
+      const body: SendMessageBody = {
+        text,
+        nonce,
+        ...(threadRootId ? { threadRootId } : {}),
+        ...(fileIds.length > 0 ? { fileIds } : {}),
+      };
+      await this.api.sendMessage(channelId, body);
+      this.retryFiles.delete(nonce);
+    } catch {
+      this.store.setState((s) => ({
+        pending: s.pending.map((p) =>
+          p.nonce === nonce ? { ...p, failed: true, uploadProgress: null } : p,
+        ),
+      }));
+    }
   }
 
   retrySend(nonce: string): void {
     const p = this.state.pending.find((p) => p.nonce === nonce);
     if (!p) return;
-    this.store.setState((s) => ({ pending: s.pending.filter((x) => x.nonce !== nonce) }));
-    this.send(p.channelId, p.text, p.threadRootId ?? undefined);
+    // send() makes fresh preview URLs from the same File objects.
+    const files = this.retryFiles.get(nonce) ?? [];
+    this.dropPending(nonce);
+    this.send(p.channelId, p.text, {
+      threadRootId: p.threadRootId ?? undefined,
+      files,
+    });
   }
 
   discardSend(nonce: string): void {
+    this.dropPending(nonce);
+  }
+
+  private dropPending(nonce: string): void {
+    const p = this.state.pending.find((x) => x.nonce === nonce);
+    if (p) {
+      for (const a of p.attachments) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    }
+    this.retryFiles.delete(nonce);
     this.store.setState((s) => ({ pending: s.pending.filter((x) => x.nonce !== nonce) }));
   }
 

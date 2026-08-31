@@ -2,6 +2,7 @@ import type {
   Channel,
   CreateChannelBody,
   CreateInviteBody,
+  FileMeta,
   ID,
   Invite,
   Message,
@@ -161,6 +162,53 @@ export class Api {
       "DELETE",
       `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
     );
+  }
+
+  /** Uploads one file to a channel; attach the returned id to a message. */
+  async uploadFile(
+    channelId: ID,
+    file: Blob,
+    name: string,
+    opts: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {},
+  ): Promise<{ file: FileMeta }> {
+    const form = new FormData();
+    form.append("file", file, name);
+
+    // XHR rather than fetch: it reports upload progress, which large files need.
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${this.baseUrl}/api/channels/${channelId}/files`);
+      if (this.token) xhr.setRequestHeader("authorization", `Bearer ${this.token}`);
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) opts.onProgress?.(e.loaded / e.total);
+      });
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText) as { file: FileMeta });
+        } else {
+          let code = "upload_failed";
+          try {
+            code = (JSON.parse(xhr.responseText) as { error?: string }).error ?? code;
+          } catch {
+            /* non-JSON error body */
+          }
+          reject(new ApiError(xhr.status, code));
+        }
+      });
+      xhr.addEventListener("error", () => reject(new ApiError(0, "network_error")));
+      xhr.addEventListener("abort", () => reject(new ApiError(0, "aborted")));
+      opts.signal?.addEventListener("abort", () => xhr.abort());
+      xhr.send(form);
+    });
+  }
+
+  /** Raw bytes of an upload, fetched with the session token. */
+  async fetchFile(fileId: ID): Promise<Blob> {
+    const res = await fetch(`${this.baseUrl}/api/files/${fileId}`, {
+      headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+    });
+    if (!res.ok) throw new ApiError(res.status, "file_not_found");
+    return res.blob();
   }
 
   createInvite(body: CreateInviteBody = {}): Promise<{ invite: Invite }> {

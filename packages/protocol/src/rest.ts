@@ -55,11 +55,18 @@ export const updateChannelBody = z.object({
   archived: z.boolean().optional(),
 });
 
-export const sendMessageBody = z.object({
-  text: z.string().min(1).max(12000),
-  threadRootId: z.string().optional(),
-  nonce: z.string().max(64).optional(),
-});
+export const sendMessageBody = z
+  .object({
+    text: z.string().max(12000),
+    threadRootId: z.string().optional(),
+    nonce: z.string().max(64).optional(),
+    /** Ids from POST /api/channels/:id/files, attached to this message. */
+    fileIds: z.array(z.string()).max(10).optional(),
+  })
+  // A message needs words, attachments, or both.
+  .refine((b) => b.text.trim().length > 0 || (b.fileIds?.length ?? 0) > 0, {
+    message: "message must have text or files",
+  });
 
 export const editMessageBody = z.object({
   text: z.string().min(1).max(12000),

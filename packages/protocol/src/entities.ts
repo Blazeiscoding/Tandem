@@ -43,6 +43,16 @@ export interface ReactionGroup {
   userIds: ID[];
 }
 
+export interface FileMeta {
+  id: ID;
+  name: string;
+  mime: string;
+  size: number;
+  /** Present for images the server could measure — lets clients reserve space before load. */
+  width: number | null;
+  height: number | null;
+}
+
 export interface Message {
   id: ID;
   channelId: ID;
@@ -65,6 +75,7 @@ export interface Message {
   nonce: string | null;
   replyCount: number;
   reactions: ReactionGroup[];
+  files: FileMeta[];
 }
 
 export interface Invite {

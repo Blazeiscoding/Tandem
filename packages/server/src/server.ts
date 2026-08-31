@@ -1,8 +1,10 @@
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { readFile, writeFile, unlink } from "node:fs/promises";
 import Fastify, { type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
+import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 import {
   PROTOCOL_VERSION,
@@ -28,6 +30,7 @@ import { Store } from "./store.js";
 import { Gateway } from "./gateway.js";
 import { hashPassword, hashToken, newSessionToken, verifyPassword } from "./auth.js";
 import { advertise, type MdnsHandle } from "./mdns.js";
+import { imageSize } from "./imageSize.js";
 
 export const SERVER_VERSION = "0.1.0";
 
@@ -44,6 +47,8 @@ export interface ServerOptions {
   mdns?: boolean;
   /** Directory with the built web client; served at / so browsers can join too. */
   webDistPath?: string;
+  /** Max upload size in bytes. Default 100 MB. */
+  maxFileSize?: number;
   logger?: boolean;
 }
 
@@ -88,8 +93,15 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return envelope;
   };
 
+  // Uploads live beside the database so one folder is the whole workspace.
+  const filesDir = opts.dataDir === ":memory:" ? null : join(opts.dataDir, "files");
+  if (filesDir) mkdirSync(filesDir, { recursive: true });
+  const maxFileSize = opts.maxFileSize ?? 100 * 1024 * 1024;
+  const blobPath = (fileId: string) => join(filesDir!, fileId);
+
   const app = Fastify({ logger: opts.logger ?? false });
   await app.register(cors, { origin: true });
+  await app.register(multipart, { limits: { fileSize: maxFileSize, files: 1 } });
 
   // Serve the browser client (if bundled) so teammates without the app can join.
   if (opts.webDistPath && existsSync(join(opts.webDistPath, "index.html"))) {
@@ -380,13 +392,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       }
     }
 
-    const message = store.createMessage({
+    const created = store.createMessage({
       channelId: channel.id,
       userId: me.id,
       text: body.text,
       threadRootId: body.threadRootId ?? null,
       nonce: body.nonce ?? null,
     });
+    if (body.fileIds?.length) {
+      store.attachFiles(body.fileIds, created.id, channel.id, me.id);
+    }
+    // Re-read so the broadcast event carries the attachments.
+    const message = store.getMessage(created.id)!;
     emit({ type: "message.created", message }, channel.id);
     return reply.status(201).send({ message });
   });
@@ -412,6 +429,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
     const isPrivileged = me.role === "owner" || me.role === "admin";
     if (existing.userId !== me.id && !isPrivileged) throw new HttpError(403, "not_your_message");
+
+    // Drop the blobs along with the message so deleted content really goes.
+    const fileIds = store.fileIdsForMessage(existing.id);
+    store.deleteFiles(fileIds);
+    if (filesDir) {
+      await Promise.all(fileIds.map((id) => unlink(blobPath(id)).catch(() => {})));
+    }
     store.deleteMessage(existing.id);
     emit(
       {
@@ -423,6 +447,61 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       existing.channelId,
     );
     return { ok: true };
+  });
+
+  // ---------- files ----------
+
+  app.post<{ Params: { id: string } }>("/api/channels/:id/files", async (req, reply) => {
+    const me = requireUser(req);
+    const channel = requireChannelAccess(req.params.id, me);
+    if (!filesDir) throw new HttpError(501, "uploads_disabled");
+
+    const part = await req.file();
+    if (!part) throw new HttpError(400, "no_file");
+
+    let buffer: Buffer;
+    try {
+      buffer = await part.toBuffer();
+    } catch {
+      throw new HttpError(413, "file_too_large", `files must be under ${maxFileSize} bytes`);
+    }
+    if (part.file.truncated) {
+      throw new HttpError(413, "file_too_large", `files must be under ${maxFileSize} bytes`);
+    }
+
+    const dims = part.mimetype.startsWith("image/") ? imageSize(buffer) : null;
+    const file = store.createFile({
+      channelId: channel.id,
+      userId: me.id,
+      name: part.filename.slice(0, 255),
+      mime: part.mimetype,
+      size: buffer.byteLength,
+      width: dims?.width ?? null,
+      height: dims?.height ?? null,
+    });
+    await writeFile(blobPath(file.id), buffer);
+    return reply.status(201).send({ file });
+  });
+
+  app.get<{ Params: { id: string } }>("/api/files/:id", async (req, reply) => {
+    const me = requireUser(req);
+    const file = store.getFile(req.params.id);
+    if (!file || !filesDir || !store.canAccess(file.channelId, me.id)) {
+      throw new HttpError(404, "file_not_found");
+    }
+    let body: Buffer;
+    try {
+      body = await readFile(blobPath(file.id));
+    } catch {
+      throw new HttpError(404, "file_not_found");
+    }
+    // Content is immutable once uploaded, so let clients cache it hard.
+    return reply
+      .header("content-type", file.mime)
+      .header("content-length", String(file.size))
+      .header("cache-control", "private, max-age=31536000, immutable")
+      .header("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+      .send(body);
   });
 
   // ---------- reactions ----------

@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
-import type { ID, Message } from "@slackoss/protocol";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { FileMeta, ID } from "@slackoss/protocol";
 import type { PendingMessage } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { formatDay, sameDay } from "../lib/format.js";
 import { MessageItem } from "./MessageItem.js";
+import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -25,6 +26,7 @@ export function MessageTimeline({ channelId, onOpenThread, onChannelClick }: Pro
   const scroller = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const loadingOlder = useRef(false);
+  const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
 
   useEffect(() => {
     pinnedToBottom.current = true;
@@ -89,6 +91,7 @@ export function MessageTimeline({ channelId, onOpenThread, onChannelClick }: Pro
               compact={compact}
               onOpenThread={onOpenThread}
               onChannelClick={onChannelClick}
+              onOpenImage={setLightboxFile}
             />
           </div>
         );
@@ -100,6 +103,9 @@ export function MessageTimeline({ channelId, onOpenThread, onChannelClick }: Pro
         {typers.length > 0 &&
           `${typers.slice(0, 3).join(", ")} ${typers.length === 1 ? "is" : "are"} typing…`}
       </div>
+      {lightboxFile && (
+        <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />
+      )}
     </div>
   );
 }
@@ -151,7 +157,11 @@ function PendingRow({ pending }: { pending: PendingMessage }) {
       <div className="flex gap-2.5">
         <div className="w-9 shrink-0" />
         <div className="min-w-0 flex-1 text-[15px]">
-          <Mrkdwn text={pending.text} users={users} channels={channels} />
+          {pending.text && <Mrkdwn text={pending.text} users={users} channels={channels} />}
+          <PendingAttachments
+            attachments={pending.attachments}
+            progress={pending.uploadProgress}
+          />
           {pending.failed ? (
             <span className="ml-2 text-[12px] text-alert">
               Not sent.{" "}

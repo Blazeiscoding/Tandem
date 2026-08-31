@@ -290,10 +290,11 @@ function AuthCard(props: {
   onConnected: (server: SavedServer) => void;
 }) {
   const hasUsers = props.info.userCount > 0;
-  const [mode, setMode] = useState<"login" | "register">(
-    props.savedHandle || (hasUsers && !props.info.requiresInvite) ? "login" : "register",
-  );
   const isFirstUser = !hasUsers;
+  // An empty workspace has nothing to sign in to, even if we remember a handle here.
+  const [mode, setMode] = useState<"login" | "register">(
+    isFirstUser ? "register" : "login",
+  );
   const [handle, setHandle] = useState(props.savedHandle ?? "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");

@@ -1,8 +1,9 @@
-import { useEffect } from "react";
-import type { ID } from "@slackoss/protocol";
+import { useEffect, useState } from "react";
+import type { FileMeta, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Composer } from "./Composer.js";
 import { MessageItem } from "./MessageItem.js";
+import { Lightbox, PendingAttachments } from "./Attachments.js";
 
 interface Props {
   channelId: ID;
@@ -18,6 +19,7 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick }: Prop
   );
   const replies = useWorkspace((s) => s.threads[rootId]);
   const pending = useWorkspace((s) => s.pending).filter((p) => p.threadRootId === rootId);
+  const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
 
   useEffect(() => {
     void client.loadThread(rootId, channelId);
@@ -37,7 +39,13 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick }: Prop
       </header>
       <div className="flex-1 overflow-y-auto py-2">
         {root && (
-          <MessageItem message={root} compact={false} inThread onChannelClick={onChannelClick} />
+          <MessageItem
+            message={root}
+            compact={false}
+            inThread
+            onChannelClick={onChannelClick}
+            onOpenImage={setLightboxFile}
+          />
         )}
         {(replies?.length ?? 0) > 0 && (
           <div className="my-2 flex items-center gap-2 px-5">
@@ -58,12 +66,14 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick }: Prop
               compact={compact}
               inThread
               onChannelClick={onChannelClick}
+              onOpenImage={setLightboxFile}
             />
           );
         })}
         {pending.map((p) => (
           <div key={p.nonce} className="px-5 py-1 text-[15px] opacity-60">
             {p.text}
+            <PendingAttachments attachments={p.attachments} progress={p.uploadProgress} />
             <span className="ml-2 font-mono text-[11px] text-ink-faint">
               {p.failed ? "failed" : "sending…"}
             </span>
@@ -71,6 +81,7 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick }: Prop
         ))}
       </div>
       <Composer channelId={channelId} threadRootId={rootId} placeholder="Reply…" autoFocus />
+      {lightboxFile && <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />}
     </aside>
   );
 }
