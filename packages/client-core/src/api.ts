@@ -1,5 +1,7 @@
 import type {
   Channel,
+  ChannelPrefs,
+  ChannelPrefsBody,
   CreateChannelBody,
   CreateInviteBody,
   FileMeta,
@@ -209,6 +211,10 @@ export class Api {
     });
     if (!res.ok) throw new ApiError(res.status, "file_not_found");
     return res.blob();
+  }
+
+  setChannelPrefs(channelId: ID, body: ChannelPrefsBody): Promise<{ prefs: ChannelPrefs }> {
+    return this.request("PATCH", `/api/channels/${channelId}/prefs`, body);
   }
 
   pinMessage(id: ID): Promise<{ ok: true }> {

@@ -1,4 +1,4 @@
-import type { Channel, ID, Message, User } from "./entities.js";
+import type { Channel, ChannelPrefs, ID, Message, User } from "./entities.js";
 
 /**
  * Durable workspace events. Every mutation appends one to the event log and
@@ -30,7 +30,8 @@ export type EphemeralEvent =
   | { type: "typing"; channelId: ID; userId: ID }
   | { type: "presence"; userId: ID; presence: Presence }
   /** Private to one user's own sockets, so their devices stay in step. */
-  | { type: "saved"; messageId: ID; saved: boolean };
+  | { type: "saved"; messageId: ID; saved: boolean }
+  | { type: "prefs"; channelId: ID; prefs: ChannelPrefs };
 
 export type Presence = "online" | "away" | "offline";
 
@@ -41,7 +42,7 @@ export interface ReadySnapshot {
   self: User;
   users: User[];
   channels: Channel[];
-  memberships: { channelId: ID; lastReadSeq: number }[];
+  memberships: { channelId: ID; lastReadSeq: number; prefs: ChannelPrefs }[];
   /** Latest message seq per channel the user belongs to, for unread badges. */
   channelLastSeq: Record<ID, number>;
   presence: Record<ID, Presence>;

@@ -35,7 +35,7 @@ export function Mrkdwn({ text, users, channels, selfId, onChannelClick }: Props)
 }
 
 const INLINE_RE =
-  /(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(<@[A-Z0-9]+>)|(<#[A-Z0-9]+>)|(https?:\/\/[^\s<>]+)/g;
+  /(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(<@[A-Za-z0-9_-]+>)|(<#[A-Za-z0-9_-]+>)|(https?:\/\/[^\s<>]+)/g;
 
 function renderInline(
   text: string,

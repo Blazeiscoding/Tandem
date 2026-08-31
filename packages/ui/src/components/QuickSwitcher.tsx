@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ID } from "@slackoss/protocol";
+import { parseSearchQuery } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
 import { Dialog, inputCls } from "./Dialog.js";
@@ -88,6 +89,57 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
   );
 }
 
+const MODIFIER_HELP = [
+  { token: "from:@name", what: "by one person" },
+  { token: "in:#channel", what: "in one channel" },
+  { token: "has:link", what: "contains a link" },
+  { token: "has:file", what: "has an attachment" },
+  { token: "after:2026-01-01", what: "since a date" },
+  { token: "before:2026-02-01", what: "up to a date" },
+];
+
+/** Shows the modifiers, then what the current query was understood to mean. */
+function SearchHints({ query }: { query: string }) {
+  const parsed = useMemo(() => parseSearchQuery(query), [query]);
+  const chips: string[] = [
+    ...parsed.from.map((h) => `from @${h}`),
+    ...parsed.in.map((c) => `in #${c}`),
+    ...parsed.has.map((h) => (h === "link" ? "has a link" : "has a file")),
+    ...(parsed.after !== null
+      ? [`after ${new Date(parsed.after).toLocaleDateString()}`]
+      : []),
+    ...(parsed.before !== null
+      ? [`before ${new Date(parsed.before).toLocaleDateString()}`]
+      : []),
+  ];
+
+  if (chips.length === 0) {
+    return (
+      <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-faint">
+        {MODIFIER_HELP.map((m) => (
+          <span key={m.token}>
+            <code className="font-mono text-copper">{m.token}</code> {m.what}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+      <span className="text-ink-faint">Filtering:</span>
+      {chips.map((c) => (
+        <span key={c} className="rounded-full border border-edge px-2 py-0.5 text-copper">
+          {c}
+        </span>
+      ))}
+      {parsed.terms.length > 0 && (
+        <span className="text-ink-faint">matching “{parsed.terms.join(" ")}”</span>
+      )}
+    </div>
+  );
+}
+
 /** Full-text message search over the workspace. */
 export function SearchDialog(props: { onClose: () => void; onJump: (channelId: ID) => void }) {
   const client = useClient();
@@ -112,7 +164,7 @@ export function SearchDialog(props: { onClose: () => void; onJump: (channelId: I
 
   return (
     <Dialog title="Search messages" onClose={props.onClose} width={560}>
-      <form onSubmit={run} className="mb-3 flex gap-2">
+      <form onSubmit={run} className="mb-2 flex gap-2">
         <input
           autoFocus
           value={q}
@@ -121,6 +173,7 @@ export function SearchDialog(props: { onClose: () => void; onJump: (channelId: I
           className={inputCls}
         />
       </form>
+      <SearchHints query={q} />
       {busy && <p className="py-4 text-center text-sm text-ink-faint">Searching…</p>}
       {results && !busy && (
         <ul className="space-y-2">

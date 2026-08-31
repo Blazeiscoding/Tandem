@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
-import { WorkspaceClient } from "@slackoss/client-core";
+import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss/client-core";
 import { ClientContext, useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import { channelTitle } from "../lib/format.js";
@@ -94,25 +94,24 @@ function WorkspaceInner({
     return () => clearTimeout(timer);
   }, [drafts, platform, draftStorageKey]);
 
-  // Desktop notifications for incoming messages when unfocused or elsewhere.
+  // Desktop notifications for incoming messages, gated by channel preferences,
+  // mute and Do Not Disturb (the rules live in client-core so they're testable).
   useEffect(() => {
     clientFromCtx.onIncomingMessage = (msg) => {
-      const away = !document.hasFocus() || msg.channelId !== activeChannelId;
-      if (!away) return;
-      const ch = clientFromCtx.state.channels[msg.channelId];
-      const isMember = msg.channelId in clientFromCtx.state.memberships;
-      if (!ch || !isMember) return;
-      const mentioned = self ? msg.text.includes(`<@${self.id}>`) : false;
-      const isDm = ch.type === "dm" || ch.type === "group_dm";
-      if (!isDm && !mentioned) return;
-      const from = clientFromCtx.state.users[msg.userId]?.displayName ?? "Someone";
-      const where = isDm ? "" : ` in #${ch.name}`;
-      platform.notify(`${from}${where}`, msg.text.replaceAll(/<@([A-Z0-9]+)>/g, "@someone"));
+      const state = clientFromCtx.state;
+      // A message you're already looking at needs no notification.
+      if (document.hasFocus() && msg.channelId === activeChannelId) return;
+      if (!decideNotification(state, msg).notify) return;
+
+      const channel = state.channels[msg.channelId];
+      const from = state.users[msg.userId]?.displayName ?? "Someone";
+      const where = channel?.name ? ` in #${channel.name}` : "";
+      platform.notify(`${from}${where}`, notificationBody(state, msg));
     };
     return () => {
       clientFromCtx.onIncomingMessage = null;
     };
-  }, [clientFromCtx, activeChannelId, platform, self]);
+  }, [clientFromCtx, activeChannelId, platform]);
 
   // Global shortcuts.
   useEffect(() => {

@@ -70,17 +70,27 @@ everything after their last `seq` — flaky Wi-Fi and laptop sleep are painless.
 
 ## What works today
 
-Channels (public and private), DMs and group DMs, threads, reactions, custom
-mentions, typing indicators, presence, unread tracking, file and image sharing
-with inline previews and a lightbox, full-text search, pins, saved items,
-per-conversation drafts that survive a restart, user profiles and statuses,
-channel topics and member management, invites, LAN discovery, in-app hosting,
-and a browser client served by the server itself.
+Channels (public and private), DMs and group DMs, threads, reactions, mentions,
+typing indicators, presence, unread tracking, file and image sharing with
+inline previews and a lightbox, pins, saved items, per-conversation drafts that
+survive a restart, user profiles and statuses, channel topics and member
+management, per-channel notification preferences with mute, Do Not Disturb
+snoozing, invites, LAN discovery, in-app hosting, and a browser client served
+by the server itself.
+
+Search covers every channel you can see, with modifiers:
+
+```
+from:@alice  in:#general  has:link  has:file  after:2026-01-01  before:2026-02-01
+```
+
+Modifiers combine with each other and with free text, and never widen what you
+are allowed to see — naming a channel you are not in returns nothing.
 
 ## Roadmap
 
-- **Next**: scheduled send, per-channel notification preferences and Do Not
-  Disturb, search modifiers (`from:`, `in:`), message links and forwarding.
+- **Next**: scheduled send, message permalinks and forwarding, keyboard-shortcut
+  help, sidebar sections.
 - **Then**: huddles — WebRTC audio, video and screen share, signalled over the
   existing socket, with an optional SFU for larger rooms.
 - **After**: a Slack-compatible integration API (incoming webhooks, slash

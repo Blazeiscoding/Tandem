@@ -142,6 +142,13 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (user_id, message_id)
   );
   `,
+
+  // v4 — per-channel notification preferences and Do Not Disturb
+  `
+  ALTER TABLE channel_members ADD COLUMN notify_level TEXT NOT NULL DEFAULT 'mentions';
+  ALTER TABLE channel_members ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN dnd_until INTEGER;
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

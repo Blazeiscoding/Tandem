@@ -1,12 +1,15 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   Channel,
+  ChannelPrefs,
   ChannelType,
   FileMeta,
   ID,
   Invite,
   Message,
   ReactionGroup,
+  NotifyLevel,
+  ParsedSearch,
   Role,
   User,
   WorkspaceEvent,
@@ -25,6 +28,7 @@ interface UserRow {
   status_emoji: string;
   is_bot: number;
   deactivated: number;
+  dnd_until: number | null;
   created_at: number;
 }
 
@@ -64,6 +68,7 @@ function toUser(r: UserRow): User {
     statusEmoji: r.status_emoji,
     isBot: r.is_bot === 1,
     deactivated: r.deactivated === 1,
+    dndUntil: r.dnd_until,
     createdAt: r.created_at,
   };
 }
@@ -135,7 +140,12 @@ export class Store {
 
   updateUser(
     id: ID,
-    patch: { displayName?: string; statusText?: string; statusEmoji?: string },
+    patch: {
+      displayName?: string;
+      statusText?: string;
+      statusEmoji?: string;
+      dndUntil?: number | null;
+    },
   ): User {
     const sets: string[] = [];
     const params: unknown[] = [];
@@ -151,10 +161,14 @@ export class Store {
       sets.push("status_emoji = ?");
       params.push(patch.statusEmoji);
     }
+    if (patch.dndUntil !== undefined) {
+      sets.push("dnd_until = ?");
+      params.push(patch.dndUntil);
+    }
     if (sets.length > 0) {
       this.db
         .prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`)
-        .run(...(params as string[]), id);
+        .run(...(params as (string | number | null)[]), id);
     }
     return this.getUser(id)!;
   }
@@ -233,7 +247,9 @@ export class Store {
         input.dmKey ?? null,
         now,
       );
-    for (const uid of input.memberIds) this.addMember(id, uid);
+    const level: NotifyLevel =
+      input.type === "dm" || input.type === "group_dm" ? "all" : "mentions";
+    for (const uid of input.memberIds) this.addMember(id, uid, level);
     return this.getChannel(id)!;
   }
 
@@ -310,12 +326,13 @@ export class Store {
 
   // ---------- membership ----------
 
-  addMember(channelId: ID, userId: ID): boolean {
+  addMember(channelId: ID, userId: ID, notifyLevel: NotifyLevel = "mentions"): boolean {
     const res = this.db
       .prepare(
-        "INSERT OR IGNORE INTO channel_members (channel_id, user_id, joined_at) VALUES (?, ?, ?)",
+        `INSERT OR IGNORE INTO channel_members (channel_id, user_id, joined_at, notify_level)
+         VALUES (?, ?, ?, ?)`,
       )
-      .run(channelId, userId, Date.now());
+      .run(channelId, userId, Date.now(), notifyLevel);
     return res.changes > 0;
   }
 
@@ -339,11 +356,56 @@ export class Store {
     return rows.map((r) => r.user_id);
   }
 
-  memberships(userId: ID): { channelId: ID; lastReadSeq: number }[] {
+  memberships(userId: ID): { channelId: ID; lastReadSeq: number; prefs: ChannelPrefs }[] {
     const rows = this.db
-      .prepare("SELECT channel_id, last_read_seq FROM channel_members WHERE user_id = ?")
-      .all(userId) as { channel_id: string; last_read_seq: number }[];
-    return rows.map((r) => ({ channelId: r.channel_id, lastReadSeq: r.last_read_seq }));
+      .prepare(
+        `SELECT channel_id, last_read_seq, notify_level, muted
+         FROM channel_members WHERE user_id = ?`,
+      )
+      .all(userId) as {
+      channel_id: string;
+      last_read_seq: number;
+      notify_level: string;
+      muted: number;
+    }[];
+    return rows.map((r) => ({
+      channelId: r.channel_id,
+      lastReadSeq: r.last_read_seq,
+      prefs: { notifyLevel: r.notify_level as NotifyLevel, muted: r.muted === 1 },
+    }));
+  }
+
+  getChannelPrefs(channelId: ID, userId: ID): ChannelPrefs | null {
+    const r = this.db
+      .prepare("SELECT notify_level, muted FROM channel_members WHERE channel_id = ? AND user_id = ?")
+      .get(channelId, userId) as { notify_level: string; muted: number } | undefined;
+    if (!r) return null;
+    return { notifyLevel: r.notify_level as NotifyLevel, muted: r.muted === 1 };
+  }
+
+  setChannelPrefs(
+    channelId: ID,
+    userId: ID,
+    patch: { notifyLevel?: NotifyLevel; muted?: boolean },
+  ): ChannelPrefs | null {
+    const sets: string[] = [];
+    const params: (string | number)[] = [];
+    if (patch.notifyLevel !== undefined) {
+      sets.push("notify_level = ?");
+      params.push(patch.notifyLevel);
+    }
+    if (patch.muted !== undefined) {
+      sets.push("muted = ?");
+      params.push(patch.muted ? 1 : 0);
+    }
+    if (sets.length > 0) {
+      this.db
+        .prepare(
+          `UPDATE channel_members SET ${sets.join(", ")} WHERE channel_id = ? AND user_id = ?`,
+        )
+        .run(...params, channelId, userId);
+    }
+    return this.getChannelPrefs(channelId, userId);
   }
 
   markRead(channelId: ID, userId: ID, seq: number): void {
@@ -806,26 +868,62 @@ export class Store {
 
   // ---------- search ----------
 
-  searchMessages(userId: ID, query: string, limit: number): Message[] {
-    // Quote each term so user input can never break FTS5 syntax.
-    const ftsQuery = query
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((t) => `"${t.replaceAll('"', '""')}"`)
-      .join(" ");
-    if (!ftsQuery) return [];
+  /**
+   * Full-text search restricted to what the user can see, with modifier
+   * filters (from:/in:/has:/before:/after:) applied as plain SQL. Free-text
+   * terms go to FTS5; a query with only modifiers skips FTS entirely.
+   */
+  searchMessages(userId: ID, query: ParsedSearch, limit: number): Message[] {
+    const where: string[] = ["m.deleted_at IS NULL"];
+    const params: (string | number)[] = [];
+
+    if (query.terms.length > 0) {
+      // Quote every term so user input can never break FTS5 syntax.
+      const fts = query.terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" ");
+      where.push("m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)");
+      params.push(fts);
+    }
+    if (query.from.length > 0) {
+      where.push(`u.handle IN (${query.from.map(() => "?").join(",")})`);
+      params.push(...query.from);
+    }
+    if (query.in.length > 0) {
+      where.push(`c.name IN (${query.in.map(() => "?").join(",")})`);
+      params.push(...query.in);
+    }
+    if (query.has.includes("link")) {
+      // Parenthesised: this sits inside an AND-joined list.
+      where.push("(m.text LIKE '%http://%' OR m.text LIKE '%https://%')");
+    }
+    if (query.has.includes("file")) {
+      where.push("EXISTS (SELECT 1 FROM files f WHERE f.message_id = m.id)");
+    }
+    if (query.before !== null) {
+      where.push("m.created_at < ?");
+      params.push(query.before);
+    }
+    if (query.after !== null) {
+      where.push("m.created_at >= ?");
+      params.push(query.after);
+    }
+
+    // Visibility is never optional, whatever the modifiers say.
+    where.push(
+      `(c.type = 'public' OR EXISTS (
+         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?
+       ))`,
+    );
+    params.push(userId);
+
     const rows = this.db
       .prepare(
-        `SELECT m.* FROM messages_fts f
-         JOIN messages m ON m.rowid = f.rowid
+        `SELECT m.* FROM messages m
          JOIN channels c ON c.id = m.channel_id
-         WHERE messages_fts MATCH ? AND m.deleted_at IS NULL AND (
-           c.type = 'public'
-           OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-         )
-         ORDER BY rank LIMIT ?`,
+         JOIN users u ON u.id = m.user_id
+         WHERE ${where.join(" AND ")}
+         ORDER BY m.id DESC LIMIT ?`,
       )
-      .all(ftsQuery, userId, limit) as unknown as MessageRow[];
+      .all(...params, limit) as unknown as MessageRow[];
     return this.hydrateMessages(rows);
   }
 }

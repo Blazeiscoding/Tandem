@@ -455,6 +455,130 @@ describe("workspace server", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
   });
 
+  it("filters search with from:, in:, has: and date modifiers", async () => {
+    const general = server.store.getChannelByName("general")!;
+    await api(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+      body: { text: "alpaca sighting confirmed by me" },
+    });
+    await api(`/api/channels/${general.id}/messages`, {
+      token: bobToken,
+      body: { text: "alpaca link https://example.com/alpaca" },
+    });
+
+    const all = await api<{ messages: Message[] }>("/api/search?q=alpaca", { token: aliceToken });
+    expect(all.data.messages).toHaveLength(2);
+
+    const fromBob = await api<{ messages: Message[] }>(
+      `/api/search?q=${encodeURIComponent("alpaca from:@bob")}`,
+      { token: aliceToken },
+    );
+    expect(fromBob.data.messages).toHaveLength(1);
+    expect(fromBob.data.messages[0]!.userId).toBe(bob.id);
+
+    const withLink = await api<{ messages: Message[] }>(
+      `/api/search?q=${encodeURIComponent("alpaca has:link")}`,
+      { token: aliceToken },
+    );
+    expect(withLink.data.messages).toHaveLength(1);
+    expect(withLink.data.messages[0]!.text).toContain("https://");
+
+    const inGeneral = await api<{ messages: Message[] }>(
+      `/api/search?q=${encodeURIComponent("alpaca in:#general")}`,
+      { token: aliceToken },
+    );
+    expect(inGeneral.data.messages).toHaveLength(2);
+
+    const elsewhere = await api<{ messages: Message[] }>(
+      `/api/search?q=${encodeURIComponent("alpaca in:#nowhere")}`,
+      { token: aliceToken },
+    );
+    expect(elsewhere.data.messages).toHaveLength(0);
+
+    // Modifiers alone, with no free text, still search.
+    const bobsPosts = await api<{ messages: Message[] }>(
+      `/api/search?q=${encodeURIComponent("from:@bob in:#general")}`,
+      { token: aliceToken },
+    );
+    expect(bobsPosts.data.messages.length).toBeGreaterThan(0);
+    expect(bobsPosts.data.messages.every((m) => m.userId === bob.id)).toBe(true);
+
+    // A future cutoff excludes everything written so far.
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const laterOnly = await api<{ messages: Message[] }>(
+      `/api/search?q=${encodeURIComponent(`alpaca after:${tomorrow}`)}`,
+      { token: aliceToken },
+    );
+    expect(laterOnly.data.messages).toHaveLength(0);
+  });
+
+  it("keeps search modifiers inside the caller's visibility", async () => {
+    const secret = server.store.getChannelByName("secret-plans")!;
+    await api(`/api/channels/${secret.id}/messages`, {
+      token: aliceToken,
+      body: { text: "alpaca smuggling route" },
+    });
+    // Bob is not a member, so naming the channel must not leak it.
+    const bobTry = await api<{ messages: Message[] }>(
+      `/api/search?q=${encodeURIComponent("alpaca in:#secret-plans")}`,
+      { token: bobToken },
+    );
+    expect(bobTry.data.messages).toHaveLength(0);
+  });
+
+  it("stores per-channel notification preferences privately", async () => {
+    const general = server.store.getChannelByName("general")!;
+
+    const res = await api<{ prefs: { notifyLevel: string; muted: boolean } }>(
+      `/api/channels/${general.id}/prefs`,
+      { method: "PATCH", token: aliceToken, body: { notifyLevel: "all", muted: true } },
+    );
+    expect(res.status).toBe(200);
+    expect(res.data.prefs).toEqual({ notifyLevel: "all", muted: true });
+
+    // Alice's choice is hers alone.
+    expect(server.store.getChannelPrefs(general.id, bob.id)).toEqual({
+      notifyLevel: "mentions",
+      muted: false,
+    });
+
+    await api(`/api/channels/${general.id}/prefs`, {
+      method: "PATCH",
+      token: aliceToken,
+      body: { muted: false },
+    });
+    // A partial update leaves the other field alone.
+    expect(server.store.getChannelPrefs(general.id, alice.id)).toEqual({
+      notifyLevel: "all",
+      muted: false,
+    });
+  });
+
+  it("defaults DMs to notifying on every message", async () => {
+    const dm = await api<{ channel: Channel }>("/api/channels", {
+      token: aliceToken,
+      body: { type: "dm", memberIds: [bob.id] },
+    });
+    expect(server.store.getChannelPrefs(dm.data.channel.id, alice.id)?.notifyLevel).toBe("all");
+  });
+
+  it("snoozes notifications with Do Not Disturb", async () => {
+    const until = Date.now() + 30 * 60_000;
+    const res = await api<{ user: { dndUntil: number | null } }>("/api/me", {
+      method: "PATCH",
+      token: aliceToken,
+      body: { dndUntil: until },
+    });
+    expect(res.data.user.dndUntil).toBe(until);
+
+    const cleared = await api<{ user: { dndUntil: number | null } }>("/api/me", {
+      method: "PATCH",
+      token: aliceToken,
+      body: { dndUntil: null },
+    });
+    expect(cleared.data.user.dndUntil).toBeNull();
+  });
+
   it("marks channels read", async () => {
     const general = server.store.getChannelByName("general")!;
     const res = await api(`/api/channels/${general.id}/read`, {

@@ -9,12 +9,15 @@ import { ZodError } from "zod";
 import {
   PROTOCOL_VERSION,
   createChannelBody,
+  channelPrefsBody,
   createInviteBody,
   editMessageBody,
   loginBody,
   markReadBody,
   messageHistoryQuery,
   registerBody,
+  parseSearchQuery,
+  hasSearchCriteria,
   searchQuery,
   sendMessageBody,
   updateChannelBody,
@@ -612,6 +615,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return { ok: true };
   });
 
+  app.patch<{ Params: { id: string } }>("/api/channels/:id/prefs", async (req) => {
+    const me = requireUser(req);
+    requireChannelAccess(req.params.id, me);
+    if (!store.isMember(req.params.id, me.id)) throw new HttpError(400, "not_a_member");
+    const body = channelPrefsBody.parse(req.body ?? {});
+    const prefs = store.setChannelPrefs(req.params.id, me.id, body);
+    if (!prefs) throw new HttpError(404, "channel_not_found");
+    // Preferences are personal: only this user's own devices need to know.
+    gateway.sendToUser(me.id, { type: "prefs", channelId: req.params.id, prefs });
+    return { prefs };
+  });
+
   app.get("/api/saved", async (req) => {
     const me = requireUser(req);
     return { messages: store.listSaved(me.id) };
@@ -633,7 +648,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.get("/api/search", async (req) => {
     const me = requireUser(req);
     const q = searchQuery.parse(req.query);
-    return { messages: store.searchMessages(me.id, q.q, q.limit) };
+    const parsed = parseSearchQuery(q.q);
+    // A query of nothing but stray punctuation should return nothing, not everything.
+    if (!hasSearchCriteria(parsed)) return { messages: [] };
+    return { messages: store.searchMessages(me.id, parsed, q.limit) };
   });
 
   // ---------- start ----------

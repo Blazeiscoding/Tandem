@@ -12,6 +12,8 @@ export interface User {
   statusEmoji: string;
   isBot: boolean;
   deactivated: boolean;
+  /** Epoch ms until which notifications are snoozed, or null when available. */
+  dndUntil: number | null;
   createdAt: number;
 }
 
@@ -31,7 +33,16 @@ export interface Channel {
   memberIds?: ID[];
 }
 
-export interface ChannelMembership {
+/** How loudly one channel should notify this user. */
+export type NotifyLevel = "all" | "mentions" | "nothing";
+
+export interface ChannelPrefs {
+  notifyLevel: NotifyLevel;
+  /** Muted channels never notify and stay quiet in the sidebar. */
+  muted: boolean;
+}
+
+export interface ChannelMembership extends ChannelPrefs {
   channelId: ID;
   userId: ID;
   lastReadSeq: number;

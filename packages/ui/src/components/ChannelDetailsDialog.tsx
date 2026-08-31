@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react";
-import type { ID } from "@slackoss/protocol";
+import type { ID, NotifyLevel } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 
-type Tab = "about" | "members";
+type Tab = "about" | "members" | "notifications";
+
+const DEFAULT_PREFS = { notifyLevel: "mentions" as NotifyLevel, muted: false };
+
+const LEVELS: { value: NotifyLevel; label: string; hint: string }[] = [
+  { value: "all", label: "Every message", hint: "Notify me whenever anyone posts here." },
+  { value: "mentions", label: "Mentions only", hint: "Only when someone @-mentions me." },
+  { value: "nothing", label: "Nothing", hint: "Never notify me about this channel." },
+];
 
 /** Channel topic and description, plus who's in it. */
 export function ChannelDetailsDialog(props: {
@@ -57,7 +65,7 @@ export function ChannelDetailsDialog(props: {
       width={480}
     >
       <div className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
-        {(["about", "members"] as const).map((t) => (
+        {(["about", "members", "notifications"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -65,12 +73,18 @@ export function ChannelDetailsDialog(props: {
               tab === t ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
             }`}
           >
-            {t === "members" ? `Members (${memberIds.length})` : "About"}
+            {t === "members"
+              ? `Members (${memberIds.length})`
+              : t === "notifications"
+                ? "Notifications"
+                : "About"}
           </button>
         ))}
       </div>
 
-      {tab === "about" ? (
+      {tab === "notifications" ? (
+        <NotificationSettings channelId={props.channelId} />
+      ) : tab === "about" ? (
         isRoom ? (
           <form onSubmit={saveAbout} className="space-y-3">
             <div>
@@ -119,7 +133,7 @@ export function ChannelDetailsDialog(props: {
             Direct conversations have no topic to set.
           </p>
         )
-      ) : (
+      ) : tab === "members" ? (
         <div>
           <ul className="mb-4 max-h-[260px] space-y-0.5 overflow-y-auto">
             {memberIds.map((id) => {
@@ -166,7 +180,62 @@ export function ChannelDetailsDialog(props: {
             </div>
           )}
         </div>
-      )}
+      ) : null}
     </Dialog>
+  );
+}
+
+function NotificationSettings({ channelId }: { channelId: ID }) {
+  const client = useClient();
+  // Select the stored value only — a fallback object built inside the selector
+  // would be a new reference every render and spin the store subscription.
+  const stored = useWorkspace((s) => s.prefs[channelId]);
+  const prefs = stored ?? DEFAULT_PREFS;
+
+  return (
+    <div className="space-y-4">
+      <fieldset className="space-y-1.5" disabled={prefs.muted}>
+        <legend className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
+          Notify me about
+        </legend>
+        {LEVELS.map((level) => (
+          <label
+            key={level.value}
+            className={`flex cursor-pointer gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${
+              prefs.notifyLevel === level.value
+                ? "border-copper bg-copper/10"
+                : "border-edge hover:border-ink-faint"
+            } ${prefs.muted ? "cursor-not-allowed opacity-50" : ""}`}
+          >
+            <input
+              type="radio"
+              name="notify-level"
+              checked={prefs.notifyLevel === level.value}
+              onChange={() => client.setChannelPrefs(channelId, { notifyLevel: level.value })}
+              className="mt-0.5 accent-copper"
+            />
+            <span>
+              <span className="block text-sm font-medium">{level.label}</span>
+              <span className="block text-xs text-ink-faint">{level.hint}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-edge px-3 py-2.5">
+        <input
+          type="checkbox"
+          checked={prefs.muted}
+          onChange={(e) => client.setChannelPrefs(channelId, { muted: e.target.checked })}
+          className="mt-0.5 accent-copper"
+        />
+        <span>
+          <span className="block text-sm font-medium">Mute this channel</span>
+          <span className="block text-xs text-ink-faint">
+            It stays in your sidebar but never notifies you, and unread messages don't stand out.
+          </span>
+        </span>
+      </label>
+    </div>
   );
 }

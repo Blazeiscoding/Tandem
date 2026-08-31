@@ -22,6 +22,13 @@ export const updateMeBody = z.object({
   displayName: z.string().min(1).max(80).optional(),
   statusText: z.string().max(120).optional(),
   statusEmoji: z.string().max(32).optional(),
+  /** Snooze notifications until this epoch ms; null clears it. */
+  dndUntil: z.number().int().nullable().optional(),
+});
+
+export const channelPrefsBody = z.object({
+  notifyLevel: z.enum(["all", "mentions", "nothing"]).optional(),
+  muted: z.boolean().optional(),
 });
 
 export const createChannelBody = z.discriminatedUnion("type", [
@@ -102,3 +109,4 @@ export type SendMessageBody = z.infer<typeof sendMessageBody>;
 export type EditMessageBody = z.infer<typeof editMessageBody>;
 export type MarkReadBody = z.infer<typeof markReadBody>;
 export type CreateInviteBody = z.infer<typeof createInviteBody>;
+export type ChannelPrefsBody = z.infer<typeof channelPrefsBody>;

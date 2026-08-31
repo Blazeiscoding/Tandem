@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   PROTOCOL_VERSION,
   type Channel,
+  type ChannelPrefs,
   type EphemeralEvent,
   type EventEnvelope,
   type ID,
@@ -54,6 +55,8 @@ export interface WorkspaceState {
   channels: Record<ID, Channel>;
   /** channelId -> my lastReadSeq (only channels I'm a member of). */
   memberships: Record<ID, number>;
+  /** channelId -> my notification settings for it. */
+  prefs: Record<ID, ChannelPrefs>;
   /** channelId -> seq of the newest message in it. */
   channelLastSeq: Record<ID, number>;
   presence: Record<ID, Presence>;
@@ -77,6 +80,7 @@ const initialState: WorkspaceState = {
   users: {},
   channels: {},
   memberships: {},
+  prefs: {},
   channelLastSeq: {},
   presence: {},
   typing: {},
@@ -215,7 +219,11 @@ export class WorkspaceClient {
     const channels: Record<ID, Channel> = {};
     for (const c of snap.channels) channels[c.id] = c;
     const memberships: Record<ID, number> = {};
-    for (const m of snap.memberships) memberships[m.channelId] = m.lastReadSeq;
+    const prefs: Record<ID, ChannelPrefs> = {};
+    for (const m of snap.memberships) {
+      memberships[m.channelId] = m.lastReadSeq;
+      prefs[m.channelId] = m.prefs;
+    }
     const saved: Record<ID, true> = {};
     for (const id of snap.savedMessageIds) saved[id] = true;
 
@@ -226,6 +234,7 @@ export class WorkspaceClient {
       users,
       channels,
       memberships,
+      prefs,
       channelLastSeq: snap.channelLastSeq,
       presence: snap.presence,
       saved,
@@ -440,6 +449,8 @@ export class WorkspaceClient {
     const s = this.store.getState();
     if (event.type === "presence") {
       this.store.setState({ presence: { ...s.presence, [event.userId]: event.presence } });
+    } else if (event.type === "prefs") {
+      this.store.setState({ prefs: { ...s.prefs, [event.channelId]: event.prefs } });
     } else if (event.type === "saved") {
       const saved = { ...s.saved };
       if (event.saved) saved[event.messageId] = true;
@@ -655,6 +666,32 @@ export class WorkspaceClient {
         });
       },
     );
+  }
+
+  /** Optimistic notification-preference change for one channel. */
+  setChannelPrefs(channelId: ID, patch: Partial<ChannelPrefs>): void {
+    const before = this.state.prefs[channelId] ?? { notifyLevel: "mentions", muted: false };
+    const next = { ...before, ...patch };
+    this.store.setState((s) => ({ prefs: { ...s.prefs, [channelId]: next } }));
+    void this.api.setChannelPrefs(channelId, patch).catch(() => {
+      this.store.setState((s) => ({ prefs: { ...s.prefs, [channelId]: before } }));
+    });
+  }
+
+  /** Snooze notifications for `minutes`, or pass null to clear Do Not Disturb. */
+  snoozeNotifications(minutes: number | null): void {
+    const dndUntil = minutes === null ? null : Date.now() + minutes * 60_000;
+    const self = this.state.self;
+    if (self) this.store.setState({ self: { ...self, dndUntil } });
+    void this.api.updateMe({ dndUntil }).catch(() => {
+      if (self) this.store.setState({ self });
+    });
+  }
+
+  /** True while notifications are snoozed. */
+  isSnoozed(now = Date.now()): boolean {
+    const until = this.state.self?.dndUntil ?? null;
+    return until !== null && until > now;
   }
 
   setDraft(channelId: ID, text: string): void {
