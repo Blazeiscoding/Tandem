@@ -75,6 +75,16 @@ export const sendMessageBody = z
     message: "message must have text or files",
   });
 
+export const scheduleMessageBody = z.object({
+  text: z.string().max(12000),
+  /** Epoch ms; must be in the future. */
+  sendAt: z.number().int().positive(),
+  threadRootId: z.string().optional(),
+  fileIds: z.array(z.string()).max(10).optional(),
+}).refine((b) => b.text.trim().length > 0 || (b.fileIds?.length ?? 0) > 0, {
+  message: "message must have text or files",
+});
+
 export const editMessageBody = z.object({
   text: z.string().min(1).max(12000),
 });
@@ -110,3 +120,4 @@ export type EditMessageBody = z.infer<typeof editMessageBody>;
 export type MarkReadBody = z.infer<typeof markReadBody>;
 export type CreateInviteBody = z.infer<typeof createInviteBody>;
 export type ChannelPrefsBody = z.infer<typeof channelPrefsBody>;
+export type ScheduleMessageBody = z.infer<typeof scheduleMessageBody>;

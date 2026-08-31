@@ -16,6 +16,7 @@ import {
 } from "../components/dialogs.js";
 import { QuickSwitcher, SearchDialog } from "../components/QuickSwitcher.js";
 import { LaterPanel, PinsPanel } from "../components/MessageListPanel.js";
+import { ScheduledPanel } from "../components/ScheduledPanel.js";
 import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
 import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 
@@ -40,7 +41,12 @@ type DialogKind =
   | { kind: "channel-details" };
 
 /** Only one right-hand panel is open at a time. */
-type SidePanel = { kind: "none" } | { kind: "thread"; rootId: ID } | { kind: "pins" } | { kind: "later" };
+type SidePanel =
+  | { kind: "none" }
+  | { kind: "thread"; rootId: ID }
+  | { kind: "pins" }
+  | { kind: "later" }
+  | { kind: "scheduled" };
 
 export function WorkspaceScreen({ client, platform, initialTarget, onLeaveWorkspace }: Props) {
   return (
@@ -246,6 +252,19 @@ function WorkspaceInner({
             🔖
           </button>
           <button
+            onClick={() =>
+              setPanel((p) => (p.kind === "scheduled" ? { kind: "none" } : { kind: "scheduled" }))
+            }
+            title="Scheduled messages"
+            className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+              panel.kind === "scheduled"
+                ? "border-copper text-copper"
+                : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+            }`}
+          >
+            🕘
+          </button>
+          <button
             onClick={() => setDialog({ kind: "search" })}
             className="rounded-lg border border-edge px-3 py-1.5 text-[13px] text-ink-faint transition-colors hover:border-ink-faint hover:text-ink"
           >
@@ -294,6 +313,9 @@ function WorkspaceInner({
       )}
       {panel.kind === "later" && (
         <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+      )}
+      {panel.kind === "scheduled" && (
+        <ScheduledPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />
       )}
 
       {dialog.kind === "new-channel" && (

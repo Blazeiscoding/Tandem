@@ -641,6 +641,84 @@ describe("workspace server", () => {
     expect(res.status).toBe(404);
   });
 
+  it("queues a message and sends it when it comes due", async () => {
+    const general = server.store.getChannelByName("general")!;
+
+    // Two seconds out: long enough to observe queued, short enough to wait for.
+    const sendAt = Date.now() + 2000;
+    const queued = await api<{ scheduled: { id: string; sendAt: number } }>(
+      `/api/channels/${general.id}/scheduled`,
+      { token: aliceToken, body: { text: "sent from the future", sendAt } },
+    );
+    expect(queued.status).toBe(201);
+
+    const listed = await api<{ scheduled: { id: string }[] }>("/api/scheduled", {
+      token: aliceToken,
+    });
+    expect(listed.data.scheduled.map((s) => s.id)).toContain(queued.data.scheduled.id);
+
+    // Nobody else sees another person's queue.
+    const bobList = await api<{ scheduled: unknown[] }>("/api/scheduled", { token: bobToken });
+    expect(bobList.data.scheduled).toHaveLength(0);
+
+    // Not posted yet.
+    const before = await api<{ messages: Message[] }>(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+    });
+    expect(before.data.messages.some((m) => m.text === "sent from the future")).toBe(false);
+
+    // The scheduler polls; drive it directly so the test does not idle.
+    await new Promise((r) => setTimeout(r, 2100));
+    server.flushScheduled();
+
+    const after = await api<{ messages: Message[] }>(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+    });
+    expect(after.data.messages.some((m) => m.text === "sent from the future")).toBe(true);
+
+    // And it is no longer queued.
+    const emptied = await api<{ scheduled: unknown[] }>("/api/scheduled", { token: aliceToken });
+    expect(emptied.data.scheduled).toHaveLength(0);
+  });
+
+  it("refuses a time in the past", async () => {
+    const general = server.store.getChannelByName("general")!;
+    const res = await api(`/api/channels/${general.id}/scheduled`, {
+      token: aliceToken,
+      body: { text: "too late", sendAt: Date.now() - 60_000 },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("only lets the author cancel a scheduled message", async () => {
+    const general = server.store.getChannelByName("general")!;
+    const queued = await api<{ scheduled: { id: string } }>(
+      `/api/channels/${general.id}/scheduled`,
+      { token: aliceToken, body: { text: "mine alone", sendAt: Date.now() + 3_600_000 } },
+    );
+    const id = queued.data.scheduled.id;
+
+    const bobTry = await api(`/api/scheduled/${id}`, { method: "DELETE", token: bobToken });
+    expect(bobTry.status).toBe(404);
+
+    const own = await api(`/api/scheduled/${id}`, { method: "DELETE", token: aliceToken });
+    expect(own.status).toBe(200);
+
+    // Cancelled means it never fires.
+    server.flushScheduled();
+    const still = await api<{ scheduled: unknown[] }>("/api/scheduled", { token: aliceToken });
+    expect(still.data.scheduled).toHaveLength(0);
+  });
+
+  it("will not queue into a channel the user cannot see", async () => {
+    const secret = server.store.getChannelByName("secret-plans")!;
+    const res = await api(`/api/channels/${secret.id}/scheduled`, {
+      token: bobToken,
+      body: { text: "sneaky", sendAt: Date.now() + 60_000 },
+    });
+    expect(res.status).toBe(404);
+  });
+
   it("marks channels read", async () => {
     const general = server.store.getChannelByName("general")!;
     const res = await api(`/api/channels/${general.id}/read`, {

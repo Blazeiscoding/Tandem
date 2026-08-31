@@ -3,6 +3,7 @@ import type { ID, User } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
+import { formatScheduleTime, schedulePresets } from "../lib/schedule.js";
 
 interface Props {
   channelId: ID;
@@ -24,6 +25,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const [mentionIndex, setMentionIndex] = useState(0);
   const [attached, setAttached] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleNote, setScheduleNote] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
@@ -106,6 +109,33 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     edited.current = false;
     client.setDraft(draftKey, "");
     if (box.current) box.current.style.height = "auto";
+  }
+
+  /** Queues the current draft for later instead of sending it now. */
+  async function schedule(at: Date) {
+    const trimmed = text.trim();
+    if (!trimmed && attached.length === 0) return;
+    setScheduleOpen(false);
+
+    // Attachments must exist on the server before they can be queued.
+    const fileIds: string[] = [];
+    for (const file of attached) {
+      const { file: uploaded } = await client.api.uploadFile(channelId, file, file.name);
+      fileIds.push(uploaded.id);
+    }
+    await client.api.scheduleMessage(channelId, {
+      text: trimmed,
+      sendAt: at.getTime(),
+      ...(threadRootId ? { threadRootId } : {}),
+      ...(fileIds.length > 0 ? { fileIds } : {}),
+    });
+
+    setText("");
+    setAttached([]);
+    edited.current = false;
+    client.setDraft(draftKey, "");
+    setScheduleNote(`Scheduled for ${formatScheduleTime(at.getTime())}`);
+    setTimeout(() => setScheduleNote(null), 4000);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -232,17 +262,53 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           onBlur={() => setMentionQuery(null)}
           className="block max-h-[220px] w-full resize-none bg-transparent px-4 py-3 text-[15px] outline-none placeholder:text-ink-faint"
         />
-        <div className="flex items-center justify-between px-2.5 pb-2">
-          <button
-            onClick={() => filePicker.current?.click()}
-            title="Attach a file"
-            className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
-          >
-            📎
-          </button>
-          <span className="pr-1 font-mono text-[10px] text-ink-faint">
-            {text.trim() || attached.length > 0 ? "Enter to send · Shift+Enter for a new line" : ""}
+        <div className="relative flex items-center justify-between px-2.5 pb-2">
+          <span className="flex items-center gap-1">
+            <button
+              onClick={() => filePicker.current?.click()}
+              title="Attach a file"
+              className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+            >
+              📎
+            </button>
+            {(text.trim() || attached.length > 0) && (
+              <button
+                onClick={() => setScheduleOpen((v) => !v)}
+                title="Send later"
+                className={`rounded-lg px-2 py-1 transition-colors hover:bg-lifted hover:text-ink ${
+                  scheduleOpen ? "text-copper" : "text-ink-faint"
+                }`}
+              >
+                🕘
+              </button>
+            )}
           </span>
+          <span className="pr-1 font-mono text-[10px] text-ink-faint">
+            {scheduleNote ??
+              (text.trim() || attached.length > 0
+                ? "Enter to send · Shift+Enter for a new line"
+                : "")}
+          </span>
+          {scheduleOpen && (
+            <ul className="absolute bottom-full left-2 z-20 mb-1 w-[220px] overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
+              <li className="border-b border-edge px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-ink-faint">
+                Send later
+              </li>
+              {schedulePresets().map((p) => (
+                <li key={p.label}>
+                  <button
+                    onClick={() => void schedule(p.at)}
+                    className="flex w-full items-baseline justify-between gap-2 px-3 py-2 text-left text-sm text-ink-dim transition-colors hover:bg-copper/15 hover:text-ink"
+                  >
+                    <span>{p.label}</span>
+                    <span className="font-mono text-[10px] text-ink-faint">
+                      {p.at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <input
           ref={filePicker}

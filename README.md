@@ -92,10 +92,14 @@ message, with the surrounding history loaded around it. Every message has a
 `slackoss://message?…` permalink, and `slackoss://` links open the desktop app
 directly — an invite link lands on the join screen with the code filled in.
 
+Messages can also be queued for later (🕘 in the composer) and reviewed or
+called back from the Scheduled panel. The queue lives on the server, so a
+message still goes out if the sender's app is closed, and one scheduled while
+the server was down is sent the next time it starts.
+
 ## Roadmap
 
-- **Next**: scheduled send, message forwarding, keyboard-shortcut help,
-  sidebar sections.
+- **Next**: message forwarding, keyboard-shortcut help, sidebar sections.
 - **Then**: huddles — WebRTC audio, video and screen share, signalled over the
   existing socket, with an optional SFU for larger rooms.
 - **After**: a Slack-compatible integration API (incoming webhooks, slash

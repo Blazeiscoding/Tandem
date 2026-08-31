@@ -11,6 +11,7 @@ import type {
   NotifyLevel,
   ParsedSearch,
   Role,
+  ScheduledMessage,
   User,
   WorkspaceEvent,
   EventEnvelope,
@@ -826,6 +827,93 @@ export class Store {
       )
       .all(userId, userId) as unknown as MessageRow[];
     return this.hydrateMessages(rows);
+  }
+
+  // ---------- scheduled messages ----------
+
+  scheduleMessage(input: {
+    channelId: ID;
+    userId: ID;
+    text: string;
+    threadRootId: ID | null;
+    fileIds: ID[];
+    sendAt: number;
+  }): ScheduledMessage {
+    const id = ulid();
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO scheduled_messages
+           (id, channel_id, user_id, text, thread_root_id, file_ids, send_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.channelId,
+        input.userId,
+        input.text,
+        input.threadRootId,
+        JSON.stringify(input.fileIds),
+        input.sendAt,
+        now,
+      );
+    return this.getScheduled(id)!;
+  }
+
+  private toScheduled(r: {
+    id: string;
+    channel_id: string;
+    user_id: string;
+    text: string;
+    thread_root_id: string | null;
+    file_ids: string;
+    send_at: number;
+    created_at: number;
+  }): ScheduledMessage {
+    let fileIds: ID[] = [];
+    try {
+      fileIds = JSON.parse(r.file_ids) as ID[];
+    } catch {
+      /* a corrupt row should not sink the whole list */
+    }
+    return {
+      id: r.id,
+      channelId: r.channel_id,
+      userId: r.user_id,
+      text: r.text,
+      threadRootId: r.thread_root_id,
+      fileIds,
+      sendAt: r.send_at,
+      createdAt: r.created_at,
+    };
+  }
+
+  getScheduled(id: ID): ScheduledMessage | null {
+    const r = this.db.prepare("SELECT * FROM scheduled_messages WHERE id = ?").get(id) as
+      | Parameters<Store["toScheduled"]>[0]
+      | undefined;
+    return r ? this.toScheduled(r) : null;
+  }
+
+  /** One user's pending messages, soonest first. */
+  listScheduled(userId: ID): ScheduledMessage[] {
+    const rows = this.db
+      .prepare("SELECT * FROM scheduled_messages WHERE user_id = ? ORDER BY send_at")
+      .all(userId) as unknown as Parameters<Store["toScheduled"]>[0][];
+    return rows.map((r) => this.toScheduled(r));
+  }
+
+  /** Everything now due, across all users. */
+  dueScheduled(now = Date.now()): ScheduledMessage[] {
+    const rows = this.db
+      .prepare("SELECT * FROM scheduled_messages WHERE send_at <= ? ORDER BY send_at")
+      .all(now) as unknown as Parameters<Store["toScheduled"]>[0][];
+    return rows.map((r) => this.toScheduled(r));
+  }
+
+  deleteScheduled(id: ID): boolean {
+    const res = this.db.prepare("DELETE FROM scheduled_messages WHERE id = ?").run(id);
+    return res.changes > 0;
   }
 
   // ---------- invites ----------

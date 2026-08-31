@@ -11,6 +11,7 @@ import {
   createChannelBody,
   channelPrefsBody,
   createInviteBody,
+  scheduleMessageBody,
   editMessageBody,
   loginBody,
   markReadBody,
@@ -59,6 +60,8 @@ export interface WorkspaceServer {
   port: number;
   store: Store;
   gateway: Gateway;
+  /** Posts anything now due. Runs on a timer; exposed so tests need not wait. */
+  flushScheduled: () => void;
   stop: () => Promise<void>;
 }
 
@@ -94,6 +97,31 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
     gateway.publish(envelope, channelId);
     return envelope;
+  };
+
+  /** Posts a message and fans it out. Used by the API and the scheduler alike. */
+  const postMessage = (input: {
+    channelId: ID;
+    userId: ID;
+    text: string;
+    threadRootId: ID | null;
+    nonce: string | null;
+    fileIds: ID[];
+  }) => {
+    const created = store.createMessage({
+      channelId: input.channelId,
+      userId: input.userId,
+      text: input.text,
+      threadRootId: input.threadRootId,
+      nonce: input.nonce,
+    });
+    if (input.fileIds.length > 0) {
+      store.attachFiles(input.fileIds, created.id, input.channelId, input.userId);
+    }
+    // Re-read so the broadcast event carries the attachments.
+    const message = store.getMessage(created.id)!;
+    emit({ type: "message.created", message }, input.channelId);
+    return message;
   };
 
   // Uploads live beside the database so one folder is the whole workspace.
@@ -425,19 +453,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       }
     }
 
-    const created = store.createMessage({
+    const message = postMessage({
       channelId: channel.id,
       userId: me.id,
       text: body.text,
       threadRootId: body.threadRootId ?? null,
       nonce: body.nonce ?? null,
+      fileIds: body.fileIds ?? [],
     });
-    if (body.fileIds?.length) {
-      store.attachFiles(body.fileIds, created.id, channel.id, me.id);
-    }
-    // Re-read so the broadcast event carries the attachments.
-    const message = store.getMessage(created.id)!;
-    emit({ type: "message.created", message }, channel.id);
     return reply.status(201).send({ message });
   });
 
@@ -577,6 +600,41 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     },
   );
 
+  // ---------- scheduled messages ----------
+
+  app.post<{ Params: { id: string } }>("/api/channels/:id/scheduled", async (req, reply) => {
+    const me = requireUser(req);
+    const channel = requireChannelAccess(req.params.id, me);
+    if (channel.archived) throw new HttpError(400, "channel_archived");
+    const body = scheduleMessageBody.parse(req.body);
+    if (body.sendAt <= Date.now()) {
+      throw new HttpError(400, "send_at_in_past", "pick a time in the future");
+    }
+    const scheduled = store.scheduleMessage({
+      channelId: channel.id,
+      userId: me.id,
+      text: body.text,
+      threadRootId: body.threadRootId ?? null,
+      fileIds: body.fileIds ?? [],
+      sendAt: body.sendAt,
+    });
+    return reply.status(201).send({ scheduled });
+  });
+
+  app.get("/api/scheduled", async (req) => {
+    const me = requireUser(req);
+    return { scheduled: store.listScheduled(me.id) };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/scheduled/:id", async (req) => {
+    const me = requireUser(req);
+    const scheduled = store.getScheduled(req.params.id);
+    // Only the author may cancel, and a missing one is simply gone.
+    if (!scheduled || scheduled.userId !== me.id) throw new HttpError(404, "not_found");
+    store.deleteScheduled(scheduled.id);
+    return { ok: true };
+  });
+
   // ---------- pins & saved items ----------
 
   /** Resolves a message the caller is allowed to see, or 404s. */
@@ -687,13 +745,38 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     mdnsHandle = advertise({ name: workspaceName(), port: actualPort });
   }
 
+  /**
+   * Posts anything that has come due. Runs on a timer and once at startup, so
+   * messages scheduled while the server was down still go out.
+   */
+  const flushScheduled = () => {
+    for (const item of store.dueScheduled()) {
+      // Drop it first: a message that fails to post must not retry forever.
+      store.deleteScheduled(item.id);
+      const channel = store.getChannel(item.channelId);
+      if (!channel || channel.archived || !store.canAccess(item.channelId, item.userId)) continue;
+      postMessage({
+        channelId: item.channelId,
+        userId: item.userId,
+        text: item.text,
+        threadRootId: item.threadRootId,
+        nonce: null,
+        fileIds: item.fileIds,
+      });
+    }
+  };
+  flushScheduled();
+  const scheduleTimer = setInterval(flushScheduled, 15_000);
+
   const pruneTimer = setInterval(() => store.pruneEvents(), 3600_000);
 
   return {
     port: actualPort,
     store,
     gateway,
+    flushScheduled,
     stop: async () => {
+      clearInterval(scheduleTimer);
       clearInterval(pruneTimer);
       mdnsHandle?.stop();
       gateway.close();

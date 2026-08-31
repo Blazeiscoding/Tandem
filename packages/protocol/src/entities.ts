@@ -112,3 +112,15 @@ export interface ServerInfo {
 }
 
 export const PROTOCOL_VERSION = 1;
+
+/** A message queued to be posted at a future time. */
+export interface ScheduledMessage {
+  id: ID;
+  channelId: ID;
+  userId: ID;
+  text: string;
+  threadRootId: ID | null;
+  fileIds: ID[];
+  sendAt: number;
+  createdAt: number;
+}

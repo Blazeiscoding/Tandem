@@ -149,6 +149,22 @@ const MIGRATIONS: string[] = [
   ALTER TABLE channel_members ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE users ADD COLUMN dnd_until INTEGER;
   `,
+
+  // v5 — messages queued to send later
+  `
+  CREATE TABLE scheduled_messages (
+    id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL REFERENCES channels(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    text TEXT NOT NULL,
+    thread_root_id TEXT,
+    file_ids TEXT NOT NULL DEFAULT '[]',
+    send_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_scheduled_due ON scheduled_messages(send_at);
+  CREATE INDEX idx_scheduled_user ON scheduled_messages(user_id);
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

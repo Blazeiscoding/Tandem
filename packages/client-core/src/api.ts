@@ -9,6 +9,8 @@ import type {
   Invite,
   Message,
   SendMessageBody,
+  ScheduledMessage,
+  ScheduleMessageBody,
   ServerInfo,
   UpdateChannelBody,
   UpdateMeBody,
@@ -230,6 +232,21 @@ export class Api {
     });
     if (!res.ok) throw new ApiError(res.status, "file_not_found");
     return res.blob();
+  }
+
+  scheduleMessage(
+    channelId: ID,
+    body: ScheduleMessageBody,
+  ): Promise<{ scheduled: ScheduledMessage }> {
+    return this.request("POST", `/api/channels/${channelId}/scheduled`, body);
+  }
+
+  listScheduled(): Promise<{ scheduled: ScheduledMessage[] }> {
+    return this.request("GET", "/api/scheduled");
+  }
+
+  cancelScheduled(id: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/scheduled/${id}`);
   }
 
   setChannelPrefs(channelId: ID, body: ChannelPrefsBody): Promise<{ prefs: ChannelPrefs }> {
