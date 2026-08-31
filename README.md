@@ -68,11 +68,21 @@ fans out over WebSocket. Clients keep a local replica, render from it
 instantly (sends are optimistic, reconciled by nonce), and on reconnect replay
 everything after their last `seq` — flaky Wi-Fi and laptop sleep are painless.
 
-## Status / roadmap
+## What works today
 
-Phase 1 (this repo today): channels, private channels, DMs & group DMs,
-threads, reactions, mentions, typing, presence, unread tracking, full-text
-search, invites, LAN discovery, in-app hosting, browser client.
+Channels (public and private), DMs and group DMs, threads, reactions, custom
+mentions, typing indicators, presence, unread tracking, file and image sharing
+with inline previews and a lightbox, full-text search, pins, saved items,
+per-conversation drafts that survive a restart, user profiles and statuses,
+channel topics and member management, invites, LAN discovery, in-app hosting,
+and a browser client served by the server itself.
 
-Next: files & images (P2), pins/saved/scheduled (P2), huddles via WebRTC (P3),
-Slack-compatible webhooks + slash commands + bot API (P4), admin console (P4).
+## Roadmap
+
+- **Next**: scheduled send, per-channel notification preferences and Do Not
+  Disturb, search modifiers (`from:`, `in:`), message links and forwarding.
+- **Then**: huddles — WebRTC audio, video and screen share, signalled over the
+  existing socket, with an optional SFU for larger rooms.
+- **After**: a Slack-compatible integration API (incoming webhooks, slash
+  commands, bot tokens, Block Kit rendering) so existing Slack apps port over,
+  plus an admin console, optional Postgres and S3, and SSO.

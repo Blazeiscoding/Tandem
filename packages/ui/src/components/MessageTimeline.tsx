@@ -13,9 +13,15 @@ interface Props {
   channelId: ID;
   onOpenThread: (rootId: ID) => void;
   onChannelClick: (id: ID) => void;
+  onOpenProfile: (userId: ID) => void;
 }
 
-export function MessageTimeline({ channelId, onOpenThread, onChannelClick }: Props) {
+export function MessageTimeline({
+  channelId,
+  onOpenThread,
+  onChannelClick,
+  onOpenProfile,
+}: Props) {
   const client = useClient();
   const timeline = useWorkspace((s) => s.timelines[channelId]);
   const pending = useWorkspace((s) => s.pending);
@@ -92,6 +98,7 @@ export function MessageTimeline({ channelId, onOpenThread, onChannelClick }: Pro
               onOpenThread={onOpenThread}
               onChannelClick={onChannelClick}
               onOpenImage={setLightboxFile}
+              onOpenProfile={onOpenProfile}
             />
           </div>
         );

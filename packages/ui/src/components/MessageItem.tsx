@@ -15,6 +15,7 @@ interface Props {
   onOpenThread?: (rootId: ID) => void;
   onChannelClick?: (id: ID) => void;
   onOpenImage?: (file: FileMeta) => void;
+  onOpenProfile?: (userId: ID) => void;
 }
 
 export function MessageItem({
@@ -24,6 +25,7 @@ export function MessageItem({
   onOpenThread,
   onChannelClick,
   onOpenImage,
+  onOpenProfile,
 }: Props) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
@@ -51,7 +53,15 @@ export function MessageItem({
     >
       <div className="flex gap-2.5">
         <div className="w-9 shrink-0 pt-0.5">
-          {!compact && <Avatar user={author} size={36} />}
+          {!compact && (
+            <button
+              onClick={() => onOpenProfile?.(message.userId)}
+              title={`View ${author?.displayName ?? "profile"}`}
+              className="rounded-lg transition-opacity hover:opacity-80"
+            >
+              <Avatar user={author} size={36} />
+            </button>
+          )}
           {compact && (
             <span className="hidden select-none pt-1 text-right font-mono text-[10px] text-ink-faint group-hover:block">
               {formatTime(message.createdAt)}
@@ -67,7 +77,17 @@ export function MessageItem({
           )}
           {!compact && (
             <div className="flex items-baseline gap-2">
-              <span className="font-bold">{author?.displayName ?? "unknown"}</span>
+              <button
+                onClick={() => onOpenProfile?.(message.userId)}
+                className="font-bold hover:underline"
+              >
+                {author?.displayName ?? "unknown"}
+              </button>
+              {author?.statusEmoji && (
+                <span title={author.statusText} className="text-[13px]">
+                  {author.statusEmoji}
+                </span>
+              )}
               <span className="font-mono text-[11px] text-ink-faint">
                 {formatTime(message.createdAt)}
               </span>

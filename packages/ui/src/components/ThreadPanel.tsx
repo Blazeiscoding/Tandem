@@ -10,9 +10,16 @@ interface Props {
   rootId: ID;
   onClose: () => void;
   onChannelClick: (id: ID) => void;
+  onOpenProfile: (userId: ID) => void;
 }
 
-export function ThreadPanel({ channelId, rootId, onClose, onChannelClick }: Props) {
+export function ThreadPanel({
+  channelId,
+  rootId,
+  onClose,
+  onChannelClick,
+  onOpenProfile,
+}: Props) {
   const client = useClient();
   const root = useWorkspace(
     (s) => s.timelines[channelId]?.items.find((m) => m.id === rootId) ?? null,
@@ -45,6 +52,7 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick }: Prop
             inThread
             onChannelClick={onChannelClick}
             onOpenImage={setLightboxFile}
+            onOpenProfile={onOpenProfile}
           />
         )}
         {(replies?.length ?? 0) > 0 && (
@@ -67,6 +75,7 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick }: Prop
               inThread
               onChannelClick={onChannelClick}
               onOpenImage={setLightboxFile}
+              onOpenProfile={onOpenProfile}
             />
           );
         })}

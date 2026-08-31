@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
-import { PresenceDot } from "./Avatar.js";
+import { Avatar, PresenceDot } from "./Avatar.js";
 
 interface Props {
   activeChannelId: ID | null;
@@ -12,6 +12,7 @@ interface Props {
   onNewDm: () => void;
   onInvite: () => void;
   onSwitchWorkspace: () => void;
+  onEditProfile: () => void;
   connectionLabel: string | null;
 }
 
@@ -104,6 +105,22 @@ export function Sidebar(props: Props) {
       </div>
 
       <footer className="border-t border-edge p-2">
+        <button
+          onClick={props.onEditProfile}
+          className="mb-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-lifted"
+        >
+          <Avatar user={self ?? undefined} size={30} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">
+              {self?.displayName ?? "…"}
+            </span>
+            <span className="block truncate text-[11px] text-ink-faint">
+              {self?.statusText || self?.statusEmoji
+                ? `${self.statusEmoji} ${self.statusText}`.trim()
+                : "Set a status"}
+            </span>
+          </span>
+        </button>
         <button
           onClick={props.onInvite}
           className="w-full rounded-lg px-3 py-2 text-left text-sm text-ink-dim transition-colors hover:bg-lifted hover:text-ink"

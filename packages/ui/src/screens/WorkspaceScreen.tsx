@@ -16,6 +16,8 @@ import {
 } from "../components/dialogs.js";
 import { QuickSwitcher, SearchDialog } from "../components/QuickSwitcher.js";
 import { LaterPanel, PinsPanel } from "../components/MessageListPanel.js";
+import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
+import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 
 interface Props {
   client: WorkspaceClient;
@@ -23,7 +25,17 @@ interface Props {
   onLeaveWorkspace: () => void;
 }
 
-type DialogKind = "none" | "new-channel" | "browse" | "new-dm" | "invite" | "switcher" | "search";
+type DialogKind =
+  | { kind: "none" }
+  | { kind: "new-channel" }
+  | { kind: "browse" }
+  | { kind: "new-dm" }
+  | { kind: "invite" }
+  | { kind: "switcher" }
+  | { kind: "search" }
+  | { kind: "edit-profile" }
+  | { kind: "profile"; userId: ID }
+  | { kind: "channel-details" };
 
 /** Only one right-hand panel is open at a time. */
 type SidePanel = { kind: "none" } | { kind: "thread"; rootId: ID } | { kind: "pins" } | { kind: "later" };
@@ -49,7 +61,7 @@ function WorkspaceInner({
   const self = useWorkspace((s) => s.self);
   const [activeChannelId, setActiveChannelId] = useState<ID | null>(null);
   const [panel, setPanel] = useState<SidePanel>({ kind: "none" });
-  const [dialog, setDialog] = useState<DialogKind>("none");
+  const [dialog, setDialog] = useState<DialogKind>({ kind: "none" });
   const clientFromCtx = useClient();
   const drafts = useWorkspace((s) => s.drafts);
 
@@ -107,11 +119,11 @@ function WorkspaceInner({
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setDialog((d) => (d === "switcher" ? "none" : "switcher"));
+        setDialog((d) => (d.kind === "switcher" ? { kind: "none" } : { kind: "switcher" }));
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        setDialog("search");
+        setDialog({ kind: "search" });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -125,8 +137,10 @@ function WorkspaceInner({
   function openChannel(id: ID) {
     setActiveChannelId(id);
     setPanel({ kind: "none" });
-    setDialog("none");
+    setDialog({ kind: "none" });
   }
+
+  const closeDialog = () => setDialog({ kind: "none" });
 
   const connectionLabel =
     status === "online"
@@ -146,24 +160,28 @@ function WorkspaceInner({
       <Sidebar
         activeChannelId={activeChannelId}
         onSelect={openChannel}
-        onBrowseChannels={() => setDialog("browse")}
-        onNewChannel={() => setDialog("new-channel")}
-        onNewDm={() => setDialog("new-dm")}
-        onInvite={() => setDialog("invite")}
+        onBrowseChannels={() => setDialog({ kind: "browse" })}
+        onNewChannel={() => setDialog({ kind: "new-channel" })}
+        onNewDm={() => setDialog({ kind: "new-dm" })}
+        onInvite={() => setDialog({ kind: "invite" })}
         onSwitchWorkspace={onLeaveWorkspace}
+        onEditProfile={() => setDialog({ kind: "edit-profile" })}
         connectionLabel={connectionLabel}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="titlebar-drag flex h-[53px] shrink-0 items-center gap-3 border-b border-edge px-5">
-          <div className="min-w-0 flex-1">
+          <button
+            onClick={() => activeChannelId && setDialog({ kind: "channel-details" })}
+            className="min-w-0 flex-1 rounded-lg px-2 py-1 text-left transition-colors hover:bg-lifted"
+          >
             <h2 className="truncate font-bold leading-tight">
               {isRoom ? `#${title}` : title || "…"}
             </h2>
-            {activeChannel?.topic && (
-              <p className="truncate text-xs text-ink-faint">{activeChannel.topic}</p>
-            )}
-          </div>
+            <p className="truncate text-xs text-ink-faint">
+              {activeChannel?.topic || "Add a topic"}
+            </p>
+          </button>
           <button
             onClick={() =>
               setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
@@ -191,7 +209,7 @@ function WorkspaceInner({
             🔖
           </button>
           <button
-            onClick={() => setDialog("search")}
+            onClick={() => setDialog({ kind: "search" })}
             className="rounded-lg border border-edge px-3 py-1.5 text-[13px] text-ink-faint transition-colors hover:border-ink-faint hover:text-ink"
           >
             Search <kbd className="ml-1 font-mono text-[10px]">Ctrl F</kbd>
@@ -204,6 +222,7 @@ function WorkspaceInner({
               channelId={activeChannelId}
               onOpenThread={(rootId) => setPanel({ kind: "thread", rootId })}
               onChannelClick={openChannel}
+              onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
             />
             <Composer
               channelId={activeChannelId}
@@ -224,6 +243,7 @@ function WorkspaceInner({
           rootId={panel.rootId}
           onClose={() => setPanel({ kind: "none" })}
           onChannelClick={openChannel}
+          onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
         />
       )}
       {panel.kind === "pins" && activeChannelId && (
@@ -237,19 +257,30 @@ function WorkspaceInner({
         <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />
       )}
 
-      {dialog === "new-channel" && (
-        <NewChannelDialog onClose={() => setDialog("none")} onCreated={(ch) => openChannel(ch.id)} />
+      {dialog.kind === "new-channel" && (
+        <NewChannelDialog onClose={closeDialog} onCreated={(ch) => openChannel(ch.id)} />
       )}
-      {dialog === "browse" && (
-        <BrowseChannelsDialog onClose={() => setDialog("none")} onOpen={openChannel} />
+      {dialog.kind === "browse" && (
+        <BrowseChannelsDialog onClose={closeDialog} onOpen={openChannel} />
       )}
-      {dialog === "new-dm" && <NewDmDialog onClose={() => setDialog("none")} onOpen={openChannel} />}
-      {dialog === "invite" && <InviteDialog onClose={() => setDialog("none")} />}
-      {dialog === "switcher" && (
-        <QuickSwitcher onClose={() => setDialog("none")} onOpen={openChannel} />
+      {dialog.kind === "new-dm" && <NewDmDialog onClose={closeDialog} onOpen={openChannel} />}
+      {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
+      {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
+      {dialog.kind === "search" && <SearchDialog onClose={closeDialog} onJump={openChannel} />}
+      {dialog.kind === "edit-profile" && <EditProfileDialog onClose={closeDialog} />}
+      {dialog.kind === "profile" && (
+        <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />
       )}
-      {dialog === "search" && (
-        <SearchDialog onClose={() => setDialog("none")} onJump={openChannel} />
+      {dialog.kind === "channel-details" && activeChannelId && (
+        <ChannelDetailsDialog
+          channelId={activeChannelId}
+          onClose={closeDialog}
+          onLeft={() => {
+            closeDialog();
+            setActiveChannelId(null);
+          }}
+          onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
+        />
       )}
     </div>
   );
