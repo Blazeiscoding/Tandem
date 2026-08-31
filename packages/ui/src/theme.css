@@ -1,0 +1,84 @@
+/*
+ * SlackOSS visual identity — dark warm charcoal, copper accent, mono for
+ * infrastructure (addresses, ports, codes). One committed look, no light mode yet.
+ */
+@theme {
+  --color-ground: #17151f; /* app background */
+  --color-raised: #1e1b29; /* sidebar, panels */
+  --color-lifted: #262231; /* hover, cards */
+  --color-edge: #322d40; /* borders */
+  --color-ink: #e9e6f2; /* primary text */
+  --color-ink-dim: #9a94ac; /* secondary text */
+  --color-ink-faint: #6b6580; /* tertiary text */
+  --color-copper: #e8a550; /* accent */
+  --color-copper-deep: #c9852e;
+  --color-online: #57b98a;
+  --color-alert: #e0564f;
+  --color-mention: rgba(232, 165, 80, 0.14);
+
+  --font-sans:
+    "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --font-mono: "Cascadia Code", ui-monospace, "JetBrains Mono", Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(232, 165, 80, 0.32);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #3a3448;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #4a4360;
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Window drag region for the frameless titlebar */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-drag button,
+.titlebar-drag input,
+.titlebar-drag [role="button"] {
+  -webkit-app-region: no-drag;
+}

@@ -1,0 +1,27 @@
+import { contextBridge, ipcRenderer } from "electron";
+
+export interface SlackossBridge {
+  storageGet: (key: string) => Promise<unknown>;
+  storageSet: (key: string, value: unknown) => Promise<void>;
+  lanSnapshot: () => Promise<unknown[]>;
+  onLanServers: (cb: (servers: unknown[]) => void) => () => void;
+  hostingStatus: () => Promise<unknown>;
+  hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<unknown>;
+  hostingStop: () => Promise<void>;
+}
+
+const bridge: SlackossBridge = {
+  storageGet: (key) => ipcRenderer.invoke("storage:get", key),
+  storageSet: (key, value) => ipcRenderer.invoke("storage:set", key, value),
+  lanSnapshot: () => ipcRenderer.invoke("lan:snapshot"),
+  onLanServers: (cb) => {
+    const listener = (_e: unknown, servers: unknown[]) => cb(servers);
+    ipcRenderer.on("lan:servers", listener);
+    return () => ipcRenderer.removeListener("lan:servers", listener);
+  },
+  hostingStatus: () => ipcRenderer.invoke("hosting:status"),
+  hostingStart: (opts) => ipcRenderer.invoke("hosting:start", opts),
+  hostingStop: () => ipcRenderer.invoke("hosting:stop"),
+};
+
+contextBridge.exposeInMainWorld("slackoss", bridge);

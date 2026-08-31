@@ -1,0 +1,3 @@
+@import "tailwindcss";
+@import "@slackoss/ui/theme.css";
+@source "../../../../../packages/ui/src";
