@@ -100,7 +100,12 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const blobPath = (fileId: string) => join(filesDir!, fileId);
 
   const app = Fastify({ logger: opts.logger ?? false });
-  await app.register(cors, { origin: true });
+  // The default allow-list is GET/HEAD/POST only, which silently breaks
+  // reactions, edits, deletes, pins and saves in the browser.
+  await app.register(cors, {
+    origin: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+  });
   await app.register(multipart, { limits: { fileSize: maxFileSize, files: 1 } });
 
   // Serve the browser client (if bundled) so teammates without the app can join.
@@ -274,6 +279,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         memberIds,
       });
       emit({ type: "channel.created", channel }, channel.id);
+      // Named channels carry no memberIds, so announce the founding members
+      // explicitly or clients won't know they belong to it.
+      for (const userId of memberIds) {
+        emit({ type: "member.joined", channelId: channel.id, userId }, channel.id);
+      }
       return reply.status(201).send({ channel });
     }
 
@@ -543,6 +553,69 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       return { ok: true };
     },
   );
+
+  // ---------- pins & saved items ----------
+
+  /** Resolves a message the caller is allowed to see, or 404s. */
+  const requireVisibleMessage = (messageId: ID, user: User) => {
+    const message = store.getMessage(messageId);
+    if (!message || !store.canAccess(message.channelId, user.id)) {
+      throw new HttpError(404, "message_not_found");
+    }
+    return message;
+  };
+
+  app.put<{ Params: { id: string } }>("/api/messages/:id/pin", async (req) => {
+    const me = requireUser(req);
+    const message = requireVisibleMessage(req.params.id, me);
+    if (store.addPin(message.channelId, message.id, me.id)) {
+      emit(
+        { type: "pin.added", channelId: message.channelId, messageId: message.id, userId: me.id },
+        message.channelId,
+      );
+    }
+    return { ok: true };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/messages/:id/pin", async (req) => {
+    const me = requireUser(req);
+    const message = requireVisibleMessage(req.params.id, me);
+    if (store.removePin(message.id)) {
+      emit(
+        { type: "pin.removed", channelId: message.channelId, messageId: message.id },
+        message.channelId,
+      );
+    }
+    return { ok: true };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/channels/:id/pins", async (req) => {
+    const me = requireUser(req);
+    requireChannelAccess(req.params.id, me);
+    return { messages: store.listPins(req.params.id) };
+  });
+
+  app.put<{ Params: { id: string } }>("/api/messages/:id/save", async (req) => {
+    const me = requireUser(req);
+    const message = requireVisibleMessage(req.params.id, me);
+    if (store.addSaved(me.id, message.id)) {
+      gateway.sendToUser(me.id, { type: "saved", messageId: message.id, saved: true });
+    }
+    return { ok: true };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/messages/:id/save", async (req) => {
+    const me = requireUser(req);
+    if (store.removeSaved(me.id, req.params.id)) {
+      gateway.sendToUser(me.id, { type: "saved", messageId: req.params.id, saved: false });
+    }
+    return { ok: true };
+  });
+
+  app.get("/api/saved", async (req) => {
+    const me = requireUser(req);
+    return { messages: store.listSaved(me.id) };
+  });
 
   // ---------- invites & search ----------
 

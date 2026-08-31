@@ -16,7 +16,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const client = useClient();
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
-  const [text, setText] = useState("");
+  // Threads keep their own draft slot so a channel draft isn't clobbered.
+  const draftKey = threadRootId ? `${channelId}:${threadRootId}` : channelId;
+  const savedDraft = useWorkspace((s) => s.drafts[draftKey] ?? "");
+  const [text, setText] = useState(savedDraft);
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [attached, setAttached] = useState<File[]>([]);
@@ -25,11 +28,30 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const filePicker = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
   const dragDepth = useRef(0);
+  /** True once the user has edited this conversation's draft in this session. */
+  const edited = useRef(false);
 
-  // Clearing attachments when switching conversations keeps drafts from crossing over.
+  // Switching conversations swaps in that conversation's draft and clears attachments.
   useEffect(() => {
+    edited.current = false;
+    setText(client.state.drafts[draftKey] ?? "");
     setAttached([]);
-  }, [channelId, threadRootId]);
+    setMentionQuery(null);
+  }, [client, draftKey]);
+
+  // Drafts load from disk asynchronously, so they can arrive after this mounts.
+  // Adopt them only while the composer is untouched, never over live typing.
+  useEffect(() => {
+    if (!edited.current && savedDraft) setText(savedDraft);
+  }, [savedDraft]);
+
+  // Persist as the user types. Guarded by `edited` so a freshly mounted empty
+  // composer can't blank out a draft that hasn't loaded yet.
+  useEffect(() => {
+    if (!edited.current || text === savedDraft) return;
+    const timer = setTimeout(() => client.setDraft(draftKey, text), 250);
+    return () => clearTimeout(timer);
+  }, [client, draftKey, text, savedDraft]);
 
   function addFiles(files: FileList | File[] | null) {
     if (!files) return;
@@ -81,6 +103,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setText("");
     setAttached([]);
     setMentionQuery(null);
+    edited.current = false;
+    client.setDraft(draftKey, "");
     if (box.current) box.current.style.height = "auto";
   }
 
@@ -193,6 +217,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             }
           }}
           onChange={(e) => {
+            edited.current = true;
             setText(e.target.value);
             refreshMentionState(e.target.value, e.target.selectionStart);
             e.target.style.height = "auto";

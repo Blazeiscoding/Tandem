@@ -211,6 +211,30 @@ export class Api {
     return res.blob();
   }
 
+  pinMessage(id: ID): Promise<{ ok: true }> {
+    return this.request("PUT", `/api/messages/${id}/pin`);
+  }
+
+  unpinMessage(id: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/messages/${id}/pin`);
+  }
+
+  listPins(channelId: ID): Promise<{ messages: Message[] }> {
+    return this.request("GET", `/api/channels/${channelId}/pins`);
+  }
+
+  saveMessage(id: ID): Promise<{ ok: true }> {
+    return this.request("PUT", `/api/messages/${id}/save`);
+  }
+
+  unsaveMessage(id: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/messages/${id}/save`);
+  }
+
+  listSaved(): Promise<{ messages: Message[] }> {
+    return this.request("GET", "/api/saved");
+  }
+
   createInvite(body: CreateInviteBody = {}): Promise<{ invite: Invite }> {
     return this.request("POST", "/api/invites", body);
   }

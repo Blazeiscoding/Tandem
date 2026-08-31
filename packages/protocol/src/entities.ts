@@ -76,6 +76,8 @@ export interface Message {
   replyCount: number;
   reactions: ReactionGroup[];
   files: FileMeta[];
+  /** Pinned messages are shown to the whole channel. */
+  pinned: boolean;
 }
 
 export interface Invite {

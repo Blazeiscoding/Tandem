@@ -121,6 +121,7 @@ export class Gateway {
           memberships: this.store.memberships(user.id),
           channelLastSeq: this.store.channelLastSeqMap(user.id),
           presence: this.presenceMap(),
+          savedMessageIds: this.store.savedMessageIds(user.id),
           workspaceName: this.workspaceName(),
         };
         this.send(ws, snapshot);
@@ -198,6 +199,12 @@ export class Gateway {
     for (const c of this.clients) {
       if (audience === null || audience.has(c.userId)) this.sendRaw(c.ws, frame);
     }
+  }
+
+  /** Sends an ephemeral event to every socket of one user (their other devices). */
+  sendToUser(userId: ID, event: EphemeralEvent): void {
+    const frame = JSON.stringify({ type: "ephemeral", event } satisfies ServerToClient);
+    for (const c of this.byUser.get(userId) ?? []) this.sendRaw(c.ws, frame);
   }
 
   broadcastEphemeral(event: EphemeralEvent, audience: Set<ID> | null): void {

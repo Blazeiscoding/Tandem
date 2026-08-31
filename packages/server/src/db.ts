@@ -124,6 +124,24 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_files_message ON files(message_id);
   CREATE INDEX idx_files_channel ON files(channel_id);
   `,
+
+  // v3 — pins (shared per channel) and saved items (private per user)
+  `
+  CREATE TABLE pins (
+    channel_id TEXT NOT NULL REFERENCES channels(id),
+    message_id TEXT NOT NULL REFERENCES messages(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (channel_id, message_id)
+  );
+
+  CREATE TABLE saved_items (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    message_id TEXT NOT NULL REFERENCES messages(id),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, message_id)
+  );
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { WorkspaceClient } from "@slackoss/client-core";
 import { ClientContext, useClient, useWorkspace } from "../context.js";
@@ -15,6 +15,7 @@ import {
   NewDmDialog,
 } from "../components/dialogs.js";
 import { QuickSwitcher, SearchDialog } from "../components/QuickSwitcher.js";
+import { LaterPanel, PinsPanel } from "../components/MessageListPanel.js";
 
 interface Props {
   client: WorkspaceClient;
@@ -23,6 +24,9 @@ interface Props {
 }
 
 type DialogKind = "none" | "new-channel" | "browse" | "new-dm" | "invite" | "switcher" | "search";
+
+/** Only one right-hand panel is open at a time. */
+type SidePanel = { kind: "none" } | { kind: "thread"; rootId: ID } | { kind: "pins" } | { kind: "later" };
 
 export function WorkspaceScreen({ client, platform, onLeaveWorkspace }: Props) {
   return (
@@ -44,9 +48,10 @@ function WorkspaceInner({
   const users = useWorkspace((s) => s.users);
   const self = useWorkspace((s) => s.self);
   const [activeChannelId, setActiveChannelId] = useState<ID | null>(null);
-  const [threadRootId, setThreadRootId] = useState<ID | null>(null);
+  const [panel, setPanel] = useState<SidePanel>({ kind: "none" });
   const [dialog, setDialog] = useState<DialogKind>("none");
   const clientFromCtx = useClient();
+  const drafts = useWorkspace((s) => s.drafts);
 
   // Pick #general (or the first channel) once the snapshot lands.
   useEffect(() => {
@@ -56,6 +61,26 @@ function WorkspaceInner({
       if (general) setActiveChannelId(general.id);
     }
   }, [channels, activeChannelId]);
+
+  // Drafts live on disk per server, so an accidental quit doesn't lose them.
+  const draftStorageKey = `drafts:${clientFromCtx.baseUrl}`;
+  const draftsLoaded = useRef(false);
+
+  useEffect(() => {
+    draftsLoaded.current = false;
+    void platform.storage.get<Record<string, string>>(draftStorageKey).then((stored) => {
+      if (stored && Object.keys(stored).length > 0) clientFromCtx.hydrateDrafts(stored);
+      draftsLoaded.current = true;
+    });
+  }, [clientFromCtx, platform, draftStorageKey]);
+
+  useEffect(() => {
+    // Until the stored drafts arrive, this component's empty initial state
+    // would overwrite them on disk.
+    if (!draftsLoaded.current) return;
+    const timer = setTimeout(() => void platform.storage.set(draftStorageKey, drafts), 600);
+    return () => clearTimeout(timer);
+  }, [drafts, platform, draftStorageKey]);
 
   // Desktop notifications for incoming messages when unfocused or elsewhere.
   useEffect(() => {
@@ -99,7 +124,7 @@ function WorkspaceInner({
 
   function openChannel(id: ID) {
     setActiveChannelId(id);
-    setThreadRootId(null);
+    setPanel({ kind: "none" });
     setDialog("none");
   }
 
@@ -140,6 +165,32 @@ function WorkspaceInner({
             )}
           </div>
           <button
+            onClick={() =>
+              setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
+            }
+            title="Pinned messages"
+            className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+              panel.kind === "pins"
+                ? "border-copper text-copper"
+                : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+            }`}
+          >
+            📌
+          </button>
+          <button
+            onClick={() =>
+              setPanel((p) => (p.kind === "later" ? { kind: "none" } : { kind: "later" }))
+            }
+            title="Saved for later"
+            className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+              panel.kind === "later"
+                ? "border-copper text-copper"
+                : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+            }`}
+          >
+            🔖
+          </button>
+          <button
             onClick={() => setDialog("search")}
             className="rounded-lg border border-edge px-3 py-1.5 text-[13px] text-ink-faint transition-colors hover:border-ink-faint hover:text-ink"
           >
@@ -151,7 +202,7 @@ function WorkspaceInner({
           <>
             <MessageTimeline
               channelId={activeChannelId}
-              onOpenThread={setThreadRootId}
+              onOpenThread={(rootId) => setPanel({ kind: "thread", rootId })}
               onChannelClick={openChannel}
             />
             <Composer
@@ -167,13 +218,23 @@ function WorkspaceInner({
         )}
       </main>
 
-      {threadRootId && activeChannelId && (
+      {panel.kind === "thread" && activeChannelId && (
         <ThreadPanel
           channelId={activeChannelId}
-          rootId={threadRootId}
-          onClose={() => setThreadRootId(null)}
+          rootId={panel.rootId}
+          onClose={() => setPanel({ kind: "none" })}
           onChannelClick={openChannel}
         />
+      )}
+      {panel.kind === "pins" && activeChannelId && (
+        <PinsPanel
+          channelId={activeChannelId}
+          onClose={() => setPanel({ kind: "none" })}
+          onJump={openChannel}
+        />
+      )}
+      {panel.kind === "later" && (
+        <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />
       )}
 
       {dialog === "new-channel" && (

@@ -31,6 +31,7 @@ export function MessageItem({
   const self = useWorkspace((s) => s.self);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
   const mine = message.userId === self?.id;
   const canDelete = mine || self?.role === "owner" || self?.role === "admin";
@@ -58,6 +59,12 @@ export function MessageItem({
           )}
         </div>
         <div className="min-w-0 flex-1">
+          {(message.pinned || isSaved) && (
+            <div className="mb-0.5 flex items-center gap-2 text-[11px] text-ink-faint">
+              {message.pinned && <span className="text-copper">📌 Pinned to this channel</span>}
+              {isSaved && <span>🔖 Saved for later</span>}
+            </div>
+          )}
           {!compact && (
             <div className="flex items-baseline gap-2">
               <span className="font-bold">{author?.displayName ?? "unknown"}</span>
@@ -153,6 +160,18 @@ export function MessageItem({
           {!inThread && (
             <ToolbarButton label="↩" title="Reply in thread" onClick={() => onOpenThread?.(message.id)} />
           )}
+          <ToolbarButton
+            label="🔖"
+            title={isSaved ? "Remove from Later" : "Save for later"}
+            active={isSaved}
+            onClick={() => client.toggleSaved(message.id)}
+          />
+          <ToolbarButton
+            label="📌"
+            title={message.pinned ? "Unpin from channel" : "Pin to channel"}
+            active={message.pinned}
+            onClick={() => client.togglePin(message)}
+          />
           {mine && (
             <ToolbarButton
               label="✎"
@@ -178,12 +197,19 @@ export function MessageItem({
   );
 }
 
-function ToolbarButton(props: { label: string; title?: string; onClick: () => void }) {
+function ToolbarButton(props: {
+  label: string;
+  title?: string;
+  active?: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={props.onClick}
       title={props.title}
-      className="px-2 py-1.5 text-[14px] transition-colors hover:bg-copper/20"
+      className={`px-2 py-1.5 text-[14px] transition-colors hover:bg-copper/20 ${
+        props.active ? "bg-copper/25" : ""
+      }`}
     >
       {props.label}
     </button>

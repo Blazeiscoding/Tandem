@@ -64,6 +64,10 @@ export interface WorkspaceState {
   /** threadRootId -> replies oldest → newest. */
   threads: Record<ID, Message[]>;
   pending: PendingMessage[];
+  /** Message ids this user saved for later. */
+  saved: Record<ID, true>;
+  /** channelId -> unsent composer text, restored when you come back. */
+  drafts: Record<ID, string>;
 }
 
 const initialState: WorkspaceState = {
@@ -80,6 +84,8 @@ const initialState: WorkspaceState = {
   timelines: {},
   threads: {},
   pending: [],
+  saved: {},
+  drafts: {},
 };
 
 function sortedInsert(items: Message[], msg: Message): Message[] {
@@ -210,6 +216,8 @@ export class WorkspaceClient {
     for (const c of snap.channels) channels[c.id] = c;
     const memberships: Record<ID, number> = {};
     for (const m of snap.memberships) memberships[m.channelId] = m.lastReadSeq;
+    const saved: Record<ID, true> = {};
+    for (const id of snap.savedMessageIds) saved[id] = true;
 
     this.store.setState((prev) => ({
       status: "online",
@@ -220,11 +228,13 @@ export class WorkspaceClient {
       memberships,
       channelLastSeq: snap.channelLastSeq,
       presence: snap.presence,
+      saved,
       lastSeq: Math.max(prev.lastSeq, snap.seq),
       // Keep loaded timelines — replayed events patch them incrementally.
       timelines: prev.timelines,
       threads: prev.threads,
       pending: prev.pending,
+      drafts: prev.drafts,
       typing: {},
     }));
   }
@@ -340,6 +350,14 @@ export class WorkspaceClient {
         patch.threads = this.patchThreadMessage(s, event.messageId, apply);
         break;
       }
+      case "pin.added":
+      case "pin.removed": {
+        const pinned = event.type === "pin.added";
+        const setPinned = (m: Message): Message => ({ ...m, pinned });
+        patch.timelines = this.patchMessage(s, event.channelId, event.messageId, setPinned);
+        patch.threads = this.patchThreadMessage(s, event.messageId, setPinned);
+        break;
+      }
       case "channel.created":
       case "channel.updated": {
         patch.channels = { ...s.channels, [event.channel.id]: event.channel };
@@ -422,6 +440,11 @@ export class WorkspaceClient {
     const s = this.store.getState();
     if (event.type === "presence") {
       this.store.setState({ presence: { ...s.presence, [event.userId]: event.presence } });
+    } else if (event.type === "saved") {
+      const saved = { ...s.saved };
+      if (event.saved) saved[event.messageId] = true;
+      else delete saved[event.messageId];
+      this.store.setState({ saved });
     } else if (event.type === "typing") {
       if (event.userId === s.self?.id) return;
       this.store.setState({
@@ -594,6 +617,58 @@ export class WorkspaceClient {
     void (has
       ? this.api.removeReaction(message.id, emoji)
       : this.api.addReaction(message.id, emoji));
+  }
+
+  /** Optimistic pin toggle — the channel-wide event confirms it. */
+  togglePin(message: Message): void {
+    const next = !message.pinned;
+    const apply = (m: Message): Message => ({ ...m, pinned: next });
+    this.store.setState((s) => ({
+      timelines: this.patchMessage(s, message.channelId, message.id, apply),
+      threads: this.patchThreadMessage(s, message.id, apply),
+    }));
+    void (next ? this.api.pinMessage(message.id) : this.api.unpinMessage(message.id)).catch(() => {
+      const revert = (m: Message): Message => ({ ...m, pinned: !next });
+      this.store.setState((s) => ({
+        timelines: this.patchMessage(s, message.channelId, message.id, revert),
+        threads: this.patchThreadMessage(s, message.id, revert),
+      }));
+    });
+  }
+
+  /** Optimistic save-for-later toggle; other devices get the ephemeral echo. */
+  toggleSaved(messageId: ID): void {
+    const isSaved = !!this.state.saved[messageId];
+    this.store.setState((s) => {
+      const saved = { ...s.saved };
+      if (isSaved) delete saved[messageId];
+      else saved[messageId] = true;
+      return { saved };
+    });
+    void (isSaved ? this.api.unsaveMessage(messageId) : this.api.saveMessage(messageId)).catch(
+      () => {
+        this.store.setState((s) => {
+          const saved = { ...s.saved };
+          if (isSaved) saved[messageId] = true;
+          else delete saved[messageId];
+          return { saved };
+        });
+      },
+    );
+  }
+
+  setDraft(channelId: ID, text: string): void {
+    this.store.setState((s) => {
+      const drafts = { ...s.drafts };
+      if (text.trim()) drafts[channelId] = text;
+      else delete drafts[channelId];
+      return { drafts };
+    });
+  }
+
+  /** Seeds drafts restored from disk at startup. */
+  hydrateDrafts(drafts: Record<ID, string>): void {
+    this.store.setState({ drafts });
   }
 
   markRead(channelId: ID): void {

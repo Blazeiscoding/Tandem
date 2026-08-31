@@ -436,6 +436,8 @@ export class Store {
       .prepare("UPDATE messages SET deleted_at = ?, text = '' WHERE id = ?")
       .run(Date.now(), id);
     this.db.prepare("DELETE FROM reactions WHERE message_id = ?").run(id);
+    this.db.prepare("DELETE FROM pins WHERE message_id = ?").run(id);
+    this.db.prepare("DELETE FROM saved_items WHERE message_id = ?").run(id);
   }
 
   /** Newest-first page of top-level channel messages (or thread replies). */
@@ -502,6 +504,11 @@ export class Store {
       .all(...ids) as { thread_root_id: string; c: number }[];
     const replyCounts = new Map(replyRows.map((r) => [r.thread_root_id, r.c]));
 
+    const pinRows = this.db
+      .prepare(`SELECT message_id FROM pins WHERE message_id IN (${ph})`)
+      .all(...ids) as { message_id: string }[];
+    const pinned = new Set(pinRows.map((r) => r.message_id));
+
     const fileRows = this.db
       .prepare(
         `SELECT id, message_id, name, mime, size, width, height FROM files
@@ -529,6 +536,7 @@ export class Store {
       replyCount: replyCounts.get(r.id) ?? 0,
       reactions: reactionsByMsg.get(r.id) ?? [],
       files: filesByMsg.get(r.id) ?? [],
+      pinned: pinned.has(r.id),
     }));
   }
 
@@ -634,6 +642,75 @@ export class Store {
       .prepare("DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?")
       .run(messageId, userId, emoji);
     return res.changes > 0;
+  }
+
+  // ---------- pins & saved items ----------
+
+  addPin(channelId: ID, messageId: ID, userId: ID): boolean {
+    const res = this.db
+      .prepare(
+        "INSERT OR IGNORE INTO pins (channel_id, message_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(channelId, messageId, userId, Date.now());
+    return res.changes > 0;
+  }
+
+  removePin(messageId: ID): boolean {
+    const res = this.db.prepare("DELETE FROM pins WHERE message_id = ?").run(messageId);
+    return res.changes > 0;
+  }
+
+  /** Pinned messages in a channel, newest pin first. */
+  listPins(channelId: ID): Message[] {
+    const rows = this.db
+      .prepare(
+        `SELECT m.* FROM pins p JOIN messages m ON m.id = p.message_id
+         WHERE p.channel_id = ? AND m.deleted_at IS NULL
+         ORDER BY p.created_at DESC`,
+      )
+      .all(channelId) as unknown as MessageRow[];
+    return this.hydrateMessages(rows);
+  }
+
+  addSaved(userId: ID, messageId: ID): boolean {
+    const res = this.db
+      .prepare("INSERT OR IGNORE INTO saved_items (user_id, message_id, created_at) VALUES (?, ?, ?)")
+      .run(userId, messageId, Date.now());
+    return res.changes > 0;
+  }
+
+  removeSaved(userId: ID, messageId: ID): boolean {
+    const res = this.db
+      .prepare("DELETE FROM saved_items WHERE user_id = ? AND message_id = ?")
+      .run(userId, messageId);
+    return res.changes > 0;
+  }
+
+  savedMessageIds(userId: ID): ID[] {
+    const rows = this.db
+      .prepare(
+        `SELECT s.message_id FROM saved_items s JOIN messages m ON m.id = s.message_id
+         WHERE s.user_id = ? AND m.deleted_at IS NULL ORDER BY s.created_at DESC`,
+      )
+      .all(userId) as { message_id: string }[];
+    return rows.map((r) => r.message_id);
+  }
+
+  /** Saved messages the user can still reach, newest save first. */
+  listSaved(userId: ID): Message[] {
+    const rows = this.db
+      .prepare(
+        `SELECT m.* FROM saved_items s
+         JOIN messages m ON m.id = s.message_id
+         JOIN channels c ON c.id = m.channel_id
+         WHERE s.user_id = ? AND m.deleted_at IS NULL AND (
+           c.type = 'public'
+           OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
+         )
+         ORDER BY s.created_at DESC`,
+      )
+      .all(userId, userId) as unknown as MessageRow[];
+    return this.hydrateMessages(rows);
   }
 
   // ---------- invites ----------

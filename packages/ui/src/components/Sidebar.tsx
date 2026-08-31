@@ -24,6 +24,7 @@ export function Sidebar(props: Props) {
   const users = useWorkspace((s) => s.users);
   const presence = useWorkspace((s) => s.presence);
   const self = useWorkspace((s) => s.self);
+  const drafts = useWorkspace((s) => s.drafts);
   const baseHost = client.baseUrl.replace(/^https?:\/\//, "");
 
   const { rooms, dms } = useMemo(() => {
@@ -43,6 +44,7 @@ export function Sidebar(props: Props) {
   }, [channels, memberships, channelLastSeq]);
 
   const isUnread = (id: ID) => (channelLastSeq[id] ?? 0) > (memberships[id] ?? 0);
+  const hasDraft = (id: ID) => !!drafts[id];
 
   return (
     <nav className="flex h-full w-[250px] shrink-0 flex-col border-r border-edge bg-raised">
@@ -70,6 +72,7 @@ export function Sidebar(props: Props) {
               key={ch.id}
               active={ch.id === props.activeChannelId}
               unread={isUnread(ch.id)}
+              draft={hasDraft(ch.id)}
               onClick={() => props.onSelect(ch.id)}
               icon={ch.type === "private" ? "🔒" : "#"}
               label={ch.name}
@@ -90,6 +93,7 @@ export function Sidebar(props: Props) {
                 key={ch.id}
                 active={ch.id === props.activeChannelId}
                 unread={isUnread(ch.id)}
+                draft={hasDraft(ch.id)}
                 onClick={() => props.onSelect(ch.id)}
                 icon={<PresenceDot online={online} />}
                 label={channelTitle(ch, users, self?.id)}
@@ -145,6 +149,7 @@ function SectionHeader(props: {
 function ChannelRow(props: {
   active: boolean;
   unread: boolean;
+  draft: boolean;
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
@@ -165,6 +170,9 @@ function ChannelRow(props: {
           {props.icon}
         </span>
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
+        {props.draft && !props.active && (
+          <span className="shrink-0 font-mono text-[10px] text-ink-faint">draft</span>
+        )}
         {props.unread && !props.active && (
           <span className="size-2 shrink-0 rounded-full bg-copper" />
         )}

@@ -170,6 +170,28 @@ describe("workspace server", () => {
     b.ws.close();
   });
 
+  it("tells the creator they are a member of a channel they just made", async () => {
+    const a = connectWs(aliceToken);
+    await a.next((m) => m.type === "ready");
+
+    const created = await api<{ channel: Channel }>("/api/channels", {
+      token: aliceToken,
+      body: { type: "public", name: "logistics" },
+    });
+    expect(created.status).toBe(201);
+
+    // Without this the channel never appears in the creator's sidebar.
+    const joined = await a.next(
+      (m) =>
+        m.type === "event" &&
+        m.envelope.event.type === "member.joined" &&
+        m.envelope.event.channelId === created.data.channel.id &&
+        m.envelope.event.userId === alice.id,
+    );
+    expect(joined.type).toBe("event");
+    a.ws.close();
+  });
+
   it("keeps private channels invisible to non-members", async () => {
     const created = await api<{ channel: Channel }>("/api/channels", {
       token: aliceToken,
@@ -349,6 +371,88 @@ describe("workspace server", () => {
       body: form,
     });
     expect(res.status).toBe(404);
+  });
+
+  it("pins messages for the whole channel and saves them privately", async () => {
+    const general = server.store.getChannelByName("general")!;
+    const posted = await api<{ message: Message }>(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+      body: { text: "read this before Friday" },
+    });
+    const messageId = posted.data.message.id;
+
+    // Bob watches for the pin event, since pins are channel-wide.
+    const bobWs = connectWs(bobToken);
+    await bobWs.next((m) => m.type === "ready");
+
+    expect(
+      (await api(`/api/messages/${messageId}/pin`, { method: "PUT", token: aliceToken })).status,
+    ).toBe(200);
+    const pinEvent = await bobWs.next(
+      (m) => m.type === "event" && m.envelope.event.type === "pin.added",
+    );
+    expect(pinEvent.type).toBe("event");
+
+    const pins = await api<{ messages: Message[] }>(`/api/channels/${general.id}/pins`, {
+      token: bobToken,
+    });
+    expect(pins.data.messages.map((m) => m.id)).toContain(messageId);
+    expect(pins.data.messages.find((m) => m.id === messageId)!.pinned).toBe(true);
+
+    // Saving is private: Alice saves, Bob's list stays empty.
+    expect(
+      (await api(`/api/messages/${messageId}/save`, { method: "PUT", token: aliceToken })).status,
+    ).toBe(200);
+    const aliceSaved = await api<{ messages: Message[] }>("/api/saved", { token: aliceToken });
+    expect(aliceSaved.data.messages.map((m) => m.id)).toContain(messageId);
+    const bobSaved = await api<{ messages: Message[] }>("/api/saved", { token: bobToken });
+    expect(bobSaved.data.messages).toHaveLength(0);
+
+    // Unpinning and unsaving both clear.
+    await api(`/api/messages/${messageId}/pin`, { method: "DELETE", token: aliceToken });
+    await api(`/api/messages/${messageId}/save`, { method: "DELETE", token: aliceToken });
+    const afterPins = await api<{ messages: Message[] }>(`/api/channels/${general.id}/pins`, {
+      token: aliceToken,
+    });
+    expect(afterPins.data.messages.map((m) => m.id)).not.toContain(messageId);
+    const afterSaved = await api<{ messages: Message[] }>("/api/saved", { token: aliceToken });
+    expect(afterSaved.data.messages).toHaveLength(0);
+
+    bobWs.ws.close();
+  });
+
+  it("will not pin a message in a channel the user cannot see", async () => {
+    const secret = server.store.getChannelByName("secret-plans")!;
+    const posted = await api<{ message: Message }>(`/api/channels/${secret.id}/messages`, {
+      token: aliceToken,
+      body: { text: "eyes only" },
+    });
+    const res = await api(`/api/messages/${posted.data.message.id}/pin`, {
+      method: "PUT",
+      token: bobToken,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  // Node's fetch ignores CORS, so browser-only breakage needs an explicit check:
+  // the default allow-list omits PUT/PATCH/DELETE, which kills reactions,
+  // edits, deletes, pins and saves in the real client.
+  it("allows the mutating methods through CORS preflight", async () => {
+    const res = await fetch(`${base}/api/messages/anything/pin`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "PUT",
+        "access-control-request-headers": "authorization",
+      },
+    });
+    const allowed = (res.headers.get("access-control-allow-methods") ?? "")
+      .split(",")
+      .map((m) => m.trim());
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
+      expect(allowed).toContain(method);
+    }
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
   });
 
   it("marks channels read", async () => {
