@@ -19,6 +19,7 @@ import { LaterPanel, PinsPanel } from "../components/MessageListPanel.js";
 import { ScheduledPanel } from "../components/ScheduledPanel.js";
 import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
 import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
+import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 
 interface Props {
   client: WorkspaceClient;
@@ -38,7 +39,8 @@ type DialogKind =
   | { kind: "search" }
   | { kind: "edit-profile" }
   | { kind: "profile"; userId: ID }
-  | { kind: "channel-details" };
+  | { kind: "channel-details" }
+  | { kind: "shortcuts" };
 
 /** Only one right-hand panel is open at a time. */
 type SidePanel =
@@ -157,6 +159,14 @@ function WorkspaceInner({
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         setDialog({ kind: "search" });
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "/") {
+        e.preventDefault();
+        setDialog((d) => (d.kind === "shortcuts" ? { kind: "none" } : { kind: "shortcuts" }));
+      }
+      // Dialogs close themselves on Escape; this clears the side panel.
+      if (e.key === "Escape") {
+        setPanel((p) => (p.kind === "none" ? p : { kind: "none" }));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -328,6 +338,7 @@ function WorkspaceInner({
       {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
       {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
       {dialog.kind === "search" && <SearchDialog onClose={closeDialog} onJump={jumpToMessage} />}
+      {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
       {dialog.kind === "edit-profile" && <EditProfileDialog onClose={closeDialog} />}
       {dialog.kind === "profile" && (
         <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />
