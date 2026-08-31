@@ -1,4 +1,5 @@
 import type {
+  App,
   Channel,
   ChannelPrefs,
   ChannelPrefsBody,
@@ -15,6 +16,7 @@ import type {
   UpdateChannelBody,
   UpdateMeBody,
   User,
+  Webhook,
 } from "@slackoss/protocol";
 
 export class ApiError extends Error {
@@ -275,6 +277,29 @@ export class Api {
 
   listSaved(): Promise<{ messages: Message[] }> {
     return this.request("GET", "/api/saved");
+  }
+
+  // ---------- apps and integrations (admin only) ----------
+
+  /** The bot token comes back once here and is never retrievable again. */
+  createApp(body: { name: string }): Promise<{ app: App; botUser: User; token: string }> {
+    return this.request("POST", "/api/apps", body);
+  }
+
+  listApps(): Promise<{ apps: (App & { webhooks: Webhook[] })[] }> {
+    return this.request("GET", "/api/apps");
+  }
+
+  deleteApp(id: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/apps/${id}`);
+  }
+
+  createWebhook(appId: ID, body: { channelId: ID }): Promise<{ webhook: Webhook; url: string }> {
+    return this.request("POST", `/api/apps/${appId}/webhooks`, body);
+  }
+
+  deleteWebhook(id: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/webhooks/${id}`);
   }
 
   createInvite(body: CreateInviteBody = {}): Promise<{ invite: Invite }> {

@@ -105,10 +105,28 @@ never touches it, so a self-hosted workspace stays private by construction.
 Connections form a mesh, which suits the handful of people a small team puts
 in a call; an SFU is the answer beyond that.
 
+### Slack-compatible integrations
+
+Admins create apps under *Apps and integrations*. Each gets a bot user, a
+`xoxb-` token and any number of incoming webhooks. Both speak Slack's shapes,
+so most existing integrations work by changing the URL:
+
+```sh
+# Incoming webhook — text, Block Kit, or legacy payload=<json> form posts
+curl -X POST http://your-server:8543/hooks/<token>   -H 'content-type: application/json'   -d '{"text":"build 412 is green"}'
+
+# Web API
+curl -X POST http://your-server:8543/api/chat.postMessage   -H "authorization: Bearer xoxb-..." -H 'content-type: application/json'   -d '{"channel":"#general","text":"deploy finished"}'
+```
+
+`chat.postMessage` accepts a channel id or `#name`, supports `thread_ts`, and
+replies with Slack's `{ok, channel, ts}` — or `{ok:false, error}` on failure.
+Block Kit payloads are flattened to text rather than rejected, so a message
+written for Slack still reads sensibly.
+
 ## Roadmap
 
-- **Next**: video in huddles alongside screen share, an SFU for larger rooms,
-  message forwarding, sidebar sections.
-- **After**: a Slack-compatible integration API (incoming webhooks, slash
-  commands, bot tokens, Block Kit rendering) so existing Slack apps port over,
-  plus an admin console, optional Postgres and S3, and SSO.
+- **Next**: slash commands and outgoing event subscriptions to finish the
+  integration story; video in huddles alongside screen share.
+- **Later**: an SFU for larger huddles, message forwarding, sidebar sections,
+  a fuller admin console, optional Postgres and S3, and SSO.

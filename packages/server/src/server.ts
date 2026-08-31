@@ -10,6 +10,8 @@ import {
   PROTOCOL_VERSION,
   createChannelBody,
   channelPrefsBody,
+  createAppBody,
+  createWebhookBody,
   createInviteBody,
   scheduleMessageBody,
   editMessageBody,
@@ -35,6 +37,8 @@ import { Gateway } from "./gateway.js";
 import { hashPassword, hashToken, newSessionToken, verifyPassword } from "./auth.js";
 import { advertise, type MdnsHandle } from "./mdns.js";
 import { imageSize } from "./imageSize.js";
+import { payloadToText } from "./blockKit.js";
+import { secretToken } from "./ids.js";
 
 export const SERVER_VERSION = "0.1.0";
 
@@ -138,6 +142,20 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
   });
   await app.register(multipart, { limits: { fileSize: maxFileSize, files: 1 } });
+
+  // Slack-style integrations often post `payload=<json>` as a form rather than
+  // JSON, so accept that shape too. Small enough not to warrant a plugin.
+  app.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string" },
+    (_req, body, done) => {
+      try {
+        done(null, Object.fromEntries(new URLSearchParams(body as string)));
+      } catch (err) {
+        done(err as Error);
+      }
+    },
+  );
 
   // Serve the browser client (if bundled) so teammates without the app can join.
   if (opts.webDistPath && existsSync(join(opts.webDistPath, "index.html"))) {
@@ -599,6 +617,186 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       return { ok: true };
     },
   );
+
+  // ---------- apps, webhooks and the Slack-compatible API ----------
+
+  const requireAdmin = (req: FastifyRequest): User => {
+    const me = requireUser(req);
+    if (me.role !== "owner" && me.role !== "admin") throw new HttpError(403, "admin_only");
+    return me;
+  };
+
+  /** A handle for the app's bot user that cannot collide with a person's. */
+  const botHandle = (name: string): string => {
+    const base =
+      name
+        .toLowerCase()
+        .replaceAll(/[^a-z0-9]+/g, "-")
+        .replaceAll(/^-|-$/g, "")
+        .slice(0, 24) || "bot";
+    let handle = `${base}-bot`;
+    let n = 2;
+    while (store.getUserAuthByHandle(handle)) handle = `${base}-bot-${n++}`;
+    return handle;
+  };
+
+  app.post("/api/apps", async (req, reply) => {
+    const me = requireAdmin(req);
+    const body = createAppBody.parse(req.body);
+
+    // A bot posts as a real (non-human) user, so messages render normally.
+    const { hash, salt } = hashPassword(secretToken());
+    const bot = store.createBotUser(botHandle(body.name), body.name, hash, salt);
+    const created = store.createApp({ name: body.name, botUserId: bot.id, createdBy: me.id });
+
+    const token = secretToken("xoxb-");
+    store.addAppToken(created.id, hashToken(token));
+    emit({ type: "user.joined", user: bot }, null);
+
+    // The token is shown once and only stored hashed.
+    return reply.status(201).send({ app: created, botUser: bot, token });
+  });
+
+  app.get("/api/apps", async (req) => {
+    requireAdmin(req);
+    const apps = store.listApps();
+    return {
+      apps: apps.map((a) => ({ ...a, webhooks: store.listWebhooks(a.id) })),
+    };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/apps/:id", async (req) => {
+    requireAdmin(req);
+    if (!store.getApp(req.params.id)) throw new HttpError(404, "not_found");
+    store.deleteApp(req.params.id);
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/apps/:id/webhooks", async (req, reply) => {
+    const me = requireAdmin(req);
+    const owner = store.getApp(req.params.id);
+    if (!owner) throw new HttpError(404, "not_found");
+    const body = createWebhookBody.parse(req.body);
+    const channel = requireChannelAccess(body.channelId, me);
+
+    const token = secretToken();
+    const webhook = store.createWebhook({
+      appId: owner.id,
+      channelId: channel.id,
+      tokenHash: hashToken(token),
+    });
+    // The bot must be in the channel to post to it.
+    if (store.addMember(channel.id, owner.botUserId)) {
+      emit({ type: "member.joined", channelId: channel.id, userId: owner.botUserId }, channel.id);
+    }
+    return reply.status(201).send({ webhook, url: `/hooks/${token}` });
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/webhooks/:id", async (req) => {
+    requireAdmin(req);
+    if (!store.deleteWebhook(req.params.id)) throw new HttpError(404, "not_found");
+    return { ok: true };
+  });
+
+  /**
+   * Incoming webhook, shaped like Slack's: POST a JSON body with `text` and/or
+   * `blocks`. Form-encoded `payload=<json>` is accepted too, since many older
+   * integrations send it that way.
+   */
+  app.post<{ Params: { token: string } }>("/hooks/:token", async (req, reply) => {
+    const found = store.webhookForToken(hashToken(req.params.token));
+    if (!found) return reply.status(404).send({ ok: false, error: "invalid_webhook" });
+
+    let payload: { text?: unknown; blocks?: unknown } = {};
+    const raw = req.body as Record<string, unknown> | string | undefined;
+    if (typeof raw === "string") {
+      try {
+        payload = JSON.parse(raw) as typeof payload;
+      } catch {
+        return reply.status(400).send({ ok: false, error: "invalid_payload" });
+      }
+    } else if (raw && typeof raw === "object") {
+      if (typeof raw.payload === "string") {
+        try {
+          payload = JSON.parse(raw.payload) as typeof payload;
+        } catch {
+          return reply.status(400).send({ ok: false, error: "invalid_payload" });
+        }
+      } else {
+        payload = raw as typeof payload;
+      }
+    }
+
+    const text = payloadToText(payload);
+    if (!text) return reply.status(400).send({ ok: false, error: "no_text" });
+
+    const channel = store.getChannel(found.webhook.channelId);
+    if (!channel || channel.archived) {
+      return reply.status(404).send({ ok: false, error: "channel_not_found" });
+    }
+    postMessage({
+      channelId: channel.id,
+      userId: found.app.botUserId,
+      text,
+      threadRootId: null,
+      nonce: null,
+      fileIds: [],
+    });
+    // Slack replies with the literal string "ok"; tools check for it.
+    return reply.type("text/plain").send("ok");
+  });
+
+  /**
+   * Slack Web API compatible send, so existing bot code works by pointing at
+   * this server. Errors use Slack's `{ok:false, error}` shape.
+   */
+  app.post("/api/chat.postMessage", async (req, reply) => {
+    const token = bearerToken(req);
+    const owner = token ? store.appForToken(hashToken(token)) : null;
+    if (!owner) return reply.status(401).send({ ok: false, error: "invalid_auth" });
+
+    const body = (req.body ?? {}) as {
+      channel?: string;
+      text?: unknown;
+      blocks?: unknown;
+      thread_ts?: string;
+    };
+    if (typeof body.channel !== "string" || !body.channel) {
+      return reply.status(400).send({ ok: false, error: "channel_not_found" });
+    }
+
+    // Slack accepts an id or a #name; so do we.
+    const named = body.channel.replace(/^#/, "");
+    const channel = store.getChannel(body.channel) ?? store.getChannelByName(named);
+    if (!channel || channel.archived) {
+      return reply.status(404).send({ ok: false, error: "channel_not_found" });
+    }
+
+    const text = payloadToText(body);
+    if (!text) return reply.status(400).send({ ok: false, error: "no_text" });
+
+    if (store.addMember(channel.id, owner.botUserId)) {
+      emit({ type: "member.joined", channelId: channel.id, userId: owner.botUserId }, channel.id);
+    }
+
+    let threadRootId: ID | null = null;
+    if (body.thread_ts) {
+      const root = store.getMessage(body.thread_ts);
+      // An unknown thread parent is not worth failing the whole send over.
+      if (root && root.channelId === channel.id && !root.threadRootId) threadRootId = root.id;
+    }
+
+    const message = postMessage({
+      channelId: channel.id,
+      userId: owner.botUserId,
+      text,
+      threadRootId,
+      nonce: null,
+      fileIds: [],
+    });
+    // `ts` is Slack's message identifier; ours is the message id.
+    return { ok: true, channel: channel.id, ts: message.id, message };
+  });
 
   // ---------- scheduled messages ----------
 

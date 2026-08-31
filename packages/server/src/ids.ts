@@ -22,3 +22,8 @@ export function inviteCode(): string {
   for (let i = 0; i < 8; i++) out += ENC[rand[i]! % 32];
   return out;
 }
+
+/** Long random secret for bot tokens and webhook URLs. */
+export function secretToken(prefix = ""): string {
+  return prefix + randomBytes(24).toString("hex");
+}

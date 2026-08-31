@@ -13,6 +13,8 @@ interface Props {
   onInvite: () => void;
   onSwitchWorkspace: () => void;
   onEditProfile: () => void;
+  /** Admins only; absent for members. */
+  onManageApps?: () => void;
   connectionLabel: string | null;
 }
 
@@ -139,6 +141,14 @@ export function Sidebar(props: Props) {
         >
           + Invite people
         </button>
+        {props.onManageApps && (
+          <button
+            onClick={props.onManageApps}
+            className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+          >
+            ⚙ Apps and integrations
+          </button>
+        )}
         <button
           onClick={props.onSwitchWorkspace}
           className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"

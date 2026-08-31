@@ -124,3 +124,19 @@ export interface ScheduledMessage {
   sendAt: number;
   createdAt: number;
 }
+
+/** An integration: a bot user plus the tokens and hooks that drive it. */
+export interface App {
+  id: ID;
+  name: string;
+  botUserId: ID;
+  createdBy: ID;
+  createdAt: number;
+}
+
+export interface Webhook {
+  id: ID;
+  appId: ID;
+  channelId: ID;
+  createdAt: number;
+}

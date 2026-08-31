@@ -21,6 +21,7 @@ import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js
 import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
+import { AppsDialog } from "../components/AppsDialog.js";
 
 interface Props {
   client: WorkspaceClient;
@@ -41,7 +42,8 @@ type DialogKind =
   | { kind: "edit-profile" }
   | { kind: "profile"; userId: ID }
   | { kind: "channel-details" }
-  | { kind: "shortcuts" };
+  | { kind: "shortcuts" }
+  | { kind: "apps" };
 
 /** Only one right-hand panel is open at a time. */
 type SidePanel =
@@ -220,6 +222,11 @@ function WorkspaceInner({
         onInvite={() => setDialog({ kind: "invite" })}
         onSwitchWorkspace={onLeaveWorkspace}
         onEditProfile={() => setDialog({ kind: "edit-profile" })}
+        onManageApps={
+          self?.role === "owner" || self?.role === "admin"
+            ? () => setDialog({ kind: "apps" })
+            : undefined
+        }
         connectionLabel={connectionLabel}
       />
 
@@ -342,6 +349,7 @@ function WorkspaceInner({
       {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
       {dialog.kind === "search" && <SearchDialog onClose={closeDialog} onJump={jumpToMessage} />}
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
+      {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
       {dialog.kind === "edit-profile" && <EditProfileDialog onClose={closeDialog} />}
       {dialog.kind === "profile" && (
         <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />

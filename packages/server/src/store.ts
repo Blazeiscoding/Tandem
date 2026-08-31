@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  App,
   Channel,
   ChannelPrefs,
   ChannelType,
@@ -13,6 +14,7 @@ import type {
   Role,
   ScheduledMessage,
   User,
+  Webhook,
   WorkspaceEvent,
   EventEnvelope,
 } from "@slackoss/protocol";
@@ -914,6 +916,126 @@ export class Store {
   deleteScheduled(id: ID): boolean {
     const res = this.db.prepare("DELETE FROM scheduled_messages WHERE id = ?").run(id);
     return res.changes > 0;
+  }
+
+  // ---------- apps, tokens and webhooks ----------
+
+  /** Creates the bot user that an app posts as. */
+  createBotUser(handle: string, displayName: string, passwordHash: string, salt: string): User {
+    const id = ulid();
+    this.db
+      .prepare(
+        `INSERT INTO users (id, handle, display_name, password_hash, salt, role, is_bot, created_at)
+         VALUES (?, ?, ?, ?, ?, 'member', 1, ?)`,
+      )
+      .run(id, handle, displayName, passwordHash, salt, Date.now());
+    return this.getUser(id)!;
+  }
+
+  createApp(input: { name: string; botUserId: ID; createdBy: ID }): App {
+    const id = ulid();
+    const now = Date.now();
+    this.db
+      .prepare("INSERT INTO apps (id, name, bot_user_id, created_by, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, input.name, input.botUserId, input.createdBy, now);
+    return { id, name: input.name, botUserId: input.botUserId, createdBy: input.createdBy, createdAt: now };
+  }
+
+  private toApp(r: {
+    id: string;
+    name: string;
+    bot_user_id: string;
+    created_by: string;
+    created_at: number;
+  }): App {
+    return {
+      id: r.id,
+      name: r.name,
+      botUserId: r.bot_user_id,
+      createdBy: r.created_by,
+      createdAt: r.created_at,
+    };
+  }
+
+  getApp(id: ID): App | null {
+    const r = this.db.prepare("SELECT * FROM apps WHERE id = ?").get(id) as
+      | Parameters<Store["toApp"]>[0]
+      | undefined;
+    return r ? this.toApp(r) : null;
+  }
+
+  listApps(): App[] {
+    const rows = this.db
+      .prepare("SELECT * FROM apps ORDER BY created_at DESC")
+      .all() as unknown as Parameters<Store["toApp"]>[0][];
+    return rows.map((r) => this.toApp(r));
+  }
+
+  deleteApp(id: ID): void {
+    // Tokens and hooks are meaningless without their app.
+    this.db.prepare("DELETE FROM webhooks WHERE app_id = ?").run(id);
+    this.db.prepare("DELETE FROM app_tokens WHERE app_id = ?").run(id);
+    this.db.prepare("DELETE FROM apps WHERE id = ?").run(id);
+  }
+
+  addAppToken(appId: ID, tokenHash: string): void {
+    this.db
+      .prepare("INSERT INTO app_tokens (token_hash, app_id, created_at) VALUES (?, ?, ?)")
+      .run(tokenHash, appId, Date.now());
+  }
+
+  /** The app a bot token belongs to, or null if it is unknown. */
+  appForToken(tokenHash: string): App | null {
+    const r = this.db
+      .prepare("SELECT a.* FROM app_tokens t JOIN apps a ON a.id = t.app_id WHERE t.token_hash = ?")
+      .get(tokenHash) as Parameters<Store["toApp"]>[0] | undefined;
+    return r ? this.toApp(r) : null;
+  }
+
+  createWebhook(input: { appId: ID; channelId: ID; tokenHash: string }): Webhook {
+    const id = ulid();
+    const now = Date.now();
+    this.db
+      .prepare(
+        "INSERT INTO webhooks (id, app_id, channel_id, token_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(id, input.appId, input.channelId, input.tokenHash, now);
+    return { id, appId: input.appId, channelId: input.channelId, createdAt: now };
+  }
+
+  /** Resolves an incoming webhook secret to its app and target channel. */
+  webhookForToken(tokenHash: string): { webhook: Webhook; app: App } | null {
+    const r = this.db.prepare("SELECT * FROM webhooks WHERE token_hash = ?").get(tokenHash) as
+      | { id: string; app_id: string; channel_id: string; created_at: number }
+      | undefined;
+    if (!r) return null;
+    const app = this.getApp(r.app_id);
+    if (!app) return null;
+    return {
+      webhook: { id: r.id, appId: r.app_id, channelId: r.channel_id, createdAt: r.created_at },
+      app,
+    };
+  }
+
+  listWebhooks(appId: ID): Webhook[] {
+    const rows = this.db
+      .prepare("SELECT * FROM webhooks WHERE app_id = ? ORDER BY created_at")
+      .all(appId) as unknown as {
+      id: string;
+      app_id: string;
+      channel_id: string;
+      created_at: number;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      appId: r.app_id,
+      channelId: r.channel_id,
+      createdAt: r.created_at,
+    }));
+  }
+
+  deleteWebhook(id: ID): boolean {
+    return this.db.prepare("DELETE FROM webhooks WHERE id = ?").run(id).changes > 0;
   }
 
   // ---------- invites ----------

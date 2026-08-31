@@ -165,6 +165,32 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_scheduled_due ON scheduled_messages(send_at);
   CREATE INDEX idx_scheduled_user ON scheduled_messages(user_id);
   `,
+
+  // v6 — apps: bot users, API tokens and incoming webhooks
+  `
+  CREATE TABLE apps (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    bot_user_id TEXT NOT NULL REFERENCES users(id),
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE app_tokens (
+    token_hash TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES apps(id),
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE webhooks (
+    id TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES apps(id),
+    channel_id TEXT NOT NULL REFERENCES channels(id),
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_webhooks_app ON webhooks(app_id);
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

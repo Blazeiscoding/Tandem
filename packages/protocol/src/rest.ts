@@ -85,6 +85,14 @@ export const scheduleMessageBody = z.object({
   message: "message must have text or files",
 });
 
+export const createAppBody = z.object({
+  name: z.string().min(1).max(60),
+});
+
+export const createWebhookBody = z.object({
+  channelId: z.string(),
+});
+
 export const editMessageBody = z.object({
   text: z.string().min(1).max(12000),
 });
@@ -121,3 +129,5 @@ export type MarkReadBody = z.infer<typeof markReadBody>;
 export type CreateInviteBody = z.infer<typeof createInviteBody>;
 export type ChannelPrefsBody = z.infer<typeof channelPrefsBody>;
 export type ScheduleMessageBody = z.infer<typeof scheduleMessageBody>;
+export type CreateAppBody = z.infer<typeof createAppBody>;
+export type CreateWebhookBody = z.infer<typeof createWebhookBody>;

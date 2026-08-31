@@ -835,6 +835,157 @@ describe("workspace server", () => {
     b.ws.close();
   });
 
+  it("posts through an incoming webhook shaped like Slack's", async () => {
+    const general = server.store.getChannelByName("general")!;
+
+    const created = await api<{ app: { id: string }; botUser: User; token: string }>("/api/apps", {
+      token: aliceToken,
+      body: { name: "Deploy Bot" },
+    });
+    expect(created.status).toBe(201);
+    expect(created.data.botUser.isBot).toBe(true);
+    expect(created.data.token).toMatch(/^xoxb-/);
+
+    const hook = await api<{ url: string }>(`/api/apps/${created.data.app.id}/webhooks`, {
+      token: aliceToken,
+      body: { channelId: general.id },
+    });
+    expect(hook.status).toBe(201);
+
+    // A plain Slack payload.
+    const res = await fetch(`${base}${hook.data.url}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "build 412 is green" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("ok");
+
+    const history = await api<{ messages: Message[] }>(`/api/channels/${general.id}/messages`, {
+      token: bobToken,
+    });
+    const posted = history.data.messages.find((m) => m.text === "build 412 is green");
+    expect(posted).toBeDefined();
+    expect(posted!.userId).toBe(created.data.botUser.id);
+
+    // Block Kit, with no top-level text, is flattened rather than rejected.
+    const blocks = await fetch(`${base}${hook.data.url}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        blocks: [
+          { type: "header", text: { type: "plain_text", text: "Nightly" } },
+          { type: "section", text: { type: "mrkdwn", text: "All suites passed." } },
+          { type: "divider" },
+          { type: "context", elements: [{ type: "mrkdwn", text: "in 4m12s" }] },
+        ],
+      }),
+    });
+    expect(blocks.status).toBe(200);
+    const after = await api<{ messages: Message[] }>(`/api/channels/${general.id}/messages`, {
+      token: bobToken,
+    });
+    const rendered = after.data.messages.find((m) => m.text.includes("All suites passed."));
+    expect(rendered).toBeDefined();
+    expect(rendered!.text).toContain("*Nightly*");
+    expect(rendered!.text).toContain("in 4m12s");
+
+    // The legacy form-encoded shape works too.
+    const form = await fetch(`${base}${hook.data.url}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ payload: JSON.stringify({ text: "from a form post" }) }),
+    });
+    expect(form.status).toBe(200);
+
+    // A bad secret gets nothing.
+    const bad = await fetch(`${base}/hooks/not-a-real-token`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "should not appear" }),
+    });
+    expect(bad.status).toBe(404);
+  });
+
+  it("accepts Slack-compatible chat.postMessage from a bot token", async () => {
+    const general = server.store.getChannelByName("general")!;
+    const created = await api<{ app: { id: string }; botUser: User; token: string }>("/api/apps", {
+      token: aliceToken,
+      body: { name: "Status Bot" },
+    });
+    const botToken = created.data.token;
+
+    // By channel name, the way most Slack code is written.
+    const sent = await api<{ ok: boolean; ts: string; channel: string }>(
+      "/api/chat.postMessage",
+      { token: botToken, body: { channel: "#general", text: "deploy finished" } },
+    );
+    expect(sent.status).toBe(200);
+    expect(sent.data.ok).toBe(true);
+    expect(sent.data.channel).toBe(general.id);
+
+    // And threaded onto that message using the returned ts.
+    const reply = await api<{ ok: boolean }>("/api/chat.postMessage", {
+      token: botToken,
+      body: { channel: general.id, text: "…and the smoke tests passed", thread_ts: sent.data.ts },
+    });
+    expect(reply.data.ok).toBe(true);
+
+    const thread = await api<{ messages: Message[] }>(
+      `/api/channels/${general.id}/messages?threadRootId=${sent.data.ts}`,
+      { token: aliceToken },
+    );
+    expect(thread.data.messages).toHaveLength(1);
+
+    // Slack-shaped errors, not ours.
+    const noAuth = await api<{ ok: boolean; error: string }>("/api/chat.postMessage", {
+      body: { channel: "#general", text: "nope" },
+    });
+    expect(noAuth.status).toBe(401);
+    expect(noAuth.data).toEqual({ ok: false, error: "invalid_auth" });
+
+    const noChannel = await api<{ error: string }>("/api/chat.postMessage", {
+      token: botToken,
+      body: { channel: "#nowhere", text: "nope" },
+    });
+    expect(noChannel.data.error).toBe("channel_not_found");
+
+    // A session token is not a bot token.
+    const wrongToken = await api<{ error: string }>("/api/chat.postMessage", {
+      token: aliceToken,
+      body: { channel: "#general", text: "nope" },
+    });
+    expect(wrongToken.data.error).toBe("invalid_auth");
+  });
+
+  it("keeps app management to admins, and revoking kills the webhook", async () => {
+    const general = server.store.getChannelByName("general")!;
+    const denied = await api("/api/apps", { token: bobToken, body: { name: "Bob's Bot" } });
+    expect(denied.status).toBe(403);
+
+    const created = await api<{ app: { id: string } }>("/api/apps", {
+      token: aliceToken,
+      body: { name: "Temp Bot" },
+    });
+    const hook = await api<{ url: string }>(`/api/apps/${created.data.app.id}/webhooks`, {
+      token: aliceToken,
+      body: { channelId: general.id },
+    });
+
+    const removed = await api(`/api/apps/${created.data.app.id}`, {
+      method: "DELETE",
+      token: aliceToken,
+    });
+    expect(removed.status).toBe(200);
+
+    const afterDelete = await fetch(`${base}${hook.data.url}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "should be dead" }),
+    });
+    expect(afterDelete.status).toBe(404);
+  });
+
   it("marks channels read", async () => {
     const general = server.store.getChannelByName("general")!;
     const res = await api(`/api/channels/${general.id}/read`, {
