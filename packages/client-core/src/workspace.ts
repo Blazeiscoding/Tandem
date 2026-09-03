@@ -879,6 +879,10 @@ export class WorkspaceClient {
     await this.session?.toggleScreenShare();
   }
 
+  async toggleCamera(): Promise<void> {
+    await this.session?.toggleCamera();
+  }
+
   private sendSocket(msg: unknown): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }

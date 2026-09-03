@@ -13,7 +13,17 @@ export type HuddleSignal =
   | {
       kind: "ice";
       candidate: { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null };
-    };
+    }
+  /**
+   * Which of the sender's video slots are actually carrying something.
+   *
+   * This has to be said out loud rather than read off the connection. A
+   * receiver's track reports `muted: false` once the transport is up, whether
+   * or not a single frame has ever arrived — verified against Chrome, where a
+   * silent slot showed an unmuted track and 0 bytes received. Without this the
+   * far side shows a black tile for a camera nobody turned on.
+   */
+  | { kind: "media"; camera: boolean; screen: boolean };
 
 /** Who is currently in a channel's huddle. */
 export interface HuddleState {

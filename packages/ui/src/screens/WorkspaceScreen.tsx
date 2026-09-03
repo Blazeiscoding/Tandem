@@ -20,7 +20,7 @@ import { ScheduledPanel } from "../components/ScheduledPanel.js";
 import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
 import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
-import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
+import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
 import { AppsDialog } from "../components/AppsDialog.js";
 
 interface Props {
@@ -305,6 +305,7 @@ function WorkspaceInner({
               onChannelClick={openChannel}
               onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
             />
+            <HuddleStage />
             <HuddleBar />
             <JumpToLatestBar channelId={activeChannelId} />
             <Composer

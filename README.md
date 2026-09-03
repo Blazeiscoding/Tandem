@@ -99,11 +99,24 @@ the server was down is sent the next time it starts.
 
 ### Huddles
 
-Any channel or DM can start a huddle: live audio plus screen share, over
-WebRTC. The server only relays the handshake — media goes peer to peer and
-never touches it, so a self-hosted workspace stays private by construction.
-Connections form a mesh, which suits the handful of people a small team puts
-in a call; an SFU is the answer beyond that.
+Any channel or DM can start a huddle: live audio, camera video, and screen
+share, all at once. The server only relays the handshake — media goes peer to
+peer and never touches it, so a self-hosted workspace stays private by
+construction. Connections form a mesh, which suits the handful of people a
+small team puts in a call; an SFU is the answer beyond that.
+
+Every connection declares the same three slots up front — microphone, camera,
+screen — before the first offer. Turning a camera on later is then just a track
+swap into a slot that already exists, so nothing renegotiates mid-call, which
+is where a mesh otherwise collects glare and half-connected peers. Because both
+ends build the slots identically, each side also knows which arriving track is
+which by identity rather than by parsing SDP.
+
+What a peer is *actually* sending is stated explicitly over the same signalling
+channel, not inferred from the connection: a receiver's track reports itself
+unmuted once the transport is up, whether or not a frame has ever arrived
+(measured in Chrome — a silent slot showed an unmuted track and 0 bytes). Left
+to that, everyone would show a black rectangle for a camera nobody switched on.
 
 ### Slack-compatible integrations
 
@@ -158,7 +171,8 @@ than a rule: `--allow-private-hooks` turns it off.
 
 ## Roadmap
 
-- **Next**: video in huddles alongside screen share; interactive Block Kit
-  (buttons and modals) so an app can do more than answer in text.
+- **Next**: interactive Block Kit (buttons and modals) so an app can do more
+  than answer in text; a huddle grid worth looking at with more than a few
+  people in it.
 - **Later**: an SFU for larger huddles, message forwarding, sidebar sections,
   a fuller admin console, optional Postgres and S3, and SSO.
