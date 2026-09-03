@@ -36,7 +36,21 @@ export type EphemeralEvent =
   /** Who is in a channel's huddle right now. */
   | { type: "huddle.participants"; channelId: ID; userIds: ID[] }
   /** A relayed WebRTC handshake payload from one peer. */
-  | { type: "huddle.signal"; channelId: ID; from: ID; signal: HuddleSignal };
+  | { type: "huddle.signal"; channelId: ID; from: ID; signal: HuddleSignal }
+  /**
+   * A reply only the recipient sees — how a slash command answers privately.
+   * It is never stored, so it disappears on reload, exactly like Slack's.
+   */
+  | {
+      type: "ephemeral.message";
+      channelId: ID;
+      /** Local id, so the client can key and dismiss it. */
+      id: ID;
+      /** The bot (or user) it is shown as coming from. */
+      userId: ID;
+      text: string;
+      createdAt: number;
+    };
 
 export type Presence = "online" | "away" | "offline";
 

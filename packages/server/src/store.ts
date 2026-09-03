@@ -14,6 +14,8 @@ import type {
   Role,
   ScheduledMessage,
   User,
+  EventSubscription,
+  SlashCommand,
   Webhook,
   WorkspaceEvent,
   EventEnvelope,
@@ -932,13 +934,31 @@ export class Store {
     return this.getUser(id)!;
   }
 
-  createApp(input: { name: string; botUserId: ID; createdBy: ID }): App {
+  createApp(input: {
+    name: string;
+    botUserId: ID;
+    createdBy: ID;
+    signingSecret: string;
+  }): App {
     const id = ulid();
     const now = Date.now();
     this.db
-      .prepare("INSERT INTO apps (id, name, bot_user_id, created_by, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(id, input.name, input.botUserId, input.createdBy, now);
+      .prepare(
+        "INSERT INTO apps (id, name, bot_user_id, created_by, created_at, signing_secret) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(id, input.name, input.botUserId, input.createdBy, now, input.signingSecret);
     return { id, name: input.name, botUserId: input.botUserId, createdBy: input.createdBy, createdAt: now };
+  }
+
+  /**
+   * The key an app signs with. Admin-visible by design — the receiving end
+   * needs it to verify, exactly as Slack shows a signing secret in app config.
+   */
+  appSigningSecret(id: ID): string | null {
+    const r = this.db.prepare("SELECT signing_secret FROM apps WHERE id = ?").get(id) as
+      | { signing_secret: string }
+      | undefined;
+    return r?.signing_secret ?? null;
   }
 
   private toApp(r: {
@@ -973,6 +993,8 @@ export class Store {
 
   deleteApp(id: ID): void {
     // Tokens and hooks are meaningless without their app.
+    this.db.prepare("DELETE FROM slash_commands WHERE app_id = ?").run(id);
+    this.db.prepare("DELETE FROM event_subscriptions WHERE app_id = ?").run(id);
     this.db.prepare("DELETE FROM webhooks WHERE app_id = ?").run(id);
     this.db.prepare("DELETE FROM app_tokens WHERE app_id = ?").run(id);
     this.db.prepare("DELETE FROM apps WHERE id = ?").run(id);
@@ -1036,6 +1058,140 @@ export class Store {
 
   deleteWebhook(id: ID): boolean {
     return this.db.prepare("DELETE FROM webhooks WHERE id = ?").run(id).changes > 0;
+  }
+
+  // ---------- slash commands ----------
+
+  private toCommand(r: {
+    id: string;
+    app_id: string;
+    command: string;
+    url: string;
+    description: string;
+    usage_hint: string;
+    created_at: number;
+  }): SlashCommand {
+    return {
+      id: r.id,
+      appId: r.app_id,
+      command: r.command,
+      url: r.url,
+      description: r.description,
+      usageHint: r.usage_hint,
+      createdAt: r.created_at,
+    };
+  }
+
+  createSlashCommand(input: {
+    appId: ID;
+    command: string;
+    url: string;
+    description: string;
+    usageHint: string;
+  }): SlashCommand {
+    const id = ulid();
+    const now = Date.now();
+    this.db
+      .prepare(
+        "INSERT INTO slash_commands (id, app_id, command, url, description, usage_hint, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(id, input.appId, input.command, input.url, input.description, input.usageHint, now);
+    return { id, ...input, createdAt: now };
+  }
+
+  /** Looks a command up by the word the user typed, without its slash. */
+  slashCommandByName(command: string): { command: SlashCommand; app: App } | null {
+    const r = this.db.prepare("SELECT * FROM slash_commands WHERE command = ?").get(command) as
+      | Parameters<Store["toCommand"]>[0]
+      | undefined;
+    if (!r) return null;
+    const app = this.getApp(r.app_id);
+    return app ? { command: this.toCommand(r), app } : null;
+  }
+
+  listSlashCommands(appId: ID): SlashCommand[] {
+    const rows = this.db
+      .prepare("SELECT * FROM slash_commands WHERE app_id = ? ORDER BY command")
+      .all(appId) as unknown as Parameters<Store["toCommand"]>[0][];
+    return rows.map((r) => this.toCommand(r));
+  }
+
+  /** Every command in the workspace — what the composer's hint list shows. */
+  listAllSlashCommands(): SlashCommand[] {
+    const rows = this.db
+      .prepare("SELECT * FROM slash_commands ORDER BY command")
+      .all() as unknown as Parameters<Store["toCommand"]>[0][];
+    return rows.map((r) => this.toCommand(r));
+  }
+
+  deleteSlashCommand(id: ID): boolean {
+    return this.db.prepare("DELETE FROM slash_commands WHERE id = ?").run(id).changes > 0;
+  }
+
+  // ---------- outgoing event subscriptions ----------
+
+  private toSubscription(r: {
+    id: string;
+    app_id: string;
+    url: string;
+    event_types: string;
+    created_at: number;
+  }): EventSubscription {
+    return {
+      id: r.id,
+      appId: r.app_id,
+      url: r.url,
+      eventTypes: JSON.parse(r.event_types) as string[],
+      createdAt: r.created_at,
+    };
+  }
+
+  createSubscription(input: { appId: ID; url: string; eventTypes: string[] }): EventSubscription {
+    const id = ulid();
+    const now = Date.now();
+    this.db
+      .prepare(
+        "INSERT INTO event_subscriptions (id, app_id, url, event_types, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(id, input.appId, input.url, JSON.stringify(input.eventTypes), now);
+    return { id, ...input, createdAt: now };
+  }
+
+  listSubscriptions(appId: ID): EventSubscription[] {
+    const rows = this.db
+      .prepare("SELECT * FROM event_subscriptions WHERE app_id = ? ORDER BY created_at")
+      .all(appId) as unknown as Parameters<Store["toSubscription"]>[0][];
+    return rows.map((r) => this.toSubscription(r));
+  }
+
+  /** Every subscription plus its app, so delivery needs one query per event. */
+  listAllSubscriptions(): { subscription: EventSubscription; app: App }[] {
+    const rows = this.db
+      .prepare(
+        "SELECT s.*, a.id AS a_id, a.name AS a_name, a.bot_user_id, a.created_by, a.created_at AS a_created_at" +
+          " FROM event_subscriptions s JOIN apps a ON a.id = s.app_id",
+      )
+      .all() as unknown as (Parameters<Store["toSubscription"]>[0] & {
+      a_id: string;
+      a_name: string;
+      bot_user_id: string;
+      created_by: string;
+      a_created_at: number;
+    })[];
+    return rows.map((r) => ({
+      subscription: this.toSubscription(r),
+      app: this.toApp({
+        id: r.a_id,
+        name: r.a_name,
+        bot_user_id: r.bot_user_id,
+        created_by: r.created_by,
+        created_at: r.a_created_at,
+      }),
+    }));
+  }
+
+  deleteSubscription(id: ID): boolean {
+    return this.db.prepare("DELETE FROM event_subscriptions WHERE id = ?").run(id).changes > 0;
   }
 
   // ---------- invites ----------

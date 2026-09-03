@@ -13,7 +13,7 @@ import {
   type ServerToClient,
   type User,
 } from "@slackoss/protocol";
-import { Api } from "./api.js";
+import { Api, ApiError, type CommandHint } from "./api.js";
 import { FileCache } from "./fileCache.js";
 import { HuddleSession, type HuddleState } from "./huddle.js";
 
@@ -55,6 +55,19 @@ export interface ChannelTimeline {
   loaded: boolean;
 }
 
+/**
+ * A reply only this client can see — a slash command's private answer, or a
+ * local note about one that failed. Never persisted; a reload clears them.
+ */
+export interface EphemeralMessage {
+  id: ID;
+  channelId: ID;
+  /** The bot it is shown as coming from, or "" for a note from the app itself. */
+  userId: ID;
+  text: string;
+  createdAt: number;
+}
+
 export interface WorkspaceState {
   status: ConnectionStatus;
   workspaceName: string;
@@ -81,6 +94,10 @@ export interface WorkspaceState {
   drafts: Record<ID, string>;
   /** channelId -> who is in that channel's huddle right now. */
   huddles: Record<ID, ID[]>;
+  /** Private replies per channel, newest last. */
+  ephemerals: Record<ID, EphemeralMessage[]>;
+  /** Commands that can be typed here; loaded once after connecting. */
+  commands: CommandHint[];
   /** The huddle this client is in, if any. */
   huddle: HuddleState | null;
 }
@@ -104,6 +121,8 @@ const initialState: WorkspaceState = {
   drafts: {},
   huddles: {},
   huddle: null,
+  ephemerals: {},
+  commands: [],
 };
 
 function sortedInsert(items: Message[], msg: Message): Message[] {
@@ -489,6 +508,14 @@ export class WorkspaceClient {
       if (event.saved) saved[event.messageId] = true;
       else delete saved[event.messageId];
       this.store.setState({ saved });
+    } else if (event.type === "ephemeral.message") {
+      this.addEphemeral({
+        id: event.id,
+        channelId: event.channelId,
+        userId: event.userId,
+        text: event.text,
+        createdAt: event.createdAt,
+      });
     } else if (event.type === "typing") {
       if (event.userId === s.self?.id) return;
       this.store.setState({
@@ -626,6 +653,14 @@ export class WorkspaceClient {
     if (!self) return;
     const files = opts.files ?? [];
     if (!text.trim() && files.length === 0) return;
+
+    // A leading "/word" is a command, not a message. The trailing space or end
+    // of line matters: it keeps a pasted path like /Users/me/notes.txt a
+    // perfectly ordinary message.
+    if (files.length === 0 && /^\/[a-zA-Z0-9_-]+(\s|$)/.test(text.trim())) {
+      void this.runCommand(channelId, text.trim(), opts.threadRootId);
+      return;
+    }
 
     const nonce = `${self.id}-${Date.now()}-${++this.nonceCounter}`;
     const attachments: LocalAttachment[] = files.map((f) => ({
@@ -868,6 +903,62 @@ export class WorkspaceClient {
     if (seq <= current) return;
     this.store.setState((s) => ({ memberships: { ...s.memberships, [channelId]: seq } }));
     void this.api.markRead(channelId, seq).catch(() => {});
+  }
+
+  /**
+   * Runs a slash command. Anything it has to say comes back over the socket as
+   * an ephemeral, so the only thing handled here is the command not working at
+   * all — which is still worth telling the person who typed it.
+   */
+  private async runCommand(channelId: ID, text: string, threadRootId?: ID): Promise<void> {
+    try {
+      await this.api.runCommand(channelId, {
+        text,
+        ...(threadRootId ? { threadRootId } : {}),
+      });
+    } catch (err) {
+      const name = /^\/([a-zA-Z0-9_-]+)/.exec(text)?.[1] ?? "";
+      const message =
+        err instanceof ApiError && err.code === "unknown_command"
+          ? `\`/${name}\` is not a command here.`
+          : `\`/${name}\` could not run: ${err instanceof ApiError ? err.message : "the server did not answer"}.`;
+      this.addEphemeral({
+        id: `local-${Date.now()}-${++this.nonceCounter}`,
+        channelId,
+        userId: "",
+        text: message,
+        createdAt: Date.now(),
+      });
+    }
+  }
+
+  private addEphemeral(message: EphemeralMessage): void {
+    this.store.setState((s) => ({
+      ephemerals: {
+        ...s.ephemerals,
+        [message.channelId]: [...(s.ephemerals[message.channelId] ?? []), message],
+      },
+    }));
+  }
+
+  dismissEphemeral(channelId: ID, id: ID): void {
+    this.store.setState((s) => {
+      const kept = (s.ephemerals[channelId] ?? []).filter((e) => e.id !== id);
+      const ephemerals = { ...s.ephemerals };
+      if (kept.length > 0) ephemerals[channelId] = kept;
+      else delete ephemerals[channelId];
+      return { ephemerals };
+    });
+  }
+
+  /** Loads the `/` hint list. Failure is silent: hints are a convenience. */
+  async loadCommands(): Promise<void> {
+    try {
+      const { commands } = await this.api.listCommands();
+      this.store.setState({ commands });
+    } catch {
+      /* an older server, or no permission — the composer simply shows no hints */
+    }
   }
 
   sendTyping(channelId: ID): void {

@@ -93,6 +93,52 @@ export const createWebhookBody = z.object({
   channelId: z.string(),
 });
 
+/**
+ * An address the server itself will call. Only http(s), and never with inline
+ * credentials — those would be handed to whatever the host resolves to.
+ */
+export const integrationUrl = z
+  .string()
+  .url()
+  .max(500)
+  .refine((u) => {
+    try {
+      const parsed = new URL(u);
+      return (
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        !parsed.username &&
+        !parsed.password
+      );
+    } catch {
+      return false;
+    }
+  }, "must be an http(s) URL without embedded credentials");
+
+export const createCommandBody = z.object({
+  /** With or without the leading slash; the server stores it without. */
+  command: z
+    .string()
+    .min(1)
+    .max(32)
+    .transform((c) => c.replace(/^\//, "").toLowerCase())
+    .refine((c) => /^[a-z0-9][a-z0-9_-]*$/.test(c), "letters, digits, _ and - only"),
+  url: integrationUrl,
+  description: z.string().max(160).optional(),
+  usageHint: z.string().max(80).optional(),
+});
+
+export const createSubscriptionBody = z.object({
+  url: integrationUrl,
+  /** Native event type names; omit or leave empty for everything. */
+  eventTypes: z.array(z.string().max(40)).max(20).optional(),
+});
+
+export const runCommandBody = z.object({
+  /** The whole line the user typed, leading slash included. */
+  text: z.string().min(1).max(4000),
+  threadRootId: z.string().optional(),
+});
+
 export const editMessageBody = z.object({
   text: z.string().min(1).max(12000),
 });
@@ -131,3 +177,6 @@ export type ChannelPrefsBody = z.infer<typeof channelPrefsBody>;
 export type ScheduleMessageBody = z.infer<typeof scheduleMessageBody>;
 export type CreateAppBody = z.infer<typeof createAppBody>;
 export type CreateWebhookBody = z.infer<typeof createWebhookBody>;
+export type CreateCommandBody = z.infer<typeof createCommandBody>;
+export type CreateSubscriptionBody = z.infer<typeof createSubscriptionBody>;
+export type RunCommandBody = z.infer<typeof runCommandBody>;

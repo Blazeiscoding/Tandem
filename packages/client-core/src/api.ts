@@ -13,11 +13,31 @@ import type {
   ScheduledMessage,
   ScheduleMessageBody,
   ServerInfo,
+  SlashCommand,
+  EventSubscription,
   UpdateChannelBody,
   UpdateMeBody,
   User,
   Webhook,
 } from "@slackoss/protocol";
+
+/** One entry in the composer's `/` hint list. */
+export interface CommandHint {
+  command: string;
+  description: string;
+  usageHint: string;
+  /** Answered by the server itself rather than an installed app. */
+  builtin: boolean;
+}
+
+/** An app with everything hanging off it, as the admin screen needs it. */
+export interface AppDetail extends App {
+  webhooks: Webhook[];
+  commands: SlashCommand[];
+  subscriptions: EventSubscription[];
+  /** Readable by admins: apps need it to verify our signatures. */
+  signingSecret: string;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -282,11 +302,13 @@ export class Api {
   // ---------- apps and integrations (admin only) ----------
 
   /** The bot token comes back once here and is never retrievable again. */
-  createApp(body: { name: string }): Promise<{ app: App; botUser: User; token: string }> {
+  createApp(
+    body: { name: string },
+  ): Promise<{ app: App; botUser: User; token: string; signingSecret: string }> {
     return this.request("POST", "/api/apps", body);
   }
 
-  listApps(): Promise<{ apps: (App & { webhooks: Webhook[] })[] }> {
+  listApps(): Promise<{ apps: AppDetail[] }> {
     return this.request("GET", "/api/apps");
   }
 
@@ -300,6 +322,38 @@ export class Api {
 
   deleteWebhook(id: ID): Promise<{ ok: true }> {
     return this.request("DELETE", `/api/webhooks/${id}`);
+  }
+
+  createCommand(
+    appId: ID,
+    body: { command: string; url: string; description?: string; usageHint?: string },
+  ): Promise<{ command: SlashCommand }> {
+    return this.request("POST", `/api/apps/${appId}/commands`, body);
+  }
+
+  deleteCommand(id: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/commands/${id}`);
+  }
+
+  /** The server calls the URL to verify it before this resolves. */
+  createSubscription(
+    appId: ID,
+    body: { url: string; eventTypes?: string[] },
+  ): Promise<{ subscription: EventSubscription }> {
+    return this.request("POST", `/api/apps/${appId}/subscriptions`, body);
+  }
+
+  deleteSubscription(id: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/subscriptions/${id}`);
+  }
+
+  /** Every command that can be typed here, built-ins included. */
+  listCommands(): Promise<{ commands: CommandHint[] }> {
+    return this.request("GET", "/api/commands");
+  }
+
+  runCommand(channelId: ID, body: { text: string; threadRootId?: ID }): Promise<{ ok: boolean }> {
+    return this.request("POST", `/api/channels/${channelId}/commands`, body);
   }
 
   createInvite(body: CreateInviteBody = {}): Promise<{ invite: Invite }> {

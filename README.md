@@ -30,7 +30,7 @@ node slackoss-server.js --data ./data --name "My Team" --invite-only
 ```
 Requires Node 24+. The bundled file has zero dependencies — the database is
 Node's built-in SQLite. Flags: `--port`, `--host`, `--no-mdns`, `--web <dir>`,
-`--invite-only`.
+`--invite-only`, `--public-url`, `--allow-private-hooks`.
 
 ### Docker
 ```sh
@@ -124,9 +124,41 @@ replies with Slack's `{ok, channel, ts}` — or `{ok:false, error}` on failure.
 Block Kit payloads are flattened to text rather than rejected, so a message
 written for Slack still reads sensibly.
 
+Apps can also **answer** rather than only post:
+
+- **Slash commands.** Register `/deploy` against a URL. Typing it posts Slack's
+  form body — `command`, `text`, `channel_id`, `user_id`, `response_url`,
+  `trigger_id` — and renders the reply. `response_type: "in_channel"` posts to
+  everyone; anything else stays private to whoever typed it. The
+  `response_url` accepts late replies for 30 minutes and five uses, so a slow
+  job can answer when it finishes. `/shrug` and `/me` are built in.
+- **Event subscriptions.** Point a URL at the workspace and matching events
+  arrive as `{type: "event_callback", event: {…}}`, with our own event
+  alongside Slack's shape. The URL has to echo an `url_verification`
+  challenge before it is accepted, an app only receives events from channels
+  its bot has been added to, and an app is never sent its own bot's actions —
+  which is the loop every chat integration otherwise causes.
+
+Both are signed like Slack's: `v0=HMAC-SHA256(v0:timestamp:body)` under the
+app's signing secret, sent as `x-slack-signature` **and** `x-slackoss-signature`,
+so a verifier written for Slack works unchanged.
+
+### A note on outbound requests
+
+These two features make the *server* call an address an admin typed, and that
+server usually sits inside the same network as a router page, a NAS, or a cloud
+metadata endpoint. So every address is checked against the private ranges before
+connecting, and the check runs inside the socket's own DNS lookup — a name that
+resolves public once and private a moment later (DNS rebinding) still cannot get
+through. Redirects are not followed, since a redirect is exactly how a vetted
+host would hand us a private one.
+
+LAN-hosted bots are a reasonable thing to want here, so this is a default rather
+than a rule: `--allow-private-hooks` turns it off.
+
 ## Roadmap
 
-- **Next**: slash commands and outgoing event subscriptions to finish the
-  integration story; video in huddles alongside screen share.
+- **Next**: video in huddles alongside screen share; interactive Block Kit
+  (buttons and modals) so an app can do more than answer in text.
 - **Later**: an SFU for larger huddles, message forwarding, sidebar sections,
   a fuller admin console, optional Postgres and S3, and SSO.

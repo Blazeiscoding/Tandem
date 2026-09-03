@@ -15,6 +15,8 @@ const { values } = parseArgs({
     "invite-only": { type: "boolean" },
     "no-mdns": { type: "boolean", default: false },
     web: { type: "string" },
+    "public-url": { type: "string" },
+    "allow-private-hooks": { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -31,6 +33,15 @@ Usage: slackoss-server [options]
   --invite-only     Require an invite code to register
   --no-mdns         Do not advertise on the local network
   --web <dir>       Serve the browser client from this directory
+  --public-url <u>  How others reach this server, e.g. https://chat.team.dev
+                    (set it behind a reverse proxy; used in URLs given to apps)
+
+  --allow-private-hooks
+                    Let slash commands and event subscriptions call private
+                    addresses (192.168.x, 10.x, localhost). Off by default:
+                    this server can reach your whole LAN, and an admin-typed
+                    URL should not become a way to probe it. Turn it on when
+                    your bots really do run on the same network.
 `);
   process.exit(0);
 }
@@ -58,6 +69,8 @@ const server = await createWorkspaceServer({
   inviteOnly: values["invite-only"],
   mdns: !values["no-mdns"],
   webDistPath,
+  publicUrl: values["public-url"],
+  allowPrivateHooks: values["allow-private-hooks"],
   logger: true,
 });
 

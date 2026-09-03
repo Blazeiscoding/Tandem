@@ -16,6 +16,7 @@ interface Props {
 export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Props) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
+  const commands = useWorkspace((s) => s.commands);
   const selfId = useWorkspace((s) => s.self?.id);
   // Threads keep their own draft slot so a channel draft isn't clobbered.
   const draftKey = threadRootId ? `${channelId}:${threadRootId}` : channelId;
@@ -23,6 +24,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const [text, setText] = useState(savedDraft);
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [commandIndex, setCommandIndex] = useState(0);
   const [attached, setAttached] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -75,6 +77,27 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       .slice(0, 6);
   }, [mentionQuery, users]);
 
+  /**
+   * Commands are offered only while the first word is still being typed —
+   * once there is an argument the list would just be in the way.
+   */
+  const commandCandidates = useMemo(() => {
+    const m = /^\/([a-zA-Z0-9_-]*)$/.exec(text);
+    if (!m) return [];
+    const q = m[1]!.toLowerCase();
+    return commands.filter((c) => c.command.startsWith(q)).slice(0, 6);
+  }, [text, commands]);
+
+  function insertCommand(command: string) {
+    const next = `/${command} `;
+    setText(next);
+    edited.current = true;
+    requestAnimationFrame(() => {
+      box.current?.setSelectionRange(next.length, next.length);
+      box.current?.focus();
+    });
+  }
+
   function refreshMentionState(value: string, caret: number) {
     const upToCaret = value.slice(0, caret);
     const m = /(^|\s)@([a-z0-9._-]*)$/i.exec(upToCaret);
@@ -98,6 +121,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       box.current?.focus();
     });
   }
+
+  useEffect(() => setCommandIndex(0), [commandCandidates.length]);
 
   function send() {
     const trimmed = text.trim();
@@ -139,6 +164,24 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (commandCandidates.length > 0) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setCommandIndex(
+          (i) =>
+            (i + (e.key === "ArrowDown" ? 1 : commandCandidates.length - 1)) %
+            commandCandidates.length,
+        );
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        insertCommand(commandCandidates[commandIndex]!.command);
+        return;
+      }
+      // Enter still sends: typing the whole name and hitting Enter should run
+      // it, not pick something else off the list.
+    }
     if (mentionQuery && candidates.length > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -186,6 +229,32 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         addFiles(e.dataTransfer.files);
       }}
     >
+      {commandCandidates.length > 0 && (
+        <ul className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
+          {commandCandidates.map((c, i) => (
+            <li key={c.command}>
+              <button
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertCommand(c.command);
+                }}
+                onMouseEnter={() => setCommandIndex(i)}
+                className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
+                  i === commandIndex ? "bg-copper/15" : ""
+                }`}
+              >
+                <span className="font-mono text-copper">/{c.command}</span>
+                {c.usageHint && (
+                  <span className="font-mono text-xs text-ink-faint">{c.usageHint}</span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-xs text-ink-dim">
+                  {c.description}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {mentionQuery && candidates.length > 0 && (
         <ul className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
           {candidates.map((u, i) => (

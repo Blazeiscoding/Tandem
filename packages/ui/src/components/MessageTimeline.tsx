@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileMeta, ID } from "@slackoss/protocol";
-import type { PendingMessage } from "@slackoss/client-core";
+import type { EphemeralMessage, PendingMessage } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { formatDay, sameDay } from "../lib/format.js";
 import { MessageItem } from "./MessageItem.js";
@@ -28,6 +28,7 @@ export function MessageTimeline({
   const client = useClient();
   const timeline = useWorkspace((s) => s.timelines[channelId]);
   const pending = useWorkspace((s) => s.pending);
+  const ephemerals = useWorkspace((s) => s.ephemerals[channelId]);
   const typing = useWorkspace((s) => s.typing[channelId]);
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
@@ -174,6 +175,9 @@ export function MessageTimeline({
       {channelPending.map((p) => (
         <PendingRow key={p.nonce} pending={p} />
       ))}
+      {(ephemerals ?? []).map((e) => (
+        <EphemeralRow key={e.id} message={e} channelId={channelId} />
+      ))}
       <div className="h-5 px-5 pt-1 text-[12px] italic text-ink-faint">
         {typers.length > 0 &&
           `${typers.slice(0, 3).join(", ")} ${typers.length === 1 ? "is" : "are"} typing…`}
@@ -181,6 +185,40 @@ export function MessageTimeline({
       {lightboxFile && (
         <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />
       )}
+    </div>
+  );
+}
+
+/**
+ * A slash command's private answer. Marked plainly as unshared, because the
+ * worst thing this could do is let someone think the channel saw it.
+ */
+function EphemeralRow({ message, channelId }: { message: EphemeralMessage; channelId: ID }) {
+  const client = useClient();
+  const author = useWorkspace((s) => s.users[message.userId]);
+  const users = useWorkspace((s) => s.users);
+  const channels = useWorkspace((s) => s.channels);
+  return (
+    <div className="group flex gap-3 px-5 py-1.5">
+      <div className="w-9 shrink-0" />
+      <div className="min-w-0 flex-1 rounded-lg border border-dashed border-edge bg-raised/60 px-3 py-2">
+        <div className="mb-0.5 flex items-center gap-2">
+          {author && <span className="text-[13px] font-semibold">{author.displayName}</span>}
+          <span className="font-mono text-[10px] uppercase tracking-widest text-ink-faint">
+            Only visible to you
+          </span>
+          <button
+            onClick={() => client.dismissEphemeral(channelId, message.id)}
+            className="ml-auto text-[11px] text-ink-faint opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="text-[15px] leading-relaxed text-ink-dim">
+          <Mrkdwn text={message.text} users={users} channels={channels} />
+        </div>
+      </div>
     </div>
   );
 }

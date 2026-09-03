@@ -34,8 +34,11 @@ export function Mrkdwn({ text, users, channels, selfId, onChannelClick }: Props)
   );
 }
 
+// The escape alternative has to come first: it consumes "\_" before the italic
+// rule can pair that underscore with a later one. Without it ¯\_(ツ)_/¯ arrives
+// italicised and missing both underscores.
 const INLINE_RE =
-  /(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(<@[A-Za-z0-9_-]+>)|(<#[A-Za-z0-9_-]+>)|(https?:\/\/[^\s<>]+)/g;
+  /(\\[*_~`\\])|(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(<@[A-Za-z0-9_-]+>)|(<#[A-Za-z0-9_-]+>)|(https?:\/\/[^\s<>]+)/g;
 
 function renderInline(
   text: string,
@@ -48,18 +51,21 @@ function renderInline(
     if (m.index > last) out.push(text.slice(last, m.index));
     const tok = m[0];
     if (m[1]) {
+      // An escaped formatting character is simply that character.
+      out.push(tok.slice(1));
+    } else if (m[2]) {
       out.push(
         <code key={key++} className="rounded bg-lifted px-1 py-px font-mono text-[13px] text-copper">
           {tok.slice(1, -1)}
         </code>,
       );
-    } else if (m[2]) {
-      out.push(<strong key={key++}>{renderInline(tok.slice(1, -1), ctx)}</strong>);
     } else if (m[3]) {
-      out.push(<em key={key++}>{renderInline(tok.slice(1, -1), ctx)}</em>);
+      out.push(<strong key={key++}>{renderInline(tok.slice(1, -1), ctx)}</strong>);
     } else if (m[4]) {
-      out.push(<s key={key++}>{renderInline(tok.slice(1, -1), ctx)}</s>);
+      out.push(<em key={key++}>{renderInline(tok.slice(1, -1), ctx)}</em>);
     } else if (m[5]) {
+      out.push(<s key={key++}>{renderInline(tok.slice(1, -1), ctx)}</s>);
+    } else if (m[6]) {
       const id = tok.slice(2, -1);
       const user = ctx.users[id];
       const isMe = id === ctx.selfId;
@@ -71,7 +77,7 @@ function renderInline(
           @{user?.displayName ?? "unknown"}
         </span>,
       );
-    } else if (m[6]) {
+    } else if (m[7]) {
       const id = tok.slice(2, -1);
       const ch = ctx.channels[id];
       out.push(
@@ -84,7 +90,7 @@ function renderInline(
           #{ch?.name ?? "unknown"}
         </button>,
       );
-    } else if (m[7]) {
+    } else if (m[8]) {
       out.push(
         <a
           key={key++}

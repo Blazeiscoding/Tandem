@@ -11,7 +11,10 @@ import {
   createChannelBody,
   channelPrefsBody,
   createAppBody,
+  createCommandBody,
+  createSubscriptionBody,
   createWebhookBody,
+  runCommandBody,
   createInviteBody,
   scheduleMessageBody,
   editMessageBody,
@@ -38,7 +41,10 @@ import { hashPassword, hashToken, newSessionToken, verifyPassword } from "./auth
 import { advertise, type MdnsHandle } from "./mdns.js";
 import { imageSize } from "./imageSize.js";
 import { payloadToText } from "./blockKit.js";
-import { secretToken } from "./ids.js";
+import { OutboundError, postToUrl } from "./outbound.js";
+import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
+import { BUILTIN_COMMANDS } from "./commands.js";
+import { secretToken, ulid } from "./ids.js";
 
 export const SERVER_VERSION = "0.1.0";
 
@@ -57,6 +63,19 @@ export interface ServerOptions {
   webDistPath?: string;
   /** Max upload size in bytes. Default 100 MB. */
   maxFileSize?: number;
+  /**
+   * The address others reach this server on, e.g. "https://chat.team.dev".
+   * Used to build the `response_url` handed to slash commands. Set it when a
+   * reverse proxy sits in front; otherwise the request's own Host is used.
+   */
+  publicUrl?: string;
+  /**
+   * Lets slash commands and event subscriptions call private addresses
+   * (192.168.x, 10.x, localhost…). Off by default: the server can reach the
+   * host's whole LAN, and an admin-typed URL should not become a probe of it.
+   * Turn it on deliberately when the bot really does run on the same network.
+   */
+  allowPrivateHooks?: boolean;
   logger?: boolean;
 }
 
@@ -86,6 +105,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   if (opts.workspaceName) store.setMeta("workspace_name", opts.workspaceName);
   if (!store.getMeta("workspace_name")) store.setMeta("workspace_name", "My Workspace");
+  // Slack payloads carry a team id; ours is generated once and never changes.
+  if (!store.getMeta("workspace_id")) store.setMeta("workspace_id", ulid());
   if (opts.inviteOnly !== undefined) store.setMeta("invite_only", opts.inviteOnly ? "1" : "0");
   const workspaceName = () => store.getMeta("workspace_name")!;
   const inviteOnly = () => store.getMeta("invite_only") === "1";
@@ -100,7 +121,56 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       event.message.seq = envelope.seq;
     }
     gateway.publish(envelope, channelId);
+    dispatchToSubscribers(envelope, channelId);
     return envelope;
+  };
+
+  /**
+   * Fans a durable event out to apps subscribed over HTTP. Deliberately fire
+   * and forget: a slow or broken endpoint must never hold up the person who
+   * sent the message.
+   */
+  const dispatchToSubscribers = (envelope: EventEnvelope, channelId: ID | null): void => {
+    const subs = store.listAllSubscriptions();
+    if (subs.length === 0) return;
+    const payload = toSlackEvent(envelope.event);
+    if (!payload) return;
+    const actor = eventActorId(envelope.event);
+
+    for (const { subscription, app: owner } of subs) {
+      if (
+        subscription.eventTypes.length > 0 &&
+        !subscription.eventTypes.includes(envelope.event.type)
+      ) {
+        continue;
+      }
+      // Never hand an app back its own bot's actions — that is how a bot that
+      // replies to messages ends up replying to itself forever.
+      if (actor !== null && actor === owner.botUserId) continue;
+      // An app sees a channel only once its bot has been added to it, so
+      // subscribing does not quietly expose every private conversation.
+      if (channelId !== null && !store.isMember(channelId, owner.botUserId)) continue;
+
+      const body = JSON.stringify({
+        type: "event_callback",
+        event_id: `Ev${envelope.seq}`,
+        event_time: Math.floor(Date.now() / 1000),
+        team_id: store.getMeta("workspace_id"),
+        event: payload,
+        // Our own event beside Slack's shape, so a native app need not
+        // reverse-engineer the mapping.
+        slackoss: { type: envelope.event.type, seq: envelope.seq },
+      });
+      void postToUrl(subscription.url, body, "application/json", {
+        allowPrivate: opts.allowPrivateHooks,
+        headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", body),
+      }).catch((err: unknown) => {
+        app.log.warn(
+          { url: subscription.url, err: (err as Error).message },
+          "event subscription delivery failed",
+        );
+      });
+    }
   };
 
   /** Posts a message and fans it out. Used by the API and the scheduler alike. */
@@ -191,6 +261,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const h = req.headers.authorization;
     if (h?.startsWith("Bearer ")) return h.slice(7);
     return null;
+  };
+
+  /** How this server is addressed from outside, for URLs we hand to apps. */
+  const requestOrigin = (req: FastifyRequest): string => {
+    if (opts.publicUrl) return opts.publicUrl.replace(/\/$/, "");
+    const proto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0]?.trim() || "http";
+    const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").split(",")[0]?.trim();
+    return host ? `${proto}://${host}` : `http://localhost:${opts.port ?? 8543}`;
   };
 
   const requireUser = (req: FastifyRequest): User => {
@@ -647,21 +725,34 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     // A bot posts as a real (non-human) user, so messages render normally.
     const { hash, salt } = hashPassword(secretToken());
     const bot = store.createBotUser(botHandle(body.name), body.name, hash, salt);
-    const created = store.createApp({ name: body.name, botUserId: bot.id, createdBy: me.id });
+    const signingSecret = secretToken();
+    const created = store.createApp({
+      name: body.name,
+      botUserId: bot.id,
+      createdBy: me.id,
+      signingSecret,
+    });
 
     const token = secretToken("xoxb-");
     store.addAppToken(created.id, hashToken(token));
     emit({ type: "user.joined", user: bot }, null);
 
-    // The token is shown once and only stored hashed.
-    return reply.status(201).send({ app: created, botUser: bot, token });
+    // The bot token is shown once and only stored hashed; the signing secret
+    // stays readable to admins because verification needs the key itself.
+    return reply.status(201).send({ app: created, botUser: bot, token, signingSecret });
   });
 
   app.get("/api/apps", async (req) => {
     requireAdmin(req);
     const apps = store.listApps();
     return {
-      apps: apps.map((a) => ({ ...a, webhooks: store.listWebhooks(a.id) })),
+      apps: apps.map((a) => ({
+        ...a,
+        webhooks: store.listWebhooks(a.id),
+        commands: store.listSlashCommands(a.id),
+        subscriptions: store.listSubscriptions(a.id),
+        signingSecret: store.appSigningSecret(a.id) ?? "",
+      })),
     };
   });
 
@@ -796,6 +887,283 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     });
     // `ts` is Slack's message identifier; ours is the message id.
     return { ok: true, channel: channel.id, ts: message.id, message };
+  });
+
+
+  // ---------- slash commands ----------
+
+  /**
+   * Where a command's delayed replies go. Slack gives an app 30 minutes and
+   * five uses of a `response_url`; so do we. Purely in memory — a reply that
+   * outlives a restart is not worth a table.
+   */
+  interface ResponseTarget {
+    channelId: ID;
+    invokerId: ID;
+    botUserId: ID;
+    threadRootId: ID | null;
+    expiresAt: number;
+    usesLeft: number;
+  }
+  const responseTargets = new Map<string, ResponseTarget>();
+
+  const newResponseUrl = (
+    target: Omit<ResponseTarget, "expiresAt" | "usesLeft">,
+    origin: string,
+  ): string => {
+    const now = Date.now();
+    for (const [k, v] of responseTargets) if (v.expiresAt < now) responseTargets.delete(k);
+    const token = secretToken();
+    responseTargets.set(token, { ...target, expiresAt: now + 30 * 60_000, usesLeft: 5 });
+    return `${origin}/api/commands/response/${token}`;
+  };
+
+  /** A private note back to the person who ran the command. */
+  const sayEphemeral = (channelId: ID, toUserId: ID, fromUserId: ID, text: string): void => {
+    gateway.sendToUser(toUserId, {
+      type: "ephemeral.message",
+      channelId,
+      id: ulid(),
+      userId: fromUserId,
+      text,
+      createdAt: Date.now(),
+    });
+  };
+
+  /**
+   * Turns whatever an app answered with into a message. `in_channel` posts for
+   * everyone as the bot; anything else stays private to the person who typed
+   * the command, which is Slack's default and the safer one.
+   */
+  const deliverCommandReply = (
+    target: Omit<ResponseTarget, "expiresAt" | "usesLeft">,
+    raw: string,
+    contentType: string,
+  ): void => {
+    const trimmed = raw.trim();
+    if (!trimmed) return; // an empty 200 is a silent acknowledgement
+
+    let payload: { text?: unknown; blocks?: unknown; response_type?: unknown } = {};
+    if (contentType.includes("json") || trimmed.startsWith("{")) {
+      try {
+        payload = JSON.parse(trimmed) as typeof payload;
+      } catch {
+        payload = { text: trimmed };
+      }
+    } else {
+      payload = { text: trimmed };
+    }
+
+    const text = payloadToText(payload);
+    if (!text) return;
+
+    if (payload.response_type === "in_channel") {
+      postMessage({
+        channelId: target.channelId,
+        userId: target.botUserId,
+        text,
+        threadRootId: target.threadRootId,
+        nonce: null,
+        fileIds: [],
+      });
+    } else {
+      sayEphemeral(target.channelId, target.invokerId, target.botUserId, text);
+    }
+  };
+
+  app.post<{ Params: { id: string } }>("/api/apps/:id/commands", async (req, reply) => {
+    requireAdmin(req);
+    const owner = store.getApp(req.params.id);
+    if (!owner) throw new HttpError(404, "not_found");
+    const body = createCommandBody.parse(req.body);
+    if (BUILTIN_COMMANDS.has(body.command) || store.slashCommandByName(body.command)) {
+      throw new HttpError(409, "command_taken", `/${body.command} is already in use`);
+    }
+    const command = store.createSlashCommand({
+      appId: owner.id,
+      command: body.command,
+      url: body.url,
+      description: body.description ?? "",
+      usageHint: body.usageHint ?? "",
+    });
+    return reply.status(201).send({ command });
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/commands/:id", async (req) => {
+    requireAdmin(req);
+    if (!store.deleteSlashCommand(req.params.id)) throw new HttpError(404, "not_found");
+    return { ok: true };
+  });
+
+  /** Every command anyone can run, for the composer's hint list. */
+  app.get("/api/commands", async (req) => {
+    requireUser(req);
+    const builtins = [...BUILTIN_COMMANDS.entries()].map(([command, b]) => ({
+      command,
+      description: b.description,
+      usageHint: b.usageHint,
+      builtin: true,
+    }));
+    const fromApps = store.listAllSlashCommands().map((c) => ({
+      command: c.command,
+      description: c.description,
+      usageHint: c.usageHint,
+      builtin: false,
+    }));
+    return { commands: [...builtins, ...fromApps] };
+  });
+
+  /** Runs `/whatever …` typed in a channel. */
+  app.post<{ Params: { id: string } }>("/api/channels/:id/commands", async (req) => {
+    const me = requireUser(req);
+    const channel = requireChannelAccess(req.params.id, me);
+    if (channel.archived) throw new HttpError(400, "channel_archived");
+    const body = runCommandBody.parse(req.body);
+    const threadRootId = body.threadRootId ?? null;
+
+    const parsed = /^\/([a-zA-Z0-9_-]+)\s*([\s\S]*)$/.exec(body.text.trim());
+    if (!parsed) throw new HttpError(400, "not_a_command");
+    const name = parsed[1]!.toLowerCase();
+    const argText = parsed[2]!.trim();
+
+    const builtin = BUILTIN_COMMANDS.get(name);
+    if (builtin) {
+      const text = builtin.run(argText, me);
+      if (text === null) throw new HttpError(400, "usage", `usage: /${name} ${builtin.usageHint}`);
+      postMessage({
+        channelId: channel.id,
+        userId: me.id,
+        text,
+        threadRootId,
+        nonce: null,
+        fileIds: [],
+      });
+      return { ok: true };
+    }
+
+    const found = store.slashCommandByName(name);
+    if (!found) throw new HttpError(404, "unknown_command", `/${name} is not a command here`);
+
+    // The bot has to be in the channel to answer in it.
+    if (store.addMember(channel.id, found.app.botUserId)) {
+      emit(
+        { type: "member.joined", channelId: channel.id, userId: found.app.botUserId },
+        channel.id,
+      );
+    }
+
+    const target = {
+      channelId: channel.id,
+      invokerId: me.id,
+      botUserId: found.app.botUserId,
+      threadRootId,
+    };
+    const form = new URLSearchParams({
+      command: `/${name}`,
+      text: argText,
+      team_id: store.getMeta("workspace_id") ?? "",
+      team_domain: workspaceName(),
+      channel_id: channel.id,
+      channel_name: channel.name,
+      user_id: me.id,
+      user_name: me.handle,
+      api_app_id: found.app.id,
+      response_url: newResponseUrl(target, requestOrigin(req)),
+      trigger_id: ulid(),
+    }).toString();
+
+    try {
+      const res = await postToUrl(found.command.url, form, "application/x-www-form-urlencoded", {
+        allowPrivate: opts.allowPrivateHooks,
+        headers: signatureHeaders(store.appSigningSecret(found.app.id) ?? "", form),
+      });
+      if (res.status < 200 || res.status >= 300) {
+        sayEphemeral(
+          channel.id,
+          me.id,
+          found.app.botUserId,
+          `\`/${name}\` failed: the app answered ${res.status}.`,
+        );
+        return { ok: false, error: "command_failed" };
+      }
+      deliverCommandReply(target, res.body, res.contentType);
+      return { ok: true };
+    } catch (err) {
+      const why =
+        err instanceof OutboundError && err.code === "blocked_host"
+          ? err.message
+          : "the app did not answer";
+      sayEphemeral(channel.id, me.id, found.app.botUserId, `\`/${name}\` failed: ${why}.`);
+      return { ok: false, error: "command_failed" };
+    }
+  });
+
+  /** Slack's `response_url`: how an app replies after its first few seconds. */
+  app.post<{ Params: { token: string } }>("/api/commands/response/:token", async (req, reply) => {
+    const target = responseTargets.get(req.params.token);
+    if (!target || target.expiresAt < Date.now()) {
+      responseTargets.delete(req.params.token);
+      return reply.status(404).send({ ok: false, error: "expired_url" });
+    }
+    if (--target.usesLeft <= 0) responseTargets.delete(req.params.token);
+
+    const raw = req.body;
+    const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? {});
+    deliverCommandReply(target, text, "application/json");
+    return { ok: true };
+  });
+
+  // ---------- outgoing event subscriptions ----------
+
+  app.post<{ Params: { id: string } }>("/api/apps/:id/subscriptions", async (req, reply) => {
+    requireAdmin(req);
+    const owner = store.getApp(req.params.id);
+    if (!owner) throw new HttpError(404, "not_found");
+    const body = createSubscriptionBody.parse(req.body);
+
+    // Slack's url_verification handshake, worth keeping for more than
+    // compatibility: an endpoint that cannot echo the challenge has not agreed
+    // to receive anything, so this is also what stops the server being aimed
+    // at an unrelated host as a way of flooding it.
+    const challenge = secretToken();
+    const probe = JSON.stringify({ type: "url_verification", token: "", challenge });
+    let answered: string;
+    try {
+      const res = await postToUrl(body.url, probe, "application/json", {
+        allowPrivate: opts.allowPrivateHooks,
+        headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", probe),
+      });
+      answered = res.body.trim();
+      if (answered.startsWith("{")) {
+        answered = String((JSON.parse(answered) as { challenge?: unknown }).challenge ?? "");
+      }
+    } catch (err) {
+      throw new HttpError(
+        400,
+        err instanceof OutboundError ? err.code : "unreachable",
+        (err as Error).message,
+      );
+    }
+    if (answered !== challenge) {
+      throw new HttpError(
+        400,
+        "challenge_failed",
+        "the endpoint did not echo the url_verification challenge",
+      );
+    }
+
+    const subscription = store.createSubscription({
+      appId: owner.id,
+      url: body.url,
+      eventTypes: body.eventTypes ?? [],
+    });
+    return reply.status(201).send({ subscription });
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/subscriptions/:id", async (req) => {
+    requireAdmin(req);
+    if (!store.deleteSubscription(req.params.id)) throw new HttpError(404, "not_found");
+    return { ok: true };
   });
 
   // ---------- scheduled messages ----------

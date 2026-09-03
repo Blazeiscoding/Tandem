@@ -191,6 +191,34 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_webhooks_app ON webhooks(app_id);
   `,
+
+  // v7 — slash commands and outgoing event subscriptions
+  `
+  -- Signs outbound requests so a receiver can prove they came from us. Unlike
+  -- bot tokens this is stored in the clear: HMAC needs the key itself.
+  ALTER TABLE apps ADD COLUMN signing_secret TEXT NOT NULL DEFAULT '';
+  UPDATE apps SET signing_secret = lower(hex(randomblob(32)));
+
+  CREATE TABLE slash_commands (
+    id TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES apps(id),
+    command TEXT NOT NULL UNIQUE,
+    url TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    usage_hint TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_commands_app ON slash_commands(app_id);
+
+  CREATE TABLE event_subscriptions (
+    id TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES apps(id),
+    url TEXT NOT NULL,
+    event_types TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_subscriptions_app ON event_subscriptions(app_id);
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

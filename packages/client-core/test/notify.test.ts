@@ -65,6 +65,8 @@ function state(over: Partial<WorkspaceState> = {}): WorkspaceState {
     saved: {},
     drafts: {},
     huddles: {},
+    ephemerals: {},
+    commands: [],
     huddle: null,
     ...over,
   };

@@ -104,6 +104,11 @@ function WorkspaceInner({
       .catch(() => setHighlightMessageId(null));
   }, [clientFromCtx, initialTarget]);
 
+  // The composer's slash-command hints. Re-fetched when an admin adds one.
+  useEffect(() => {
+    void clientFromCtx.loadCommands();
+  }, [clientFromCtx]);
+
   // Pick #general (or the first channel) once the snapshot lands.
   useEffect(() => {
     if (!activeChannelId) {

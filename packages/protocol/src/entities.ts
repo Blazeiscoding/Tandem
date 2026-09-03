@@ -140,3 +140,29 @@ export interface Webhook {
   channelId: ID;
   createdAt: number;
 }
+
+/**
+ * A `/command` an app answers. Running it POSTs a Slack-shaped form body to
+ * `url`; whatever comes back is shown to the person who typed it.
+ */
+export interface SlashCommand {
+  id: ID;
+  appId: ID;
+  /** Stored without the leading slash, lowercase. */
+  command: string;
+  url: string;
+  description: string;
+  /** Shown after the command name in the hint list, e.g. "[staging|prod]". */
+  usageHint: string;
+  createdAt: number;
+}
+
+/** An outgoing subscription: the server POSTs matching events to `url`. */
+export interface EventSubscription {
+  id: ID;
+  appId: ID;
+  url: string;
+  /** Native event types delivered; empty means every type the app can see. */
+  eventTypes: string[];
+  createdAt: number;
+}
