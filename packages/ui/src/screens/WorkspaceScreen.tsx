@@ -22,6 +22,7 @@ import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
 import { AppsDialog } from "../components/AppsDialog.js";
+import { FriendsDialog } from "../components/FriendsDialog.js";
 
 interface Props {
   client: WorkspaceClient;
@@ -33,6 +34,7 @@ interface Props {
 
 type DialogKind =
   | { kind: "none" }
+  | { kind: "friends" }
   | { kind: "new-channel" }
   | { kind: "browse" }
   | { kind: "new-dm" }
@@ -219,6 +221,7 @@ function WorkspaceInner({
   return (
     <div className="flex h-full">
       <Sidebar
+        onFriends={() => setDialog({ kind: "friends" })}
         activeChannelId={activeChannelId}
         onSelect={openChannel}
         onBrowseChannels={() => setDialog({ kind: "browse" })}
@@ -357,6 +360,7 @@ function WorkspaceInner({
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
       {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
       {dialog.kind === "edit-profile" && <EditProfileDialog onClose={closeDialog} />}
+      {dialog.kind === "friends" && <FriendsDialog onClose={closeDialog} onOpenProfile={(userId) => setDialog({ kind: "profile", userId })} />}
       {dialog.kind === "profile" && (
         <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />
       )}

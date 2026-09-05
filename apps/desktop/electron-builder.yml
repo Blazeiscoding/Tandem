@@ -6,6 +6,9 @@ files:
   - out/**
   - package.json
 asar: true
+extraResources:
+  - from: ../web/dist
+    to: web
 win:
   target:
     - nsis

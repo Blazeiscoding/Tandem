@@ -1,4 +1,4 @@
-import type { Channel, ChannelPrefs, ID, Message, User } from "./entities.js";
+import type { Channel, ChannelPrefs, Friendship, ID, Message, User } from "./entities.js";
 import type { HuddleSignal } from "./huddle.js";
 
 /**
@@ -28,6 +28,7 @@ export interface EventEnvelope {
 
 /** Ephemeral events — never logged, never replayed. */
 export type EphemeralEvent =
+  | { type: "friends"; friends: Friendship[] }
   | { type: "typing"; channelId: ID; userId: ID }
   | { type: "presence"; userId: ID; presence: Presence }
   /** Private to one user's own sockets, so their devices stay in step. */
@@ -70,6 +71,7 @@ export interface ReadySnapshot {
   /** Live huddles the user can see: channelId -> participant ids. */
   huddles: Record<ID, ID[]>;
   workspaceName: string;
+  friends?: Friendship[];
 }
 
 /** Everything the server can push over the socket. */

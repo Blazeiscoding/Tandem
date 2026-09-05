@@ -48,6 +48,7 @@ const message = (over: Partial<Message> = {}): Message => ({
 
 function state(over: Partial<WorkspaceState> = {}): WorkspaceState {
   return {
+    friends: [],
     status: "online",
     workspaceName: "W",
     self: me,

@@ -3,6 +3,7 @@ import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { FriendActions } from "./FriendsDialog.js";
 
 /** Someone else's profile, with a shortcut to open a DM with them. */
 export function ProfileDialog(props: {
@@ -46,6 +47,7 @@ export function ProfileDialog(props: {
         </p>
       )}
 
+      {user.id !== selfId && !user.isBot && <div className="mt-4"><FriendActions userId={user.id} /></div>}
       {user.id !== selfId && (
         <button
           onClick={async () => {

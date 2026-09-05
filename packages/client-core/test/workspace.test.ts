@@ -61,6 +61,25 @@ afterAll(async () => {
 });
 
 describe("WorkspaceClient", () => {
+  it("syncs friend requests live and restores them on reconnect", async () => {
+    const aliceClient = new WorkspaceClient(base, aliceToken);
+    const bobClient = new WorkspaceClient(base, bobToken);
+    aliceClient.connect(); bobClient.connect();
+    try {
+      await Promise.all([until(aliceClient, (s) => s.status === "online"), until(bobClient, (s) => s.status === "online")]);
+      await aliceClient.api.updateFriend(bobId, "request");
+      await until(bobClient, (s) => s.friends[0]?.status === "incoming");
+      await bobClient.api.updateFriend(aliceClient.state.self!.id, "accept");
+      await until(aliceClient, (s) => s.friends[0]?.status === "accepted");
+      bobClient.destroy();
+      const reconnected = new WorkspaceClient(base, bobToken);
+      reconnected.connect();
+      try { await until(reconnected, (s) => s.friends[0]?.status === "accepted"); }
+      finally { reconnected.destroy(); }
+      await aliceClient.api.updateFriend(bobId, "remove");
+      await until(aliceClient, (s) => s.friends.length === 0);
+    } finally { aliceClient.destroy(); bobClient.destroy(); }
+  });
   it("normalizes whatever address the user typed", () => {
     expect(normalizeServerUrl("192.168.1.4:8543")).toBe("http://192.168.1.4:8543");
     expect(normalizeServerUrl("192.168.1.4")).toBe("http://192.168.1.4:8543");
@@ -191,6 +210,68 @@ describe("WorkspaceClient", () => {
 
     client.setDraft("C1", "   ");
     expect(client.state.drafts).toEqual({ C2: "another one" });
+    client.destroy();
+  });
+  it("keeps a bounded window of messages while scrolling a long channel", async () => {
+    // A channel far longer than the window, so paging has to drop the far end.
+    const api = new Api(base, aliceToken);
+    const { channel } = await api.createChannel({ type: "public", name: "scrollback" });
+    for (let i = 0; i < 400; i++) {
+      await api.sendMessage(channel.id, { text: `history ${i}` });
+    }
+
+    const client = new WorkspaceClient(base, aliceToken);
+    client.connect();
+    await until(client, (s) => s.status === "online");
+    const window = () => client.state.timelines[channel.id]!;
+
+    await client.loadTimeline(channel.id);
+    expect(window().items).toHaveLength(50);
+
+    // Five more pages fill the window exactly; nothing has been dropped yet.
+    for (let i = 0; i < 5; i++) await client.loadTimeline(channel.id, { older: true });
+    expect(window().items).toHaveLength(300);
+    expect(window().hasMoreNewer).toBe(false);
+
+    // Past that, the newest end goes and is marked pageable again.
+    const newestBefore = window().items[299]!.id;
+    await client.loadTimeline(channel.id, { older: true });
+    expect(window().items).toHaveLength(300);
+    expect(window().hasMoreNewer).toBe(true);
+    expect(window().items[299]!.id < newestBefore).toBe(true);
+
+    // Paging back down trades the other end, and stays bounded either way.
+    await client.loadNewer(channel.id);
+    expect(window().items).toHaveLength(300);
+    expect(window().hasMore).toBe(true);
+    client.destroy();
+  });
+
+  it("trims the oldest messages rather than growing forever at the tail", async () => {
+    const api = new Api(base, aliceToken);
+    const { channel } = await api.createChannel({ type: "public", name: "busy" });
+    for (let i = 0; i < 320; i++) await api.sendMessage(channel.id, { text: `chatter ${i}` });
+
+    const client = new WorkspaceClient(base, aliceToken);
+    client.connect();
+    await until(client, (s) => s.status === "online");
+    const window = () => client.state.timelines[channel.id]!;
+
+    // A full window, sitting at the tail rather than anchored mid-history.
+    await client.loadTimeline(channel.id);
+    for (let i = 0; i < 5; i++) await client.loadTimeline(channel.id, { older: true });
+    expect(window().items).toHaveLength(300);
+    const oldestBefore = window().items[0]!.id;
+
+    await new Api(base, bobToken).sendMessage(channel.id, { text: "one more" });
+    await until(
+      client,
+      (s) => (s.timelines[channel.id]?.items ?? []).some((m) => m.text === "one more"),
+      "live message",
+    );
+    expect(window().items).toHaveLength(300);
+    expect(window().items[0]!.id > oldestBefore).toBe(true);
+    expect(window().hasMore).toBe(true);
     client.destroy();
   });
 });

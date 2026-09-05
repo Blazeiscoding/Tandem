@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/out
+**/release
+**/.turbo
+.git
+**/data
+**/*.db*
+**/.env*
+**/*.log
+**/coverage

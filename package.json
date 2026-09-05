@@ -11,9 +11,12 @@
     "build": "turbo build",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
+    "test:e2e": "playwright test",
+    "test:desktop": "playwright test --config playwright.desktop.config.ts",
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "prettier": "^3.6.2",
     "turbo": "^2.5.5",
     "typescript": "^5.9.2"

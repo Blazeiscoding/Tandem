@@ -5,6 +5,7 @@ import type {
   ChannelPrefs,
   ChannelType,
   FileMeta,
+  Friendship,
   ID,
   Invite,
   Message,
@@ -80,6 +81,32 @@ function toUser(r: UserRow): User {
 
 export class Store {
   constructor(private db: DatabaseSync) {}
+
+  listFriends(userId: ID): Friendship[] {
+    const rows = this.db.prepare(`SELECT * FROM friendships WHERE user_low = ? OR user_high = ? ORDER BY created_at DESC`).all(userId, userId) as unknown as {
+      user_low: string; user_high: string; requested_by: string; accepted: number; created_at: number;
+    }[];
+    return rows.map((r) => ({
+      userId: r.user_low === userId ? r.user_high : r.user_low,
+      status: r.accepted ? "accepted" : r.requested_by === userId ? "outgoing" : "incoming",
+      createdAt: r.created_at,
+    }));
+  }
+
+  requestFriend(userId: ID, otherId: ID): void {
+    const [low, high] = [userId, otherId].sort();
+    this.db.prepare(`INSERT OR IGNORE INTO friendships (user_low, user_high, requested_by, created_at) VALUES (?, ?, ?, ?)`).run(low!, high!, userId, Date.now());
+  }
+
+  acceptFriend(userId: ID, otherId: ID): boolean {
+    const [low, high] = [userId, otherId].sort();
+    return this.db.prepare(`UPDATE friendships SET accepted = 1 WHERE user_low = ? AND user_high = ? AND requested_by = ?`).run(low!, high!, otherId).changes > 0;
+  }
+
+  removeFriend(userId: ID, otherId: ID): void {
+    const [low, high] = [userId, otherId].sort();
+    this.db.prepare(`DELETE FROM friendships WHERE user_low = ? AND user_high = ?`).run(low!, high!);
+  }
 
   // ---------- meta ----------
 
@@ -663,6 +690,7 @@ export class Store {
   // ---------- files ----------
 
   createFile(input: {
+    id?: ID;
     channelId: ID;
     userId: ID;
     name: string;
@@ -671,7 +699,7 @@ export class Store {
     width: number | null;
     height: number | null;
   }): FileMeta {
-    const id = ulid();
+    const id = input.id ?? ulid();
     this.db
       .prepare(
         `INSERT INTO files (id, channel_id, user_id, name, mime, size, width, height, created_at)

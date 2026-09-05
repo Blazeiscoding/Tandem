@@ -12,6 +12,7 @@ import {
 } from "@slackoss/protocol";
 import type { Store } from "./store.js";
 import { hashToken } from "./auth.js";
+import { socketMessage } from "./socketSchema.js";
 
 interface Client {
   ws: WebSocket;
@@ -35,6 +36,7 @@ export class Gateway {
    */
   private huddles = new Map<ID, Set<ID>>();
   private heartbeat: NodeJS.Timeout;
+  private sockets = new Set<WebSocket>();
 
   constructor(
     private store: Store,
@@ -53,7 +55,7 @@ export class Gateway {
   }
 
   attach(server: HttpServer, path = "/ws"): void {
-    const wss = new WebSocketServer({ noServer: true });
+    const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024, perMessageDeflate: false });
     server.on("upgrade", (req, socket, head) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname !== path) {
@@ -66,7 +68,7 @@ export class Gateway {
 
   close(): void {
     clearInterval(this.heartbeat);
-    for (const c of this.clients) c.ws.terminate();
+    for (const ws of this.sockets) ws.terminate();
   }
 
   onlineUserIds(): ID[] {
@@ -81,9 +83,10 @@ export class Gateway {
   }
 
   private onConnection(ws: WebSocket): void {
+    this.sockets.add(ws);
     let client: Client | null = null;
     const authTimer = setTimeout(() => {
-      if (!client) ws.close(4001, "hello timeout");
+      if (!client) ws.terminate();
     }, 10_000);
 
     ws.on("pong", () => {
@@ -93,7 +96,9 @@ export class Gateway {
     ws.on("message", (data) => {
       let msg: ClientToServer;
       try {
-        msg = JSON.parse(String(data)) as ClientToServer;
+        const parsed = socketMessage.safeParse(JSON.parse(String(data)));
+        if (!parsed.success) { ws.close(4000, "invalid message"); return; }
+        msg = parsed.data;
       } catch {
         return;
       }
@@ -130,6 +135,7 @@ export class Gateway {
           savedMessageIds: this.store.savedMessageIds(user.id),
           huddles: this.huddlesVisibleTo(user.id),
           workspaceName: this.workspaceName(),
+          friends: this.store.listFriends(user.id),
         };
         this.send(ws, snapshot);
 
@@ -176,6 +182,7 @@ export class Gateway {
     });
 
     ws.on("close", () => {
+      this.sockets.delete(ws);
       clearTimeout(authTimer);
       if (client) this.unregister(client);
     });
@@ -287,6 +294,9 @@ export class Gateway {
   }
 
   private sendRaw(ws: WebSocket, frame: string): void {
+    // A slow reader must reconnect and replay instead of growing an unbounded
+    // queue in the host's RAM.
+    if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.terminate(); return; }
     if (ws.readyState === WebSocket.OPEN) ws.send(frame);
   }
 }

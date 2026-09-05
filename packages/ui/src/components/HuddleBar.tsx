@@ -260,16 +260,18 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
   const participants = useWorkspace((s) => s.huddles[channelId]);
   const inThis = useWorkspace((s) => s.huddle?.channelId === channelId);
   const [error, setError] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
   const count = participants?.length ?? 0;
 
   async function join() {
     setError(null);
+    setJoining(true);
     try {
       await client.joinHuddle(channelId);
-    } catch {
-      setError("No microphone available.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not join this huddle.");
       setTimeout(() => setError(null), 4000);
-    }
+    } finally { setJoining(false); }
   }
 
   if (inThis) {
@@ -283,6 +285,7 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
   return (
     <button
       onClick={join}
+      disabled={joining}
       title={error ?? (count > 0 ? `Join the huddle (${count})` : "Start a huddle")}
       className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
         error
@@ -292,7 +295,7 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
             : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
       }`}
     >
-      🎧{count > 0 && <span className="ml-1 font-mono text-[11px]">{count}</span>}
+      {error ? <span role="alert">{error}</span> : joining ? "Joining…" : <>🎧{count > 0 && <span className="ml-1 font-mono text-[11px]">{count}</span>}</>}
     </button>
   );
 }

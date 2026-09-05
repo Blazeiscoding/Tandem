@@ -1,6 +1,13 @@
 /** All ids are ULID-style sortable strings. */
 export type ID = string;
 
+/** A relationship visible only to its two participants, within one workspace. */
+export interface Friendship {
+  userId: ID;
+  status: "incoming" | "outgoing" | "accepted";
+  createdAt: number;
+}
+
 export type Role = "owner" | "admin" | "member";
 
 export interface User {

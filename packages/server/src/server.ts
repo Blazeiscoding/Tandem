@@ -1,6 +1,8 @@
 import { join } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { open, unlink } from "node:fs/promises";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import Fastify, { type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
@@ -77,6 +79,8 @@ export interface ServerOptions {
    */
   allowPrivateHooks?: boolean;
   logger?: boolean;
+  /** Private deployments default to LAN-only media with no external ICE service. */
+  iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
 }
 
 export interface WorkspaceServer {
@@ -204,7 +208,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const maxFileSize = opts.maxFileSize ?? 100 * 1024 * 1024;
   const blobPath = (fileId: string) => join(filesDir!, fileId);
 
-  const app = Fastify({ logger: opts.logger ?? false });
+  const app = Fastify({ logger: opts.logger ?? false, forceCloseConnections: true });
   // The default allow-list is GET/HEAD/POST only, which silently breaks
   // reactions, edits, deletes, pins and saves in the browser.
   await app.register(cors, {
@@ -288,6 +292,25 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   // ---------- unauthenticated ----------
 
+  app.get("/api/health", async () => {
+    db.prepare("SELECT 1").get();
+    return { status: "ok" };
+  });
+
+  app.get("/api/rtc-config", async (req, reply) => {
+    requireUser(req);
+    reply.header("Cache-Control", "no-store");
+    return { iceServers: opts.iceServers ?? [] };
+  });
+
+  // Bound simultaneous password derivations; each scrypt job uses substantial
+  // memory. Do the expensive work off the event loop so calls/chat stay responsive.
+  let authJobs = 0;
+  const beginAuth = () => {
+    if (authJobs >= 2) throw new HttpError(429, "auth_busy", "Please retry in a moment");
+    authJobs++;
+  };
+
   app.get("/api/server-info", async (): Promise<ServerInfo> => {
     return {
       app: "slackoss",
@@ -301,7 +324,20 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   app.post("/api/auth/register", async (req, reply) => {
     const body = registerBody.parse(req.body);
+    beginAuth();
+    let credentials: Awaited<ReturnType<typeof hashPassword>>;
+    try {
+      credentials = await hashPassword(body.password);
+    } finally {
+      authJobs--;
+    }
+    // Everything after hashing is synchronous: concurrent registrations cannot
+    // both become owner or consume the same final invitation use.
     const isFirstUser = store.userCount() === 0;
+
+    if (store.getUserAuthByHandle(body.handle)) {
+      throw new HttpError(409, "handle_taken");
+    }
 
     if (!isFirstUser && inviteOnly()) {
       if (!body.inviteCode || !store.consumeInvite(body.inviteCode)) {
@@ -312,7 +348,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       throw new HttpError(409, "handle_taken");
     }
 
-    const { hash, salt } = hashPassword(body.password);
+    const { hash, salt } = credentials;
     const user = store.createUser({
       handle: body.handle,
       displayName: body.displayName,
@@ -348,7 +384,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.post("/api/auth/login", async (req) => {
     const body = loginBody.parse(req.body);
     const auth = store.getUserAuthByHandle(body.handle);
-    if (!auth || auth.deactivated || !verifyPassword(body.password, auth.salt, auth.passwordHash)) {
+    beginAuth();
+    let valid = false;
+    try {
+      valid = !!auth && !auth.deactivated && await verifyPassword(body.password, auth.salt, auth.passwordHash);
+    } finally {
+      authJobs--;
+    }
+    if (!auth || !valid) {
       throw new HttpError(401, "invalid_credentials");
     }
     const { token, tokenHash } = newSessionToken();
@@ -381,6 +424,31 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   });
 
   // ---------- channels ----------
+
+  const publishFriends = (a: ID, b: ID) => {
+    for (const id of [a, b]) gateway.sendToUser(id, { type: "friends", friends: store.listFriends(id) });
+  };
+  app.get("/api/friends", async (req) => ({ friends: store.listFriends(requireUser(req).id) }));
+  app.post<{ Params: { id: string } }>("/api/friends/:id", async (req) => {
+    const me = requireUser(req);
+    const other = store.getUser(req.params.id);
+    if (!other || other.deactivated || other.isBot || other.id === me.id) throw new HttpError(400, "invalid_friend");
+    store.requestFriend(me.id, other.id);
+    publishFriends(me.id, other.id);
+    return { friends: store.listFriends(me.id) };
+  });
+  app.put<{ Params: { id: string } }>("/api/friends/:id", async (req) => {
+    const me = requireUser(req);
+    if (!store.acceptFriend(me.id, req.params.id)) throw new HttpError(404, "request_not_found");
+    publishFriends(me.id, req.params.id);
+    return { friends: store.listFriends(me.id) };
+  });
+  app.delete<{ Params: { id: string } }>("/api/friends/:id", async (req) => {
+    const me = requireUser(req);
+    store.removeFriend(me.id, req.params.id);
+    publishFriends(me.id, req.params.id);
+    return { friends: store.listFriends(me.id) };
+  });
 
   app.get("/api/channels", async (req) => {
     const me = requireUser(req);
@@ -611,28 +679,37 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const part = await req.file();
     if (!part) throw new HttpError(400, "no_file");
 
-    let buffer: Buffer;
+    const id = ulid();
+    let size = 0;
+    let headerSize = 0;
+    const header: Buffer[] = [];
+    const meter = new Transform({ transform(chunk: Buffer, _encoding, done) {
+      size += chunk.length;
+      if (headerSize < 64 * 1024) {
+        const part = Buffer.from(chunk.subarray(0, 64 * 1024 - headerSize));
+        header.push(part); headerSize += part.length;
+      }
+      done(null, chunk);
+    } });
     try {
-      buffer = await part.toBuffer();
-    } catch {
-      throw new HttpError(413, "file_too_large", `files must be under ${maxFileSize} bytes`);
-    }
-    if (part.file.truncated) {
-      throw new HttpError(413, "file_too_large", `files must be under ${maxFileSize} bytes`);
-    }
-
-    const dims = part.mimetype.startsWith("image/") ? imageSize(buffer) : null;
-    const file = store.createFile({
+      await pipeline(part.file, meter, createWriteStream(blobPath(id), { flags: "wx" }));
+      if (part.file.truncated) throw new HttpError(413, "file_too_large", `files must be under ${maxFileSize} bytes`);
+      const dims = part.mimetype.startsWith("image/") ? imageSize(Buffer.concat(header)) : null;
+      const file = store.createFile({
+      id,
       channelId: channel.id,
       userId: me.id,
       name: part.filename.slice(0, 255),
       mime: part.mimetype,
-      size: buffer.byteLength,
+      size,
       width: dims?.width ?? null,
       height: dims?.height ?? null,
     });
-    await writeFile(blobPath(file.id), buffer);
     return reply.status(201).send({ file });
+    } catch (err) {
+      await unlink(blobPath(id)).catch(() => {});
+      throw err;
+    }
   });
 
   app.get<{ Params: { id: string } }>("/api/files/:id", async (req, reply) => {
@@ -641,15 +718,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (!file || !filesDir || !store.canAccess(file.channelId, me.id)) {
       throw new HttpError(404, "file_not_found");
     }
-    let body: Buffer;
+    let body;
     try {
-      body = await readFile(blobPath(file.id));
+      const handle = await open(blobPath(file.id), "r");
+      body = handle.createReadStream();
     } catch {
       throw new HttpError(404, "file_not_found");
     }
     // Content is immutable once uploaded, so let clients cache it hard.
     return reply
       .header("content-type", file.mime)
+      .header("x-content-type-options", "nosniff")
       .header("content-length", String(file.size))
       .header("cache-control", "private, max-age=31536000, immutable")
       .header("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`)
@@ -723,7 +802,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const body = createAppBody.parse(req.body);
 
     // A bot posts as a real (non-human) user, so messages render normally.
-    const { hash, salt } = hashPassword(secretToken());
+    beginAuth();
+    let credentials: Awaited<ReturnType<typeof hashPassword>>;
+    try { credentials = await hashPassword(secretToken()); }
+    finally { authJobs--; }
+    const { hash, salt } = credentials;
     const bot = store.createBotUser(botHandle(body.name), body.name, hash, salt);
     const signingSecret = secretToken();
     const created = store.createApp({
@@ -825,6 +908,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (!channel || channel.archived) {
       return reply.status(404).send({ ok: false, error: "channel_not_found" });
     }
+
+    if (channel.type !== "public" && !store.isMember(channel.id, found.app.botUserId)) {
+      return reply.status(403).send({ ok: false, error: "not_in_channel" });
+    }
     postMessage({
       channelId: channel.id,
       userId: found.app.botUserId,
@@ -861,6 +948,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const channel = store.getChannel(body.channel) ?? store.getChannelByName(named);
     if (!channel || channel.archived) {
       return reply.status(404).send({ ok: false, error: "channel_not_found" });
+    }
+
+    if (channel.type !== "public" && !store.isMember(channel.id, owner.botUserId)) {
+      return reply.status(403).send({ ok: false, error: "not_in_channel" });
     }
 
     const text = payloadToText(body);
@@ -1303,7 +1394,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const port = opts.port ?? 8543;
   const host = opts.host ?? "0.0.0.0";
   gateway.attach(app.server);
-  await app.listen({ port, host });
+  try {
+    await app.listen({ port, host });
+  } catch (err) {
+    gateway.close();
+    await app.close();
+    db.close();
+    throw err;
+  }
   const actualPort = (app.server.address() as { port: number }).port;
 
   let mdnsHandle: MdnsHandle | null = null;

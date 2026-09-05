@@ -6,6 +6,7 @@ import type {
   CreateChannelBody,
   CreateInviteBody,
   FileMeta,
+  Friendship,
   ID,
   Invite,
   Message,
@@ -92,6 +93,18 @@ export class Api {
 
   serverInfo(timeoutMs = 4000): Promise<ServerInfo> {
     return this.request<ServerInfo>("GET", "/api/server-info", undefined, { timeoutMs });
+  }
+
+  rtcConfig(): Promise<RTCConfiguration> {
+    return this.request("GET", "/api/rtc-config", undefined, { timeoutMs: 5000 });
+  }
+
+  friends(): Promise<{ friends: Friendship[] }> {
+    return this.request("GET", "/api/friends");
+  }
+
+  updateFriend(userId: ID, action: "request" | "accept" | "remove"): Promise<{ friends: Friendship[] }> {
+    return this.request({ request: "POST", accept: "PUT", remove: "DELETE" }[action], `/api/friends/${encodeURIComponent(userId)}`);
   }
 
   register(body: {

@@ -9,6 +9,8 @@ out/
 .DS_Store
 release/
 coverage/
+test-results/
+playwright-report/
 data/
 *.db
 *.db-wal

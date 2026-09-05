@@ -29,25 +29,17 @@ export interface HuddleTransport {
   send: (msg: { type: "huddle.signal"; channelId: ID; to: ID; signal: HuddleSignal }) => void;
 }
 
-const RTC_CONFIG: RTCConfiguration = {
-  // A LAN or self-hosted workspace usually needs no STUN at all; host
-  // candidates are enough. The public server is a fallback for wider networks.
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
-
 /**
  * One connection per participant, with its three media slots fixed up front.
  *
- * Every peer declares the same transceivers in the same order — microphone,
- * camera, screen — before the first offer, so turning a camera or a share on
- * later is just `replaceTrack` on a slot that already exists. That avoids
- * renegotiation entirely, which matters because renegotiating a mesh mid-call
- * is where glare and half-connected peers come from. It also means the two
- * sides agree on which incoming track is which: the receiving transceiver is
- * the very object we created, so the slot is known by identity rather than by
- * guessing from an SDP mid.
+ * The offerer declares microphone, camera, screen in that order. The answerer
+ * adopts those slots from the offer. Subsequent camera/screen changes use
+ * replaceTrack without renegotiation; incoming tracks use the negotiated order.
  */
 export class HuddleSession {
+  private destroyed = false;
+  private acquiringCamera = false;
+  private acquiringScreen = false;
   private peers = new Map<ID, Peer>();
   private connected = new Set<ID>();
   private localStream: MediaStream | null = null;
@@ -63,11 +55,19 @@ export class HuddleSession {
     readonly channelId: ID,
     private selfId: ID,
     private transport: HuddleTransport,
+    private rtcConfig: RTCConfiguration = { iceServers: [] },
   ) {}
 
   /** Grabs the microphone. Rejects if permission is refused or no device exists. */
   async startLocalAudio(): Promise<void> {
-    this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone access requires the desktop app or an HTTPS browser connection.");
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false,
+    });
+    if (this.destroyed) { stream.getTracks().forEach((track) => track.stop()); return; }
+    this.localStream = stream;
   }
 
   get micMuted(): boolean {
@@ -113,6 +113,7 @@ export class HuddleSession {
    * who left. Only one side offers, decided by id, so the two don't collide.
    */
   syncParticipants(userIds: ID[]): void {
+    if (this.destroyed) return;
     const others = new Set(userIds.filter((id) => id !== this.selfId));
 
     for (const userId of this.peers.keys()) {
@@ -120,20 +121,23 @@ export class HuddleSession {
     }
     for (const userId of others) {
       if (this.peers.has(userId)) continue;
-      const peer = this.createPeer(userId);
-      if (shouldInitiateOffer(this.selfId, userId)) void this.offer(userId, peer.pc);
+      this.createPeer(userId);
     }
     this.onChange?.();
   }
 
   private createPeer(userId: ID): Peer {
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(this.rtcConfig);
 
     // Order is the contract: both ends create these identically, so the m-lines
     // line up and each transceiver means the same thing on both sides.
-    const audioTx = pc.addTransceiver("audio", { direction: "sendrecv" });
-    const cameraTx = pc.addTransceiver("video", { direction: "sendrecv" });
-    const screenTx = pc.addTransceiver("video", { direction: "sendrecv" });
+    // Only the offerer creates slots. The answerer adopts the slots from the
+    // remote offer; pre-creating them on both sides produces six transceivers
+    // in Chromium and a receive-only answer (one-way audio).
+    const initiating = shouldInitiateOffer(this.selfId, userId);
+    const audioTx = initiating ? pc.addTransceiver("audio", { direction: "sendrecv" }) : null;
+    const cameraTx = initiating ? pc.addTransceiver("video", { direction: "sendrecv" }) : null;
+    const screenTx = initiating ? pc.addTransceiver("video", { direction: "sendrecv" }) : null;
 
     const peer: Peer = {
       pc,
@@ -145,15 +149,11 @@ export class HuddleSession {
       screen: null,
       cameraOn: false,
       screenOn: false,
+      pendingIce: [],
     };
     this.peers.set(userId, peer);
 
     // Whatever is already live goes out on the new connection immediately.
-    const micTrack = this.localStream?.getAudioTracks()[0] ?? null;
-    if (micTrack) void audioTx.sender.replaceTrack(micTrack);
-    if (this.cameraTrack) void cameraTx.sender.replaceTrack(this.cameraTrack);
-    if (this.screenTrack) void screenTx.sender.replaceTrack(this.screenTrack);
-
     pc.onicecandidate = (e) => {
       if (!e.candidate) return;
       this.transport.send({
@@ -176,8 +176,9 @@ export class HuddleSession {
       // anything is being sent. Keep the stream; whether it is worth showing
       // is what the peer's "media" signal tells us.
       const stream = new MediaStream([e.track]);
-      if (e.transceiver === peer.cameraTx) peer.camera = stream;
-      else if (e.transceiver === peer.screenTx) peer.screen = stream;
+      const slot = pc.getTransceivers().indexOf(e.transceiver);
+      if (slot === 1) peer.camera = stream;
+      else if (slot === 2) peer.screen = stream;
       else peer.audio = stream;
       this.onChange?.();
     };
@@ -191,7 +192,18 @@ export class HuddleSession {
     // Tell them what we are sending, so someone joining a call that already
     // has video on sees it rather than an empty tile.
     this.announceMedia(userId);
+    if (initiating) void this.attachLocalTracks(peer).then(() => {
+      if (!this.destroyed && this.peers.get(userId) === peer) return this.offer(userId, pc);
+    }).catch(() => {});
     return peer;
+  }
+
+  private async attachLocalTracks(peer: Peer): Promise<void> {
+    await Promise.all([
+      peer.audioTx?.sender.replaceTrack(this.localStream?.getAudioTracks()[0] ?? null),
+      peer.cameraTx?.sender.replaceTrack(this.cameraTrack),
+      peer.screenTx?.sender.replaceTrack(this.screenTrack),
+    ]);
   }
 
   private async offer(userId: ID, pc: RTCPeerConnection): Promise<void> {
@@ -207,6 +219,7 @@ export class HuddleSession {
 
   /** Handles a relayed offer/answer/candidate from one peer. */
   async handleSignal(from: ID, signal: HuddleSignal): Promise<void> {
+    if (this.destroyed) return;
     // A signal can arrive before the roster update that introduces the peer.
     let peer = this.peers.get(from);
     if (!peer) peer = this.createPeer(from);
@@ -214,6 +227,13 @@ export class HuddleSession {
 
     if (signal.kind === "offer") {
       await pc.setRemoteDescription({ type: "offer", sdp: signal.sdp });
+      const slots = pc.getTransceivers();
+      peer.audioTx = slots[0] ?? null;
+      peer.cameraTx = slots[1] ?? null;
+      peer.screenTx = slots[2] ?? null;
+      for (const slot of slots) slot.direction = "sendrecv";
+      await this.attachLocalTracks(peer);
+      await this.flushIce(peer);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       this.transport.send({
@@ -226,11 +246,16 @@ export class HuddleSession {
       // Ignore an answer that arrives when we are not expecting one.
       if (pc.signalingState !== "have-local-offer") return;
       await pc.setRemoteDescription({ type: "answer", sdp: signal.sdp });
+      await this.flushIce(peer);
     } else if (signal.kind === "media") {
       peer.cameraOn = signal.camera;
       peer.screenOn = signal.screen;
       this.onChange?.();
     } else {
+      if (!pc.remoteDescription) {
+        if (peer.pendingIce.length < 128) peer.pendingIce.push(signal.candidate);
+        return;
+      }
       try {
         await pc.addIceCandidate(signal.candidate);
       } catch {
@@ -240,13 +265,28 @@ export class HuddleSession {
     }
   }
 
+  private async flushIce(peer: Peer): Promise<void> {
+    for (const candidate of peer.pendingIce.splice(0)) {
+      await peer.pc.addIceCandidate(candidate).catch(() => {});
+    }
+  }
+
   /** Turns the camera on or off. */
   async toggleCamera(): Promise<void> {
+    if (this.destroyed || this.acquiringCamera) return;
     if (this.cameraTrack) {
       this.stopCamera();
       return;
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    this.acquiringCamera = true;
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640, max: 1280 }, height: { ideal: 360, max: 720 }, frameRate: { ideal: 20, max: 24 } },
+        audio: false,
+      });
+    } finally { this.acquiringCamera = false; }
+    if (this.destroyed) { stream.getTracks().forEach((track) => track.stop()); return; }
     const track = stream.getVideoTracks()[0];
     if (!track) return;
     this.cameraTrack = track;
@@ -265,11 +305,19 @@ export class HuddleSession {
 
   /** Starts or stops sharing the screen. */
   async toggleScreenShare(): Promise<void> {
+    if (this.destroyed || this.acquiringScreen) return;
     if (this.screenTrack) {
       this.stopScreenShare();
       return;
     }
-    const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    this.acquiringScreen = true;
+    let display: MediaStream;
+    try {
+      display = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 10, max: 15 } }, audio: false,
+      });
+    } finally { this.acquiringScreen = false; }
+    if (this.destroyed) { display.getTracks().forEach((track) => track.stop()); return; }
     const track = display.getVideoTracks()[0];
     if (!track) return;
     this.screenTrack = track;
@@ -295,7 +343,7 @@ export class HuddleSession {
   private async publish(slot: "camera" | "screen", track: MediaStreamTrack | null): Promise<void> {
     await Promise.all(
       [...this.peers.values()].map((peer) =>
-        (slot === "camera" ? peer.cameraTx : peer.screenTx).sender
+        (slot === "camera" ? peer.cameraTx : peer.screenTx)?.sender
           .replaceTrack(track)
           // A peer that died mid-call must not stop the others updating.
           .catch(() => {}),
@@ -307,6 +355,7 @@ export class HuddleSession {
 
   /** Says which slots we are sending on, to one peer or to all of them. */
   private announceMedia(to?: ID): void {
+    if (this.destroyed) return;
     const signal = {
       kind: "media" as const,
       camera: this.cameraTrack !== null,
@@ -330,6 +379,7 @@ export class HuddleSession {
 
   /** Tears down every connection and releases the camera and microphone. */
   destroy(): void {
+    this.destroyed = true;
     for (const userId of [...this.peers.keys()]) this.closePeer(userId);
     this.cameraTrack?.stop();
     this.cameraTrack = null;
@@ -345,10 +395,11 @@ export class HuddleSession {
 
 /** One connection and its three fixed media slots. */
 interface Peer {
+  pendingIce: RTCIceCandidateInit[];
   pc: RTCPeerConnection;
-  audioTx: RTCRtpTransceiver;
-  cameraTx: RTCRtpTransceiver;
-  screenTx: RTCRtpTransceiver;
+  audioTx: RTCRtpTransceiver | null;
+  cameraTx: RTCRtpTransceiver | null;
+  screenTx: RTCRtpTransceiver | null;
   audio: MediaStream | null;
   camera: MediaStream | null;
   screen: MediaStream | null;

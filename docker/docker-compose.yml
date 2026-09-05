@@ -9,6 +9,14 @@ services:
       - slackoss-data:/data
     command: ["--name", "My Workspace", "--invite-only"]
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      SLACKOSS_ICE_SERVERS: ${SLACKOSS_ICE_SERVERS:-[]}
 
 volumes:
   slackoss-data:

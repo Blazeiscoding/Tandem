@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_PORT } from "@slackoss/protocol";
 import { createWorkspaceServer, SERVER_VERSION } from "./server.js";
+import { parseIceServers } from "./rtc.js";
 
 const { values } = parseArgs({
   options: {
@@ -72,6 +73,7 @@ const server = await createWorkspaceServer({
   publicUrl: values["public-url"],
   allowPrivateHooks: values["allow-private-hooks"],
   logger: true,
+  iceServers: parseIceServers(process.env.SLACKOSS_ICE_SERVERS),
 });
 
 console.log(`\n  SlackOSS server v${SERVER_VERSION} is running`);

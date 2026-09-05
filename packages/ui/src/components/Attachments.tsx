@@ -113,11 +113,7 @@ export function useFileUrl(fileId: ID): string | null {
   const [url, setUrl] = useState<string | null>(() => client.files.peek(fileId) ?? null);
 
   useEffect(() => {
-    const cached = client.files.peek(fileId);
-    if (cached) {
-      setUrl(cached);
-      return;
-    }
+    client.files.retain(fileId);
     let active = true;
     setUrl(null);
     client.files
@@ -130,6 +126,7 @@ export function useFileUrl(fileId: ID): string | null {
       });
     return () => {
       active = false;
+      client.files.release(fileId);
     };
   }, [client, fileId]);
 

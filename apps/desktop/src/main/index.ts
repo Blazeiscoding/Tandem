@@ -1,15 +1,18 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell } from "electron";
 import { join } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
+import { pathToFileURL } from "node:url";
 import { Bonjour, type Service } from "bonjour-service";
 import { DEEP_LINK_PROTOCOL, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
+const isTest = process.env.SLACKOSS_TEST === "1";
+if (process.env.SLACKOSS_USER_DATA_DIR) app.setPath("userData", process.env.SLACKOSS_USER_DATA_DIR);
 let mainWindow: BrowserWindow | null = null;
 
-if (isDev) {
+if ((isDev || isTest) && process.env.SLACKOSS_TEST_MEDIA === "1") {
   app.commandLine.appendSwitch("remote-debugging-port", "9222");
   // Fake mic/camera so huddles can be exercised without real hardware.
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
@@ -57,13 +60,13 @@ app.on("open-url", (event, url) => {
   deliverDeepLink(url);
 });
 
-if (isDev && process.platform === "win32") {
+if (!isTest && isDev && process.platform === "win32") {
   // In dev the executable is electron.exe, so the protocol must point at it
   // plus this project's entry, or Windows would launch a bare Electron.
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
     join(import.meta.dirname, "../.."),
   ]);
-} else {
+} else if (!isTest) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
 }
 
@@ -181,6 +184,9 @@ ipcMain.handle(
         port,
         workspaceName: opts.workspaceName,
         mdns: true,
+        webDistPath: app.isPackaged
+          ? join(process.resourcesPath, "web")
+          : join(import.meta.dirname, "../../../web/dist"),
       });
 
     try {
@@ -209,6 +215,7 @@ ipcMain.handle("hosting:stop", async () => {
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
+    show: !isTest,
     width: 1280,
     height: 820,
     minWidth: 760,
@@ -221,9 +228,10 @@ function createWindow(): void {
       height: 40,
     },
     webPreferences: {
-      preload: join(import.meta.dirname, "../preload/index.mjs"),
-      sandbox: false,
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
+      sandbox: true,
       contextIsolation: true,
+      nodeIntegration: false,
     },
   });
 
@@ -231,8 +239,36 @@ function createWindow(): void {
 
   // Huddles need the microphone, and screen share needs display capture.
   // Grant those to our own renderer; refuse everything else.
-  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(permission === "media" || permission === "display-capture");
+  const rendererUrl = isDev ? process.env.ELECTRON_RENDERER_URL! : pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href;
+  const trustedRenderer = (url: string) => {
+    try {
+      const parsed = new URL(url);
+      const expected = new URL(rendererUrl);
+      return parsed.origin === expected.origin && parsed.pathname === expected.pathname;
+    } catch { return false; }
+  };
+  mainWindow.webContents.session.setPermissionRequestHandler((wc, permission, callback, details) => {
+    callback(wc === mainWindow?.webContents && details.isMainFrame && trustedRenderer(details.requestingUrl) && (permission === "media" || permission === "display-capture"));
+  });
+  mainWindow.webContents.session.setPermissionCheckHandler((wc, permission, _origin, details) => {
+    return wc === mainWindow?.webContents && trustedRenderer(details.requestingUrl ?? wc.getURL()) && (permission === "media" || permission === "display-capture");
+  });
+  mainWindow.webContents.session.setDisplayMediaRequestHandler(async (request, callback) => {
+    if (!request.frame || !trustedRenderer(request.frame.url)) { callback({}); return; }
+    try {
+      const screens = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
+      if (screens.length === 0) { callback({}); return; }
+      const choice = await dialog.showMessageBox(mainWindow!, {
+        type: "question", title: "Share your screen", message: "Choose a screen to share with this huddle",
+        detail: "Everyone in the huddle will see everything on the selected screen.",
+        buttons: ["Cancel", ...screens.map((screen) => screen.name)], defaultId: 0, cancelId: 0,
+      });
+      const selected = screens[choice.response - 1];
+      callback(selected ? { video: selected } : {});
+    } catch { callback({}); }
+  }, { useSystemPicker: true });
+  mainWindow.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
   });
 
   // External links open in the OS browser, never inside the app.
@@ -265,7 +301,12 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin" && !hosted) app.quit();
 });
 
-app.on("before-quit", () => {
-  void hosted?.stop();
-  bonjour.destroy();
+let shuttingDown = false;
+app.on("before-quit", (event) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (hosted) {
+    event.preventDefault();
+    void hosted.stop().finally(() => { bonjour.destroy(); app.quit(); });
+  } else bonjour.destroy();
 });

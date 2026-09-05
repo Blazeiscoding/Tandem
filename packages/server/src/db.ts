@@ -219,6 +219,20 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_subscriptions_app ON event_subscriptions(app_id);
   `,
+  // v8 — workspace-local friend requests, one row per unordered pair.
+  `
+  CREATE TABLE friendships (
+    user_low TEXT NOT NULL REFERENCES users(id),
+    user_high TEXT NOT NULL REFERENCES users(id),
+    requested_by TEXT NOT NULL REFERENCES users(id),
+    accepted INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_low, user_high),
+    CHECK (user_low < user_high),
+    CHECK (requested_by = user_low OR requested_by = user_high)
+  );
+  CREATE INDEX idx_friends_high ON friendships(user_high);
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

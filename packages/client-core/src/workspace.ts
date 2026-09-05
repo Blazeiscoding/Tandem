@@ -5,6 +5,7 @@ import {
   type ChannelPrefs,
   type EphemeralEvent,
   type EventEnvelope,
+  type Friendship,
   type ID,
   type Message,
   type Presence,
@@ -69,6 +70,7 @@ export interface EphemeralMessage {
 }
 
 export interface WorkspaceState {
+  friends: Friendship[];
   status: ConnectionStatus;
   workspaceName: string;
   self: User | null;
@@ -103,6 +105,7 @@ export interface WorkspaceState {
 }
 
 const initialState: WorkspaceState = {
+  friends: [],
   status: "connecting",
   workspaceName: "",
   self: null,
@@ -132,6 +135,27 @@ function sortedInsert(items: Message[], msg: Message): Message[] {
   const out = [...items, msg];
   out.sort((a, b) => (a.id < b.id ? -1 : 1));
   return out;
+}
+
+/**
+ * The most messages one channel keeps loaded, and therefore the most rows the
+ * timeline ever renders. History is unbounded on the server, so without a cap
+ * a long scrollback — or a long sitting in a busy channel — grows one flat list
+ * until every keystroke restyles thousands of nodes.
+ */
+const MAX_TIMELINE_ITEMS = 300;
+
+/**
+ * Trims a timeline back to the cap from one end, and marks that end pageable
+ * again so scrolling back toward it refetches what was dropped. Six pages is
+ * several screens either way, so the trim happens far outside the viewport.
+ */
+function windowTimeline(timeline: ChannelTimeline, drop: "oldest" | "newest"): ChannelTimeline {
+  const excess = timeline.items.length - MAX_TIMELINE_ITEMS;
+  if (excess <= 0) return timeline;
+  return drop === "oldest"
+    ? { ...timeline, items: timeline.items.slice(excess), hasMore: true }
+    : { ...timeline, items: timeline.items.slice(0, MAX_TIMELINE_ITEMS), hasMoreNewer: true };
 }
 
 /**
@@ -210,6 +234,7 @@ export class WorkspaceClient {
     ws.onclose = () => {
       if (this.ws !== ws) return;
       this.ws = null;
+      this.leaveHuddle();
       if (this.stopped || this.state.status === "auth_failed") return;
       this.store.setState({ status: "reconnecting" });
       this.reconnectTimer = setTimeout(() => {
@@ -274,6 +299,7 @@ export class WorkspaceClient {
       presence: snap.presence,
       saved,
       huddles: snap.huddles,
+      friends: snap.friends ?? [],
       lastSeq: Math.max(prev.lastSeq, snap.seq),
       // Keep loaded timelines — replayed events patch them incrementally.
       timelines: prev.timelines,
@@ -328,7 +354,10 @@ export class WorkspaceClient {
           if (tl?.loaded && !tl.hasMoreNewer) {
             patch.timelines = {
               ...s.timelines,
-              [message.channelId]: { ...tl, items: sortedInsert(tl.items, message) },
+              [message.channelId]: windowTimeline(
+                { ...tl, items: sortedInsert(tl.items, message) },
+                "oldest",
+              ),
             };
           }
         }
@@ -484,6 +513,10 @@ export class WorkspaceClient {
   }
 
   private applyEphemeral(event: EphemeralEvent): void {
+    if (event.type === "friends") {
+      this.store.setState({ friends: event.friends });
+      return;
+    }
     const s = this.store.getState();
     if (event.type === "presence") {
       this.store.setState({ presence: { ...s.presence, [event.userId]: event.presence } });
@@ -560,13 +593,18 @@ export class WorkspaceClient {
       return {
         timelines: {
           ...s.timelines,
-          [channelId]: {
-            items,
-            hasMore: messages.length === 50,
-            // loadTimeline always lands at the tail.
-            hasMoreNewer: opts.older ? (existing?.hasMoreNewer ?? false) : false,
-            loaded: true,
-          },
+          [channelId]: windowTimeline(
+            {
+              items,
+              hasMore: messages.length === 50,
+              // loadTimeline always lands at the tail.
+              hasMoreNewer: opts.older ? (existing?.hasMoreNewer ?? false) : false,
+              loaded: true,
+            },
+            // Paging up drops the far end, which is now hundreds of messages
+            // below the viewport, not the history being read.
+            opts.older ? "newest" : "oldest",
+          ),
         },
       };
     });
@@ -611,11 +649,14 @@ export class WorkspaceClient {
       return {
         timelines: {
           ...s.timelines,
-          [channelId]: {
-            ...current,
-            items: [...current.items, ...[...messages].reverse()],
-            hasMoreNewer: messages.length === 50,
-          },
+          [channelId]: windowTimeline(
+            {
+              ...current,
+              items: [...current.items, ...[...messages].reverse()],
+              hasMoreNewer: messages.length === 50,
+            },
+            "oldest",
+          ),
         },
       };
     });
@@ -829,6 +870,7 @@ export class WorkspaceClient {
   // ---------- huddles ----------
 
   private session: HuddleSession | null = null;
+  private huddleAttempt = 0;
 
   /** Mirrors the live session into the store so React can render it. */
   private publishHuddleState(): void {
@@ -840,19 +882,26 @@ export class WorkspaceClient {
    * microphone is unavailable, leaving no half-joined room behind.
    */
   async joinHuddle(channelId: ID): Promise<void> {
-    if (this.session) this.leaveHuddle();
+    this.leaveHuddle();
+    const attempt = this.huddleAttempt;
     const selfId = this.state.self?.id;
     if (!selfId) return;
 
+    const config = await this.api.rtcConfig();
+    if (attempt !== this.huddleAttempt) return;
+
     const session = new HuddleSession(channelId, selfId, {
       send: (msg) => this.sendSocket(msg),
-    });
+    }, config);
+    this.session = session;
     try {
       await session.startLocalAudio();
     } catch (err) {
       session.destroy();
+      if (this.session === session) this.session = null;
       throw err;
     }
+    if (attempt !== this.huddleAttempt) { session.destroy(); return; }
     session.onChange = () => this.publishHuddleState();
     this.session = session;
 
@@ -863,6 +912,7 @@ export class WorkspaceClient {
   }
 
   leaveHuddle(): void {
+    this.huddleAttempt++;
     const session = this.session;
     if (!session) return;
     this.session = null;

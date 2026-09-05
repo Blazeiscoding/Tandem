@@ -10,7 +10,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
-    "package": "electron-vite build && electron-builder --config electron-builder.yml"
+    "package": "pnpm --filter @slackoss/web build && electron-vite build && electron-builder --config electron-builder.yml"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.1",

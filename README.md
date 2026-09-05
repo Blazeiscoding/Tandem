@@ -1,11 +1,15 @@
 # SlackOSS
 
+Early-stage, independently developed team chat under the [MIT license](LICENSE).
+See [deployment and backups](docs/DEPLOYMENT.md), [validation results and limits](docs/VALIDATION.md),
+[contributing](CONTRIBUTING.md), and [security](SECURITY.md). Not affiliated with Slack or Salesforce.
+
 Open-source team chat that **you** host. Run the server on a VPS, or click
 **"Host a workspace"** in the desktop app and serve your team straight from your
 own PC — like opening a Minecraft world to LAN. Teammates on the same Wi-Fi
 discover your workspace automatically; anyone else connects by `ip:port` or an
 invite link. Every message, file, and account lives in a single folder on the
-host's machine, forever.
+host's machine. Keep backups of that folder.
 
 ## How people join
 
@@ -100,17 +104,17 @@ the server was down is sent the next time it starts.
 ### Huddles
 
 Any channel or DM can start a huddle: live audio, camera video, and screen
-share, all at once. The server only relays the handshake — media goes peer to
-peer and never touches it, so a self-hosted workspace stays private by
-construction. Connections form a mesh, which suits the handful of people a
-small team puts in a call; an SFU is the answer beyond that.
+share. The chat server relays the handshake. Media goes directly between peers
+or through your configured TURN relay when a direct connection is unavailable.
+Connections form a mesh for small calls; larger meetings need an SFU.
+LAN-only media is the default. See the deployment guide for STUN/TURN configuration
+and HTTPS requirements for browser microphone access.
 
-Every connection declares the same three slots up front — microphone, camera,
-screen — before the first offer. Turning a camera on later is then just a track
-swap into a slot that already exists, so nothing renegotiates mid-call, which
-is where a mesh otherwise collects glare and half-connected peers. Because both
-ends build the slots identically, each side also knows which arriving track is
-which by identity rather than by parsing SDP.
+The offerer creates three media slots: microphone, camera, and screen. The answerer
+adopts those slots from the offer. Creating slots independently on both ends can
+produce duplicate transceivers and one-way audio in Chromium. Camera and screen
+changes reuse the negotiated slots without a new offer. Real-browser tests check
+audio packets in both directions and decoded camera frames.
 
 What a peer is *actually* sending is stated explicitly over the same signalling
 channel, not inferred from the connection: a receiver's track reports itself
@@ -168,6 +172,32 @@ host would hand us a private one.
 
 LAN-hosted bots are a reasonable thing to want here, so this is a default rather
 than a rule: `--allow-private-hooks` turns it off.
+
+## Friends
+
+Open **Friends** in the sidebar to find workspace members, send requests, accept
+or decline invitations, and view friends' presence. Profiles also have an Add friend
+action. Relationships persist on this server and are visible only to their participants.
+Accounts and friends are not shared across unrelated workspace servers.
+
+## Windows installer and validation
+
+```sh
+pnpm --filter @slackoss/desktop package --win
+pnpm test:desktop
+pnpm build
+pnpm test:e2e
+```
+
+The EXE is written to `apps/desktop/release/`. Local builds are unsigned unless
+you configure a signing certificate. CI configuration is included for server,
+browser, Docker, and Windows checks; it has not been run on GitHub in this workspace.
+
+File transfers stream through the server, a channel keeps a bounded window of
+messages in memory however far back you scroll, idle attachment blobs are
+evicted, and password derivations run off the main event loop with bounded
+concurrency. See
+[measured results](docs/VALIDATION.md) for the workload and remaining performance limits.
 
 ## Roadmap
 

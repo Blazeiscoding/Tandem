@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HuddleSignal, ID } from "@slackoss/protocol";
 import { HuddleSession } from "../src/huddle.js";
 
@@ -21,6 +21,8 @@ class FakePeerConnection {
   connectionState = "new";
   signalingState = "stable";
   closed = false;
+  remoteDescription: unknown = null;
+  candidates: unknown[] = [];
   onicecandidate: ((e: unknown) => void) | null = null;
   ontrack: ((e: { transceiver: FakeTransceiver; track: unknown }) => void) | null = null;
   onconnectionstatechange: (() => void) | null = null;
@@ -52,10 +54,18 @@ class FakePeerConnection {
   setLocalDescription() {
     return Promise.resolve();
   }
-  setRemoteDescription() {
+  setRemoteDescription(description: unknown) {
+    this.remoteDescription = description;
+    if (this.transceivers.length === 0) {
+      this.addTransceiver("audio", {});
+      this.addTransceiver("video", {});
+      this.addTransceiver("video", {});
+    }
     return Promise.resolve();
   }
-  addIceCandidate() {
+  getTransceivers() { return this.transceivers; }
+  addIceCandidate(candidate: unknown) {
+    this.candidates.push(candidate);
     return Promise.resolve();
   }
   close() {
@@ -113,6 +123,42 @@ beforeEach(() => {
 });
 
 describe("HuddleSession", () => {
+  it("buffers early ICE until the remote description is set", async () => {
+    const { session } = makeSession("Z");
+    const candidate = { candidate: "candidate:early", sdpMid: "0", sdpMLineIndex: 0 };
+    await session.handleSignal("B", { kind: "ice", candidate });
+    const pc = FakePeerConnection.instances[0]!;
+    expect(pc.candidates).toEqual([]);
+    await session.handleSignal("B", { kind: "offer", sdp: "offer" });
+    expect(pc.candidates).toEqual([candidate]);
+    session.destroy();
+  });
+
+  it.each(["audio", "camera", "screen"])("releases %s permission results after leaving", async (kind) => {
+    const { session } = makeSession("A");
+    let resolve!: (stream: MediaStream) => void;
+    const pending = new Promise<MediaStream>((r) => { resolve = r; });
+    const method = kind === "screen" ? "getDisplayMedia" : "getUserMedia";
+    vi.spyOn(navigator.mediaDevices, method).mockReturnValue(pending);
+    const stop = vi.fn();
+    const task = kind === "audio" ? session.startLocalAudio() : kind === "camera" ? session.toggleCamera() : session.toggleScreenShare();
+    session.destroy();
+    resolve(new FakeMediaStream([{ stop }]) as unknown as MediaStream);
+    await task;
+    expect(stop).toHaveBeenCalledOnce();
+    expect(session.cameraOn).toBe(false);
+    expect(session.sharingScreen).toBe(false);
+    session.syncParticipants(["A", "B"]);
+    expect(FakePeerConnection.instances).toHaveLength(0);
+  });
+
+  it("deduplicates camera permission requests", async () => {
+    const { session } = makeSession("A");
+    const capture = vi.spyOn(navigator.mediaDevices, "getUserMedia");
+    await Promise.all([session.toggleCamera(), session.toggleCamera()]);
+    expect(capture).toHaveBeenCalledOnce();
+    session.destroy();
+  });
   it("gives every connection the same three slots before offering", async () => {
     const { session, sent } = makeSession("A");
     session.syncParticipants(["A", "B"]);

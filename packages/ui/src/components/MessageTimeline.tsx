@@ -9,6 +9,29 @@ import { Mrkdwn } from "./Mrkdwn.js";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
+interface Anchor {
+  id: string;
+  /** Distance from the top of the viewport to the top of that row. */
+  offset: number;
+}
+
+/** The first row reaching into the viewport, and where it currently sits. */
+function topAnchor(el: HTMLElement): Anchor | null {
+  for (const row of el.querySelectorAll<HTMLElement>("[data-mid]")) {
+    if (row.offsetTop + row.offsetHeight > el.scrollTop) {
+      return { id: row.dataset.mid!, offset: row.offsetTop - el.scrollTop };
+    }
+  }
+  return null;
+}
+
+/** Puts that row back where it was, whatever changed around it. */
+function restoreAnchor(el: HTMLElement, anchor: Anchor | null): void {
+  if (!anchor) return;
+  const row = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(anchor.id)}"]`);
+  if (row) el.scrollTop = row.offsetTop - anchor.offset;
+}
+
 interface Props {
   channelId: ID;
   /** When set, scroll to this message and flash it. */
@@ -91,6 +114,32 @@ export function MessageTimeline({
     timeline?.hasMoreNewer,
   ]);
 
+  // Live messages arriving in a long-running channel eventually trim the oldest
+  // ones off the top. That removes content above the viewport, which would
+  // slide everything up by exactly the height that vanished. Give it back.
+  const lastFirstId = useRef<ID | null>(null);
+  const lastChannel = useRef<ID | null>(null);
+  const lastScrollHeight = useRef(0);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const firstId = items[0]?.id ?? null;
+    // Message ids sort lexicographically, so a *later* first id means the top
+    // was trimmed, while an earlier one means older messages were prepended.
+    // Comparing across a channel switch would be meaningless.
+    const trimmedTop =
+      lastChannel.current === channelId &&
+      lastFirstId.current !== null &&
+      firstId !== null &&
+      firstId > lastFirstId.current;
+    if (trimmedTop && !pinnedToBottom.current && !loadingOlder.current) {
+      el.scrollTop -= lastScrollHeight.current - el.scrollHeight;
+    }
+    lastFirstId.current = firstId;
+    lastChannel.current = channelId;
+    lastScrollHeight.current = el.scrollHeight;
+  });
+
   // The scroller is reused across channels, so its position carries over.
   useEffect(() => {
     lastScrollTop.current = scroller.current?.scrollTop ?? 0;
@@ -132,11 +181,13 @@ export function MessageTimeline({
 
     if (el.scrollTop < 400 && timeline?.hasMore && !loadingOlder.current) {
       loadingOlder.current = true;
-      const prevHeight = el.scrollHeight;
+      // A height delta cannot hold the position here: the page both prepends
+      // above the viewport and may drop trimmed messages far below it, and only
+      // the part above should move the scroll. Hold one message still instead.
+      const anchor = topAnchor(el);
       void client.loadTimeline(channelId, { older: true }).finally(() => {
-        // Preserve the visual position after older messages prepend.
         requestAnimationFrame(() => {
-          el.scrollTop += el.scrollHeight - prevHeight;
+          restoreAnchor(el, anchor);
           loadingOlder.current = false;
         });
       });
@@ -158,7 +209,11 @@ export function MessageTimeline({
           msg.createdAt - prev.createdAt < GROUP_WINDOW_MS &&
           prev.replyCount === 0;
         return (
-          <div key={msg.id} ref={msg.id === highlightMessageId ? highlightRef : undefined}>
+          <div
+            key={msg.id}
+            data-mid={msg.id}
+            ref={msg.id === highlightMessageId ? highlightRef : undefined}
+          >
             {newDay && <DayDivider ts={msg.createdAt} />}
             <MessageItem
               message={msg}
