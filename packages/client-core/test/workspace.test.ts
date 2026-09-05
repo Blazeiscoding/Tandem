@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -230,6 +230,7 @@ describe("WorkspaceClient", () => {
     }
 
     const client = new WorkspaceClient(base, aliceToken);
+    onTestFinished(() => client.destroy());
     client.connect();
     await until(client, (s) => s.status === "online");
     const window = () => client.state.timelines[channel.id]!;
@@ -253,8 +254,7 @@ describe("WorkspaceClient", () => {
     await client.loadNewer(channel.id);
     expect(window().items).toHaveLength(300);
     expect(window().hasMore).toBe(true);
-    client.destroy();
-  });
+  }, 20_000); // Includes 400 real HTTP writes, not just the paging assertions.
 
   it("trims the oldest messages rather than growing forever at the tail", async () => {
     const api = new Api(base, aliceToken);
@@ -262,6 +262,7 @@ describe("WorkspaceClient", () => {
     for (let i = 0; i < 320; i++) await api.sendMessage(channel.id, { text: `chatter ${i}` });
 
     const client = new WorkspaceClient(base, aliceToken);
+    onTestFinished(() => client.destroy());
     client.connect();
     await until(client, (s) => s.status === "online");
     const window = () => client.state.timelines[channel.id]!;
@@ -281,6 +282,5 @@ describe("WorkspaceClient", () => {
     expect(window().items).toHaveLength(300);
     expect(window().items[0]!.id > oldestBefore).toBe(true);
     expect(window().hasMore).toBe(true);
-    client.destroy();
-  });
+  }, 20_000);
 });

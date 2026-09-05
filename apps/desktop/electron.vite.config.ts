@@ -15,5 +15,6 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react(), tailwindcss()],
+    build: { minify: true, cssMinify: true },
   },
 });
