@@ -23,7 +23,17 @@ export type HuddleSignal =
    * silent slot showed an unmuted track and 0 bytes received. Without this the
    * far side shows a black tile for a camera nobody turned on.
    */
-  | { kind: "media"; camera: boolean; screen: boolean };
+  | {
+      kind: "media";
+      camera: boolean;
+      screen: boolean;
+      /**
+       * Whether their microphone is muted. Optional because a client from
+       * before this field simply does not say, and a call is not worth
+       * dropping over a missing badge.
+       */
+      muted?: boolean;
+    };
 
 /** Who is currently in a channel's huddle. */
 export interface HuddleState {

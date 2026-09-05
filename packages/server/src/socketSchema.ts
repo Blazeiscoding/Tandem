@@ -4,7 +4,7 @@ const id = z.string().min(1).max(128);
 const signal = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("offer"), sdp: z.string().max(100_000) }),
   z.object({ kind: z.literal("answer"), sdp: z.string().max(100_000) }),
-  z.object({ kind: z.literal("media"), camera: z.boolean(), screen: z.boolean() }),
+  z.object({ kind: z.literal("media"), camera: z.boolean(), screen: z.boolean(), muted: z.boolean().optional() }),
   z.object({ kind: z.literal("ice"), candidate: z.object({
     candidate: z.string().max(4096), sdpMid: z.string().max(128).nullable(),
     sdpMLineIndex: z.number().int().nonnegative().max(100).nullable(),

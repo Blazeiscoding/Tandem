@@ -27,7 +27,7 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite | Command | Result |
 | --- | --- | --- |
 | Types | `pnpm typecheck` | 8 packages, clean |
-| Unit and integration | `pnpm test` | 116 tests: server 61, client-core 34, ui 9, protocol 12 |
+| Unit and integration | `pnpm test` | 119 tests: server 61, client-core 37, ui 9, protocol 12 |
 | Browser end to end | `pnpm test:e2e` | 2 scenarios, passed |
 | Packaged Windows app | `pnpm test:desktop` | 1 scenario, passed |
 | Container | `node tests/docker-smoke.mjs` | passed |
@@ -50,18 +50,21 @@ Measured 2026-09-05:
 
 | | |
 | --- | --- |
-| Memory, idle | 36.6 MiB of the 256 MiB limit |
-| Memory, after 6,000 deliveries | 40.1 MiB |
-| Message POST latency, median | 6.4 ms |
-| Message POST latency, 95th percentile | 9.6 ms |
+| Memory, idle | 32.8 MiB of the 256 MiB limit |
+| Memory, after 6,000 deliveries | 37.2 MiB |
+| Message POST latency, median | 6.5 ms |
+| Message POST latency, 95th percentile | 9.8 ms |
 | Deliveries lost | 0 |
 | Survived restart | yes |
 
-A second run the same day read 33.2 MiB idle and 36.9 MiB loaded, with a 11.2 ms
-95th percentile, so treat these as tens of MiB and single-digit milliseconds
-rather than exact figures. Latency is loopback on the host and excludes network
-time; a LAN or WAN adds its own. What the numbers are for is the server's own
-cost per message, and the fact that memory does not climb with traffic.
+Three runs the same day landed between 32.8 and 36.6 MiB idle, 36.9 and 41.3
+MiB loaded, and 6.4 to 6.6 ms median, so read these as tens of MiB and
+single-digit milliseconds rather than exact figures. A fourth run taken while
+the machine was busy packaging the desktop app doubled the latency, which says
+more about the laptop than the server. Latency is loopback on the host and
+excludes network time; a LAN or WAN adds its own. What the numbers are for is
+the server's own cost per message, and the fact that memory does not climb with
+traffic.
 
 ## Real media, not a mock
 
@@ -73,6 +76,10 @@ independent browser contexts, and asserts against `getStats()`:
   travelling **in both directions** rather than one
 - after the camera is switched on, the other side's `<video>` reports
   `videoWidth > 0`, so a frame was actually decoded
+- both sides show the other as talking, from the level in the incoming packets
+  — the fake capture device plays a tone, so there is something real to read
+- muting one side puts a muted badge on the other side's copy of them, since
+  that state is signalled rather than guessed
 - after both leave, every peer connection reaches `closed`
 - no uncaught page errors throughout
 
@@ -94,11 +101,11 @@ Process memory at that point, idle in a one-person hosted workspace
 
 | Process | KiB |
 | --- | --- |
-| Browser | 138,140 |
-| GPU | 108,504 |
-| Tab (renderer) | 109,776 |
-| Utility | 92,180 |
-| Utility | 55,440 |
+| Browser | 137,888 |
+| GPU | 111,992 |
+| Tab (renderer) | 111,988 |
+| Utility | 93,216 |
+| Utility | 55,632 |
 
 That is Electron's baseline, and it is the honest cost of shipping a Chromium
 app. The GPU and utility processes are the runtime's, not ours. Hosting a
@@ -142,7 +149,9 @@ Artifacts:
 
 - **Huddles are a mesh.** Every participant sends to every other participant, so
   upstream bandwidth grows with the call. Fine for a handful of people; a larger
-  meeting needs an SFU, which does not exist yet.
+  meeting needs an SFU, which does not exist yet. The grid has been looked at
+  with five people in one call, four of them on camera, which is where the
+  layout was fixed; nobody has run a call bigger than that.
 - **The numbers above are one machine, one run.** No soak test, no many-user
   test, no measurement over a real network or a VPS.
 - **Media requires HTTPS off localhost.** Browsers will not grant microphone

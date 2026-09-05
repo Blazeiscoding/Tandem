@@ -116,6 +116,14 @@ produce duplicate transceivers and one-way audio in Chromium. Camera and screen
 changes reuse the negotiated slots without a new offer. Real-browser tests check
 audio packets in both directions and decoded camera frames.
 
+Everyone in the call gets a tile, camera or not, in a grid that keeps its shape
+and its height as people arrive — a share takes the stage and the others move to
+a strip beside it. A green ring says who is talking, read from the audio level
+the browser already parses out of each incoming packet rather than from a Web
+Audio graph per participant, which is the version you would feel in a
+six-person call. Muting is signalled to the others, so a quiet person and a
+muted one do not look the same.
+
 What a peer is *actually* sending is stated explicitly over the same signalling
 channel, not inferred from the connection: a receiver's track reports itself
 unmuted once the transport is up, whether or not a frame has ever arrived

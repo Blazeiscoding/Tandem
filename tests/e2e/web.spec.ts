@@ -76,10 +76,17 @@ test("two people register, chat, become friends, reconnect, and exchange real We
         return bytes;
       })).toBeGreaterThan(0);
     }
+    // The fake capture device plays a tone, so the level meter has something
+    // real to report: each side should see the other light up as talking.
+    for (const page of [alice, bob]) {
+      await expect.poll(() => page.locator(".ring-online").count(), { timeout: 15_000 }).toBeGreaterThan(0);
+    }
     await alice.getByTitle("Turn your camera on", { exact: true }).click();
     await expect.poll(() => bob.locator("video").evaluateAll((videos) => videos.some((v) => (v as HTMLVideoElement).videoWidth > 0))).toBe(true);
     await alice.getByTitle("Mute", { exact: true }).click();
     await expect(alice.getByTitle("Unmute", { exact: true })).toBeVisible();
+    // Muting is signalled, not guessed: Bob's copy of Alice says so.
+    await expect(bob.getByTitle("alice (muted)")).toBeVisible();
     await alice.screenshot({ path: info.outputPath("workspace.png") });
     await alice.getByRole("button", { name: "Leave", exact: true }).click();
     await bob.getByRole("button", { name: "Leave", exact: true }).click();

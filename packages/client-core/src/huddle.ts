@@ -10,6 +10,10 @@ export interface HuddlePeer {
   screenStream: MediaStream | null;
   /** True once the connection is carrying media. */
   connected: boolean;
+  /** Their microphone is off, as they reported it. */
+  micMuted: boolean;
+  /** They are talking right now. */
+  speaking: boolean;
 }
 
 export interface HuddleState {
@@ -21,12 +25,39 @@ export interface HuddleState {
   localCameraStream: MediaStream | null;
   /** Your own share, so you can see what everyone else is seeing. */
   localScreenStream: MediaStream | null;
+  /** You are talking right now. */
+  speaking: boolean;
   peers: HuddlePeer[];
 }
 
 /** How the huddle reaches the server; supplied by WorkspaceClient. */
 export interface HuddleTransport {
   send: (msg: { type: "huddle.signal"; channelId: ID; to: ID; signal: HuddleSignal }) => void;
+}
+
+/**
+ * Loud enough to count as talking, and how long a tile keeps saying so after
+ * the last loud sample. Without the hold the indicator strobes in the gaps
+ * between syllables, which is worse than not having it.
+ */
+const SPEAKING_LEVEL = 0.02;
+const SPEAKING_HOLD_MS = 500;
+const LEVEL_POLL_MS = 120;
+
+/**
+ * How loud a peer's last audio packet was, read from the RTP header extension
+ * the browser already parses for us. One number per participant per poll, and
+ * no Web Audio graph per peer — which is the version that would show up in a
+ * six-person call's CPU.
+ */
+function receivedLevel(peer: Peer): number {
+  const receiver = peer.audioTx?.receiver;
+  if (!receiver?.getSynchronizationSources) return 0;
+  let loudest = 0;
+  for (const source of receiver.getSynchronizationSources()) {
+    loudest = Math.max(loudest, source.audioLevel ?? 0);
+  }
+  return loudest;
 }
 
 /**
@@ -47,6 +78,13 @@ export class HuddleSession {
   private screenTrack: MediaStreamTrack | null = null;
   private localCameraStream: MediaStream | null = null;
   private localScreenStream: MediaStream | null = null;
+  /** Who is currently shown as talking, and when each was last loud. */
+  private speaking = new Set<ID>();
+  private spokeAt = new Map<ID, number>();
+  private levelTimer: ReturnType<typeof setInterval> | null = null;
+  private audioContext: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private levelSamples: Uint8Array<ArrayBuffer> | null = null;
 
   /** Called whenever anything the UI renders has changed. */
   onChange: (() => void) | null = null;
@@ -68,6 +106,69 @@ export class HuddleSession {
     });
     if (this.destroyed) { stream.getTracks().forEach((track) => track.stop()); return; }
     this.localStream = stream;
+    this.watchLocalLevel(stream);
+    this.startLevelPolling();
+  }
+
+  /**
+   * Your own microphone level, so your tile lights up like everyone else's.
+   * A muted track carries silence, so muting stops this on its own.
+   */
+  private watchLocalLevel(stream: MediaStream): void {
+    const Ctx = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
+    if (!Ctx) return;
+    try {
+      const context = new Ctx();
+      void context.resume().catch(() => {});
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 256;
+      context.createMediaStreamSource(stream).connect(analyser);
+      this.audioContext = context;
+      this.analyser = analyser;
+      this.levelSamples = new Uint8Array(new ArrayBuffer(analyser.fftSize));
+    } catch {
+      // Showing a level is a nicety. Never let it cost someone the call.
+    }
+  }
+
+  private localLevel(): number {
+    if (!this.analyser || !this.levelSamples) return 0;
+    this.analyser.getByteTimeDomainData(this.levelSamples);
+    let peak = 0;
+    for (const sample of this.levelSamples) peak = Math.max(peak, Math.abs(sample - 128));
+    return peak / 128;
+  }
+
+  private startLevelPolling(): void {
+    if (this.levelTimer || this.destroyed) return;
+    this.levelTimer = setInterval(() => this.sampleLevels(), LEVEL_POLL_MS);
+  }
+
+  /** One pass over every participant's loudness, published only on a change. */
+  private sampleLevels(): void {
+    const now = Date.now();
+    if (this.localLevel() > SPEAKING_LEVEL) this.spokeAt.set(this.selfId, now);
+    for (const [userId, peer] of this.peers) {
+      if (receivedLevel(peer) > SPEAKING_LEVEL) this.spokeAt.set(userId, now);
+    }
+
+    let changed = false;
+    const present = new Set<ID>([this.selfId, ...this.peers.keys()]);
+    for (const userId of present) {
+      const talking = now - (this.spokeAt.get(userId) ?? 0) < SPEAKING_HOLD_MS;
+      if (talking === this.speaking.has(userId)) continue;
+      if (talking) this.speaking.add(userId);
+      else this.speaking.delete(userId);
+      changed = true;
+    }
+    for (const userId of this.speaking) {
+      if (present.has(userId)) continue;
+      this.speaking.delete(userId);
+      changed = true;
+    }
+    // Re-rendering the whole huddle eight times a second is exactly the stutter
+    // this is meant to avoid, so only a real transition reaches the UI.
+    if (changed) this.onChange?.();
   }
 
   get micMuted(): boolean {
@@ -79,6 +180,8 @@ export class HuddleSession {
     const track = this.localStream?.getAudioTracks()[0];
     if (!track) return;
     track.enabled = !track.enabled;
+    // Everyone else needs to know, or a muted person just looks silent.
+    this.announceMedia();
     this.onChange?.();
   }
 
@@ -104,7 +207,10 @@ export class HuddleSession {
         cameraStream: peer.cameraOn ? peer.camera : null,
         screenStream: peer.screenOn ? peer.screen : null,
         connected: this.connected.has(userId),
+        micMuted: peer.micMuted,
+        speaking: this.speaking.has(userId),
       })),
+      speaking: this.speaking.has(this.selfId),
     };
   }
 
@@ -149,9 +255,11 @@ export class HuddleSession {
       screen: null,
       cameraOn: false,
       screenOn: false,
+      micMuted: false,
       pendingIce: [],
     };
     this.peers.set(userId, peer);
+    this.startLevelPolling();
 
     // Whatever is already live goes out on the new connection immediately.
     pc.onicecandidate = (e) => {
@@ -250,6 +358,7 @@ export class HuddleSession {
     } else if (signal.kind === "media") {
       peer.cameraOn = signal.camera;
       peer.screenOn = signal.screen;
+      peer.micMuted = signal.muted ?? false;
       this.onChange?.();
     } else {
       if (!pc.remoteDescription) {
@@ -360,6 +469,7 @@ export class HuddleSession {
       kind: "media" as const,
       camera: this.cameraTrack !== null,
       screen: this.screenTrack !== null,
+      muted: this.micMuted,
     };
     for (const userId of to ? [to] : this.peers.keys()) {
       this.transport.send({
@@ -375,11 +485,19 @@ export class HuddleSession {
     this.peers.get(userId)?.pc.close();
     this.peers.delete(userId);
     this.connected.delete(userId);
+    this.speaking.delete(userId);
+    this.spokeAt.delete(userId);
   }
 
   /** Tears down every connection and releases the camera and microphone. */
   destroy(): void {
     this.destroyed = true;
+    if (this.levelTimer) clearInterval(this.levelTimer);
+    this.levelTimer = null;
+    this.analyser = null;
+    this.levelSamples = null;
+    void this.audioContext?.close().catch(() => {});
+    this.audioContext = null;
     for (const userId of [...this.peers.keys()]) this.closePeer(userId);
     this.cameraTrack?.stop();
     this.cameraTrack = null;
@@ -406,4 +524,5 @@ interface Peer {
   /** What they told us they are sending; see the "media" signal. */
   cameraOn: boolean;
   screenOn: boolean;
+  micMuted: boolean;
 }

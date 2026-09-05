@@ -11,8 +11,14 @@ interface FakeSender {
   track: unknown;
   replaceTrack: (t: unknown) => Promise<void>;
 }
+interface FakeReceiver {
+  /** What the far side's last packet was worth, as the browser reports it. */
+  level: number;
+  getSynchronizationSources: () => { audioLevel: number }[];
+}
 interface FakeTransceiver {
   sender: FakeSender;
+  receiver: FakeReceiver;
 }
 
 class FakePeerConnection {
@@ -38,6 +44,12 @@ class FakePeerConnection {
         replaceTrack(t: unknown) {
           this.track = t;
           return Promise.resolve();
+        },
+      },
+      receiver: {
+        level: 0,
+        getSynchronizationSources() {
+          return [{ audioLevel: this.level }];
         },
       },
     };
@@ -241,6 +253,59 @@ describe("HuddleSession", () => {
     session.syncParticipants(["A"]);
     expect(pc.closed).toBe(true);
     expect(session.state().peers).toHaveLength(0);
+    session.destroy();
+  });
+  it("shows a peer as talking only while their audio is loud", () => {
+    vi.useFakeTimers();
+    try {
+      const { session } = makeSession("A");
+      session.syncParticipants(["A", "B"]);
+      const audioSlot = FakePeerConnection.instances[0]!.transceivers[0]!;
+
+      expect(session.state().peers[0]!.speaking).toBe(false);
+      audioSlot.receiver.level = 0.4;
+      vi.advanceTimersByTime(200);
+      expect(session.state().peers[0]!.speaking).toBe(true);
+
+      // Silence holds the indicator briefly, so it does not strobe between words.
+      audioSlot.receiver.level = 0;
+      vi.advanceTimersByTime(300);
+      expect(session.state().peers[0]!.speaking).toBe(true);
+      vi.advanceTimersByTime(400);
+      expect(session.state().peers[0]!.speaking).toBe(false);
+      session.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tells the others when the microphone goes off", async () => {
+    const { session, sent } = makeSession("A");
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(
+      new FakeMediaStream([{ kind: "audio", enabled: true, stop() {} }]) as unknown as MediaStream,
+    );
+    await session.startLocalAudio();
+    session.syncParticipants(["A", "B"]);
+    sent.length = 0;
+
+    session.toggleMic();
+    expect(sent.at(-1)!.signal).toMatchObject({ kind: "media", muted: true });
+    session.toggleMic();
+    expect(sent.at(-1)!.signal).toMatchObject({ kind: "media", muted: false });
+    session.destroy();
+  });
+
+  it("takes a peer's word for whether they are muted", () => {
+    const { session } = makeSession("A");
+    session.syncParticipants(["A", "B"]);
+    expect(session.state().peers[0]!.micMuted).toBe(false);
+
+    void session.handleSignal("B", { kind: "media", camera: false, screen: false, muted: true });
+    expect(session.state().peers[0]!.micMuted).toBe(true);
+
+    // A client from before the field simply does not say, and is not muted.
+    void session.handleSignal("B", { kind: "media", camera: false, screen: false });
+    expect(session.state().peers[0]!.micMuted).toBe(false);
     session.destroy();
   });
 });
