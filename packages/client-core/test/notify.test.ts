@@ -119,13 +119,16 @@ describe("decideNotification", () => {
       self: { ...me, dndUntil: now + 60_000 },
       channels: { C1: channel("dm") },
     });
-    expect(decideNotification(snoozed, message(), now)).toEqual({ notify: false, reason: "dnd" });
+    expect(decideNotification(snoozed, message(), { now })).toEqual({
+      notify: false,
+      reason: "dnd",
+    });
 
     const expired = state({
       self: { ...me, dndUntil: now - 1 },
       channels: { C1: channel("dm") },
     });
-    expect(decideNotification(expired, message(), now).notify).toBe(true);
+    expect(decideNotification(expired, message(), { now }).notify).toBe(true);
   });
 
   it("falls back to mentions-only when a channel has no stored preference", () => {
@@ -147,5 +150,77 @@ describe("notificationBody", () => {
       files: [{ id: "F1", name: "a.png", mime: "image/png", size: 1, width: 1, height: 1 }],
     });
     expect(notificationBody(state(), withFile)).toBe("Sent a file");
+  });
+  it("treats @channel as addressed to you, even on a mentions-only channel", () => {
+    const s = state({ prefs: { C1: { notifyLevel: "mentions", muted: false } } });
+    expect(decideNotification(s, message({ text: "<!channel> standup in five" }))).toEqual({
+      notify: true,
+      reason: "broadcast",
+    });
+    // Slack's #general-only variant means the same reach here.
+    expect(decideNotification(s, message({ text: "<!everyone> fire drill" })).notify).toBe(true);
+    // And a message with neither still respects the level.
+    expect(decideNotification(s, message({ text: "just chatting" }))).toEqual({
+      notify: false,
+      reason: "level",
+    });
+  });
+
+  it("rings for @here only while you are actually here", () => {
+    const s = state({ prefs: { C1: { notifyLevel: "mentions", muted: false } } });
+    const here = message({ text: "<!here> anyone free?" });
+    expect(decideNotification(s, here, { live: true })).toEqual({
+      notify: true,
+      reason: "broadcast",
+    });
+    // Caught up on after a reconnect: you were not here when it was asked.
+    expect(decideNotification(s, here, { live: false })).toEqual({
+      notify: false,
+      reason: "not-here",
+    });
+    // @channel is not conditional on being around, which is the difference
+    // between the two and the reason both exist.
+    expect(
+      decideNotification(s, message({ text: "<!channel> read this" }), { live: false }).notify,
+    ).toBe(true);
+  });
+
+  it("still obeys mute and Do Not Disturb when a room is addressed", () => {
+    const muted = state({ prefs: { C1: { notifyLevel: "all", muted: true } } });
+    expect(decideNotification(muted, message({ text: "<!channel> hello" }))).toEqual({
+      notify: false,
+      reason: "muted",
+    });
+
+    const now = 1_000_000;
+    const snoozed = state({ self: { ...me, dndUntil: now + 60_000 } });
+    expect(decideNotification(snoozed, message({ text: "<!channel> hello" }), { now })).toEqual({
+      notify: false,
+      reason: "dnd",
+    });
+
+    const nothing = state({ prefs: { C1: { notifyLevel: "nothing", muted: false } } });
+    expect(decideNotification(nothing, message({ text: "<!here> hello" }))).toEqual({
+      notify: false,
+      reason: "level",
+    });
+  });
+
+  it("ignores a room-wide mention in a direct message, where it means nothing", () => {
+    const s = state({
+      channels: { C1: channel("dm") },
+      prefs: { C1: { notifyLevel: "mentions", muted: false } },
+    });
+    // Still notified, because it is a DM — but as a DM, not as a broadcast.
+    expect(decideNotification(s, message({ text: "<!here> hi" }))).toEqual({
+      notify: true,
+      reason: "dm",
+    });
+  });
+
+  it("reads room-wide mentions out in the notification body", () => {
+    const s = state();
+    expect(notificationBody(s, message({ text: "<!here> ship it" }))).toBe("@here ship it");
+    expect(notificationBody(s, message({ text: "<!everyone> ship it" }))).toBe("@channel ship it");
   });
 });

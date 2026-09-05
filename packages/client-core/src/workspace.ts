@@ -177,7 +177,17 @@ export class WorkspaceClient {
   private stopped = false;
   private nonceCounter = 0;
   /** Called when a message.created lands from someone else — the app hooks notifications here. */
-  onIncomingMessage: ((msg: Message) => void) | null = null;
+  /**
+   * A message from someone else has landed. `live` is false while replaying
+   * what was missed during a disconnect, which `@here` has to know about.
+   */
+  onIncomingMessage: ((msg: Message, context: { live: boolean }) => void) | null = null;
+
+  /**
+   * The server's seq when this connection opened. Everything at or below it
+   * already happened; everything above it is arriving as it is sent.
+   */
+  private connectedAtSeq = 0;
 
   constructor(
     public readonly baseUrl: string,
@@ -278,6 +288,9 @@ export class WorkspaceClient {
 
   private applyReady(snap: ReadySnapshot): void {
     this.reconnectDelay = 1000;
+    // Anything the server had already recorded when we connected is history,
+    // however soon after it reaches us.
+    this.connectedAtSeq = snap.seq;
     const users: Record<ID, User> = {};
     for (const u of snap.users) users[u.id] = u;
     const channels: Record<ID, Channel> = {};
@@ -368,7 +381,9 @@ export class WorkspaceClient {
             };
           }
         }
-        if (message.userId !== s.self?.id) this.onIncomingMessage?.(message);
+        if (message.userId !== s.self?.id) {
+          this.onIncomingMessage?.(message, { live: seq > this.connectedAtSeq });
+        }
         // Clear the sender's typing indicator immediately.
         const chTyping = s.typing[message.channelId];
         if (chTyping?.[message.userId]) {

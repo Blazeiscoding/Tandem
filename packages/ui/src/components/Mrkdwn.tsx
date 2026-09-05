@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import type { ID, User } from "@slackoss/protocol";
+import { broadcastLabel, type ID, type User } from "@slackoss/protocol";
 import type { Channel } from "@slackoss/protocol";
 
 interface Props {
@@ -40,7 +40,7 @@ export function Mrkdwn({ text, users, channels, selfId, onChannelClick }: Props)
 // rule can pair that underscore with a later one. Without it ¯\_(ツ)_/¯ arrives
 // italicised and missing both underscores.
 const INLINE_RE =
-  /(\\[*_~`\\])|(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(<@[A-Za-z0-9_-]+>)|(<#[A-Za-z0-9_-]+>)|(https?:\/\/[^\s<>]+)/g;
+  /(\\[*_~`\\])|(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(<@[A-Za-z0-9_-]+>)|(<#[A-Za-z0-9_-]+>)|(<!(?:channel|here|everyone)>)|(https?:\/\/[^\s<>]+)/g;
 
 function renderInline(
   text: string,
@@ -96,6 +96,21 @@ function renderInline(
         </button>,
       );
     } else if (m[8]) {
+      // A room-wide mention. Always styled as addressing you, because it is.
+      out.push(
+        <span
+          key={key++}
+          className="rounded bg-copper/30 px-1 font-medium text-copper"
+          title={
+            tok === "<!here>"
+              ? "Everyone in this channel who is around now"
+              : "Everyone in this channel"
+          }
+        >
+          {broadcastLabel(tok.slice(2, -1))}
+        </span>,
+      );
+    } else if (m[9]) {
       out.push(
         <a
           key={key++}

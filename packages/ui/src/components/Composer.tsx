@@ -13,12 +13,24 @@ interface Props {
 }
 
 /** Enter sends, Shift+Enter breaks the line, @ opens mention autocomplete. */
+/** Something the @ picker can insert: a person, or the whole room. */
+type Candidate =
+  | { kind: "user"; user: User }
+  | { kind: "broadcast"; token: "channel" | "here"; description: string };
+
+const BROADCASTS = [
+  { token: "channel" as const, description: "Everyone in this channel" },
+  { token: "here" as const, description: "Everyone who is around now" },
+];
+
 export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Props) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
   const commands = useWorkspace((s) => s.commands);
   const selfId = useWorkspace((s) => s.self?.id);
   // Threads keep their own draft slot so a channel draft isn't clobbered.
+  const channelType = useWorkspace((s) => s.channels[channelId]?.type);
+  const isRoom = channelType === "public" || channelType === "private";
   const draftKey = threadRootId ? `${channelId}:${threadRootId}` : channelId;
   const savedDraft = useWorkspace((s) => s.drafts[draftKey] ?? "");
   const [text, setText] = useState(savedDraft);
@@ -68,14 +80,19 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     if (autoFocus) box.current?.focus();
   }, [autoFocus, channelId, threadRootId]);
 
-  const candidates = useMemo(() => {
+  const candidates = useMemo((): Candidate[] => {
     if (!mentionQuery) return [];
     const q = mentionQuery.query.toLowerCase();
-    return Object.values(users)
+    // A room-wide mention has no meaning in a DM, so it is not offered there.
+    const rooms: Candidate[] = isRoom
+      ? BROADCASTS.filter((b) => b.token.startsWith(q)).map((b) => ({ kind: "broadcast", ...b }))
+      : [];
+    const people: Candidate[] = Object.values(users)
       .filter((u) => !u.deactivated)
       .filter((u) => u.handle.includes(q) || u.displayName.toLowerCase().includes(q))
-      .slice(0, 6);
-  }, [mentionQuery, users]);
+      .map((user) => ({ kind: "user", user }));
+    return [...rooms, ...people].slice(0, 6);
+  }, [mentionQuery, users, isRoom]);
 
   /**
    * Commands are offered only while the first word is still being typed —
@@ -109,14 +126,16 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     }
   }
 
-  function insertMention(user: User) {
+  function insertMention(candidate: Candidate) {
     if (!mentionQuery || !box.current) return;
     const caret = box.current.selectionStart;
-    const next = `${text.slice(0, mentionQuery.start)}<@${user.id}> ${text.slice(caret)}`;
+    const token = candidate.kind === "user" ? `<@${candidate.user.id}>` : `<!${candidate.token}>`;
+    const next = `${text.slice(0, mentionQuery.start)}${token} ${text.slice(caret)}`;
     setText(next);
     setMentionQuery(null);
     requestAnimationFrame(() => {
-      const pos = mentionQuery.start + user.id.length + 4;
+    edited.current = true;
+      const pos = mentionQuery.start + token.length + 1;
       box.current?.setSelectionRange(pos, pos);
       box.current?.focus();
     });
@@ -257,22 +276,34 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       )}
       {mentionQuery && candidates.length > 0 && (
         <ul className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
-          {candidates.map((u, i) => (
-            <li key={u.id}>
+          {candidates.map((c, i) => (
+            <li key={c.kind === "user" ? c.user.id : c.token}>
               <button
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  insertMention(u);
+                  insertMention(c);
                 }}
                 onMouseEnter={() => setMentionIndex(i)}
                 className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${
                   i === mentionIndex ? "bg-copper/15" : ""
                 }`}
               >
-                <Avatar user={u} size={22} />
-                <span className="font-medium">{u.displayName}</span>
-                <span className="font-mono text-xs text-ink-faint">@{u.handle}</span>
-                {u.id === selfId && <span className="text-xs text-ink-faint">(you)</span>}
+                {c.kind === "user" ? (
+                  <>
+                    <Avatar user={c.user} size={22} />
+                    <span className="font-medium">{c.user.displayName}</span>
+                    <span className="font-mono text-xs text-ink-faint">@{c.user.handle}</span>
+                    {c.user.id === selfId && <span className="text-xs text-ink-faint">(you)</span>}
+                  </>
+                ) : (
+                  <>
+                    <span className="flex size-[22px] items-center justify-center rounded bg-copper/25 text-[11px] font-bold text-copper">
+                      @
+                    </span>
+                    <span className="font-medium">@{c.token}</span>
+                    <span className="text-xs text-ink-faint">{c.description}</span>
+                  </>
+                )}
               </button>
             </li>
           ))}

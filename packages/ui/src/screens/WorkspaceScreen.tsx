@@ -146,11 +146,11 @@ function WorkspaceInner({
   // Desktop notifications for incoming messages, gated by channel preferences,
   // mute and Do Not Disturb (the rules live in client-core so they're testable).
   useEffect(() => {
-    clientFromCtx.onIncomingMessage = (msg) => {
+    clientFromCtx.onIncomingMessage = (msg, { live }) => {
       const state = clientFromCtx.state;
       // A message you're already looking at needs no notification.
       if (document.hasFocus() && msg.channelId === activeChannelId) return;
-      if (!decideNotification(state, msg).notify) return;
+      if (!decideNotification(state, msg, { live }).notify) return;
 
       const channel = state.channels[msg.channelId];
       const from = state.users[msg.userId]?.displayName ?? "Someone";
