@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss/client-core";
 import { ClientContext, useClient, useWorkspace } from "../context.js";
@@ -25,6 +25,8 @@ import { AppsDialog } from "../components/AppsDialog.js";
 import { PeopleDialog } from "../components/PeopleDialog.js";
 import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
+import { Icon } from "../components/Icon.js";
+import { DraftPersistence } from "../components/DraftPersistence.js";
 
 interface Props {
   client: WorkspaceClient;
@@ -61,11 +63,20 @@ type SidePanel =
 export function WorkspaceScreen({ client, platform, initialTarget, onLeaveWorkspace }: Props) {
   return (
     <ClientContext.Provider value={client}>
-      <WorkspaceInner
-        platform={platform}
-        initialTarget={initialTarget ?? null}
-        onLeaveWorkspace={onLeaveWorkspace}
-      />
+      <div className="flex h-full min-h-0 flex-col">
+        {platform.kind === "desktop" && (
+          <div className="titlebar-drag flex h-10 shrink-0 items-center border-b border-edge px-4 text-[11px] text-ink-faint">
+            Gatherline · Your workspace
+          </div>
+        )}
+        <div className="min-h-0 flex-1">
+          <WorkspaceInner
+            platform={platform}
+            initialTarget={initialTarget ?? null}
+            onLeaveWorkspace={onLeaveWorkspace}
+          />
+        </div>
+      </div>
     </ClientContext.Provider>
   );
 }
@@ -91,8 +102,50 @@ function WorkspaceInner({
   );
   const [panel, setPanel] = useState<SidePanel>({ kind: "none" });
   const [dialog, setDialog] = useState<DialogKind>({ kind: "none" });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const clientFromCtx = useClient();
-  const drafts = useWorkspace((s) => s.drafts);
+
+  useEffect(() => {
+    if (dialog.kind !== "none") setSidebarOpen(false);
+  }, [dialog.kind]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const nav = document.querySelector<HTMLElement>('[aria-label="Workspace navigation"]');
+    const previous = document.activeElement as HTMLElement | null;
+    nav?.querySelector<HTMLElement>("button")?.focus();
+    const onTab = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const buttons = [
+        ...(nav?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []),
+      ].filter((button) => button.getClientRects().length > 0);
+      const first = buttons[0];
+      const last = buttons.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    window.addEventListener("keydown", onTab);
+    return () => {
+      window.removeEventListener("keydown", onTab);
+      // A newly opened dialog owns focus now; do not pull it back out.
+      if (previous?.isConnected && !document.activeElement?.closest('[role="dialog"]'))
+        previous.focus();
+    };
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    const wide = window.matchMedia("(min-width: 761px)");
+    const onResize = () => {
+      if (wide.matches) setSidebarOpen(false);
+    };
+    wide.addEventListener("change", onResize);
+    return () => wide.removeEventListener("change", onResize);
+  }, []);
 
   // Load the linked message's surrounding history, then navigate to it. This
   // must set state rather than rely on the useState initialisers above: the
@@ -122,26 +175,6 @@ function WorkspaceInner({
       if (general) setActiveChannelId(general.id);
     }
   }, [channels, activeChannelId]);
-
-  // Drafts live on disk per server, so an accidental quit doesn't lose them.
-  const draftStorageKey = `drafts:${clientFromCtx.baseUrl}`;
-  const draftsLoaded = useRef(false);
-
-  useEffect(() => {
-    draftsLoaded.current = false;
-    void platform.storage.get<Record<string, string>>(draftStorageKey).then((stored) => {
-      if (stored && Object.keys(stored).length > 0) clientFromCtx.hydrateDrafts(stored);
-      draftsLoaded.current = true;
-    });
-  }, [clientFromCtx, platform, draftStorageKey]);
-
-  useEffect(() => {
-    // Until the stored drafts arrive, this component's empty initial state
-    // would overwrite them on disk.
-    if (!draftsLoaded.current) return;
-    const timer = setTimeout(() => void platform.storage.set(draftStorageKey, drafts), 600);
-    return () => clearTimeout(timer);
-  }, [drafts, platform, draftStorageKey]);
 
   // Desktop notifications for incoming messages, gated by channel preferences,
   // mute and Do Not Disturb (the rules live in client-core so they're testable).
@@ -180,6 +213,7 @@ function WorkspaceInner({
       // Dialogs close themselves on Escape; this clears the side panel.
       if (e.key === "Escape") {
         setPanel((p) => (p.kind === "none" ? p : { kind: "none" }));
+        setSidebarOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -190,12 +224,15 @@ function WorkspaceInner({
   const title = activeChannel ? channelTitle(activeChannel, users, self?.id) : "";
   const isRoom = activeChannel?.type === "public" || activeChannel?.type === "private";
 
-  function openChannel(id: ID) {
+  const openChannel = useCallback((id: ID) => {
     setActiveChannelId(id);
     setHighlightMessageId(null);
     setPanel({ kind: "none" });
     setDialog({ kind: "none" });
-  }
+    setSidebarOpen(false);
+  }, []);
+  const openThread = useCallback((rootId: ID) => setPanel({ kind: "thread", rootId }), []);
+  const openProfile = useCallback((userId: ID) => setDialog({ kind: "profile", userId }), []);
 
   /** Opens a channel scrolled to one message, from search, pins or Later. */
   function jumpToMessage(channelId: ID, messageId: ID) {
@@ -222,8 +259,25 @@ function WorkspaceInner({
   }, [status, onLeaveWorkspace]);
 
   return (
-    <div className="flex h-full">
+    <div className={`workspace-shell relative flex h-full ${sidebarOpen ? "sidebar-open" : ""}`}>
+      <DraftPersistence platform={platform} />
+      {sidebarOpen && (
+        <button
+          className="sidebar-dismiss fixed inset-0 z-30 bg-black/60"
+          aria-label="Close navigation"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       <Sidebar
+        onSearch={() => setDialog({ kind: "switcher" })}
+        onSaved={() => {
+          setPanel({ kind: "later" });
+          setSidebarOpen(false);
+        }}
+        onScheduled={() => {
+          setPanel({ kind: "scheduled" });
+          setSidebarOpen(false);
+        }}
         onFriends={() => setDialog({ kind: "friends" })}
         activeChannelId={activeChannelId}
         onSelect={openChannel}
@@ -246,17 +300,26 @@ function WorkspaceInner({
         connectionLabel={connectionLabel}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="titlebar-drag flex h-[53px] shrink-0 items-center gap-3 border-b border-edge px-5">
+      <main inert={sidebarOpen} className="flex min-w-0 flex-1 flex-col">
+        <header className="channel-header titlebar-drag flex h-[76px] shrink-0 items-center gap-3 border-b border-edge px-5">
+          <button
+            className="mobile-nav-toggle rounded-lg p-2 text-ink-dim hover:bg-lifted"
+            aria-label="Open navigation"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Icon name="menu" />
+          </button>
           <button
             onClick={() => activeChannelId && setDialog({ kind: "channel-details" })}
             className="min-w-0 flex-1 rounded-lg px-2 py-1 text-left transition-colors hover:bg-lifted"
           >
-            <h2 className="truncate font-bold leading-tight">
+            <h2 className="truncate text-[17px] font-semibold leading-tight">
               {isRoom ? `#${title}` : title || "…"}
             </h2>
-            <p className="truncate text-xs text-ink-faint">
-              {activeChannel?.topic || "Add a topic"}
+            <p className="mt-1 truncate text-xs text-ink-faint">
+              {activeChannel?.topic ||
+                (isRoom ? "A space to keep the conversation moving" : "Your private conversation")}
             </p>
           </button>
           {activeChannelId && <HuddleButton channelId={activeChannelId} />}
@@ -265,45 +328,54 @@ function WorkspaceInner({
               setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
             }
             title="Pinned messages"
+            aria-label="Pinned messages"
+            aria-pressed={panel.kind === "pins"}
             className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
               panel.kind === "pins"
                 ? "border-copper text-copper"
                 : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
             }`}
           >
-            📌
+            <Icon name="pin" />
           </button>
           <button
             onClick={() =>
               setPanel((p) => (p.kind === "later" ? { kind: "none" } : { kind: "later" }))
             }
             title="Saved for later"
-            className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+            aria-label="Saved for later"
+            aria-pressed={panel.kind === "later"}
+            className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
               panel.kind === "later"
                 ? "border-copper text-copper"
                 : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
             }`}
           >
-            🔖
+            <Icon name="bookmark" />
           </button>
           <button
             onClick={() =>
               setPanel((p) => (p.kind === "scheduled" ? { kind: "none" } : { kind: "scheduled" }))
             }
             title="Scheduled messages"
-            className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+            aria-label="Scheduled messages"
+            aria-pressed={panel.kind === "scheduled"}
+            className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
               panel.kind === "scheduled"
                 ? "border-copper text-copper"
                 : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
             }`}
           >
-            🕘
+            <Icon name="clock" />
           </button>
           <button
             onClick={() => setDialog({ kind: "search" })}
-            className="rounded-lg border border-edge px-3 py-1.5 text-[13px] text-ink-faint transition-colors hover:border-ink-faint hover:text-ink"
+            aria-label="Search messages"
+            title="Search messages (Ctrl F)"
+            className="flex items-center gap-2 rounded-lg border border-edge px-3 py-1.5 text-[13px] text-ink-dim transition-colors hover:border-ink-faint hover:text-ink"
           >
-            Search <kbd className="ml-1 font-mono text-[10px]">Ctrl F</kbd>
+            <Icon name="search" size={16} />
+            <span className="header-secondary">Search</span>
           </button>
         </header>
 
@@ -312,9 +384,9 @@ function WorkspaceInner({
             <MessageTimeline
               channelId={activeChannelId}
               highlightMessageId={highlightMessageId}
-              onOpenThread={(rootId) => setPanel({ kind: "thread", rootId })}
+              onOpenThread={openThread}
               onChannelClick={openChannel}
-              onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
+              onOpenProfile={openProfile}
             />
             <HuddleStage />
             <HuddleBar />

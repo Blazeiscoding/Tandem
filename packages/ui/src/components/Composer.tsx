@@ -4,6 +4,7 @@ import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
 import { formatScheduleTime, schedulePresets } from "../lib/schedule.js";
+import { Icon } from "./Icon.js";
 
 interface Props {
   channelId: ID;
@@ -12,7 +13,6 @@ interface Props {
   autoFocus?: boolean;
 }
 
-/** Enter sends, Shift+Enter breaks the line, @ opens mention autocomplete. */
 /** Something the @ picker can insert: a person, or the whole room. */
 type Candidate =
   | { kind: "user"; user: User }
@@ -23,14 +23,15 @@ const BROADCASTS = [
   { token: "here" as const, description: "Everyone who is around now" },
 ];
 
+/** Enter sends, Shift+Enter breaks the line, @ opens mention autocomplete. */
 export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Props) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
   const commands = useWorkspace((s) => s.commands);
   const selfId = useWorkspace((s) => s.self?.id);
-  // Threads keep their own draft slot so a channel draft isn't clobbered.
   const channelType = useWorkspace((s) => s.channels[channelId]?.type);
   const isRoom = channelType === "public" || channelType === "private";
+  // Threads keep their own draft slot so a channel draft isn't clobbered.
   const draftKey = threadRootId ? `${channelId}:${threadRootId}` : channelId;
   const savedDraft = useWorkspace((s) => s.drafts[draftKey] ?? "");
   const [text, setText] = useState(savedDraft);
@@ -128,13 +129,13 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   function insertMention(candidate: Candidate) {
     if (!mentionQuery || !box.current) return;
-    const caret = box.current.selectionStart;
     const token = candidate.kind === "user" ? `<@${candidate.user.id}>` : `<!${candidate.token}>`;
+    const caret = box.current.selectionStart;
     const next = `${text.slice(0, mentionQuery.start)}${token} ${text.slice(caret)}`;
     setText(next);
     setMentionQuery(null);
-    requestAnimationFrame(() => {
     edited.current = true;
+    requestAnimationFrame(() => {
       const pos = mentionQuery.start + token.length + 1;
       box.current?.setSelectionRange(pos, pos);
       box.current?.focus();
@@ -183,6 +184,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Enter confirms an IME candidate; it must not send an unfinished message.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (commandCandidates.length > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -227,7 +230,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   return (
     <div
-      className="relative px-5 pb-5"
+      className="composer-shell relative shrink-0 px-5 pb-5"
       onDragEnter={(e) => {
         if (![...e.dataTransfer.types].includes("Files")) return;
         dragDepth.current++;
@@ -310,7 +313,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         </ul>
       )}
       <div
-        className={`rounded-xl border bg-raised transition-colors ${
+        className={`rounded-xl border bg-raised shadow-[0_4px_20px_#0002] transition-colors ${
           dragging ? "border-copper bg-copper/5" : "border-edge focus-within:border-copper/60"
         }`}
       >
@@ -339,6 +342,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           value={text}
           rows={1}
           placeholder={dragging ? "Drop files to attach" : placeholder}
+          aria-label={placeholder}
           onPaste={(e) => {
             const files = [...e.clipboardData.files];
             if (files.length > 0) {
@@ -367,28 +371,42 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             <button
               onClick={() => filePicker.current?.click()}
               title="Attach a file"
+              aria-label="Attach a file"
               className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
             >
-              📎
+              <Icon name="attach" />
             </button>
             {(text.trim() || attached.length > 0) && (
               <button
                 onClick={() => setScheduleOpen((v) => !v)}
                 title="Send later"
+                aria-label="Send later"
                 className={`rounded-lg px-2 py-1 transition-colors hover:bg-lifted hover:text-ink ${
                   scheduleOpen ? "text-copper" : "text-ink-faint"
                 }`}
               >
-                🕘
+                <Icon name="clock" />
               </button>
             )}
           </span>
-          <span className="pr-1 font-mono text-[10px] text-ink-faint">
+          <span className="composer-hint ml-auto mr-3 text-[11px] text-ink-faint">
             {scheduleNote ??
               (text.trim() || attached.length > 0
                 ? "Enter to send · Shift+Enter for a new line"
                 : "")}
           </span>
+          <button
+            onClick={() => {
+              send();
+              box.current?.focus();
+            }}
+            disabled={!text.trim() && attached.length === 0}
+            aria-label="Send message"
+            title="Send message (Enter)"
+            className="flex items-center gap-2 rounded-lg bg-copper px-3 py-1.5 text-ground hover:bg-copper-deep disabled:bg-lifted disabled:text-ink-faint"
+          >
+            <Icon name="send" size={16} />
+          </button>
           {scheduleOpen && (
             <ul className="absolute bottom-full left-2 z-20 mb-1 w-[220px] overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
               <li className="border-b border-edge px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-ink-faint">

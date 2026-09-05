@@ -1,20 +1,21 @@
 /*
- * SlackOSS visual identity — dark warm charcoal, copper accent, mono for
+ * Gatherline visual identity — midnight blue, mint accent, mono for
  * infrastructure (addresses, ports, codes). One committed look, no light mode yet.
  */
 @theme {
-  --color-ground: #17151f; /* app background */
-  --color-raised: #1e1b29; /* sidebar, panels */
-  --color-lifted: #262231; /* hover, cards */
-  --color-edge: #322d40; /* borders */
-  --color-ink: #e9e6f2; /* primary text */
-  --color-ink-dim: #9a94ac; /* secondary text */
-  --color-ink-faint: #6b6580; /* tertiary text */
-  --color-copper: #e8a550; /* accent */
-  --color-copper-deep: #c9852e;
-  --color-online: #57b98a;
+  --color-ground: #111820; /* app background */
+  --color-raised: #17212b; /* sidebar, panels */
+  --color-lifted: #22313e; /* hover, cards */
+  --color-edge: #2b3a47; /* borders */
+  --color-ink: #edf3f7; /* primary text */
+  --color-ink-dim: #b1c0cd; /* secondary text */
+  --color-ink-faint: #8b9cab; /* tertiary text */
+  /* Keep the token name compatible with existing integration components. */
+  --color-copper: #8adbc1; /* accent */
+  --color-copper-deep: #69c6a9;
+  --color-online: #8adbc1;
   --color-alert: #e0564f;
-  --color-mention: rgba(232, 165, 80, 0.14);
+  --color-mention: rgba(138, 219, 193, 0.1);
 
   --font-sans:
     "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
@@ -42,7 +43,7 @@ body {
 }
 
 ::selection {
-  background: rgba(232, 165, 80, 0.32);
+  background: rgba(138, 219, 193, 0.25);
 }
 
 *::-webkit-scrollbar {
@@ -50,18 +51,102 @@ body {
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #3a3448;
+  background: #354958;
   border-radius: 5px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #4a4360;
+  background: #526b7e;
   background-clip: content-box;
   border: 2px solid transparent;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+button,
+a,
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button:not(:disabled),
+[role="button"] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+button:focus-visible,
+a:focus-visible,
+[tabindex="0"]:focus-visible {
+  outline: 2px solid var(--color-copper);
+  outline-offset: 3px;
+}
+button {
+  transition-duration: 120ms;
+}
+textarea {
+  scrollbar-width: thin;
+}
+.workspace-sidebar {
+  width: 264px;
+}
+.timeline-scroll {
+  position: relative;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+}
+.channel-header {
+  background: var(--color-ground);
+}
+.mobile-nav-toggle,
+.sidebar-dismiss {
+  display: none;
+}
+.join-layout {
+  min-height: min-content;
+}
+.join-story {
+  background: linear-gradient(145deg, #1e3739, #17212b 75%);
+}
+
+@media (max-width: 760px) {
+  .workspace-sidebar {
+    display: none;
+  }
+  .sidebar-open .workspace-sidebar {
+    display: flex;
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    width: min(300px, 85vw);
+    box-shadow: 16px 0 40px #0005;
+  }
+  .mobile-nav-toggle,
+  .sidebar-dismiss {
+    display: inline-flex;
+  }
+  .channel-header {
+    gap: 6px;
+    padding-inline: 10px;
+  }
+  .header-secondary,
+  .composer-hint {
+    display: none;
+  }
+  .workspace-shell > aside {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    width: 100%;
+    max-width: 100%;
+  }
+  .composer-shell {
+    padding-inline: 12px;
+    padding-bottom: 12px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

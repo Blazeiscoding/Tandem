@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { formatTime } from "../lib/format.js";
@@ -20,7 +20,7 @@ interface Props {
   highlighted?: boolean;
 }
 
-export function MessageItem({
+export const MessageItem = memo(function MessageItem({
   message,
   compact,
   inThread,
@@ -51,6 +51,9 @@ export function MessageItem({
 
   return (
     <div
+      role="article"
+      aria-label={`Message from ${author?.displayName ?? "unknown"}`}
+      tabIndex={0}
       className={`group relative px-5 py-0.5 transition-colors hover:bg-raised/60 ${
         compact ? "" : "mt-2.5"
       } ${mentionsMe ? "border-l-2 border-copper bg-mention hover:bg-mention" : ""} ${
@@ -175,7 +178,7 @@ export function MessageItem({
       </div>
 
       {!editing && (
-        <div className="absolute -top-3.5 right-4 hidden items-center overflow-hidden rounded-lg border border-edge bg-lifted shadow-lg group-hover:flex">
+        <div className="absolute -top-3.5 right-4 hidden max-w-[calc(100%-32px)] items-center overflow-x-auto rounded-lg border border-edge bg-lifted shadow-lg group-hover:flex group-focus-within:flex">
           {QUICK_REACTIONS.map((e) => (
             <ToolbarButton key={e} label={e} onClick={() => client.toggleReaction(message, e)} />
           ))}
@@ -234,7 +237,7 @@ export function MessageItem({
       )}
     </div>
   );
-}
+});
 
 function ToolbarButton(props: {
   label: string;

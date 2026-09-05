@@ -3,6 +3,7 @@ import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
 import { Avatar, PresenceDot } from "./Avatar.js";
+import { BrandMark, Icon } from "./Icon.js";
 
 interface Props {
   activeChannelId: ID | null;
@@ -11,6 +12,9 @@ interface Props {
   onNewChannel: () => void;
   onNewDm: () => void;
   onFriends: () => void;
+  onSearch: () => void;
+  onSaved: () => void;
+  onScheduled: () => void;
   onInvite: () => void;
   onSwitchWorkspace: () => void;
   onEditProfile: () => void;
@@ -62,29 +66,69 @@ export function Sidebar(props: Props) {
   const huddleCount = (id: ID) => huddles[id]?.length ?? 0;
 
   return (
-    <nav className="flex h-full w-[250px] shrink-0 flex-col border-r border-edge bg-raised">
-      <header className="titlebar-drag border-b border-edge px-4 pb-3 pt-4">
-        <h1 className="truncate text-[15px] font-bold">{workspaceName || "…"}</h1>
-        <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-ink-faint">
-          <span
-            className={`size-1.5 rounded-full ${props.connectionLabel ? "bg-copper" : "bg-online"}`}
-          />
-          <span className="truncate">{props.connectionLabel ?? baseHost}</span>
+    <nav
+      aria-label="Workspace navigation"
+      className="workspace-sidebar flex h-full shrink-0 flex-col border-r border-edge bg-raised"
+    >
+      <header className="titlebar-drag flex h-[76px] shrink-0 items-center gap-3 border-b border-edge px-4">
+        <BrandMark />
+        <div className="min-w-0">
+          <div className="text-[16px] font-semibold tracking-tight">Gatherline</div>
+          <div
+            className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-faint"
+            title={baseHost}
+          >
+            <span
+              className={`size-1.5 rounded-full ${props.connectionLabel ? "bg-copper" : "bg-online"}`}
+            />
+            <span className="truncate">{props.connectionLabel ?? "Connected · Your server"}</span>
+          </div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-2 py-3">
+      <div className="flex-1 overflow-y-auto px-3 py-4">
+        <h1 className="mb-3 truncate px-2 text-[15px] font-semibold" title={baseHost}>
+          {workspaceName || "Connecting…"}
+        </h1>
+        <button
+          onClick={props.onSearch}
+          className="mb-2 flex w-full items-center gap-2 rounded-lg border border-edge bg-ground/50 px-3 py-2 text-[12px] text-ink-faint hover:border-ink-faint hover:text-ink"
+          title="Jump to a conversation (Ctrl K)"
+        >
+          <Icon name="search" size={15} />
+          <span className="flex-1 text-left">Jump to…</span>
+          <kbd className="rounded border border-edge px-1 text-[10px]">Ctrl K</kbd>
+        </button>
         <button
           onClick={props.onFriends}
-          className="mb-4 flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink"
+          className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink"
         >
-          <span>Friends</span>
+          <span className="flex items-center gap-2">
+            <Icon name="friends" size={17} />
+            Friends
+          </span>
           {friendRequests > 0 && (
             <span className="rounded-full bg-copper/15 px-2 text-xs text-copper">
               {friendRequests}
             </span>
           )}
         </button>
+        <div className="mb-5 flex gap-1 border-b border-edge pb-4">
+          <button
+            onClick={props.onSaved}
+            className="flex flex-1 items-center gap-2 rounded-lg px-2 py-2 text-xs text-ink-dim hover:bg-lifted"
+          >
+            <Icon name="bookmark" size={15} />
+            Saved
+          </button>
+          <button
+            onClick={props.onScheduled}
+            className="flex flex-1 items-center gap-2 rounded-lg px-2 py-2 text-xs text-ink-dim hover:bg-lifted"
+          >
+            <Icon name="clock" size={15} />
+            Scheduled
+          </button>
+        </div>
         <SectionHeader
           label="Channels"
           actions={[
@@ -131,6 +175,15 @@ export function Sidebar(props: Props) {
             );
           })}
         </ul>
+        {dms.length === 0 && (
+          <button
+            onClick={props.onNewDm}
+            className="mx-2 mt-2 rounded-lg border border-dashed border-edge p-3 text-left text-xs leading-relaxed text-ink-faint hover:border-ink-faint hover:text-ink"
+          >
+            Good conversations start here.
+            <span className="mt-1 block text-copper">Send someone a message →</span>
+          </button>
+        )}
       </div>
 
       <footer className="border-t border-edge p-2">
@@ -281,9 +334,10 @@ function ChannelRow(props: {
     <li>
       <button
         onClick={props.onClick}
-        className={`flex w-full items-center gap-2 rounded-lg px-2 py-[5px] text-left text-sm transition-colors ${
+        aria-current={props.active ? "page" : undefined}
+        className={`my-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-[8px] text-left text-sm transition-colors ${
           props.active
-            ? "bg-copper/15 text-copper"
+            ? "bg-copper/15 font-medium text-copper shadow-[inset_3px_0_var(--color-copper)]"
             : props.muted
               ? "text-ink-faint hover:bg-lifted"
               : props.unread

@@ -4,6 +4,7 @@ import type { HuddlePeer } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
+import { Icon } from "./Icon.js";
 
 /**
  * Plays one peer's audio. A hidden <audio> element is what actually makes a
@@ -384,8 +385,9 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
 
   if (inThis) {
     return (
-      <span className="rounded-lg border border-copper px-2.5 py-1.5 text-[13px] text-copper">
-        🎧 In huddle
+      <span className="flex items-center gap-2 rounded-lg border border-copper px-2.5 py-1.5 text-[13px] text-copper">
+        <Icon name="headphones" />
+        <span className="header-secondary">In huddle</span>
       </span>
     );
   }
@@ -395,7 +397,8 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
       onClick={join}
       disabled={joining}
       title={error ?? (count > 0 ? `Join the huddle (${count})` : "Start a huddle")}
-      className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+      aria-label={count > 0 ? `Join the huddle (${count})` : "Start a huddle"}
+      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
         error
           ? "border-alert text-alert"
           : count > 0
@@ -408,7 +411,11 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
       ) : joining ? (
         "Joining…"
       ) : (
-        <>🎧{count > 0 && <span className="ml-1 font-mono text-[11px]">{count}</span>}</>
+        <>
+          <Icon name="headphones" />
+          <span className="header-secondary">Huddle</span>
+          {count > 0 && <span className="font-mono text-[11px]">{count}</span>}
+        </>
       )}
     </button>
   );

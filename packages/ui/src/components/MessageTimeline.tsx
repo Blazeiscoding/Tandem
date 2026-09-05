@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileMeta, ID } from "@slackoss/protocol";
 import type { EphemeralMessage, PendingMessage } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
@@ -6,6 +6,7 @@ import { formatDay, sameDay } from "../lib/format.js";
 import { MessageItem } from "./MessageItem.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { Icon } from "./Icon.js";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -41,7 +42,7 @@ interface Props {
   onOpenProfile: (userId: ID) => void;
 }
 
-export function MessageTimeline({
+export const MessageTimeline = memo(function MessageTimeline({
   channelId,
   highlightMessageId,
   onOpenThread,
@@ -54,7 +55,6 @@ export function MessageTimeline({
   const ephemerals = useWorkspace((s) => s.ephemerals[channelId]);
   const typing = useWorkspace((s) => s.typing[channelId]);
   const users = useWorkspace((s) => s.users);
-  const channels = useWorkspace((s) => s.channels);
   const selfId = useWorkspace((s) => s.self?.id);
   const scroller = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
@@ -107,6 +107,7 @@ export function MessageTimeline({
     el.scrollTop = el.scrollHeight;
   }, [
     items.length,
+    items.at(-1)?.id,
     channelPending.length,
     typers.length,
     channelId,
@@ -150,7 +151,7 @@ export function MessageTimeline({
     // Only reading the newest messages counts as catching up.
     if (timeline?.hasMoreNewer) return;
     if (pinnedToBottom.current && document.hasFocus()) client.markRead(channelId);
-  }, [client, channelId, items.length, timeline?.hasMoreNewer]);
+  }, [client, channelId, items.length, items.at(-1)?.id, timeline?.hasMoreNewer]);
 
   function onScroll() {
     const el = scroller.current;
@@ -195,7 +196,17 @@ export function MessageTimeline({
   }
 
   return (
-    <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto pb-3">
+    <div
+      ref={scroller}
+      onScroll={onScroll}
+      aria-label="Message history"
+      className="timeline-scroll min-h-0 flex-1 overflow-y-auto pb-3"
+    >
+      {!timeline?.loaded && (
+        <div role="status" className="px-6 py-8 text-sm text-ink-faint">
+          Loading conversation…
+        </div>
+      )}
       {!timeline?.hasMore && timeline?.loaded && <ChannelIntro channelId={channelId} />}
       {items.map((msg, i) => {
         const prev = items[i - 1];
@@ -238,7 +249,7 @@ export function MessageTimeline({
       {lightboxFile && <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />}
     </div>
   );
-}
+});
 
 /**
  * A slash command's private answer. Marked plainly as unshared, because the
@@ -310,8 +321,14 @@ function ChannelIntro({ channelId }: { channelId: ID }) {
   if (!channel) return null;
   const isRoom = channel.type === "public" || channel.type === "private";
   return (
-    <div className="px-5 pb-2 pt-8">
-      <h2 className="text-xl font-bold">
+    <div className="px-6 pb-5 pt-9">
+      <div className="mb-4 flex size-12 items-center justify-center rounded-2xl border border-edge bg-raised text-copper">
+        <Icon name={isRoom ? "hash" : "friends"} size={26} />
+      </div>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-copper">
+        {isRoom ? "Your shared space" : "A little more personal"}
+      </p>
+      <h2 className="text-2xl font-semibold tracking-tight">
         {isRoom
           ? `#${channel.name}`
           : (channel.memberIds ?? [])

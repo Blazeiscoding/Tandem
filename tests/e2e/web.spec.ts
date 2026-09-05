@@ -286,6 +286,177 @@ test("scrolls back through a long channel without unbounded growth or losing its
   }
 });
 
+test("Gatherline keeps a capped live timeline pinned and supports keyboard and narrow-window chat", async ({
+  page,
+}, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(base);
+  await expect(page).toHaveTitle("Gatherline");
+  await page.screenshot({ path: info.outputPath("gatherline-welcome.png") });
+  await register(page, "smoothness");
+  const token = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("slackoss:servers")!)[0].token,
+  );
+  const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const response = await fetch(`${base}/api/channels`, {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({ type: "public", name: "design-studio" }),
+  });
+  expect(response.ok).toBe(true);
+  const { channel } = await response.json();
+  await page.getByRole("navigation").getByRole("button", { name: "design-studio" }).click();
+  for (const name of ["announcements", "engineering", "game-night"]) {
+    expect(
+      (
+        await fetch(`${base}/api/channels`, {
+          method: "POST",
+          headers: auth,
+          body: JSON.stringify({ type: "public", name }),
+        })
+      ).ok,
+    ).toBe(true);
+  }
+  const teammate = await (
+    await fetch(`${base}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: "maya", displayName: "Maya Chen", password: "password123" }),
+    })
+  ).json();
+  expect(teammate.token).toBeTruthy();
+  expect(
+    (
+      await fetch(`${base}/api/channels/${channel.id}/join`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${teammate.token}` },
+      })
+    ).ok,
+  ).toBe(true);
+  const messages = [
+    {
+      token,
+      text: "Welcome to #design-studio 👋\nA little space for big ideas. Share what you’re working on, ask for feedback, and make yourself at home.",
+    },
+    {
+      token: teammate.token,
+      text: "The new direction is ready for a first look.\n• Clearer navigation\n• More room for the conversation\n• A calmer palette that feels good all day",
+    },
+    {
+      token,
+      text: "Love where this is heading. Let’s jump into a huddle after lunch and walk through it together. 🎧",
+    },
+  ];
+  for (const message of messages) {
+    expect(
+      (
+        await fetch(`${base}/api/channels/${channel.id}/messages`, {
+          method: "POST",
+          headers: { ...auth, authorization: `Bearer ${message.token}` },
+          body: JSON.stringify({ text: message.text }),
+        })
+      ).ok,
+    ).toBe(true);
+  }
+  await expect(page.getByText(messages[2]!.text, { exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("gatherline-conversation.png") });
+  await page.getByRole("article").last().focus();
+  await expect(page.getByTitle("Reply in thread", { exact: true }).last()).toBeVisible();
+  await page.getByRole("textbox", { name: "Message #design-studio", exact: true }).focus();
+  for (let i = 0; i < 315; i++) {
+    const posted = await fetch(`${base}/api/channels/${channel.id}/messages`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ text: `Live update ${i} — keeping everyone on the same page.` }),
+    });
+    expect(posted.ok).toBe(true);
+  }
+  await expect(page.locator("[data-mid]")).toHaveCount(300);
+  const history = page.getByLabel("Message history", { exact: true });
+  await expect
+    .poll(() => history.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThan(4);
+  await expect(
+    page.getByText("Live update 314 — keeping everyone on the same page.", { exact: true }),
+  ).toBeInViewport();
+
+  // Observe input-to-next-frame timing in the built production client. Report
+  // timings rather than imposing a machine-dependent "60 fps" CI promise.
+  await page.evaluate(() => {
+    (window as any).inputFrames = [];
+    document.querySelector("textarea")!.addEventListener("input", () => {
+      const start = performance.now();
+      requestAnimationFrame(() => (window as any).inputFrames.push(performance.now() - start));
+    });
+  });
+  const composer = page.getByRole("textbox", { name: "Message #design-studio", exact: true });
+  await composer.pressSequentially("A calmer space for our next big idea.", { delay: 12 });
+  // Allow the debounced draft write, then verify a dialog round trip keeps it.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(localStorage).some(
+          (key) => key.includes("drafts:") && localStorage.getItem(key)?.includes("calmer space"),
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.keyboard.press("Control+k");
+  const dialog = page.getByRole("dialog", { name: "Jump to", exact: true });
+  await expect(dialog).toBeVisible();
+  const lastButton = dialog.getByRole("button").last();
+  await lastButton.focus();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue("A calmer space for our next big idea.");
+  await composer.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
+  await expect(composer).toHaveValue("A calmer space for our next big idea.");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(composer).toBeEmpty();
+  await expect(
+    page.getByText("A calmer space for our next big idea.", { exact: true }),
+  ).toBeInViewport();
+  await page.screenshot({ path: info.outputPath("gatherline-workspace.png") });
+  const timings = await page.evaluate(() =>
+    ((window as any).inputFrames as number[]).sort((a, b) => a - b),
+  );
+  expect(timings.length).toBeGreaterThan(20);
+  await info.attach("input-to-frame-ms", {
+    body: JSON.stringify(
+      {
+        samples: timings.length,
+        p50: timings[Math.floor(timings.length * 0.5)],
+        p95: timings[Math.floor(timings.length * 0.95)],
+        max: timings.at(-1),
+      },
+      null,
+      2,
+    ),
+    contentType: "application/json",
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.getByRole("navigation")).not.toBeVisible();
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  await expect(page.getByRole("navigation")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  await page.getByRole("button", { name: "Saved", exact: true }).click();
+  await expect(page.getByRole("navigation")).not.toBeVisible();
+  await page.keyboard.press("Escape");
+  await composer.fill("Sent from a small window");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByText("Sent from a small window", { exact: true })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("gatherline-narrow.png") });
+  expect(errors).toEqual([]);
+});
+
 test("an app's button calls it back and rewrites the message it sits on", async ({
   browser,
 }, info) => {

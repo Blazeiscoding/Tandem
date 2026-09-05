@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerInfo } from "@slackoss/protocol";
 import { Api, ApiError, normalizeServerUrl } from "@slackoss/client-core";
 import type { DiscoveredServer, HostingStatus, Platform, SavedServer } from "../platform.js";
+import { BrandMark, Icon } from "../components/Icon.js";
 
 interface Props {
   platform: Platform;
@@ -88,38 +89,73 @@ export function JoinScreen({
   return (
     <div className="flex h-full flex-col">
       {platform.kind === "desktop" && <div className="titlebar-drag h-10 shrink-0" />}
-      <div className="flex flex-1 items-center justify-center overflow-y-auto px-6 pb-10">
-        <div className="w-full max-w-[520px]">
-          <header className="mb-8 text-center">
-            <div className="mb-1 font-mono text-[11px] uppercase tracking-[0.3em] text-copper">
-              self-hosted · yours
+      <div className="flex flex-1 overflow-y-auto p-5 sm:p-10">
+        <div className="join-layout m-auto grid w-full max-w-[1040px] overflow-hidden rounded-3xl border border-edge bg-raised/30 lg:grid-cols-2">
+          <section className="join-story hidden flex-col justify-between border-r border-edge p-10 lg:flex">
+            <div className="flex items-center gap-3 text-xl font-semibold tracking-tight">
+              <BrandMark size={38} />
+              Gatherline
             </div>
-            <h1 className="text-3xl font-bold tracking-tight">Find your workspace</h1>
-          </header>
+            <div className="py-14">
+              <p className="mb-5 text-xs font-medium uppercase tracking-[0.2em] text-copper">
+                Open source. Open doors.
+              </p>
+              <h2 className="text-[46px] font-semibold leading-[1.12] tracking-tight">
+                Your people.
+                <br />
+                Your place.
+                <br />
+                <span className="text-copper">Your server.</span>
+              </h2>
+              <p className="mt-6 max-w-[320px] text-[15px] leading-7 text-ink-dim">
+                A home for the conversations that move your team forward. From the office to the
+                next game night.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 border-t border-edge pt-6 text-xs text-ink-dim">
+              <Icon name="friends" />
+              <span>Team chat, without giving up control.</span>
+            </div>
+          </section>
+          <div className="w-full p-6 sm:p-9">
+            <header className="mb-8">
+              <div className="mb-6 flex items-center gap-2 text-lg font-semibold lg:hidden">
+                <BrandMark />
+                Gatherline
+              </div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-copper">
+                Make yourself at home
+              </div>
+              <h1 className="text-2xl font-semibold tracking-tight">Find your workspace</h1>
+              <p className="mt-2 text-sm leading-relaxed text-ink-dim">
+                Connect to your team’s server, or start a space of your own.
+              </p>
+            </header>
 
-          {stage.view === "auth" ? (
-            <AuthCard
-              url={stage.url}
-              info={stage.info}
-              savedHandle={savedServers.find((s) => s.url === stage.url)?.handle}
-              presetInviteCode={inviteCode}
-              onBack={() => setStage({ view: "browse" })}
-              onConnected={onConnected}
-            />
-          ) : (
-            <BrowseCard
-              savedServers={savedServers}
-              lanServers={lanServers}
-              lanSupported={!!platform.discoverLan}
-              probing={stage.view === "probing" ? stage.url : null}
-              error={error}
-              hostedPort={hosting?.running ? (hosting.port ?? null) : null}
-              onSelect={probe}
-              onOpenSaved={openSaved}
-              onForget={onForget}
-              onHostClick={onHostClick}
-            />
-          )}
+            {stage.view === "auth" ? (
+              <AuthCard
+                url={stage.url}
+                info={stage.info}
+                savedHandle={savedServers.find((s) => s.url === stage.url)?.handle}
+                presetInviteCode={inviteCode}
+                onBack={() => setStage({ view: "browse" })}
+                onConnected={onConnected}
+              />
+            ) : (
+              <BrowseCard
+                savedServers={savedServers}
+                lanServers={lanServers}
+                lanSupported={!!platform.discoverLan}
+                probing={stage.view === "probing" ? stage.url : null}
+                error={error}
+                hostedPort={hosting?.running ? (hosting.port ?? null) : null}
+                onSelect={probe}
+                onOpenSaved={openSaved}
+                onForget={onForget}
+                onHostClick={onHostClick}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -210,6 +246,7 @@ function BrowseCard(props: {
         >
           <input
             value={address}
+            aria-label="Server address"
             onChange={(e) => setAddress(e.target.value)}
             placeholder="192.168.1.42:8543 or chat.yourteam.dev"
             spellCheck={false}
@@ -408,6 +445,8 @@ function AuthCard(props: {
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
           placeholder="username"
+          aria-label="Username"
+          autoComplete="username"
           spellCheck={false}
           autoCapitalize="none"
           className={inputCls}
@@ -417,11 +456,15 @@ function AuthCard(props: {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="Display name"
+            aria-label="Display name"
+            autoComplete="nickname"
             className={inputCls}
           />
         )}
         <input
           type="password"
+          aria-label="Password"
+          autoComplete={mode === "register" ? "new-password" : "current-password"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={mode === "register" ? "Password (8+ characters)" : "Password"}
