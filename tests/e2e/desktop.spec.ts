@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 test("packaged Windows app boots with sandbox, hosts a workspace, and serves the web client", async ({}, info) => {
   const data = mkdtempSync(join(tmpdir(), "slackoss-desktop-"));
   const app = await electron.launch({
-    executablePath: resolve("apps/desktop/release/win-unpacked/SlackOSS.exe"),
+    executablePath: resolve("apps/desktop/release/win-unpacked/Gatherline.exe"),
     env: {
       ...process.env,
       SLACKOSS_TEST: "1",
@@ -16,6 +16,9 @@ test("packaged Windows app boots with sandbox, hosts a workspace, and serves the
   });
   try {
     const page = await app.firstWindow();
+    expect(await app.evaluate(({ app }) => app.getName())).toBe("Gatherline");
+    expect(await app.evaluate(({ app }) => app.getPath("userData"))).toBe(data);
+    await expect(page).toHaveTitle("Gatherline");
     const errors: string[] = [];
     page.on("pageerror", (err) => errors.push(err.message));
     await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();

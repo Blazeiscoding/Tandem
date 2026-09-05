@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
-  "description": "SlackOSS — self-hosted team chat",
-  "author": "SlackOSS contributors",
+  "description": "Gatherline — self-hosted team chat",
+  "author": "Gatherline contributors",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

@@ -9,7 +9,10 @@ import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 const isTest = process.env.SLACKOSS_TEST === "1";
-if (process.env.SLACKOSS_USER_DATA_DIR) app.setPath("userData", process.env.SLACKOSS_USER_DATA_DIR);
+// Branding must not move existing settings, credentials, or hosted databases.
+const legacyUserData = app.getPath("userData");
+app.setName("Gatherline");
+app.setPath("userData", process.env.SLACKOSS_USER_DATA_DIR ?? legacyUserData);
 let mainWindow: BrowserWindow | null = null;
 
 if ((isDev || isTest) && process.env.SLACKOSS_TEST_MEDIA === "1") {
@@ -217,11 +220,11 @@ function createWindow(): void {
     height: 820,
     minWidth: 760,
     minHeight: 480,
-    backgroundColor: "#17151f",
+    backgroundColor: "#111820",
     titleBarStyle: "hidden",
     titleBarOverlay: {
-      color: "#1e1b29",
-      symbolColor: "#9a94ac",
+      color: "#111820",
+      symbolColor: "#b1c0cd",
       height: 40,
     },
     webPreferences: {

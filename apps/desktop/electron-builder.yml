@@ -1,5 +1,5 @@
 appId: dev.slackoss.desktop
-productName: SlackOSS
+productName: Gatherline
 directories:
   output: release
 files:
@@ -10,6 +10,7 @@ extraResources:
   - from: ../web/dist
     to: web
 win:
+  icon: build/icon.ico
   target:
     - nsis
 nsis:
@@ -25,6 +26,6 @@ linux:
     - deb
   category: Network
 protocols:
-  - name: SlackOSS
+  - name: Gatherline
     schemes:
       - slackoss
