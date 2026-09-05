@@ -1,4 +1,19 @@
-# SlackOSS
+# Gatherline
+
+Your people. Your place. Your server. Previously named SlackOSS.
+
+The product and Windows executable are now **Gatherline**. Existing `@slackoss/*`
+package names, `SLACKOSS_*` settings, data locations, application ID, Docker volume
+names and `slackoss://` links are intentionally retained for compatibility. No data
+migration is needed. The working name has not been trademark-cleared.
+
+The refreshed interface includes a navy-and-mint theme, an original vector mark,
+keyboard-accessible controls, narrow-window navigation, and a capped live
+timeline that follows new messages without growing indefinitely. See
+[frontend checks and measurements](docs/VALIDATION.md#gatherline-frontend-refresh).
+To regenerate the checked-in desktop icons from the SVG, install Playwright's
+Chromium and run `node scripts/generate-icons.mjs`. Normal packaging uses the
+checked-in assets and does not need this step.
 
 Early-stage, independently developed team chat under the [MIT license](LICENSE).
 See [deployment and backups](docs/DEPLOYMENT.md), [validation results and limits](docs/VALIDATION.md),

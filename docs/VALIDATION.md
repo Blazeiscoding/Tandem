@@ -20,51 +20,76 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Host     | Windows 11 Pro 10.0.26200, Intel Core i5-12400F (6C/12T), 16 GB RAM |
 | Node     | 24.16.0                                                             |
 | Docker   | Engine 29.1.3, Linux containers                                     |
-| Last run | 2026-09-05                                                          |
+| Last run | 2026-09-06                                                          |
 
 ## Automated suites
 
 | Suite                | Command                       | Result                                                  |
 | -------------------- | ----------------------------- | ------------------------------------------------------- |
 | Types                | `pnpm typecheck`              | 8 packages, clean                                       |
-| Unit and integration | `pnpm test`                   | 133 tests: server 75, client-core 37, ui 9, protocol 12 |
-| Browser end to end   | `pnpm test:e2e`               | 5 scenarios, passed                                     |
+| Unit and integration | `pnpm test`                   | 138 tests: server 75, client-core 42, ui 9, protocol 12 |
+| Browser end to end   | `pnpm test:e2e`               | 6 scenarios, passed                                     |
 | Packaged Windows app | `pnpm test:desktop`           | 1 scenario, passed                                      |
 | Container            | `node tests/docker-smoke.mjs` | passed                                                  |
 
 The two end-to-end suites drive real software, not mocks: `test:e2e` runs the
 built browser client against a real server in headless Chromium, and
-`test:desktop` launches the packaged `SlackOSS.exe` through Electron.
+`test:desktop` launches the packaged `Gatherline.exe` through Electron.
+
+## Gatherline frontend refresh
+
+The sixth browser scenario covers the redesigned production UI at 1280 × 820
+and 390 × 844, including reduced-motion mode. It sends 315 additional live
+messages to a channel, checks the DOM stays capped at 300 messages, and verifies
+that the latest message remains in the viewport. It also checks disk-backed
+draft persistence, dialog focus trapping/restoration, keyboard-accessible message
+actions, IME composition, the send button, and narrow-window navigation.
+
+In the final local run, 37 input events with the capped timeline loaded took
+3.5 ms median, 12.5 ms p95, and 15 ms maximum to the next animation-frame callback.
+This measures input-handler-to-rAF timing, **not** presentation latency or a
+guaranteed frame rate. It excludes network delivery and is not a controlled
+before/after benchmark; Windows packaging was running concurrently.
+
+Unchanged message rows are memoized with stable callbacks, and draft persistence
+has its own store subscriber instead of re-rendering the workspace shell.
+Following the live tail now depends on the last message ID, not only the row
+count, which stops a full 300-row timeline from losing its auto-scroll behavior.
+Hidden message toolbars are laid out only on hover or keyboard focus. No UI
+runtime dependencies, remote fonts, or animation libraries were added.
 
 ## Server under load, in a container
 
-`tests/docker-smoke.mjs` builds the single-file server into the published image,
-runs it as a non-root user under `--memory 256m --cpus 1`, and then:
+After building `slackoss:local`, `tests/docker-smoke.mjs` runs that image
+as a non-root user under `--memory 256m --cpus 1`, and then:
 
 - opens 20 WebSocket clients and posts 300 messages, timing each POST
 - waits for all 6,000 deliveries (20 sockets x 300 messages) to arrive
 - restarts the container and checks that the messages, the accounts and an
   accepted friendship are all still there
 
-Measured 2026-09-05:
+Measured 2026-09-06:
 
-|                                       |                               |
-| ------------------------------------- | ----------------------------- |
-| Memory, idle                          | 32.8 MiB of the 256 MiB limit |
-| Memory, after 6,000 deliveries        | 37.2 MiB                      |
-| Message POST latency, median          | 6.5 ms                        |
-| Message POST latency, 95th percentile | 9.8 ms                        |
-| Deliveries lost                       | 0                             |
-| Survived restart                      | yes                           |
+|                                       |                                |
+| ------------------------------------- | ------------------------------ |
+| Memory, idle                          | 36.29 MiB of the 256 MiB limit |
+| Memory, after 6,000 deliveries        | 40.99 MiB                      |
+| Message POST latency, median          | 7.25 ms                        |
+| Message POST latency, 95th percentile | 11.27 ms                       |
+| Deliveries lost                       | 0                              |
+| Survived restart                      | yes                            |
 
-Three runs the same day landed between 32.8 and 36.6 MiB idle, 36.9 and 41.3
-MiB loaded, and 6.4 to 6.6 ms median, so read these as tens of MiB and
-single-digit milliseconds rather than exact figures. A fourth run taken while
-the machine was busy packaging the desktop app doubled the latency, which says
-more about the laptop than the server. Latency is loopback on the host and
-excludes network time; a LAN or WAN adds its own. What the numbers are for is
-the server's own cost per message, and the fact that memory does not climb with
-traffic.
+Earlier runs on September 5 reported 32.8–36.6 MiB idle, 36.9–41.3 MiB
+loaded, and 6.4–6.6 ms median. Results vary with other work on the machine.
+These POST timings include the local Docker networking path, not a real LAN
+or WAN. The sample demonstrates delivery and restart persistence under this
+short workload; it does not establish sustained capacity or absence of leaks.
+
+The history integration tests each seed hundreds of messages through real HTTP
+requests. Their five-second default deadline was exceeded during concurrent
+builds and browser tests. They now have a scoped 20-second deadline and always
+dispose their clients, including after failures. In isolation, their measured
+durations were approximately 1.5 and 1.2 seconds.
 
 ## Real media, not a mock
 
@@ -144,24 +169,32 @@ Process memory at that point, idle in a one-person hosted workspace
 
 | Process        | KiB     |
 | -------------- | ------- |
-| Browser        | 137,888 |
-| GPU            | 111,992 |
-| Tab (renderer) | 111,988 |
-| Utility        | 93,216  |
-| Utility        | 55,632  |
+| Browser        | 140,652 |
+| GPU            | 117,976 |
+| Tab (renderer) | 115,808 |
+| Utility        | 94,216  |
+| Utility        | 56,124  |
 
-That is Electron's baseline, and it is the honest cost of shipping a Chromium
-app. The GPU and utility processes are the runtime's, not ours. Hosting a
-workspace inside the app adds the server measured above, tens of MiB, not
-hundreds.
+These working sets total roughly 512 MiB after a one-person huddle in the hosted
+workspace. Shared pages may be counted in multiple processes, so the sum is not
+unique physical RAM consumption. This includes Electron, the renderer, media
+services, and the embedded server; it does not isolate their incremental costs.
+The desktop client has a substantially larger footprint than the standalone server.
+This is not yet a demonstration of very-low-memory desktop voice calling.
+
+Before the branding refresh, production renderer minification reduced JavaScript
+from 1,000.67 kB to 428.63 kB. The Gatherline desktop renderer is now 437.95 kB of
+JavaScript and 33.08 kB of CSS, including the new interface. Minification reduces shipped code size;
+it does not by itself establish a frame-rate or RAM improvement. Docker build
+contexts also exclude browser traces, test screenshots, and local agent metadata.
 
 Artifacts:
 
-|                        |                                                           |
-| ---------------------- | --------------------------------------------------------- |
-| Installer              | 108 MiB (`apps/desktop/release/SlackOSS Setup 0.1.0.exe`) |
-| Installed              | 388 MiB unpacked                                          |
-| Server container image | 56 MiB                                                    |
+|                        |                                                             |
+| ---------------------- | ----------------------------------------------------------- |
+| Installer              | 108 MiB (`apps/desktop/release/Gatherline Setup 0.1.0.exe`) |
+| Installed              | 388 MiB unpacked                                            |
+| Server container image | 56 MiB                                                      |
 
 ## Memory work behind those numbers
 
