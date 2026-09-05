@@ -7,7 +7,9 @@
   "bin": {
     "slackoss-server": "./dist/slackoss-server.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup && node scripts/postbuild.mjs",
     "typecheck": "echo skip",

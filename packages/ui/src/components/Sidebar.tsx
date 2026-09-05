@@ -21,7 +21,9 @@ interface Props {
 
 export function Sidebar(props: Props) {
   const client = useClient();
-  const friendRequests = useWorkspace((s) => s.friends.filter((f) => f.status === "incoming").length);
+  const friendRequests = useWorkspace(
+    (s) => s.friends.filter((f) => f.status === "incoming").length,
+  );
   const workspaceName = useWorkspace((s) => s.workspaceName);
   const channels = useWorkspace((s) => s.channels);
   const memberships = useWorkspace((s) => s.memberships);
@@ -71,9 +73,16 @@ export function Sidebar(props: Props) {
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 py-3">
-        <button onClick={props.onFriends} className="mb-4 flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink">
+        <button
+          onClick={props.onFriends}
+          className="mb-4 flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink"
+        >
           <span>Friends</span>
-          {friendRequests > 0 && <span className="rounded-full bg-copper/15 px-2 text-xs text-copper">{friendRequests}</span>}
+          {friendRequests > 0 && (
+            <span className="rounded-full bg-copper/15 px-2 text-xs text-copper">
+              {friendRequests}
+            </span>
+          )}
         </button>
         <SectionHeader
           label="Channels"
@@ -131,9 +140,7 @@ export function Sidebar(props: Props) {
         >
           <Avatar user={self ?? undefined} size={30} />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">
-              {self?.displayName ?? "…"}
-            </span>
+            <span className="block truncate text-sm font-medium">{self?.displayName ?? "…"}</span>
             <span className="block truncate text-[11px] text-ink-faint">
               {self?.statusText || self?.statusEmoji
                 ? `${self.statusEmoji} ${self.statusText}`.trim()

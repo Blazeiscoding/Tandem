@@ -24,22 +24,27 @@ The first account created on a fresh server becomes its **owner**.
 ## Hosting a server
 
 ### From the desktop app
-Join screen → *Host a workspace on this computer* → name it → done. The same
+
+Join screen → _Host a workspace on this computer_ → name it → done. The same
 server code runs inside the app; the workspace folder can later be moved to a
 VPS unchanged.
 
 ### Standalone (VPS, spare machine)
+
 ```sh
 node slackoss-server.js --data ./data --name "My Team" --invite-only
 ```
+
 Requires Node 24+. The bundled file has zero dependencies — the database is
 Node's built-in SQLite. Flags: `--port`, `--host`, `--no-mdns`, `--web <dir>`,
 `--invite-only`, `--public-url`, `--allow-private-hooks`.
 
 ### Docker
+
 ```sh
 docker compose -f docker/docker-compose.yml up -d
 ```
+
 Data persists in the `slackoss-data` volume. Put Caddy or any reverse proxy in
 front for HTTPS on the public internet; for hosting from home, port-forward or
 use Tailscale.
@@ -56,17 +61,18 @@ pnpm test                               # server integration tests
 pnpm typecheck
 ```
 
-| package | what it is |
-| --- | --- |
-| `packages/protocol` | Shared types: entities, WS events, REST schemas (zod) |
-| `packages/server` | Workspace server — Fastify + ws + `node:sqlite`, pure JS |
+| package                | what it is                                                |
+| ---------------------- | --------------------------------------------------------- |
+| `packages/protocol`    | Shared types: entities, WS events, REST schemas (zod)     |
+| `packages/server`      | Workspace server — Fastify + ws + `node:sqlite`, pure JS  |
 | `packages/client-core` | Client SDK: REST + resilient WS + local replica (zustand) |
-| `packages/ui` | React UI shared by desktop and web |
-| `apps/desktop` | Electron app (electron-vite, React 19, Tailwind 4) |
-| `apps/web` | Browser client, served by the server itself |
-| `apps/server-cli` | Bundles the server into one runnable file |
+| `packages/ui`          | React UI shared by desktop and web                        |
+| `apps/desktop`         | Electron app (electron-vite, React 19, Tailwind 4)        |
+| `apps/web`             | Browser client, served by the server itself               |
+| `apps/server-cli`      | Bundles the server into one runnable file                 |
 
 ### How sync works
+
 Every mutation appends to a per-workspace event log with a monotonic `seq` and
 fans out over WebSocket. Clients keep a local replica, render from it
 instantly (sends are optimistic, reconciled by nonce), and on reconnect replay
@@ -124,7 +130,7 @@ Audio graph per participant, which is the version you would feel in a
 six-person call. Muting is signalled to the others, so a quiet person and a
 muted one do not look the same.
 
-What a peer is *actually* sending is stated explicitly over the same signalling
+What a peer is _actually_ sending is stated explicitly over the same signalling
 channel, not inferred from the connection: a receiver's track reports itself
 unmuted once the transport is up, whether or not a frame has ever arrived
 (measured in Chrome — a silent slot showed an unmuted track and 0 bytes). Left
@@ -132,7 +138,7 @@ to that, everyone would show a black rectangle for a camera nobody switched on.
 
 ### Slack-compatible integrations
 
-Admins create apps under *Apps and integrations*. Each gets a bot user, a
+Admins create apps under _Apps and integrations_. Each gets a bot user, a
 `xoxb-` token and any number of incoming webhooks. Both speak Slack's shapes,
 so most existing integrations work by changing the URL:
 
@@ -170,7 +176,7 @@ Apps can also **answer** rather than only post:
   pressed `action_id` and `value`, who pressed it, where, and a `response_url`
   — and the reply is rendered. Answering `replace_original` rewrites the
   message the button sits on and takes the buttons with it, which is how
-  *Approve* becomes *Approved, shipping 412*; `delete_original` removes it.
+  _Approve_ becomes _Approved, shipping 412_; `delete_original` removes it.
   Anything else answers privately to whoever pressed, or in the channel with
   `response_type: "in_channel"`.
 
@@ -185,7 +191,7 @@ so a verifier written for Slack works unchanged.
 
 ### A note on outbound requests
 
-These two features make the *server* call an address an admin typed, and that
+These two features make the _server_ call an address an admin typed, and that
 server usually sits inside the same network as a router page, a NAS, or a cloud
 metadata endpoint. So every address is checked against the private ranges before
 connecting, and the check runs inside the socket's own DNS lookup — a name that

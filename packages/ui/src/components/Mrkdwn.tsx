@@ -27,7 +27,9 @@ export function Mrkdwn({ text, users, channels, selfId, onChannelClick }: Props)
             {block.replace(/^\n/, "")}
           </code>
         ) : (
-          <Fragment key={i}>{renderInline(block, { users, channels, selfId, onChannelClick })}</Fragment>
+          <Fragment key={i}>
+            {renderInline(block, { users, channels, selfId, onChannelClick })}
+          </Fragment>
         ),
       )}
     </span>
@@ -55,7 +57,10 @@ function renderInline(
       out.push(tok.slice(1));
     } else if (m[2]) {
       out.push(
-        <code key={key++} className="rounded bg-lifted px-1 py-px font-mono text-[13px] text-copper">
+        <code
+          key={key++}
+          className="rounded bg-lifted px-1 py-px font-mono text-[13px] text-copper"
+        >
           {tok.slice(1, -1)}
         </code>,
       );

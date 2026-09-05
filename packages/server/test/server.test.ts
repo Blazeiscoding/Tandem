@@ -233,10 +233,9 @@ describe("workspace server", () => {
     });
     expect(reply.status).toBe(201);
 
-    const history = await api<{ messages: Message[] }>(
-      `/api/channels/${general.id}/messages`,
-      { token: aliceToken },
-    );
+    const history = await api<{ messages: Message[] }>(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+    });
     const rootInHistory = history.data.messages.find((m) => m.id === root.data.message.id)!;
     expect(rootInHistory.replyCount).toBe(1);
     // Replies don't appear in the top-level history.
@@ -261,10 +260,9 @@ describe("workspace server", () => {
       { method: "PUT", token: bobToken },
     );
     expect(react.status).toBe(200);
-    const afterReact = await api<{ messages: Message[] }>(
-      `/api/channels/${general.id}/messages`,
-      { token: aliceToken },
-    );
+    const afterReact = await api<{ messages: Message[] }>(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+    });
     const withReaction = afterReact.data.messages.find((m) => m.id === root.data.message.id)!;
     expect(withReaction.reactions).toEqual([{ emoji: "👍", userIds: [bob.id] }]);
 
@@ -316,7 +314,9 @@ describe("workspace server", () => {
       body: form,
     });
     expect(uploadRes.status).toBe(201);
-    const { file } = (await uploadRes.json()) as { file: { id: string; width: number; height: number; size: number } };
+    const { file } = (await uploadRes.json()) as {
+      file: { id: string; width: number; height: number; size: number };
+    };
     expect(file.width).toBe(1);
     expect(file.height).toBe(1);
     expect(file.size).toBe(png.byteLength);
@@ -634,10 +634,9 @@ describe("workspace server", () => {
       token: aliceToken,
       body: { text: "still classified" },
     });
-    const res = await api(
-      `/api/channels/${secret.id}/messages/around/${posted.data.message.id}`,
-      { token: bobToken },
-    );
+    const res = await api(`/api/channels/${secret.id}/messages/around/${posted.data.message.id}`, {
+      token: bobToken,
+    });
     expect(res.status).toBe(404);
   });
 
@@ -743,9 +742,7 @@ describe("workspace server", () => {
         m.event.type === "huddle.participants" &&
         m.event.userIds.length === 2,
     );
-    expect(server.gateway.huddleParticipants(general.id).sort()).toEqual(
-      [alice.id, bob.id].sort(),
-    );
+    expect(server.gateway.huddleParticipants(general.id).sort()).toEqual([alice.id, bob.id].sort());
 
     // An offer from Alice reaches Bob untouched.
     const offer = { kind: "offer", sdp: "v=0 fake-offer" };
@@ -757,9 +754,7 @@ describe("workspace server", () => {
         signal: offer,
       }),
     );
-    const relayed = await b.next(
-      (m) => m.type === "ephemeral" && m.event.type === "huddle.signal",
-    );
+    const relayed = await b.next((m) => m.type === "ephemeral" && m.event.type === "huddle.signal");
     if (relayed.type !== "ephemeral" || relayed.event.type !== "huddle.signal") throw new Error();
     expect(relayed.event.from).toBe(alice.id);
     expect(relayed.event.signal).toEqual(offer);
@@ -916,10 +911,10 @@ describe("workspace server", () => {
     const botToken = created.data.token;
 
     // By channel name, the way most Slack code is written.
-    const sent = await api<{ ok: boolean; ts: string; channel: string }>(
-      "/api/chat.postMessage",
-      { token: botToken, body: { channel: "#general", text: "deploy finished" } },
-    );
+    const sent = await api<{ ok: boolean; ts: string; channel: string }>("/api/chat.postMessage", {
+      token: botToken,
+      body: { channel: "#general", text: "deploy finished" },
+    });
     expect(sent.status).toBe(200);
     expect(sent.data.ok).toBe(true);
     expect(sent.data.channel).toBe(general.id);

@@ -31,9 +31,7 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
       .filter((r) => r.label.toLowerCase().includes(query));
     const people = Object.values(users)
       .filter((u) => u.id !== selfId && !u.deactivated)
-      .filter(
-        (u) => u.handle.includes(query) || u.displayName.toLowerCase().includes(query),
-      )
+      .filter((u) => u.handle.includes(query) || u.displayName.toLowerCase().includes(query))
       .map((u) => ({ kind: "user" as const, id: u.id, label: u.displayName }));
     return [...chans, ...people].slice(0, 12);
   }, [q, channels, users, selfId]);
@@ -59,7 +57,9 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
-            setIndex((i) => (i + (e.key === "ArrowDown" ? 1 : results.length - 1)) % results.length);
+            setIndex(
+              (i) => (i + (e.key === "ArrowDown" ? 1 : results.length - 1)) % results.length,
+            );
           } else if (e.key === "Enter" && results[index]) {
             void open(results[index]);
           }
@@ -105,12 +105,8 @@ function SearchHints({ query }: { query: string }) {
     ...parsed.from.map((h) => `from @${h}`),
     ...parsed.in.map((c) => `in #${c}`),
     ...parsed.has.map((h) => (h === "link" ? "has a link" : "has a file")),
-    ...(parsed.after !== null
-      ? [`after ${new Date(parsed.after).toLocaleDateString()}`]
-      : []),
-    ...(parsed.before !== null
-      ? [`before ${new Date(parsed.before).toLocaleDateString()}`]
-      : []),
+    ...(parsed.after !== null ? [`after ${new Date(parsed.after).toLocaleDateString()}`] : []),
+    ...(parsed.before !== null ? [`before ${new Date(parsed.before).toLocaleDateString()}`] : []),
   ];
 
   if (chips.length === 0) {

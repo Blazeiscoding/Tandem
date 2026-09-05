@@ -64,9 +64,13 @@ describe("WorkspaceClient", () => {
   it("syncs friend requests live and restores them on reconnect", async () => {
     const aliceClient = new WorkspaceClient(base, aliceToken);
     const bobClient = new WorkspaceClient(base, bobToken);
-    aliceClient.connect(); bobClient.connect();
+    aliceClient.connect();
+    bobClient.connect();
     try {
-      await Promise.all([until(aliceClient, (s) => s.status === "online"), until(bobClient, (s) => s.status === "online")]);
+      await Promise.all([
+        until(aliceClient, (s) => s.status === "online"),
+        until(bobClient, (s) => s.status === "online"),
+      ]);
       await aliceClient.api.updateFriend(bobId, "request");
       await until(bobClient, (s) => s.friends[0]?.status === "incoming");
       await bobClient.api.updateFriend(aliceClient.state.self!.id, "accept");
@@ -74,11 +78,17 @@ describe("WorkspaceClient", () => {
       bobClient.destroy();
       const reconnected = new WorkspaceClient(base, bobToken);
       reconnected.connect();
-      try { await until(reconnected, (s) => s.friends[0]?.status === "accepted"); }
-      finally { reconnected.destroy(); }
+      try {
+        await until(reconnected, (s) => s.friends[0]?.status === "accepted");
+      } finally {
+        reconnected.destroy();
+      }
       await aliceClient.api.updateFriend(bobId, "remove");
       await until(aliceClient, (s) => s.friends.length === 0);
-    } finally { aliceClient.destroy(); bobClient.destroy(); }
+    } finally {
+      aliceClient.destroy();
+      bobClient.destroy();
+    }
   });
   it("normalizes whatever address the user typed", () => {
     expect(normalizeServerUrl("192.168.1.4:8543")).toBe("http://192.168.1.4:8543");
@@ -94,7 +104,11 @@ describe("WorkspaceClient", () => {
 
     expect(state.workspaceName).toBe("Sync Test");
     expect(state.self?.handle).toBe("alice");
-    expect(Object.values(state.users).map((u) => u.handle).sort()).toEqual(["alice", "bob"]);
+    expect(
+      Object.values(state.users)
+        .map((u) => u.handle)
+        .sort(),
+    ).toEqual(["alice", "bob"]);
     expect(Object.values(state.channels).some((c) => c.name === "general")).toBe(true);
     client.destroy();
   });
@@ -143,8 +157,7 @@ describe("WorkspaceClient", () => {
     await reconnected.loadTimeline(general.id);
     await until(
       reconnected,
-      (s) =>
-        (s.timelines[general.id]?.items ?? []).some((m) => m.text === "you missed this"),
+      (s) => (s.timelines[general.id]?.items ?? []).some((m) => m.text === "you missed this"),
       "replayed message",
     );
     reconnected.destroy();
@@ -169,11 +182,7 @@ describe("WorkspaceClient", () => {
 
     // Bob reacts; the reaction shows up here.
     await new Api(base, bobToken).addReaction(message.id, "🎯");
-    const reacted = await until(
-      client,
-      (s) => (find(s)?.reactions.length ?? 0) > 0,
-      "reaction",
-    );
+    const reacted = await until(client, (s) => (find(s)?.reactions.length ?? 0) > 0, "reaction");
     expect(find(reacted)!.reactions[0]).toEqual({ emoji: "🎯", userIds: [bobId] });
 
     client.togglePin(find(client.state)!);

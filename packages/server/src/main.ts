@@ -60,7 +60,11 @@ function lanAddresses(): string[] {
 // A `web/` folder next to the executable is picked up automatically (how the
 // bundled CLI and Docker image ship the browser client).
 const besideScript = join(dirname(fileURLToPath(import.meta.url)), "web");
-const webDistPath = values.web ? resolve(values.web) : existsSync(besideScript) ? besideScript : undefined;
+const webDistPath = values.web
+  ? resolve(values.web)
+  : existsSync(besideScript)
+    ? besideScript
+    : undefined;
 
 const server = await createWorkspaceServer({
   dataDir: resolve(values.data),

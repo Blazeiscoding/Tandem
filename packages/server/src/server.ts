@@ -275,8 +275,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   /** How this server is addressed from outside, for URLs we hand to apps. */
   const requestOrigin = (req: FastifyRequest): string => {
     if (opts.publicUrl) return opts.publicUrl.replace(/\/$/, "");
-    const proto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0]?.trim() || "http";
-    const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").split(",")[0]?.trim();
+    const proto =
+      String(req.headers["x-forwarded-proto"] ?? "")
+        .split(",")[0]
+        ?.trim() || "http";
+    const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "")
+      .split(",")[0]
+      ?.trim();
     return host ? `${proto}://${host}` : `http://localhost:${opts.port ?? 8543}`;
   };
 
@@ -392,7 +397,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     beginAuth();
     let valid = false;
     try {
-      valid = !!auth && !auth.deactivated && await verifyPassword(body.password, auth.salt, auth.passwordHash);
+      valid =
+        !!auth &&
+        !auth.deactivated &&
+        (await verifyPassword(body.password, auth.salt, auth.passwordHash));
     } finally {
       authJobs--;
     }
@@ -431,13 +439,15 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   // ---------- channels ----------
 
   const publishFriends = (a: ID, b: ID) => {
-    for (const id of [a, b]) gateway.sendToUser(id, { type: "friends", friends: store.listFriends(id) });
+    for (const id of [a, b])
+      gateway.sendToUser(id, { type: "friends", friends: store.listFriends(id) });
   };
   app.get("/api/friends", async (req) => ({ friends: store.listFriends(requireUser(req).id) }));
   app.post<{ Params: { id: string } }>("/api/friends/:id", async (req) => {
     const me = requireUser(req);
     const other = store.getUser(req.params.id);
-    if (!other || other.deactivated || other.isBot || other.id === me.id) throw new HttpError(400, "invalid_friend");
+    if (!other || other.deactivated || other.isBot || other.id === me.id)
+      throw new HttpError(400, "invalid_friend");
     store.requestFriend(me.id, other.id);
     publishFriends(me.id, other.id);
     return { friends: store.listFriends(me.id) };
@@ -467,9 +477,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (body.type === "public" || body.type === "private") {
       if (store.getChannelByName(body.name)) throw new HttpError(409, "name_taken");
       const memberIds =
-        body.type === "private"
-          ? [...new Set([me.id, ...(body.memberIds ?? [])])]
-          : [me.id];
+        body.type === "private" ? [...new Set([me.id, ...(body.memberIds ?? [])])] : [me.id];
       const channel = store.createChannel({
         type: body.type,
         name: body.name,
@@ -688,29 +696,33 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     let size = 0;
     let headerSize = 0;
     const header: Buffer[] = [];
-    const meter = new Transform({ transform(chunk: Buffer, _encoding, done) {
-      size += chunk.length;
-      if (headerSize < 64 * 1024) {
-        const part = Buffer.from(chunk.subarray(0, 64 * 1024 - headerSize));
-        header.push(part); headerSize += part.length;
-      }
-      done(null, chunk);
-    } });
+    const meter = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        size += chunk.length;
+        if (headerSize < 64 * 1024) {
+          const part = Buffer.from(chunk.subarray(0, 64 * 1024 - headerSize));
+          header.push(part);
+          headerSize += part.length;
+        }
+        done(null, chunk);
+      },
+    });
     try {
       await pipeline(part.file, meter, createWriteStream(blobPath(id), { flags: "wx" }));
-      if (part.file.truncated) throw new HttpError(413, "file_too_large", `files must be under ${maxFileSize} bytes`);
+      if (part.file.truncated)
+        throw new HttpError(413, "file_too_large", `files must be under ${maxFileSize} bytes`);
       const dims = part.mimetype.startsWith("image/") ? imageSize(Buffer.concat(header)) : null;
       const file = store.createFile({
-      id,
-      channelId: channel.id,
-      userId: me.id,
-      name: part.filename.slice(0, 255),
-      mime: part.mimetype,
-      size,
-      width: dims?.width ?? null,
-      height: dims?.height ?? null,
-    });
-    return reply.status(201).send({ file });
+        id,
+        channelId: channel.id,
+        userId: me.id,
+        name: part.filename.slice(0, 255),
+        mime: part.mimetype,
+        size,
+        width: dims?.width ?? null,
+        height: dims?.height ?? null,
+      });
+      return reply.status(201).send({ file });
     } catch (err) {
       await unlink(blobPath(id)).catch(() => {});
       throw err;
@@ -753,7 +765,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       const emoji = decodeURIComponent(req.params.emoji).slice(0, 64);
       if (store.addReaction(msg.id, me.id, emoji)) {
         emit(
-          { type: "reaction.added", channelId: msg.channelId, messageId: msg.id, emoji, userId: me.id },
+          {
+            type: "reaction.added",
+            channelId: msg.channelId,
+            messageId: msg.id,
+            emoji,
+            userId: me.id,
+          },
           msg.channelId,
         );
       }
@@ -772,7 +790,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       const emoji = decodeURIComponent(req.params.emoji).slice(0, 64);
       if (store.removeReaction(msg.id, me.id, emoji)) {
         emit(
-          { type: "reaction.removed", channelId: msg.channelId, messageId: msg.id, emoji, userId: me.id },
+          {
+            type: "reaction.removed",
+            channelId: msg.channelId,
+            messageId: msg.id,
+            emoji,
+            userId: me.id,
+          },
           msg.channelId,
         );
       }
@@ -809,8 +833,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     // A bot posts as a real (non-human) user, so messages render normally.
     beginAuth();
     let credentials: Awaited<ReturnType<typeof hashPassword>>;
-    try { credentials = await hashPassword(secretToken()); }
-    finally { authJobs--; }
+    try {
+      credentials = await hashPassword(secretToken());
+    } finally {
+      authJobs--;
+    }
     const { hash, salt } = credentials;
     const bot = store.createBotUser(botHandle(body.name), body.name, hash, salt);
     const signingSecret = secretToken();
@@ -987,7 +1014,6 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return { ok: true, channel: channel.id, ts: message.id, message };
   });
 
-
   // ---------- slash commands ----------
 
   /**
@@ -1062,13 +1088,21 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
     // Slack lets a button's handler rewrite the message it sits on, which is
     // how "Approve" becomes "Approved by @alice" with the buttons gone.
-    if (originMessageId && (payload.replace_original === true || payload.delete_original === true)) {
+    if (
+      originMessageId &&
+      (payload.replace_original === true || payload.delete_original === true)
+    ) {
       const existing = store.getMessage(originMessageId);
       if (existing) {
         if (payload.delete_original === true) {
           store.deleteMessage(existing.id);
           emit(
-            { type: "message.deleted", channelId: existing.channelId, messageId: existing.id, threadRootId: existing.threadRootId },
+            {
+              type: "message.deleted",
+              channelId: existing.channelId,
+              messageId: existing.id,
+              threadRootId: existing.threadRootId,
+            },
             existing.channelId,
           );
           return;
@@ -1358,19 +1392,31 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const form = new URLSearchParams({ payload }).toString();
 
     try {
-      const res = await postToUrl(owner.interactivityUrl, form, "application/x-www-form-urlencoded", {
-        allowPrivate: opts.allowPrivateHooks,
-        headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
-      });
+      const res = await postToUrl(
+        owner.interactivityUrl,
+        form,
+        "application/x-www-form-urlencoded",
+        {
+          allowPrivate: opts.allowPrivateHooks,
+          headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
+        },
+      );
       if (res.status < 200 || res.status >= 300) {
-        sayEphemeral(channel.id, me.id, owner.botUserId, `That button failed: the app answered ${res.status}.`);
+        sayEphemeral(
+          channel.id,
+          me.id,
+          owner.botUserId,
+          `That button failed: the app answered ${res.status}.`,
+        );
         return { ok: false, error: "action_failed" };
       }
       deliverCommandReply(target, res.body, res.contentType, message.id);
       return { ok: true };
     } catch (err) {
       const why =
-        err instanceof OutboundError && err.code === "blocked_host" ? err.message : "the app did not answer";
+        err instanceof OutboundError && err.code === "blocked_host"
+          ? err.message
+          : "the app did not answer";
       sayEphemeral(channel.id, me.id, owner.botUserId, `That button failed: ${why}.`);
       return { ok: false, error: "action_failed" };
     }

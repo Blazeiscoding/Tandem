@@ -168,42 +168,39 @@ function hostingStatus() {
 
 ipcMain.handle("hosting:status", () => hostingStatus());
 
-ipcMain.handle(
-  "hosting:start",
-  async (_e, opts: { workspaceName: string; port?: number }) => {
-    if (hosted) return hostingStatus();
-    const slug =
-      opts.workspaceName
-        .toLowerCase()
-        .replaceAll(/[^a-z0-9]+/g, "-")
-        .replaceAll(/^-|-$/g, "") || "workspace";
-    const dataDir = join(app.getPath("userData"), "hosted", slug);
-    const start = (port: number) =>
-      createWorkspaceServer({
-        dataDir,
-        port,
-        workspaceName: opts.workspaceName,
-        mdns: true,
-        webDistPath: app.isPackaged
-          ? join(process.resourcesPath, "web")
-          : join(import.meta.dirname, "../../../web/dist"),
-      });
+ipcMain.handle("hosting:start", async (_e, opts: { workspaceName: string; port?: number }) => {
+  if (hosted) return hostingStatus();
+  const slug =
+    opts.workspaceName
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, "-")
+      .replaceAll(/^-|-$/g, "") || "workspace";
+  const dataDir = join(app.getPath("userData"), "hosted", slug);
+  const start = (port: number) =>
+    createWorkspaceServer({
+      dataDir,
+      port,
+      workspaceName: opts.workspaceName,
+      mdns: true,
+      webDistPath: app.isPackaged
+        ? join(process.resourcesPath, "web")
+        : join(import.meta.dirname, "../../../web/dist"),
+    });
 
-    try {
-      hosted = await start(opts.port ?? DEFAULT_PORT);
-    } catch (err) {
-      // Something else already has the default port (often another workspace on
-      // this machine). Take any free one — mDNS advertises whatever we land on.
-      if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
-      hosted = await start(0);
-    }
-    hostedName = opts.workspaceName;
-    const s = await readSettings();
-    s["lastHosted"] = { workspaceName: opts.workspaceName, port: hosted.port };
-    await writeFile(settingsPath(), JSON.stringify(s, null, 2));
-    return hostingStatus();
-  },
-);
+  try {
+    hosted = await start(opts.port ?? DEFAULT_PORT);
+  } catch (err) {
+    // Something else already has the default port (often another workspace on
+    // this machine). Take any free one — mDNS advertises whatever we land on.
+    if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
+    hosted = await start(0);
+  }
+  hostedName = opts.workspaceName;
+  const s = await readSettings();
+  s["lastHosted"] = { workspaceName: opts.workspaceName, port: hosted.port };
+  await writeFile(settingsPath(), JSON.stringify(s, null, 2));
+  return hostingStatus();
+});
 
 ipcMain.handle("hosting:stop", async () => {
   await hosted?.stop();
@@ -239,34 +236,67 @@ function createWindow(): void {
 
   // Huddles need the microphone, and screen share needs display capture.
   // Grant those to our own renderer; refuse everything else.
-  const rendererUrl = isDev ? process.env.ELECTRON_RENDERER_URL! : pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href;
+  const rendererUrl = isDev
+    ? process.env.ELECTRON_RENDERER_URL!
+    : pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href;
   const trustedRenderer = (url: string) => {
     try {
       const parsed = new URL(url);
       const expected = new URL(rendererUrl);
       return parsed.origin === expected.origin && parsed.pathname === expected.pathname;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   };
-  mainWindow.webContents.session.setPermissionRequestHandler((wc, permission, callback, details) => {
-    callback(wc === mainWindow?.webContents && details.isMainFrame && trustedRenderer(details.requestingUrl) && (permission === "media" || permission === "display-capture"));
-  });
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (wc, permission, callback, details) => {
+      callback(
+        wc === mainWindow?.webContents &&
+          details.isMainFrame &&
+          trustedRenderer(details.requestingUrl) &&
+          (permission === "media" || permission === "display-capture"),
+      );
+    },
+  );
   mainWindow.webContents.session.setPermissionCheckHandler((wc, permission, _origin, details) => {
-    return wc === mainWindow?.webContents && trustedRenderer(details.requestingUrl ?? wc.getURL()) && (permission === "media" || permission === "display-capture");
+    return (
+      wc === mainWindow?.webContents &&
+      trustedRenderer(details.requestingUrl ?? wc.getURL()) &&
+      (permission === "media" || permission === "display-capture")
+    );
   });
-  mainWindow.webContents.session.setDisplayMediaRequestHandler(async (request, callback) => {
-    if (!request.frame || !trustedRenderer(request.frame.url)) { callback({}); return; }
-    try {
-      const screens = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
-      if (screens.length === 0) { callback({}); return; }
-      const choice = await dialog.showMessageBox(mainWindow!, {
-        type: "question", title: "Share your screen", message: "Choose a screen to share with this huddle",
-        detail: "Everyone in the huddle will see everything on the selected screen.",
-        buttons: ["Cancel", ...screens.map((screen) => screen.name)], defaultId: 0, cancelId: 0,
-      });
-      const selected = screens[choice.response - 1];
-      callback(selected ? { video: selected } : {});
-    } catch { callback({}); }
-  }, { useSystemPicker: true });
+  mainWindow.webContents.session.setDisplayMediaRequestHandler(
+    async (request, callback) => {
+      if (!request.frame || !trustedRenderer(request.frame.url)) {
+        callback({});
+        return;
+      }
+      try {
+        const screens = await desktopCapturer.getSources({
+          types: ["screen"],
+          thumbnailSize: { width: 0, height: 0 },
+        });
+        if (screens.length === 0) {
+          callback({});
+          return;
+        }
+        const choice = await dialog.showMessageBox(mainWindow!, {
+          type: "question",
+          title: "Share your screen",
+          message: "Choose a screen to share with this huddle",
+          detail: "Everyone in the huddle will see everything on the selected screen.",
+          buttons: ["Cancel", ...screens.map((screen) => screen.name)],
+          defaultId: 0,
+          cancelId: 0,
+        });
+        const selected = screens[choice.response - 1];
+        callback(selected ? { video: selected } : {});
+      } catch {
+        callback({});
+      }
+    },
+    { useSystemPicker: true },
+  );
   mainWindow.webContents.on("will-navigate", (event) => {
     event.preventDefault();
   });
@@ -307,6 +337,9 @@ app.on("before-quit", (event) => {
   shuttingDown = true;
   if (hosted) {
     event.preventDefault();
-    void hosted.stop().finally(() => { bonjour.destroy(); app.quit(); });
+    void hosted.stop().finally(() => {
+      bonjour.destroy();
+      app.quit();
+    });
   } else bonjour.destroy();
 });

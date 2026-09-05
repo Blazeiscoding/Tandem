@@ -13,7 +13,10 @@ export class FileCache {
   private references = new Map<ID, number>();
   private disposed = false;
 
-  constructor(private api: Api, private maxIdleBytes = 32 * 1024 * 1024) {}
+  constructor(
+    private api: Api,
+    private maxIdleBytes = 32 * 1024 * 1024,
+  ) {}
 
   retain(fileId: ID): void {
     this.references.set(fileId, (this.references.get(fileId) ?? 0) + 1);

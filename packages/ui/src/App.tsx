@@ -216,10 +216,7 @@ function HostDialog(props: {
           ))}
         </ul>
         <div className="flex gap-2">
-          <button
-            className={primaryBtnCls}
-            onClick={() => props.onStarted(status)}
-          >
+          <button className={primaryBtnCls} onClick={() => props.onStarted(status)}>
             Open it
           </button>
           <button

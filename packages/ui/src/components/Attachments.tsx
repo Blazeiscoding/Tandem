@@ -151,7 +151,11 @@ export function PendingAttachments({
           style={{ width: a.previewUrl ? 200 : undefined }}
         >
           {a.previewUrl ? (
-            <img src={a.previewUrl} alt={a.name} className="block max-h-[160px] w-full object-cover" />
+            <img
+              src={a.previewUrl}
+              alt={a.name}
+              className="block max-h-[160px] w-full object-cover"
+            />
           ) : (
             <div className="px-3 py-2.5">
               <div className="max-w-[200px] truncate text-sm">{a.name}</div>

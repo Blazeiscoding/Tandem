@@ -44,7 +44,13 @@ export function imageSize(buf: Buffer): { width: number; height: number } | null
       }
       const marker = buf[offset + 1]!;
       // SOFn frames carry the dimensions; SOF4/8/12 are not frame headers.
-      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      ) {
         return { height: buf.readUInt16BE(offset + 5), width: buf.readUInt16BE(offset + 7) };
       }
       offset += 2 + buf.readUInt16BE(offset + 2);

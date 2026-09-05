@@ -102,9 +102,13 @@ export class HuddleSession {
       throw new Error("Microphone access requires the desktop app or an HTTPS browser connection.");
     }
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false,
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      video: false,
     });
-    if (this.destroyed) { stream.getTracks().forEach((track) => track.stop()); return; }
+    if (this.destroyed) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     this.localStream = stream;
     this.watchLocalLevel(stream);
     this.startLevelPolling();
@@ -300,9 +304,12 @@ export class HuddleSession {
     // Tell them what we are sending, so someone joining a call that already
     // has video on sees it rather than an empty tile.
     this.announceMedia(userId);
-    if (initiating) void this.attachLocalTracks(peer).then(() => {
-      if (!this.destroyed && this.peers.get(userId) === peer) return this.offer(userId, pc);
-    }).catch(() => {});
+    if (initiating)
+      void this.attachLocalTracks(peer)
+        .then(() => {
+          if (!this.destroyed && this.peers.get(userId) === peer) return this.offer(userId, pc);
+        })
+        .catch(() => {});
     return peer;
   }
 
@@ -391,11 +398,20 @@ export class HuddleSession {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640, max: 1280 }, height: { ideal: 360, max: 720 }, frameRate: { ideal: 20, max: 24 } },
+        video: {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 360, max: 720 },
+          frameRate: { ideal: 20, max: 24 },
+        },
         audio: false,
       });
-    } finally { this.acquiringCamera = false; }
-    if (this.destroyed) { stream.getTracks().forEach((track) => track.stop()); return; }
+    } finally {
+      this.acquiringCamera = false;
+    }
+    if (this.destroyed) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     const track = stream.getVideoTracks()[0];
     if (!track) return;
     this.cameraTrack = track;
@@ -423,10 +439,16 @@ export class HuddleSession {
     let display: MediaStream;
     try {
       display = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 10, max: 15 } }, audio: false,
+        video: { frameRate: { ideal: 10, max: 15 } },
+        audio: false,
       });
-    } finally { this.acquiringScreen = false; }
-    if (this.destroyed) { display.getTracks().forEach((track) => track.stop()); return; }
+    } finally {
+      this.acquiringScreen = false;
+    }
+    if (this.destroyed) {
+      display.getTracks().forEach((track) => track.stop());
+      return;
+    }
     const track = display.getVideoTracks()[0];
     if (!track) return;
     this.screenTrack = track;

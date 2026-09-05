@@ -20,9 +20,7 @@ describe("parseDeepLink", () => {
   });
 
   it("reads a message permalink", () => {
-    expect(
-      parseDeepLink("slackoss://message?host=192.168.1.5:8543&channel=C123&id=M456"),
-    ).toEqual({
+    expect(parseDeepLink("slackoss://message?host=192.168.1.5:8543&channel=C123&id=M456")).toEqual({
       kind: "message",
       serverUrl: "http://192.168.1.5:8543",
       channelId: "C123",

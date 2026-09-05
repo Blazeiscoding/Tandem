@@ -333,7 +333,10 @@ export class WorkspaceClient {
         if (message.threadRootId) {
           const replies = s.threads[message.threadRootId];
           if (replies) {
-            patch.threads = { ...s.threads, [message.threadRootId]: sortedInsert(replies, message) };
+            patch.threads = {
+              ...s.threads,
+              [message.threadRootId]: sortedInsert(replies, message),
+            };
           }
           // Bump replyCount on the root in its timeline.
           const tl = s.timelines[message.channelId];
@@ -437,14 +440,20 @@ export class WorkspaceClient {
       case "channel.created":
       case "channel.updated": {
         patch.channels = { ...s.channels, [event.channel.id]: event.channel };
-        if (event.type === "channel.created" && event.channel.memberIds?.includes(s.self?.id ?? "")) {
+        if (
+          event.type === "channel.created" &&
+          event.channel.memberIds?.includes(s.self?.id ?? "")
+        ) {
           patch.memberships = { ...s.memberships, [event.channel.id]: 0 };
         }
         break;
       }
       case "member.joined": {
         if (event.userId === s.self?.id) {
-          patch.memberships = { ...s.memberships, [event.channelId]: s.memberships[event.channelId] ?? 0 };
+          patch.memberships = {
+            ...s.memberships,
+            [event.channelId]: s.memberships[event.channelId] ?? 0,
+          };
         }
         const ch = s.channels[event.channelId];
         if (ch?.memberIds && !ch.memberIds.includes(event.userId)) {
@@ -617,7 +626,11 @@ export class WorkspaceClient {
   async jumpToMessage(channelId: ID, messageId: ID): Promise<void> {
     const existing = this.state.timelines[channelId];
     // Already on screen in a tail view — nothing to reload.
-    if (existing?.loaded && !existing.hasMoreNewer && existing.items.some((m) => m.id === messageId)) {
+    if (
+      existing?.loaded &&
+      !existing.hasMoreNewer &&
+      existing.items.some((m) => m.id === messageId)
+    ) {
       return;
     }
     const { messages, hasMoreOlder, hasMoreNewer } = await this.api.listMessagesAround(
@@ -685,11 +698,7 @@ export class WorkspaceClient {
    * Optimistic send: the message (and local image previews) appear instantly,
    * then attachments upload and the server event reconciles it by nonce.
    */
-  send(
-    channelId: ID,
-    text: string,
-    opts: { threadRootId?: ID; files?: File[] } = {},
-  ): void {
+  send(channelId: ID, text: string, opts: { threadRootId?: ID; files?: File[] } = {}): void {
     const self = this.state.self;
     if (!self) return;
     const files = opts.files ?? [];
@@ -736,9 +745,7 @@ export class WorkspaceClient {
   ): Promise<void> {
     const setProgress = (fraction: number) =>
       this.store.setState((s) => ({
-        pending: s.pending.map((p) =>
-          p.nonce === nonce ? { ...p, uploadProgress: fraction } : p,
-        ),
+        pending: s.pending.map((p) => (p.nonce === nonce ? { ...p, uploadProgress: fraction } : p)),
       }));
 
     try {
@@ -890,9 +897,14 @@ export class WorkspaceClient {
     const config = await this.api.rtcConfig();
     if (attempt !== this.huddleAttempt) return;
 
-    const session = new HuddleSession(channelId, selfId, {
-      send: (msg) => this.sendSocket(msg),
-    }, config);
+    const session = new HuddleSession(
+      channelId,
+      selfId,
+      {
+        send: (msg) => this.sendSocket(msg),
+      },
+      config,
+    );
     this.session = session;
     try {
       await session.startLocalAudio();
@@ -901,7 +913,10 @@ export class WorkspaceClient {
       if (this.session === session) this.session = null;
       throw err;
     }
-    if (attempt !== this.huddleAttempt) { session.destroy(); return; }
+    if (attempt !== this.huddleAttempt) {
+      session.destroy();
+      return;
+    }
     session.onChange = () => this.publishHuddleState();
     this.session = session;
 

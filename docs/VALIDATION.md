@@ -15,22 +15,22 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 
 ## Machine and versions
 
-| | |
-| --- | --- |
-| Host | Windows 11 Pro 10.0.26200, Intel Core i5-12400F (6C/12T), 16 GB RAM |
-| Node | 24.16.0 |
-| Docker | Engine 29.1.3, Linux containers |
-| Last run | 2026-09-05 |
+|          |                                                                     |
+| -------- | ------------------------------------------------------------------- |
+| Host     | Windows 11 Pro 10.0.26200, Intel Core i5-12400F (6C/12T), 16 GB RAM |
+| Node     | 24.16.0                                                             |
+| Docker   | Engine 29.1.3, Linux containers                                     |
+| Last run | 2026-09-05                                                          |
 
 ## Automated suites
 
-| Suite | Command | Result |
-| --- | --- | --- |
-| Types | `pnpm typecheck` | 8 packages, clean |
-| Unit and integration | `pnpm test` | 123 tests: server 65, client-core 37, ui 9, protocol 12 |
-| Browser end to end | `pnpm test:e2e` | 3 scenarios, passed |
-| Packaged Windows app | `pnpm test:desktop` | 1 scenario, passed |
-| Container | `node tests/docker-smoke.mjs` | passed |
+| Suite                | Command                       | Result                                                  |
+| -------------------- | ----------------------------- | ------------------------------------------------------- |
+| Types                | `pnpm typecheck`              | 8 packages, clean                                       |
+| Unit and integration | `pnpm test`                   | 123 tests: server 65, client-core 37, ui 9, protocol 12 |
+| Browser end to end   | `pnpm test:e2e`               | 3 scenarios, passed                                     |
+| Packaged Windows app | `pnpm test:desktop`           | 1 scenario, passed                                      |
+| Container            | `node tests/docker-smoke.mjs` | passed                                                  |
 
 The two end-to-end suites drive real software, not mocks: `test:e2e` runs the
 built browser client against a real server in headless Chromium, and
@@ -48,14 +48,14 @@ runs it as a non-root user under `--memory 256m --cpus 1`, and then:
 
 Measured 2026-09-05:
 
-| | |
-| --- | --- |
-| Memory, idle | 32.8 MiB of the 256 MiB limit |
-| Memory, after 6,000 deliveries | 37.2 MiB |
-| Message POST latency, median | 6.5 ms |
-| Message POST latency, 95th percentile | 9.8 ms |
-| Deliveries lost | 0 |
-| Survived restart | yes |
+|                                       |                               |
+| ------------------------------------- | ----------------------------- |
+| Memory, idle                          | 32.8 MiB of the 256 MiB limit |
+| Memory, after 6,000 deliveries        | 37.2 MiB                      |
+| Message POST latency, median          | 6.5 ms                        |
+| Message POST latency, 95th percentile | 9.8 ms                        |
+| Deliveries lost                       | 0                             |
+| Survived restart                      | yes                           |
 
 Three runs the same day landed between 32.8 and 36.6 MiB idle, 36.9 and 41.3
 MiB loaded, and 6.4 to 6.6 ms median, so read these as tens of MiB and
@@ -122,13 +122,13 @@ process, starts and leaves a huddle, and shuts the hosted server down cleanly.
 Process memory at that point, idle in a one-person hosted workspace
 (`app.getAppMetrics()`, working set):
 
-| Process | KiB |
-| --- | --- |
-| Browser | 137,888 |
-| GPU | 111,992 |
+| Process        | KiB     |
+| -------------- | ------- |
+| Browser        | 137,888 |
+| GPU            | 111,992 |
 | Tab (renderer) | 111,988 |
-| Utility | 93,216 |
-| Utility | 55,632 |
+| Utility        | 93,216  |
+| Utility        | 55,632  |
 
 That is Electron's baseline, and it is the honest cost of shipping a Chromium
 app. The GPU and utility processes are the runtime's, not ours. Hosting a
@@ -137,11 +137,11 @@ hundreds.
 
 Artifacts:
 
-| | |
-| --- | --- |
-| Installer | 108 MiB (`apps/desktop/release/SlackOSS Setup 0.1.0.exe`) |
-| Installed | 388 MiB unpacked |
-| Server container image | 56 MiB |
+|                        |                                                           |
+| ---------------------- | --------------------------------------------------------- |
+| Installer              | 108 MiB (`apps/desktop/release/SlackOSS Setup 0.1.0.exe`) |
+| Installed              | 388 MiB unpacked                                          |
+| Server container image | 56 MiB                                                    |
 
 ## Memory work behind those numbers
 

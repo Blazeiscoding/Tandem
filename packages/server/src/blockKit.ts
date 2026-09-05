@@ -108,14 +108,18 @@ export function blocksToActions(blocks: unknown): MessageAction[] {
       if (!text) continue;
       const style = el.style === "primary" || el.style === "danger" ? el.style : "default";
       actions.push({
-        actionId: typeof el.action_id === "string" && el.action_id ? el.action_id.slice(0, 255) : `a${index}_${n}`,
+        actionId:
+          typeof el.action_id === "string" && el.action_id
+            ? el.action_id.slice(0, 255)
+            : `a${index}_${n}`,
         blockId,
         text,
         value: typeof el.value === "string" ? el.value.slice(0, MAX_ACTION_VALUE) : "",
         style,
         // Only http(s) links; a button is not a way to hand someone a
         // javascript: or file: URL to click.
-        url: typeof el.url === "string" && /^https?:\/\//i.test(el.url) ? el.url.slice(0, 2000) : null,
+        url:
+          typeof el.url === "string" && /^https?:\/\//i.test(el.url) ? el.url.slice(0, 2000) : null,
       });
       if (actions.length >= MAX_ACTIONS) return actions;
     }

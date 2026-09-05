@@ -99,8 +99,16 @@ export class Store {
   constructor(private db: DatabaseSync) {}
 
   listFriends(userId: ID): Friendship[] {
-    const rows = this.db.prepare(`SELECT * FROM friendships WHERE user_low = ? OR user_high = ? ORDER BY created_at DESC`).all(userId, userId) as unknown as {
-      user_low: string; user_high: string; requested_by: string; accepted: number; created_at: number;
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM friendships WHERE user_low = ? OR user_high = ? ORDER BY created_at DESC`,
+      )
+      .all(userId, userId) as unknown as {
+      user_low: string;
+      user_high: string;
+      requested_by: string;
+      accepted: number;
+      created_at: number;
     }[];
     return rows.map((r) => ({
       userId: r.user_low === userId ? r.user_high : r.user_low,
@@ -111,25 +119,36 @@ export class Store {
 
   requestFriend(userId: ID, otherId: ID): void {
     const [low, high] = [userId, otherId].sort();
-    this.db.prepare(`INSERT OR IGNORE INTO friendships (user_low, user_high, requested_by, created_at) VALUES (?, ?, ?, ?)`).run(low!, high!, userId, Date.now());
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO friendships (user_low, user_high, requested_by, created_at) VALUES (?, ?, ?, ?)`,
+      )
+      .run(low!, high!, userId, Date.now());
   }
 
   acceptFriend(userId: ID, otherId: ID): boolean {
     const [low, high] = [userId, otherId].sort();
-    return this.db.prepare(`UPDATE friendships SET accepted = 1 WHERE user_low = ? AND user_high = ? AND requested_by = ?`).run(low!, high!, otherId).changes > 0;
+    return (
+      this.db
+        .prepare(
+          `UPDATE friendships SET accepted = 1 WHERE user_low = ? AND user_high = ? AND requested_by = ?`,
+        )
+        .run(low!, high!, otherId).changes > 0
+    );
   }
 
   removeFriend(userId: ID, otherId: ID): void {
     const [low, high] = [userId, otherId].sort();
-    this.db.prepare(`DELETE FROM friendships WHERE user_low = ? AND user_high = ?`).run(low!, high!);
+    this.db
+      .prepare(`DELETE FROM friendships WHERE user_low = ? AND user_high = ?`)
+      .run(low!, high!);
   }
 
   // ---------- meta ----------
 
   getMeta(key: string): string | null {
     const row = this.db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as
-      | { value: string }
-      | undefined;
+      { value: string } | undefined;
     return row?.value ?? null;
   }
 
@@ -175,14 +194,15 @@ export class Store {
 
   getUserAuthByHandle(handle: string): (User & { passwordHash: string; salt: string }) | null {
     const r = this.db.prepare("SELECT * FROM users WHERE handle = ?").get(handle) as
-      | UserRow
-      | undefined;
+      UserRow | undefined;
     if (!r) return null;
     return { ...toUser(r), passwordHash: r.password_hash, salt: r.salt };
   }
 
   listUsers(): User[] {
-    const rows = this.db.prepare("SELECT * FROM users ORDER BY handle").all() as unknown as UserRow[];
+    const rows = this.db
+      .prepare("SELECT * FROM users ORDER BY handle")
+      .all() as unknown as UserRow[];
     return rows.map(toUser);
   }
 
@@ -303,8 +323,7 @@ export class Store {
 
   getChannel(id: ID): Channel | null {
     const r = this.db.prepare("SELECT * FROM channels WHERE id = ?").get(id) as
-      | ChannelRow
-      | undefined;
+      ChannelRow | undefined;
     return r ? this.toChannel(r) : null;
   }
 
@@ -317,8 +336,7 @@ export class Store {
 
   findDmByKey(dmKey: string): Channel | null {
     const r = this.db.prepare("SELECT * FROM channels WHERE dm_key = ?").get(dmKey) as
-      | ChannelRow
-      | undefined;
+      ChannelRow | undefined;
     return r ? this.toChannel(r) : null;
   }
 
@@ -425,7 +443,9 @@ export class Store {
 
   getChannelPrefs(channelId: ID, userId: ID): ChannelPrefs | null {
     const r = this.db
-      .prepare("SELECT notify_level, muted FROM channel_members WHERE channel_id = ? AND user_id = ?")
+      .prepare(
+        "SELECT notify_level, muted FROM channel_members WHERE channel_id = ? AND user_id = ?",
+      )
       .get(channelId, userId) as { notify_level: string; muted: number } | undefined;
     if (!r) return null;
     return { notifyLevel: r.notify_level as NotifyLevel, muted: r.muted === 1 };
@@ -481,8 +501,7 @@ export class Store {
   /** True if the user may read the channel (public, or member of non-public). */
   canAccess(channelId: ID, userId: ID): boolean {
     const r = this.db.prepare("SELECT type FROM channels WHERE id = ?").get(channelId) as
-      | { type: string }
-      | undefined;
+      { type: string } | undefined;
     if (!r) return false;
     if (r.type === "public") return true;
     return this.isMember(channelId, userId);
@@ -539,11 +558,9 @@ export class Store {
   }
 
   editMessage(id: ID, text: string): Message {
-    this.db.prepare("UPDATE messages SET text = ?, edited_at = ? WHERE id = ?").run(
-      text,
-      Date.now(),
-      id,
-    );
+    this.db
+      .prepare("UPDATE messages SET text = ?, edited_at = ? WHERE id = ?")
+      .run(text, Date.now(), id);
     return this.getMessage(id)!;
   }
 
@@ -558,12 +575,7 @@ export class Store {
   }
 
   /** Newest-first page of top-level channel messages (or thread replies). */
-  listMessages(opts: {
-    channelId: ID;
-    before?: ID;
-    limit: number;
-    threadRootId?: ID;
-  }): Message[] {
+  listMessages(opts: { channelId: ID; before?: ID; limit: number; threadRootId?: ID }): Message[] {
     let rows: MessageRow[];
     if (opts.threadRootId) {
       rows = this.db
@@ -586,8 +598,7 @@ export class Store {
         )
         .all(
           ...([opts.channelId, opts.before, opts.limit].filter((x) => x !== undefined) as (
-            | string
-            | number
+            string | number
           )[]),
         ) as unknown as MessageRow[];
     }
@@ -787,9 +798,9 @@ export class Store {
 
   /** File ids belonging to a message — used to delete blobs when the message goes. */
   fileIdsForMessage(messageId: ID): ID[] {
-    const rows = this.db
-      .prepare("SELECT id FROM files WHERE message_id = ?")
-      .all(messageId) as { id: string }[];
+    const rows = this.db.prepare("SELECT id FROM files WHERE message_id = ?").all(messageId) as {
+      id: string;
+    }[];
     return rows.map((r) => r.id);
   }
 
@@ -846,7 +857,9 @@ export class Store {
 
   addSaved(userId: ID, messageId: ID): boolean {
     const res = this.db
-      .prepare("INSERT OR IGNORE INTO saved_items (user_id, message_id, created_at) VALUES (?, ?, ?)")
+      .prepare(
+        "INSERT OR IGNORE INTO saved_items (user_id, message_id, created_at) VALUES (?, ?, ?)",
+      )
       .run(userId, messageId, Date.now());
     return res.changes > 0;
   }
@@ -946,8 +959,7 @@ export class Store {
 
   getScheduled(id: ID): ScheduledMessage | null {
     const r = this.db.prepare("SELECT * FROM scheduled_messages WHERE id = ?").get(id) as
-      | Parameters<Store["toScheduled"]>[0]
-      | undefined;
+      Parameters<Store["toScheduled"]>[0] | undefined;
     return r ? this.toScheduled(r) : null;
   }
 
@@ -986,12 +998,7 @@ export class Store {
     return this.getUser(id)!;
   }
 
-  createApp(input: {
-    name: string;
-    botUserId: ID;
-    createdBy: ID;
-    signingSecret: string;
-  }): App {
+  createApp(input: { name: string; botUserId: ID; createdBy: ID; signingSecret: string }): App {
     const id = ulid();
     const now = Date.now();
     this.db
@@ -1011,15 +1018,15 @@ export class Store {
 
   /** Where this app's button clicks go. Empty leaves its buttons inert. */
   setInteractivityUrl(id: ID, url: string): boolean {
-    return this.db.prepare("UPDATE apps SET interactivity_url = ? WHERE id = ?").run(url, id)
-      .changes > 0;
+    return (
+      this.db.prepare("UPDATE apps SET interactivity_url = ? WHERE id = ?").run(url, id).changes > 0
+    );
   }
 
   /** The app a bot user posts as, for tracing a message back to its owner. */
   appForBotUser(botUserId: ID): App | null {
     const r = this.db.prepare("SELECT * FROM apps WHERE bot_user_id = ?").get(botUserId) as
-      | Parameters<Store["toApp"]>[0]
-      | undefined;
+      Parameters<Store["toApp"]>[0] | undefined;
     return r ? this.toApp(r) : null;
   }
 
@@ -1029,8 +1036,7 @@ export class Store {
    */
   appSigningSecret(id: ID): string | null {
     const r = this.db.prepare("SELECT signing_secret FROM apps WHERE id = ?").get(id) as
-      | { signing_secret: string }
-      | undefined;
+      { signing_secret: string } | undefined;
     return r?.signing_secret ?? null;
   }
 
@@ -1054,8 +1060,7 @@ export class Store {
 
   getApp(id: ID): App | null {
     const r = this.db.prepare("SELECT * FROM apps WHERE id = ?").get(id) as
-      | Parameters<Store["toApp"]>[0]
-      | undefined;
+      Parameters<Store["toApp"]>[0] | undefined;
     return r ? this.toApp(r) : null;
   }
 
@@ -1103,8 +1108,7 @@ export class Store {
   /** Resolves an incoming webhook secret to its app and target channel. */
   webhookForToken(tokenHash: string): { webhook: Webhook; app: App } | null {
     const r = this.db.prepare("SELECT * FROM webhooks WHERE token_hash = ?").get(tokenHash) as
-      | { id: string; app_id: string; channel_id: string; created_at: number }
-      | undefined;
+      { id: string; app_id: string; channel_id: string; created_at: number } | undefined;
     if (!r) return null;
     const app = this.getApp(r.app_id);
     if (!app) return null;
@@ -1177,8 +1181,7 @@ export class Store {
   /** Looks a command up by the word the user typed, without its slash. */
   slashCommandByName(command: string): { command: SlashCommand; app: App } | null {
     const r = this.db.prepare("SELECT * FROM slash_commands WHERE command = ?").get(command) as
-      | Parameters<Store["toCommand"]>[0]
-      | undefined;
+      Parameters<Store["toCommand"]>[0] | undefined;
     if (!r) return null;
     const app = this.getApp(r.app_id);
     return app ? { command: this.toCommand(r), app } : null;
@@ -1354,9 +1357,7 @@ export class Store {
 
   pruneEvents(keep = 20000): void {
     this.db
-      .prepare(
-        "DELETE FROM events WHERE seq <= (SELECT COALESCE(MAX(seq), 0) FROM events) - ?",
-      )
+      .prepare("DELETE FROM events WHERE seq <= (SELECT COALESCE(MAX(seq), 0) FROM events) - ?")
       .run(keep);
   }
 

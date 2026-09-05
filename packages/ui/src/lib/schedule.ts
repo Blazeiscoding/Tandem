@@ -31,7 +31,7 @@ export function schedulePresets(now = new Date()): SchedulePreset[] {
   out.push({ label: "Tomorrow morning", at: at(9, 1) });
 
   // Monday, skipping to next week if today is already Monday.
-  const monday = at(9, ((8 - now.getDay()) % 7) || 7);
+  const monday = at(9, (8 - now.getDay()) % 7 || 7);
   out.push({ label: "Monday morning", at: monday });
 
   return out;

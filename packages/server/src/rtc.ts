@@ -1,11 +1,18 @@
 import { z } from "zod";
 
-const iceUrl = z.string().max(500).regex(/^(stun|stuns|turn|turns):[^\s]+$/);
-const iceServersSchema = z.array(z.object({
-  urls: z.union([iceUrl, z.array(iceUrl).min(1).max(8)]),
-  username: z.string().max(256).optional(),
-  credential: z.string().max(512).optional(),
-})).max(8);
+const iceUrl = z
+  .string()
+  .max(500)
+  .regex(/^(stun|stuns|turn|turns):[^\s]+$/);
+const iceServersSchema = z
+  .array(
+    z.object({
+      urls: z.union([iceUrl, z.array(iceUrl).min(1).max(8)]),
+      username: z.string().max(256).optional(),
+      credential: z.string().max(512).optional(),
+    }),
+  )
+  .max(8);
 
 export function parseIceServers(value: string | undefined) {
   try {

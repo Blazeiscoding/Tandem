@@ -133,10 +133,7 @@ export function MessageItem({
                   )}
                 </div>
               )}
-              <MessageAttachments
-                files={message.files}
-                onOpenImage={(f) => onOpenImage?.(f)}
-              />
+              <MessageAttachments files={message.files} onOpenImage={(f) => onOpenImage?.(f)} />
               <MessageActions message={message} />
             </>
           )}
@@ -145,9 +142,7 @@ export function MessageItem({
             <div className="mt-1 flex flex-wrap gap-1">
               {message.reactions.map((g) => {
                 const reacted = self ? g.userIds.includes(self.id) : false;
-                const names = g.userIds
-                  .map((id) => users[id]?.displayName ?? "unknown")
-                  .join(", ");
+                const names = g.userIds.map((id) => users[id]?.displayName ?? "unknown").join(", ");
                 return (
                   <button
                     key={g.emoji}
@@ -185,7 +180,11 @@ export function MessageItem({
             <ToolbarButton key={e} label={e} onClick={() => client.toggleReaction(message, e)} />
           ))}
           {!inThread && (
-            <ToolbarButton label="↩" title="Reply in thread" onClick={() => onOpenThread?.(message.id)} />
+            <ToolbarButton
+              label="↩"
+              title="Reply in thread"
+              onClick={() => onOpenThread?.(message.id)}
+            />
           )}
           <ToolbarButton
             label={copied ? "✓" : "🔗"}

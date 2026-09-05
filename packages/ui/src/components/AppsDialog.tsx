@@ -99,8 +99,8 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
       <p className="mb-4 text-sm text-ink-dim">
         Each app posts as its own bot user. Tokens work with Slack&rsquo;s{" "}
         <code className="font-mono text-copper">chat.postMessage</code>, webhooks and slash commands
-        speak Slack&rsquo;s shapes, and events arrive signed the way Slack signs them &mdash; so most
-        existing integrations work by changing the URL.
+        speak Slack&rsquo;s shapes, and events arrive signed the way Slack signs them &mdash; so
+        most existing integrations work by changing the URL.
       </p>
 
       <form onSubmit={create} className="mb-5 flex gap-2">
@@ -118,7 +118,9 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
       {apps === null && (
         <p className="py-4 text-center font-mono text-xs text-ink-faint">loading…</p>
       )}
-      {apps?.length === 0 && <p className="py-4 text-center text-sm text-ink-faint">No apps yet.</p>}
+      {apps?.length === 0 && (
+        <p className="py-4 text-center text-sm text-ink-faint">No apps yet.</p>
+      )}
 
       <ul className="space-y-3">
         {(apps ?? []).map((a) => (
@@ -370,8 +372,8 @@ function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () =>
         </div>
         <p className="mt-1 text-[11px] text-ink-faint">
           None selected sends everything. The URL must answer the{" "}
-          <code className="font-mono">url_verification</code> challenge, and the app&rsquo;s bot only
-          receives events from channels it has been added to.
+          <code className="font-mono">url_verification</code> challenge, and the app&rsquo;s bot
+          only receives events from channels it has been added to.
         </p>
       </form>
       {error && <p className="mt-1 text-[11px] text-alert">{error}</p>}

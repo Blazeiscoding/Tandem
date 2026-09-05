@@ -1,8 +1,10 @@
 # Contributing
 
 Use Node 24+ and pnpm 10.23.0 (`corepack enable`). Install with
-`pnpm install --frozen-lockfile`, then run `pnpm build`, `pnpm typecheck`,
-and `pnpm test` before submitting a pull request.
+`pnpm install --frozen-lockfile`, then run `pnpm format`, `pnpm build`,
+`pnpm typecheck`, and `pnpm test` before submitting a pull request. CI checks
+formatting, so an unformatted file fails the build rather than starting an
+argument in review.
 
 Browser checks: `pnpm exec playwright install chromium`, then `pnpm test:e2e`
 after building. Windows checks: `pnpm --filter @slackoss/desktop package --win`,

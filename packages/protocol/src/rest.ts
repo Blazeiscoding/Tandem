@@ -75,15 +75,17 @@ export const sendMessageBody = z
     message: "message must have text or files",
   });
 
-export const scheduleMessageBody = z.object({
-  text: z.string().max(12000),
-  /** Epoch ms; must be in the future. */
-  sendAt: z.number().int().positive(),
-  threadRootId: z.string().optional(),
-  fileIds: z.array(z.string()).max(10).optional(),
-}).refine((b) => b.text.trim().length > 0 || (b.fileIds?.length ?? 0) > 0, {
-  message: "message must have text or files",
-});
+export const scheduleMessageBody = z
+  .object({
+    text: z.string().max(12000),
+    /** Epoch ms; must be in the future. */
+    sendAt: z.number().int().positive(),
+    threadRootId: z.string().optional(),
+    fileIds: z.array(z.string()).max(10).optional(),
+  })
+  .refine((b) => b.text.trim().length > 0 || (b.fileIds?.length ?? 0) > 0, {
+    message: "message must have text or files",
+  });
 
 export const createAppBody = z.object({
   name: z.string().min(1).max(60),
@@ -158,7 +160,12 @@ export const markReadBody = z.object({
 });
 
 export const createInviteBody = z.object({
-  expiresInHours: z.number().int().positive().max(24 * 365).optional(),
+  expiresInHours: z
+    .number()
+    .int()
+    .positive()
+    .max(24 * 365)
+    .optional(),
   maxUses: z.number().int().positive().max(1000).optional(),
 });
 

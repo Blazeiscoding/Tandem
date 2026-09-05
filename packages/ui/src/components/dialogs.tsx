@@ -176,7 +176,9 @@ export function NewDmDialog(props: { onClose: () => void; onOpen: (id: ID) => vo
         ))}
         {candidates.length === 0 && (
           <p className="py-6 text-center text-sm text-ink-faint">
-            {Object.keys(users).length <= 1 ? "You're the only one here so far." : "No one matches."}
+            {Object.keys(users).length <= 1
+              ? "You're the only one here so far."
+              : "No one matches."}
           </p>
         )}
       </ul>

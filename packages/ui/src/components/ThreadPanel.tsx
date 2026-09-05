@@ -13,13 +13,7 @@ interface Props {
   onOpenProfile: (userId: ID) => void;
 }
 
-export function ThreadPanel({
-  channelId,
-  rootId,
-  onClose,
-  onChannelClick,
-  onOpenProfile,
-}: Props) {
+export function ThreadPanel({ channelId, rootId, onClose, onChannelClick, onOpenProfile }: Props) {
   const client = useClient();
   const root = useWorkspace(
     (s) => s.timelines[channelId]?.items.find((m) => m.id === rootId) ?? null,

@@ -20,7 +20,12 @@ describe("attachment cache", () => {
 
   it("deduplicates downloads and does not resurrect blobs after disconnect", async () => {
     let finish!: (blob: Blob) => void;
-    const fetchFile = vi.fn(() => new Promise<Blob>((r) => { finish = r; }));
+    const fetchFile = vi.fn(
+      () =>
+        new Promise<Blob>((r) => {
+          finish = r;
+        }),
+    );
     const cache = new FileCache({ fetchFile } as unknown as Api);
     const first = cache.get("image");
     const second = cache.get("image");

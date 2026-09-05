@@ -10,11 +10,39 @@ let data: string;
 const base = "http://127.0.0.1:18543";
 test.beforeAll(async () => {
   data = mkdtempSync(join(tmpdir(), "slackoss-e2e-"));
-  server = spawn(process.execPath, ["apps/server-cli/dist/slackoss-server.js", "--data", data, "--port", "18543", "--host", "127.0.0.1", "--no-mdns", "--name", "Product Test", "--allow-private-hooks"], { windowsHide: true, stdio: "pipe" });
-  await expect.poll(async () => { try { return (await fetch(base + "/api/health")).status; } catch { return 0; } }).toBe(200);
+  server = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      data,
+      "--port",
+      "18543",
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Product Test",
+      "--allow-private-hooks",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  await expect
+    .poll(async () => {
+      try {
+        return (await fetch(base + "/api/health")).status;
+      } catch {
+        return 0;
+      }
+    })
+    .toBe(200);
 });
 test.afterAll(async () => {
-  if (server && server.exitCode === null) { const exited = new Promise((r) => server.once("exit", r)); server.kill(); await exited; }
+  if (server && server.exitCode === null) {
+    const exited = new Promise((r) => server.once("exit", r));
+    server.kill();
+    await exited;
+  }
   if (data) rmSync(data, { recursive: true, force: true });
 });
 
@@ -32,10 +60,19 @@ async function register(page: Page, handle: string) {
   await expect(page.locator("textarea")).toBeVisible();
 }
 
-test("two people register, chat, become friends, reconnect, and exchange real WebRTC media", async ({ browser }, info) => {
-  const a = await browser.newContext({ permissions: ["microphone", "camera"], viewport: { width: 1280, height: 820 } });
-  const b = await browser.newContext({ permissions: ["microphone", "camera"], viewport: { width: 1280, height: 820 } });
-  const alice = await a.newPage(); const bob = await b.newPage();
+test("two people register, chat, become friends, reconnect, and exchange real WebRTC media", async ({
+  browser,
+}, info) => {
+  const a = await browser.newContext({
+    permissions: ["microphone", "camera"],
+    viewport: { width: 1280, height: 820 },
+  });
+  const b = await browser.newContext({
+    permissions: ["microphone", "camera"],
+    viewport: { width: 1280, height: 820 },
+  });
+  const alice = await a.newPage();
+  const bob = await b.newPage();
   const errors: string[] = [];
   for (const page of [alice, bob]) {
     page.on("pageerror", (err) => errors.push(err.message));
@@ -43,7 +80,10 @@ test("two people register, chat, become friends, reconnect, and exchange real We
       const Original = window.RTCPeerConnection;
       (window as any).peers = [];
       window.RTCPeerConnection = class extends Original {
-        constructor(config?: RTCConfiguration) { super(config); (window as any).peers.push(this); }
+        constructor(config?: RTCConfiguration) {
+          super(config);
+          (window as any).peers.push(this);
+        }
       };
     });
   }
@@ -61,29 +101,52 @@ test("two people register, chat, become friends, reconnect, and exchange real We
     await bob.getByRole("button", { name: "Accept", exact: true }).click();
     await alice.getByRole("button", { name: "Friends", exact: true }).last().click();
     await expect(alice.getByRole("button", { name: "Remove friend" })).toBeVisible();
-    await alice.keyboard.press("Escape"); await bob.keyboard.press("Escape");
+    await alice.keyboard.press("Escape");
+    await bob.keyboard.press("Escape");
     await b.setOffline(true);
-    await alice.locator("textarea").fill("Message while Bob is offline"); await alice.locator("textarea").press("Enter");
+    await alice.locator("textarea").fill("Message while Bob is offline");
+    await alice.locator("textarea").press("Enter");
     await b.setOffline(false);
     await expect(bob.getByText("Message while Bob is offline", { exact: true })).toBeVisible();
     await alice.getByTitle("Start a huddle", { exact: true }).click();
     await expect(alice.getByText("Huddle in #general", { exact: true })).toBeVisible();
     await bob.getByTitle("Join the huddle (1)", { exact: true }).click();
     for (const page of [alice, bob]) {
-      await expect.poll(() => page.evaluate(() => (window as any).peers.some((p: RTCPeerConnection) => p.connectionState === "connected"))).toBe(true);
-      await expect.poll(() => page.evaluate(async () => {
-        let bytes = 0;
-        for (const pc of (window as any).peers as RTCPeerConnection[]) (await pc.getStats()).forEach((r) => { if (r.type === "inbound-rtp" && r.kind === "audio") bytes += r.bytesReceived; });
-        return bytes;
-      })).toBeGreaterThan(0);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            (window as any).peers.some((p: RTCPeerConnection) => p.connectionState === "connected"),
+          ),
+        )
+        .toBe(true);
+      await expect
+        .poll(() =>
+          page.evaluate(async () => {
+            let bytes = 0;
+            for (const pc of (window as any).peers as RTCPeerConnection[])
+              (await pc.getStats()).forEach((r) => {
+                if (r.type === "inbound-rtp" && r.kind === "audio") bytes += r.bytesReceived;
+              });
+            return bytes;
+          }),
+        )
+        .toBeGreaterThan(0);
     }
     // The fake capture device plays a tone, so the level meter has something
     // real to report: each side should see the other light up as talking.
     for (const page of [alice, bob]) {
-      await expect.poll(() => page.locator(".ring-online").count(), { timeout: 15_000 }).toBeGreaterThan(0);
+      await expect
+        .poll(() => page.locator(".ring-online").count(), { timeout: 15_000 })
+        .toBeGreaterThan(0);
     }
     await alice.getByTitle("Turn your camera on", { exact: true }).click();
-    await expect.poll(() => bob.locator("video").evaluateAll((videos) => videos.some((v) => (v as HTMLVideoElement).videoWidth > 0))).toBe(true);
+    await expect
+      .poll(() =>
+        bob
+          .locator("video")
+          .evaluateAll((videos) => videos.some((v) => (v as HTMLVideoElement).videoWidth > 0)),
+      )
+      .toBe(true);
     await alice.getByTitle("Mute", { exact: true }).click();
     await expect(alice.getByTitle("Unmute", { exact: true })).toBeVisible();
     // Muting is signalled, not guessed: Bob's copy of Alice says so.
@@ -91,22 +154,49 @@ test("two people register, chat, become friends, reconnect, and exchange real We
     await alice.screenshot({ path: info.outputPath("workspace.png") });
     await alice.getByRole("button", { name: "Leave", exact: true }).click();
     await bob.getByRole("button", { name: "Leave", exact: true }).click();
-    await expect.poll(() => alice.evaluate(() => (window as any).peers.every((p: RTCPeerConnection) => p.connectionState === "closed"))).toBe(true);
+    await expect
+      .poll(() =>
+        alice.evaluate(() =>
+          (window as any).peers.every((p: RTCPeerConnection) => p.connectionState === "closed"),
+        ),
+      )
+      .toBe(true);
     expect(errors).toEqual([]);
   } finally {
-    for (const [name, page] of [["alice", alice], ["bob", bob]] as const) {
-      const diagnostics = await page.evaluate(async () => Promise.all(((window as any).peers ?? []).map(async (pc: RTCPeerConnection) => ({
-        connection: pc.connectionState,
-        senders: pc.getSenders().map((s) => ({ kind: s.track?.kind, enabled: s.track?.enabled, state: s.track?.readyState })),
-        stats: [...(await pc.getStats()).values()].filter((r) => ["inbound-rtp", "outbound-rtp", "media-source"].includes(r.type)),
-      })))).catch(() => null);
-      await info.attach(`${name}-rtc`, { body: JSON.stringify(diagnostics, null, 2), contentType: "application/json" });
+    for (const [name, page] of [
+      ["alice", alice],
+      ["bob", bob],
+    ] as const) {
+      const diagnostics = await page
+        .evaluate(async () =>
+          Promise.all(
+            ((window as any).peers ?? []).map(async (pc: RTCPeerConnection) => ({
+              connection: pc.connectionState,
+              senders: pc.getSenders().map((s) => ({
+                kind: s.track?.kind,
+                enabled: s.track?.enabled,
+                state: s.track?.readyState,
+              })),
+              stats: [...(await pc.getStats()).values()].filter((r) =>
+                ["inbound-rtp", "outbound-rtp", "media-source"].includes(r.type),
+              ),
+            })),
+          ),
+        )
+        .catch(() => null);
+      await info.attach(`${name}-rtc`, {
+        body: JSON.stringify(diagnostics, null, 2),
+        contentType: "application/json",
+      });
     }
-    await a.close().catch(() => {}); await b.close().catch(() => {});
+    await a.close().catch(() => {});
+    await b.close().catch(() => {});
   }
 });
 
-test("scrolls back through a long channel without unbounded growth or losing its place", async ({ browser }) => {
+test("scrolls back through a long channel without unbounded growth or losing its place", async ({
+  browser,
+}) => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
   const page = await context.newPage();
   const errors: string[] = [];
@@ -115,25 +205,34 @@ test("scrolls back through a long channel without unbounded growth or losing its
     await register(page, "carol");
     // Far more history than the client keeps in memory, posted as the same user.
     const token = await page.evaluate(
-      () => (JSON.parse(localStorage.getItem("slackoss:servers") ?? "[]") as { token: string }[])[0]!.token,
+      () =>
+        (JSON.parse(localStorage.getItem("slackoss:servers") ?? "[]") as { token: string }[])[0]!
+          .token,
     );
     const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
     const channels = await (await fetch(`${base}/api/channels`, { headers: auth })).json();
     const general = channels.channels.find((c: { name: string }) => c.name === "general");
     for (let i = 0; i < 500; i++) {
       await fetch(`${base}/api/channels/${general.id}/messages`, {
-        method: "POST", headers: auth, body: JSON.stringify({ text: `history ${i}` }),
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ text: `history ${i}` }),
       });
     }
     await page.reload();
     // The timeline scroller, not the sidebar's: the one holding message rows.
-    const scroller = page.locator("div.overflow-y-auto").filter({ has: page.locator("[data-mid]") }).first();
+    const scroller = page
+      .locator("div.overflow-y-auto")
+      .filter({ has: page.locator("[data-mid]") })
+      .first();
     await expect(page.getByText("history 499", { exact: true })).toBeVisible();
 
     // Scroll to the top repeatedly; each pass pages in another 50 messages.
     // Six passes overfill the 300-message window while leaving history behind.
     for (let pass = 0; pass < 6; pass++) {
-      await scroller.evaluate((el) => { el.scrollTop = 0; });
+      await scroller.evaluate((el) => {
+        el.scrollTop = 0;
+      });
       await page.waitForTimeout(250);
     }
     const rows = await page.locator("[data-mid]").count();
@@ -148,12 +247,18 @@ test("scrolls back through a long channel without unbounded growth or losing its
       el.scrollTop = 350;
       const rows = [...el.querySelectorAll<HTMLElement>("[data-mid]")];
       const row = rows.find((r) => r.offsetTop + r.offsetHeight > el.scrollTop)!;
-      return { id: row.dataset.mid!, top: row.getBoundingClientRect().top, firstId: rows[0]!.dataset.mid! };
+      return {
+        id: row.dataset.mid!,
+        top: row.getBoundingClientRect().top,
+        firstId: rows[0]!.dataset.mid!,
+      };
     });
     // At the cap a page swaps messages in and out without changing the count,
     // so wait on the oldest loaded message changing instead.
     await expect
-      .poll(() => scroller.evaluate((el) => el.querySelector<HTMLElement>("[data-mid]")!.dataset.mid))
+      .poll(() =>
+        scroller.evaluate((el) => el.querySelector<HTMLElement>("[data-mid]")!.dataset.mid),
+      )
       .not.toBe(before.firstId);
     await page.waitForTimeout(200);
     const after = await page
@@ -167,7 +272,9 @@ test("scrolls back through a long channel without unbounded growth or losing its
   }
 });
 
-test("an app's button calls it back and rewrites the message it sits on", async ({ browser }, info) => {
+test("an app's button calls it back and rewrites the message it sits on", async ({
+  browser,
+}, info) => {
   // Stands in for the third-party app the button points at.
   let answer: (body: string) => string = () => "";
   const received: string[] = [];
@@ -190,19 +297,28 @@ test("an app's button calls it back and rewrites the message it sits on", async 
   page.on("pageerror", (err) => errors.push(err.message));
   try {
     // Alice owns this workspace, so she is the one who can create an app.
-    const login = await (await fetch(`${base}/api/auth/login`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle: "alice", password: "password123" }),
-    })).json();
+    const login = await (
+      await fetch(`${base}/api/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "alice", password: "password123" }),
+      })
+    ).json();
     const admin = { authorization: `Bearer ${login.token}`, "content-type": "application/json" };
-    const created = await (await fetch(`${base}/api/apps`, {
-      method: "POST", headers: admin, body: JSON.stringify({ name: "Deploy Bot" }),
-    })).json();
+    const created = await (
+      await fetch(`${base}/api/apps`, {
+        method: "POST",
+        headers: admin,
+        body: JSON.stringify({ name: "Deploy Bot" }),
+      })
+    ).json();
 
     // The URL has to echo the verification challenge before it is accepted.
     answer = (body) => JSON.stringify({ challenge: JSON.parse(body).challenge });
     const set = await fetch(`${base}/api/apps/${created.app.id}/interactivity`, {
-      method: "PUT", headers: admin, body: JSON.stringify({ url: stubUrl }),
+      method: "PUT",
+      headers: admin,
+      body: JSON.stringify({ url: stubUrl }),
     });
     expect(set.status).toBe(200);
 
@@ -216,9 +332,20 @@ test("an app's button calls it back and rewrites the message it sits on", async 
       body: JSON.stringify({
         channel: general.id,
         text: "Deploy 412 to production?",
-        blocks: [{ type: "actions", elements: [
-          { type: "button", action_id: "approve", style: "primary", value: "412", text: { type: "plain_text", text: "Approve" } },
-        ] }],
+        blocks: [
+          {
+            type: "actions",
+            elements: [
+              {
+                type: "button",
+                action_id: "approve",
+                style: "primary",
+                value: "412",
+                text: { type: "plain_text", text: "Approve" },
+              },
+            ],
+          },
+        ],
       }),
     });
 

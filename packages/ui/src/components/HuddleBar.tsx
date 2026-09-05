@@ -377,7 +377,9 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not join this huddle.");
       setTimeout(() => setError(null), 4000);
-    } finally { setJoining(false); }
+    } finally {
+      setJoining(false);
+    }
   }
 
   if (inThis) {
@@ -401,7 +403,13 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
             : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
       }`}
     >
-      {error ? <span role="alert">{error}</span> : joining ? "Joining…" : <>🎧{count > 0 && <span className="ml-1 font-mono text-[11px]">{count}</span>}</>}
+      {error ? (
+        <span role="alert">{error}</span>
+      ) : joining ? (
+        "Joining…"
+      ) : (
+        <>🎧{count > 0 && <span className="ml-1 font-mono text-[11px]">{count}</span>}</>
+      )}
     </button>
   );
 }

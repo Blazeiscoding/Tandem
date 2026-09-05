@@ -103,8 +103,14 @@ export class Api {
     return this.request("GET", "/api/friends");
   }
 
-  updateFriend(userId: ID, action: "request" | "accept" | "remove"): Promise<{ friends: Friendship[] }> {
-    return this.request({ request: "POST", accept: "PUT", remove: "DELETE" }[action], `/api/friends/${encodeURIComponent(userId)}`);
+  updateFriend(
+    userId: ID,
+    action: "request" | "accept" | "remove",
+  ): Promise<{ friends: Friendship[] }> {
+    return this.request(
+      { request: "POST", accept: "PUT", remove: "DELETE" }[action],
+      `/api/friends/${encodeURIComponent(userId)}`,
+    );
   }
 
   register(body: {
@@ -315,9 +321,9 @@ export class Api {
   // ---------- apps and integrations (admin only) ----------
 
   /** The bot token comes back once here and is never retrievable again. */
-  createApp(
-    body: { name: string },
-  ): Promise<{ app: App; botUser: User; token: string; signingSecret: string }> {
+  createApp(body: {
+    name: string;
+  }): Promise<{ app: App; botUser: User; token: string; signingSecret: string }> {
     return this.request("POST", "/api/apps", body);
   }
 

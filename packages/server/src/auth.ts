@@ -2,7 +2,7 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 
 function derive(password: string, salt: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    scrypt(password, salt, 64, (err, key) => err ? reject(err) : resolve(key));
+    scrypt(password, salt, 64, (err, key) => (err ? reject(err) : resolve(key)));
   });
 }
 
@@ -12,7 +12,11 @@ export async function hashPassword(password: string): Promise<{ hash: string; sa
   return { hash, salt };
 }
 
-export async function verifyPassword(password: string, salt: string, expectedHash: string): Promise<boolean> {
+export async function verifyPassword(
+  password: string,
+  salt: string,
+  expectedHash: string,
+): Promise<boolean> {
   const actual = await derive(password, salt);
   const expected = Buffer.from(expectedHash, "hex");
   return actual.length === expected.length && timingSafeEqual(actual, expected);

@@ -232,14 +232,20 @@ function BrowseCard(props: {
             <>
               You're hosting on port{" "}
               <span className="font-mono text-copper">{props.hostedPort}</span>.{" "}
-              <button onClick={props.onHostClick} className="font-medium text-copper hover:underline">
+              <button
+                onClick={props.onHostClick}
+                className="font-medium text-copper hover:underline"
+              >
                 Manage hosting
               </button>
             </>
           ) : (
             <>
               Nothing here yet?{" "}
-              <button onClick={props.onHostClick} className="font-medium text-copper hover:underline">
+              <button
+                onClick={props.onHostClick}
+                className="font-medium text-copper hover:underline"
+              >
                 Host a workspace on this computer
               </button>
             </>
@@ -318,9 +324,7 @@ function AuthCard(props: {
   const hasUsers = props.info.userCount > 0;
   const isFirstUser = !hasUsers;
   // An empty workspace has nothing to sign in to, even if we remember a handle here.
-  const [mode, setMode] = useState<"login" | "register">(
-    isFirstUser ? "register" : "login",
-  );
+  const [mode, setMode] = useState<"login" | "register">(isFirstUser ? "register" : "login");
   const [handle, setHandle] = useState(props.savedHandle ?? "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");

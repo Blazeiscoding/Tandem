@@ -103,7 +103,9 @@ function connectWs(token: string) {
     waiters.splice(0).forEach((w) => w(msg));
   });
   ws.on("open", () => {
-    ws.send(JSON.stringify({ type: "hello", token, lastSeq: null, protocolVersion: PROTOCOL_VERSION }));
+    ws.send(
+      JSON.stringify({ type: "hello", token, lastSeq: null, protocolVersion: PROTOCOL_VERSION }),
+    );
   });
   const next = (predicate: (m: ServerToClient) => boolean, timeoutMs = 3000) =>
     new Promise<ServerToClient>((resolve, reject) => {
@@ -333,9 +335,7 @@ describe("slash commands", () => {
 
     // Private means private: it is not in the channel, and Bob never saw it.
     expect(
-      server.store.listMessages({ channelId, limit: 5 }).some((m) =>
-        m.text.includes("deploying"),
-      ),
+      server.store.listMessages({ channelId, limit: 5 }).some((m) => m.text.includes("deploying")),
     ).toBe(false);
     expect(
       b.received.some((m) => m.type === "ephemeral" && m.event.type === "ephemeral.message"),
@@ -442,7 +442,9 @@ describe("outgoing event subscriptions", () => {
     expect(refused.data.error).toBe("challenge_failed");
 
     stub.handler = (req) => ({
-      body: JSON.stringify({ challenge: (JSON.parse(req.body) as { challenge: string }).challenge }),
+      body: JSON.stringify({
+        challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+      }),
     });
     const accepted = await api(`/api/apps/${created.id}/subscriptions`, {
       token: aliceToken,
@@ -454,7 +456,9 @@ describe("outgoing event subscriptions", () => {
   it("delivers signed events for channels the bot is in, and never its own", async () => {
     const created = await newApp("Echo Bot");
     stub.handler = (req) => ({
-      body: JSON.stringify({ challenge: (JSON.parse(req.body) as { challenge: string }).challenge }),
+      body: JSON.stringify({
+        challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+      }),
     });
     const sub = await api<{ subscription: { id: string } }>(
       `/api/apps/${created.id}/subscriptions`,
@@ -519,7 +523,9 @@ describe("outgoing event subscriptions", () => {
   it("only sends the event types a subscription asked for", async () => {
     const created = await newApp("Reactions Only");
     stub.handler = (req) => ({
-      body: JSON.stringify({ challenge: (JSON.parse(req.body) as { challenge: string }).challenge }),
+      body: JSON.stringify({
+        challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+      }),
     });
     await api(`/api/apps/${created.id}/subscriptions`, {
       token: aliceToken,
@@ -533,10 +539,13 @@ describe("outgoing event subscriptions", () => {
       token: aliceToken,
       body: { text: "react to me" },
     });
-    await fetch(`${base}/api/messages/${posted.data.message.id}/reactions/${encodeURIComponent("🎉")}`, {
-      method: "PUT",
-      headers: { authorization: `Bearer ${aliceToken}` },
-    });
+    await fetch(
+      `${base}/api/messages/${posted.data.message.id}/reactions/${encodeURIComponent("🎉")}`,
+      {
+        method: "PUT",
+        headers: { authorization: `Bearer ${aliceToken}` },
+      },
+    );
     await eventually(() => stub.received.some((r) => r.url === "/reactions"));
 
     const bodies = stub.received.filter((r) => r.url === "/reactions").map((r) => r.body);
@@ -549,7 +558,9 @@ describe("outgoing event subscriptions", () => {
   it("stops delivering once the app is deleted", async () => {
     const created = await newApp("Short Lived");
     stub.handler = (req) => ({
-      body: JSON.stringify({ challenge: (JSON.parse(req.body) as { challenge: string }).challenge }),
+      body: JSON.stringify({
+        challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+      }),
     });
     await api(`/api/apps/${created.id}/subscriptions`, {
       token: aliceToken,
@@ -663,9 +674,7 @@ describe("interactive buttons", () => {
     expect(delivered.headers["x-slack-signature"]).toBe(
       `v0=${createHmac("sha256", created.signingSecret).update(`v0:${ts}:${delivered.body}`).digest("hex")}`,
     );
-    const payload = JSON.parse(
-      new URLSearchParams(delivered.body).get("payload")!,
-    ) as {
+    const payload = JSON.parse(new URLSearchParams(delivered.body).get("payload")!) as {
       type: string;
       user: { id: string };
       actions: { action_id: string; value: string; style?: string }[];
@@ -674,7 +683,11 @@ describe("interactive buttons", () => {
     };
     expect(payload.type).toBe("block_actions");
     expect(payload.user.id).toBe(bob.id);
-    expect(payload.actions[0]).toMatchObject({ action_id: "approve", value: "412", style: "primary" });
+    expect(payload.actions[0]).toMatchObject({
+      action_id: "approve",
+      value: "412",
+      style: "primary",
+    });
     expect(payload.message.ts).toBe(posted.data.ts);
 
     // replace_original rewrote the message it sat on, and took the buttons.

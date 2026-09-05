@@ -360,7 +360,12 @@ function WorkspaceInner({
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
       {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
       {dialog.kind === "edit-profile" && <EditProfileDialog onClose={closeDialog} />}
-      {dialog.kind === "friends" && <FriendsDialog onClose={closeDialog} onOpenProfile={(userId) => setDialog({ kind: "profile", userId })} />}
+      {dialog.kind === "friends" && (
+        <FriendsDialog
+          onClose={closeDialog}
+          onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
+        />
+      )}
       {dialog.kind === "profile" && (
         <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />
       )}

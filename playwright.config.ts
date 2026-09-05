@@ -12,7 +12,9 @@ export default defineConfig({
     headless: true,
     viewport: { width: 1280, height: 820 },
     permissions: ["microphone", "camera"],
-    launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] },
+    launchOptions: {
+      args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
+    },
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },

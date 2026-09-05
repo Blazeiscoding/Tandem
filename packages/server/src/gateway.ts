@@ -55,7 +55,11 @@ export class Gateway {
   }
 
   attach(server: HttpServer, path = "/ws"): void {
-    const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024, perMessageDeflate: false });
+    const wss = new WebSocketServer({
+      noServer: true,
+      maxPayload: 128 * 1024,
+      perMessageDeflate: false,
+    });
     server.on("upgrade", (req, socket, head) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname !== path) {
@@ -97,7 +101,10 @@ export class Gateway {
       let msg: ClientToServer;
       try {
         const parsed = socketMessage.safeParse(JSON.parse(String(data)));
-        if (!parsed.success) { ws.close(4000, "invalid message"); return; }
+        if (!parsed.success) {
+          ws.close(4000, "invalid message");
+          return;
+        }
         msg = parsed.data;
       } catch {
         return;
@@ -196,7 +203,10 @@ export class Gateway {
     if (!set) this.byUser.set(client.userId, (set = new Set()));
     set.add(client);
     if (firstSocket) {
-      this.broadcastEphemeral({ type: "presence", userId: client.userId, presence: "online" }, null);
+      this.broadcastEphemeral(
+        { type: "presence", userId: client.userId, presence: "online" },
+        null,
+      );
     }
   }
 
@@ -296,7 +306,10 @@ export class Gateway {
   private sendRaw(ws: WebSocket, frame: string): void {
     // A slow reader must reconnect and replay instead of growing an unbounded
     // queue in the host's RAM.
-    if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.terminate(); return; }
+    if (ws.bufferedAmount > 2 * 1024 * 1024) {
+      ws.terminate();
+      return;
+    }
     if (ws.readyState === WebSocket.OPEN) ws.send(frame);
   }
 }

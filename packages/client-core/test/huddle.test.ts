@@ -75,7 +75,9 @@ class FakePeerConnection {
     }
     return Promise.resolve();
   }
-  getTransceivers() { return this.transceivers; }
+  getTransceivers() {
+    return this.transceivers;
+  }
   addIceCandidate(candidate: unknown) {
     this.candidates.push(candidate);
     return Promise.resolve();
@@ -127,8 +129,7 @@ beforeEach(() => {
     value: {
       mediaDevices: {
         getUserMedia: () => Promise.resolve(new FakeMediaStream([{ kind: "video", stop() {} }])),
-        getDisplayMedia: () =>
-          Promise.resolve(new FakeMediaStream([{ kind: "video", stop() {} }])),
+        getDisplayMedia: () => Promise.resolve(new FakeMediaStream([{ kind: "video", stop() {} }])),
       },
     },
   });
@@ -146,23 +147,33 @@ describe("HuddleSession", () => {
     session.destroy();
   });
 
-  it.each(["audio", "camera", "screen"])("releases %s permission results after leaving", async (kind) => {
-    const { session } = makeSession("A");
-    let resolve!: (stream: MediaStream) => void;
-    const pending = new Promise<MediaStream>((r) => { resolve = r; });
-    const method = kind === "screen" ? "getDisplayMedia" : "getUserMedia";
-    vi.spyOn(navigator.mediaDevices, method).mockReturnValue(pending);
-    const stop = vi.fn();
-    const task = kind === "audio" ? session.startLocalAudio() : kind === "camera" ? session.toggleCamera() : session.toggleScreenShare();
-    session.destroy();
-    resolve(new FakeMediaStream([{ stop }]) as unknown as MediaStream);
-    await task;
-    expect(stop).toHaveBeenCalledOnce();
-    expect(session.cameraOn).toBe(false);
-    expect(session.sharingScreen).toBe(false);
-    session.syncParticipants(["A", "B"]);
-    expect(FakePeerConnection.instances).toHaveLength(0);
-  });
+  it.each(["audio", "camera", "screen"])(
+    "releases %s permission results after leaving",
+    async (kind) => {
+      const { session } = makeSession("A");
+      let resolve!: (stream: MediaStream) => void;
+      const pending = new Promise<MediaStream>((r) => {
+        resolve = r;
+      });
+      const method = kind === "screen" ? "getDisplayMedia" : "getUserMedia";
+      vi.spyOn(navigator.mediaDevices, method).mockReturnValue(pending);
+      const stop = vi.fn();
+      const task =
+        kind === "audio"
+          ? session.startLocalAudio()
+          : kind === "camera"
+            ? session.toggleCamera()
+            : session.toggleScreenShare();
+      session.destroy();
+      resolve(new FakeMediaStream([{ stop }]) as unknown as MediaStream);
+      await task;
+      expect(stop).toHaveBeenCalledOnce();
+      expect(session.cameraOn).toBe(false);
+      expect(session.sharingScreen).toBe(false);
+      session.syncParticipants(["A", "B"]);
+      expect(FakePeerConnection.instances).toHaveLength(0);
+    },
+  );
 
   it("deduplicates camera permission requests", async () => {
     const { session } = makeSession("A");

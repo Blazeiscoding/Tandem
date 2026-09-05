@@ -47,7 +47,11 @@ export function ProfileDialog(props: {
         </p>
       )}
 
-      {user.id !== selfId && !user.isBot && <div className="mt-4"><FriendActions userId={user.id} /></div>}
+      {user.id !== selfId && !user.isBot && (
+        <div className="mt-4">
+          <FriendActions userId={user.id} />
+        </div>
+      )}
       {user.id !== selfId && (
         <button
           onClick={async () => {

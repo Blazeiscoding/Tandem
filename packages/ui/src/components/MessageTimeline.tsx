@@ -196,9 +196,7 @@ export function MessageTimeline({
 
   return (
     <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto pb-3">
-      {!timeline?.hasMore && timeline?.loaded && (
-        <ChannelIntro channelId={channelId} />
-      )}
+      {!timeline?.hasMore && timeline?.loaded && <ChannelIntro channelId={channelId} />}
       {items.map((msg, i) => {
         const prev = items[i - 1];
         const newDay = !prev || !sameDay(prev.createdAt, msg.createdAt);
@@ -237,9 +235,7 @@ export function MessageTimeline({
         {typers.length > 0 &&
           `${typers.slice(0, 3).join(", ")} ${typers.length === 1 ? "is" : "are"} typing…`}
       </div>
-      {lightboxFile && (
-        <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />
-      )}
+      {lightboxFile && <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />}
     </div>
   );
 }
@@ -343,10 +339,7 @@ function PendingRow({ pending }: { pending: PendingMessage }) {
         <div className="w-9 shrink-0" />
         <div className="min-w-0 flex-1 text-[15px]">
           {pending.text && <Mrkdwn text={pending.text} users={users} channels={channels} />}
-          <PendingAttachments
-            attachments={pending.attachments}
-            progress={pending.uploadProgress}
-          />
+          <PendingAttachments attachments={pending.attachments} progress={pending.uploadProgress} />
           {pending.failed ? (
             <span className="ml-2 text-[12px] text-alert">
               Not sent.{" "}
