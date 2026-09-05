@@ -27,7 +27,7 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite                | Command                       | Result                                                  |
 | -------------------- | ----------------------------- | ------------------------------------------------------- |
 | Types                | `pnpm typecheck`              | 8 packages, clean                                       |
-| Unit and integration | `pnpm test`                   | 123 tests: server 65, client-core 37, ui 9, protocol 12 |
+| Unit and integration | `pnpm test`                   | 129 tests: server 71, client-core 37, ui 9, protocol 12 |
 | Browser end to end   | `pnpm test:e2e`               | 3 scenarios, passed                                     |
 | Packaged Windows app | `pnpm test:desktop`           | 1 scenario, passed                                      |
 | Container            | `node tests/docker-smoke.mjs` | passed                                                  |
@@ -105,9 +105,16 @@ path:
 - an interactivity URL that will not echo the verification challenge is
   refused, so this server cannot be aimed at an unrelated host
 - a `javascript:` URL on a button is dropped rather than rendered as a link
-- the whole round trip again through the browser: the button is drawn, pressing
-  it calls the app, and the app's `replace_original` reply rewrites the message
-  and removes the button
+- a modal opens only for the person whose trigger it is, the trigger is spent
+  after one use, and one app cannot open a form on another app's trigger
+- a required field left empty, or a select answered with something that was
+  never offered, is refused before the app is asked about it — an app is
+  entitled to trust its own options
+- the whole round trip again through the browser, twice: the button is drawn,
+  pressing it calls the app and its `replace_original` reply rewrites the
+  message; and a button opens the app's form, a refusal comes back attached to
+  the field it belongs to, and the accepted answer reaches the app with the
+  values that were typed
 
 Schema upgrades are tested against real data, not only against a fresh
 database: a workspace is created, wound back to the previous schema version

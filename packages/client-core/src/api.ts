@@ -380,6 +380,14 @@ export class Api {
     return this.request("POST", `/api/messages/${messageId}/actions`, { actionId });
   }
 
+  /** Sends a filled-in modal; field errors come back keyed by block id. */
+  submitView(
+    viewId: ID,
+    values: Record<string, Record<string, string>>,
+  ): Promise<{ ok: boolean; errors?: Record<string, string>; message?: string }> {
+    return this.request("POST", `/api/views/${viewId}/submit`, { values });
+  }
+
   setInteractivityUrl(appId: ID, url: string): Promise<{ app: App }> {
     return this.request("PUT", `/api/apps/${appId}/interactivity`, { url });
   }

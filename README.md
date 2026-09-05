@@ -180,12 +180,23 @@ Apps can also **answer** rather than only post:
   Anything else answers privately to whoever pressed, or in the channel with
   `response_type: "in_channel"`.
 
-  Only buttons are drawn so far. Selects, date pickers and modals are dropped
-  rather than shown as controls that do nothing, and a button's `url` is
-  ignored unless it is `http(s)` — a message is not a way to hand someone a
-  `javascript:` link to click.
+  A button's `url` is ignored unless it is `http(s)` — a message is not a way
+  to hand someone a `javascript:` link to click.
 
-Both are signed like Slack's: `v0=HMAC-SHA256(v0:timestamp:body)` under the
+- **Modals.** A button press (or a slash command) hands the app a
+  `trigger_id`; `views.open` turns that into a form in front of the person who
+  pressed it, and nobody else. Submitting posts Slack's `view_submission` with
+  `view.state.values`, `callback_id` and `private_metadata`, and an app can
+  answer `response_action: "errors"` to send them back to a field with a
+  reason. A trigger opens one form, expires in three minutes, and belongs to
+  the app it was issued to.
+
+  Forms carry plain-text inputs and static selects. A date picker or a
+  multi-select is dropped rather than drawn as a control that does nothing, and
+  a view left with no fields at all is refused outright — a form that silently
+  lost half its questions is worse than no form.
+
+Everything an app receives is signed like Slack's: `v0=HMAC-SHA256(v0:timestamp:body)` under the
 app's signing secret, sent as `x-slack-signature` **and** `x-slackoss-signature`,
 so a verifier written for Slack works unchanged.
 
@@ -230,7 +241,7 @@ concurrency. See
 
 ## Roadmap
 
-- **Next**: the rest of interactive Block Kit — modals, selects and date
-  pickers, so a button can open a form rather than only report a result.
+- **Next**: the rest of Block Kit's inputs — date pickers, multi-selects,
+  checkboxes — and `views.update` so a form can change as it is filled in.
 - **Later**: an SFU for larger huddles, message forwarding, sidebar sections,
   a fuller admin console, optional Postgres and S3, and SSO.

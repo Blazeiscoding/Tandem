@@ -1,4 +1,12 @@
-import type { Channel, ChannelPrefs, Friendship, ID, Message, User } from "./entities.js";
+import type {
+  Channel,
+  ChannelPrefs,
+  Friendship,
+  ID,
+  Message,
+  ModalView,
+  User,
+} from "./entities.js";
 import type { HuddleSignal } from "./huddle.js";
 
 /**
@@ -51,7 +59,13 @@ export type EphemeralEvent =
       userId: ID;
       text: string;
       createdAt: number;
-    };
+    }
+  /**
+   * An app is asking this one person to fill in a form. Like an ephemeral
+   * message it is not stored: closing the app loses it, which is what a modal
+   * that has not been submitted should do.
+   */
+  | { type: "view.open"; view: ModalView };
 
 export type Presence = "online" | "away" | "offline";
 

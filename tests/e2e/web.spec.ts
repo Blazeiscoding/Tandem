@@ -370,3 +370,166 @@ test("an app's button calls it back and rewrites the message it sits on", async 
     await new Promise<void>((r) => stub.close(() => r()));
   }
 });
+
+test("a button opens the app's form, and what you type reaches the app", async ({
+  browser,
+}, info) => {
+  // The app: verifies its URL, opens a modal when its button is pressed, and
+  // records the submission.
+  let botToken = "";
+  const submissions: string[] = [];
+  let refuseOnce = true;
+  const stub: Server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => {
+      void (async () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        if (raw.startsWith("{")) {
+          // The url_verification handshake.
+          res.writeHead(200, { "content-type": "application/json" });
+          return res.end(JSON.stringify({ challenge: JSON.parse(raw).challenge }));
+        }
+        const payload = JSON.parse(new URLSearchParams(raw).get("payload")!);
+        if (payload.type === "block_actions") {
+          await fetch(`${base}/api/views.open`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${botToken}`, "content-type": "application/json" },
+            body: JSON.stringify({
+              trigger_id: payload.trigger_id,
+              view: {
+                type: "modal",
+                callback_id: "deploy_form",
+                title: { type: "plain_text", text: "Deploy" },
+                submit: { type: "plain_text", text: "Ship it" },
+                blocks: [
+                  { type: "section", text: { type: "mrkdwn", text: "Where is this going?" } },
+                  {
+                    type: "input",
+                    block_id: "where",
+                    label: { type: "plain_text", text: "Environment" },
+                    element: {
+                      type: "static_select",
+                      action_id: "env",
+                      options: [
+                        { text: { type: "plain_text", text: "Staging" }, value: "staging" },
+                        { text: { type: "plain_text", text: "Production" }, value: "production" },
+                      ],
+                    },
+                  },
+                  {
+                    type: "input",
+                    block_id: "why",
+                    label: { type: "plain_text", text: "Reason" },
+                    element: { type: "plain_text_input", action_id: "notes" },
+                  },
+                ],
+              },
+            }),
+          });
+          res.writeHead(200, { "content-type": "application/json" });
+          return res.end("");
+        }
+        submissions.push(raw);
+        res.writeHead(200, { "content-type": "application/json" });
+        // Refuse the first answer, the way an app that validates would.
+        if (refuseOnce) {
+          refuseOnce = false;
+          return res.end(
+            JSON.stringify({
+              response_action: "errors",
+              errors: { where: "Not to production on a Friday." },
+            }),
+          );
+        }
+        res.end("");
+      })();
+    });
+  });
+  await new Promise<void>((r) => stub.listen(0, "127.0.0.1", r));
+  const stubUrl = `http://127.0.0.1:${(stub.address() as { port: number }).port}/interactions`;
+
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  try {
+    const login = await (
+      await fetch(`${base}/api/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "alice", password: "password123" }),
+      })
+    ).json();
+    const admin = { authorization: `Bearer ${login.token}`, "content-type": "application/json" };
+    const created = await (
+      await fetch(`${base}/api/apps`, {
+        method: "POST",
+        headers: admin,
+        body: JSON.stringify({ name: "Form Bot" }),
+      })
+    ).json();
+    botToken = created.token;
+    await fetch(`${base}/api/apps/${created.app.id}/interactivity`, {
+      method: "PUT",
+      headers: admin,
+      body: JSON.stringify({ url: stubUrl }),
+    });
+
+    await register(page, "erin");
+    const channels = await (await fetch(`${base}/api/channels`, { headers: admin })).json();
+    const general = channels.channels.find((c: { name: string }) => c.name === "general");
+    await fetch(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${botToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        channel: general.id,
+        text: "Ready to deploy",
+        blocks: [
+          {
+            type: "actions",
+            elements: [
+              {
+                type: "button",
+                action_id: "open",
+                style: "primary",
+                text: { type: "plain_text", text: "Deploy…" },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    // Pressing the button opens the app's form.
+    await page.getByRole("button", { name: "Deploy…", exact: true }).click();
+    const modal = page.getByRole("dialog", { name: "Deploy" });
+    await expect(modal).toBeVisible();
+    await expect(modal.getByText("Where is this going?")).toBeVisible();
+
+    await modal.getByLabel("Environment").selectOption("production");
+    await modal.getByLabel("Reason").fill("hotfix for the login bug");
+    await page.screenshot({ path: info.outputPath("modal.png") });
+    await modal.getByRole("button", { name: "Ship it", exact: true }).click();
+
+    // The app refused it, so the form stays open with its reason attached.
+    await expect(modal.getByText("Not to production on a Friday.")).toBeVisible();
+    await expect(modal).toBeVisible();
+
+    // Answering again is accepted, and the form closes.
+    await modal.getByLabel("Environment").selectOption("staging");
+    await modal.getByRole("button", { name: "Ship it", exact: true }).click();
+    await expect(modal).toHaveCount(0);
+
+    expect(submissions).toHaveLength(2);
+    const last = JSON.parse(new URLSearchParams(submissions[1]!).get("payload")!);
+    expect(last.type).toBe("view_submission");
+    expect(last.view.callback_id).toBe("deploy_form");
+    expect(last.view.state.values.where.env.selected_option.value).toBe("staging");
+    expect(last.view.state.values.why.notes.value).toBe("hotfix for the login bug");
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close().catch(() => {});
+    await new Promise<void>((r) => stub.close(() => r()));
+  }
+});

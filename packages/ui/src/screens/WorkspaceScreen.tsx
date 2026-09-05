@@ -22,6 +22,7 @@ import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
 import { AppsDialog } from "../components/AppsDialog.js";
+import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
 
 interface Props {
@@ -359,6 +360,9 @@ function WorkspaceInner({
       {dialog.kind === "search" && <SearchDialog onClose={closeDialog} onJump={jumpToMessage} />}
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
       {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
+      {/* Not one of the workspace's own dialogs: an app asked for this one, so
+          it shows itself whenever one arrives. */}
+      <ViewModal />
       {dialog.kind === "edit-profile" && <EditProfileDialog onClose={closeDialog} />}
       {dialog.kind === "friends" && (
         <FriendsDialog

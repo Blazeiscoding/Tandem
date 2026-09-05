@@ -17,6 +17,7 @@ import {
   createSubscriptionBody,
   interactivityBody,
   messageActionBody,
+  viewSubmitBody,
   createWebhookBody,
   runCommandBody,
   createInviteBody,
@@ -35,6 +36,7 @@ import {
   type EventEnvelope,
   type ID,
   type MessageAction,
+  type ModalView,
   type ServerInfo,
   type User,
   type WorkspaceEvent,
@@ -45,7 +47,7 @@ import { Gateway } from "./gateway.js";
 import { hashPassword, hashToken, newSessionToken, verifyPassword } from "./auth.js";
 import { advertise, type MdnsHandle } from "./mdns.js";
 import { imageSize } from "./imageSize.js";
-import { blocksToActions, payloadToText } from "./blockKit.js";
+import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
@@ -1233,7 +1235,12 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       user_name: me.handle,
       api_app_id: found.app.id,
       response_url: newResponseUrl(target, requestOrigin(req)),
-      trigger_id: ulid(),
+      trigger_id: newTrigger({
+        userId: me.id,
+        channelId: channel.id,
+        appId: found.app.id,
+        botUserId: found.app.botUserId,
+      }),
     }).toString();
 
     try {
@@ -1277,7 +1284,192 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return { ok: true };
   });
 
-  // ---------- interactive buttons ----------
+  // ---------- interactive buttons and modals ----------
+
+  /**
+   * A `trigger_id` is permission to open one modal, on behalf of one person,
+   * for a short while. Slack gives an app three seconds to use it; three
+   * minutes is friendlier to a self-hosted app on a cold start and still short
+   * enough that a leaked id is worthless. In memory, like a response_url.
+   */
+  interface Trigger {
+    userId: ID;
+    channelId: ID;
+    appId: ID;
+    botUserId: ID;
+    expiresAt: number;
+  }
+  const triggers = new Map<string, Trigger>();
+
+  const newTrigger = (trigger: Omit<Trigger, "expiresAt">): string => {
+    const now = Date.now();
+    for (const [k, v] of triggers) if (v.expiresAt < now) triggers.delete(k);
+    const id = ulid();
+    triggers.set(id, { ...trigger, expiresAt: now + 3 * 60_000 });
+    return id;
+  };
+
+  /** An open modal, waiting for the person it was shown to. */
+  interface OpenView {
+    view: ModalView;
+    userId: ID;
+    channelId: ID;
+    appId: ID;
+    botUserId: ID;
+    expiresAt: number;
+  }
+  const openViews = new Map<ID, OpenView>();
+
+  /**
+   * Slack's views.open. The trigger_id decides who sees it, so an app cannot
+   * open a modal in front of someone who did not just ask for one.
+   */
+  app.post("/api/views.open", async (req, reply) => {
+    const token = bearerToken(req);
+    const owner = token ? store.appForToken(hashToken(token)) : null;
+    if (!owner) return reply.status(401).send({ ok: false, error: "invalid_auth" });
+
+    const body = (req.body ?? {}) as { trigger_id?: unknown; view?: unknown };
+    const trigger = typeof body.trigger_id === "string" ? triggers.get(body.trigger_id) : undefined;
+    if (!trigger || trigger.expiresAt < Date.now()) {
+      if (typeof body.trigger_id === "string") triggers.delete(body.trigger_id);
+      return reply.status(400).send({ ok: false, error: "expired_trigger_id" });
+    }
+    // The trigger belongs to whoever it was issued for, and to that app alone.
+    if (trigger.appId !== owner.id) {
+      return reply.status(403).send({ ok: false, error: "trigger_not_yours" });
+    }
+    triggers.delete(body.trigger_id as string);
+
+    const id = ulid();
+    const { droppedFields, ...view } = parseView(body.view, id);
+    if (view.fields.length === 0) {
+      // Either there was nothing to fill in, or everything in it was a control
+      // we cannot draw. Saying so beats showing an empty box.
+      return reply
+        .status(400)
+        .send({ ok: false, error: droppedFields > 0 ? "unsupported_elements" : "no_inputs" });
+    }
+
+    const now = Date.now();
+    for (const [k, v] of openViews) if (v.expiresAt < now) openViews.delete(k);
+    openViews.set(id, {
+      view,
+      userId: trigger.userId,
+      channelId: trigger.channelId,
+      appId: owner.id,
+      botUserId: owner.botUserId,
+      expiresAt: now + 30 * 60_000,
+    });
+    gateway.sendToUser(trigger.userId, { type: "view.open", view });
+    return { ok: true, view: { id, callback_id: view.callbackId } };
+  });
+
+  /**
+   * Someone filled the form in and pressed submit. The values go to the app as
+   * Slack's `view_submission`; field errors it answers with come back to the
+   * client so they can be shown against the fields they belong to.
+   */
+  app.post<{ Params: { id: string } }>("/api/views/:id/submit", async (req) => {
+    const me = requireUser(req);
+    const body = viewSubmitBody.parse(req.body);
+    const open = openViews.get(req.params.id);
+    // A view belongs to the one person it was opened for.
+    if (!open || open.userId !== me.id || open.expiresAt < Date.now()) {
+      openViews.delete(req.params.id);
+      throw new HttpError(404, "view_not_found");
+    }
+    const owner = store.getApp(open.appId);
+    if (!owner?.interactivityUrl) {
+      openViews.delete(open.view.id);
+      throw new HttpError(400, "no_interactivity_url");
+    }
+
+    // Only the fields the app actually asked for, in Slack's nested shape.
+    const values: Record<string, Record<string, unknown>> = {};
+    const missing: Record<string, string> = {};
+    for (const field of open.view.fields) {
+      const raw = body.values[field.blockId]?.[field.actionId] ?? "";
+      const value = raw.trim();
+      if (!value && !field.optional) {
+        missing[field.blockId] = "This is required.";
+        continue;
+      }
+      // A select can only answer with something it offered. Otherwise a
+      // hand-written request could hand the app a value it never listed, and
+      // an app is entitled to trust its own options.
+      if (field.type === "select" && value && !field.options.some((o) => o.value === value)) {
+        missing[field.blockId] = "Choose one of the options.";
+        continue;
+      }
+      values[field.blockId] = {
+        ...values[field.blockId],
+        [field.actionId]:
+          field.type === "select"
+            ? { type: "static_select", selected_option: value ? { value } : null }
+            : { type: "plain_text_input", value },
+      };
+    }
+    // Required fields are checked here as well as in the browser: the app
+    // should never have to defend against a submission the form itself forbids.
+    if (Object.keys(missing).length > 0) return { ok: false, errors: missing };
+
+    const payload = JSON.stringify({
+      type: "view_submission",
+      team: { id: store.getMeta("workspace_id") ?? "", domain: workspaceName() },
+      user: { id: me.id, username: me.handle, name: me.displayName },
+      api_app_id: owner.id,
+      trigger_id: newTrigger({
+        userId: me.id,
+        channelId: open.channelId,
+        appId: owner.id,
+        botUserId: owner.botUserId,
+      }),
+      view: {
+        id: open.view.id,
+        type: "modal",
+        callback_id: open.view.callbackId,
+        private_metadata: open.view.privateMetadata,
+        title: { type: "plain_text", text: open.view.title },
+        state: { values },
+      },
+    });
+    const form = new URLSearchParams({ payload }).toString();
+
+    try {
+      const res = await postToUrl(
+        owner.interactivityUrl,
+        form,
+        "application/x-www-form-urlencoded",
+        {
+          allowPrivate: opts.allowPrivateHooks,
+          headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
+        },
+      );
+      if (res.status < 200 || res.status >= 300) {
+        return { ok: false, errors: {}, message: `The app answered ${res.status}.` };
+      }
+      const answered = res.body.trim();
+      if (answered.startsWith("{")) {
+        const parsed = JSON.parse(answered) as {
+          response_action?: unknown;
+          errors?: Record<string, string>;
+        };
+        // Slack's shape for "your answers are not acceptable, here is why".
+        if (parsed.response_action === "errors" && parsed.errors) {
+          return { ok: false, errors: parsed.errors };
+        }
+      }
+      openViews.delete(open.view.id);
+      return { ok: true };
+    } catch (err) {
+      const why =
+        err instanceof OutboundError && err.code === "blocked_host"
+          ? err.message
+          : "the app did not answer";
+      return { ok: false, errors: {}, message: `That did not go through: ${why}.` };
+    }
+  });
 
   /**
    * Slack's url_verification handshake, worth keeping for more than
@@ -1375,7 +1567,12 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       channel: { id: channel.id, name: channel.name },
       message: { ts: message.id, text: message.text, user: message.userId },
       container: { type: "message", message_ts: message.id, channel_id: channel.id },
-      trigger_id: ulid(),
+      trigger_id: newTrigger({
+        userId: me.id,
+        channelId: channel.id,
+        appId: owner.id,
+        botUserId: owner.botUserId,
+      }),
       response_url: responseUrl,
       actions: [
         {

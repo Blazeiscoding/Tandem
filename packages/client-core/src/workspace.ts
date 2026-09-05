@@ -8,6 +8,7 @@ import {
   type Friendship,
   type ID,
   type Message,
+  type ModalView,
   type Presence,
   type ReadySnapshot,
   type SendMessageBody,
@@ -98,6 +99,8 @@ export interface WorkspaceState {
   huddles: Record<ID, ID[]>;
   /** Private replies per channel, newest last. */
   ephemerals: Record<ID, EphemeralMessage[]>;
+  /** A form an app has asked this person to fill in, or null. */
+  modal: ModalView | null;
   /** Commands that can be typed here; loaded once after connecting. */
   commands: CommandHint[];
   /** The huddle this client is in, if any. */
@@ -125,6 +128,7 @@ const initialState: WorkspaceState = {
   huddles: {},
   huddle: null,
   ephemerals: {},
+  modal: null,
   commands: [],
 };
 
@@ -558,6 +562,9 @@ export class WorkspaceClient {
         text: event.text,
         createdAt: event.createdAt,
       });
+    } else if (event.type === "view.open") {
+      // One at a time: a second form arriving would have nowhere to go anyway.
+      this.store.setState({ modal: event.view });
     } else if (event.type === "typing") {
       if (event.userId === s.self?.id) return;
       this.store.setState({
@@ -583,6 +590,25 @@ export class WorkspaceClient {
   }
 
   // ---------- actions ----------
+
+  /** Closes the form without answering it; the app is told nothing, as in Slack. */
+  dismissModal(): void {
+    this.store.setState({ modal: null });
+  }
+
+  /**
+   * Sends the filled-in form. Field errors come back keyed by block so the UI
+   * can put each one under the field it belongs to; the form stays open then.
+   */
+  async submitModal(
+    values: Record<string, Record<string, string>>,
+  ): Promise<{ ok: boolean; errors?: Record<string, string>; message?: string }> {
+    const modal = this.state.modal;
+    if (!modal) return { ok: true };
+    const result = await this.api.submitView(modal.id, values);
+    if (result.ok) this.store.setState({ modal: null });
+    return result;
+  }
 
   /** Load the initial page (or older pages) of a channel's timeline. */
   async loadTimeline(channelId: ID, opts: { older?: boolean } = {}): Promise<void> {

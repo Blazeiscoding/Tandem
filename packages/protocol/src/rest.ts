@@ -145,6 +145,15 @@ export const messageActionBody = z.object({
   actionId: z.string().min(1).max(255),
 });
 
+/**
+ * What someone typed into a modal: block id -> action id -> value. Bounded
+ * because it is echoed to the app, and an app should not be handed a megabyte
+ * because a field had no maxlength.
+ */
+export const viewSubmitBody = z.object({
+  values: z.record(z.string().max(255), z.record(z.string().max(255), z.string().max(3000))),
+});
+
 export const runCommandBody = z.object({
   /** The whole line the user typed, leading slash included. */
   text: z.string().min(1).max(4000),
@@ -198,4 +207,5 @@ export type CreateCommandBody = z.infer<typeof createCommandBody>;
 export type CreateSubscriptionBody = z.infer<typeof createSubscriptionBody>;
 export type InteractivityBody = z.infer<typeof interactivityBody>;
 export type MessageActionBody = z.infer<typeof messageActionBody>;
+export type ViewSubmitBody = z.infer<typeof viewSubmitBody>;
 export type RunCommandBody = z.infer<typeof runCommandBody>;

@@ -1,4 +1,4 @@
-import type { MessageAction } from "@slackoss/protocol";
+import type { MessageAction, ModalField, ModalView } from "@slackoss/protocol";
 
 /**
  * Slack Block Kit is what most existing integrations send. Rather than
@@ -135,4 +135,114 @@ export function payloadToText(payload: { text?: unknown; blocks?: unknown }): st
   const text = typeof payload.text === "string" ? payload.text.trim() : "";
   if (text) return text;
   return blocksToText(payload.blocks);
+}
+
+interface InputElement {
+  type?: string;
+  action_id?: string;
+  placeholder?: TextObject | string;
+  initial_value?: string;
+  multiline?: boolean;
+  initial_option?: { value?: string };
+  options?: { text?: TextObject | string; value?: string }[];
+}
+
+interface InputBlock extends Block {
+  block_id?: string;
+  label?: TextObject | string;
+  hint?: TextObject | string;
+  optional?: boolean;
+  element?: InputElement;
+}
+
+/** Slack's ceilings for a view, so a form that works there works here. */
+const MAX_FIELDS = 25;
+const MAX_OPTIONS = 100;
+
+/**
+ * Slack's view object, reduced to what can actually be drawn and filled in.
+ *
+ * Only plain-text inputs and static selects are kept. A date picker or a
+ * multi-select is dropped rather than shown as a control that does nothing,
+ * and a view whose every field is dropped is refused outright — submitting a
+ * form that silently lost half its questions is worse than not opening it.
+ */
+export function parseView(
+  raw: unknown,
+  id: string,
+): Omit<ModalView, "id"> & { id: string; droppedFields: number } {
+  const view = (raw ?? {}) as {
+    title?: TextObject | string;
+    submit?: TextObject | string;
+    close?: TextObject | string;
+    callback_id?: string;
+    private_metadata?: string;
+    blocks?: unknown;
+  };
+  const blocks: InputBlock[] = Array.isArray(view.blocks) ? (view.blocks as InputBlock[]) : [];
+
+  const fields: ModalField[] = [];
+  let droppedFields = 0;
+  for (const [index, block] of blocks.entries()) {
+    if (!block || typeof block !== "object" || block.type !== "input") continue;
+    const element = block.element ?? {};
+    const kind =
+      element.type === "plain_text_input"
+        ? element.multiline
+          ? ("textarea" as const)
+          : ("text" as const)
+        : element.type === "static_select"
+          ? ("select" as const)
+          : null;
+    if (!kind) {
+      droppedFields++;
+      continue;
+    }
+    if (fields.length >= MAX_FIELDS) {
+      droppedFields++;
+      continue;
+    }
+    const options = (element.options ?? [])
+      .slice(0, MAX_OPTIONS)
+      .map((o) => ({ text: textOf(o?.text).trim(), value: String(o?.value ?? "") }))
+      .filter((o) => o.text && o.value);
+    // A select with nothing to select is not a field, it is a dead end.
+    if (kind === "select" && options.length === 0) {
+      droppedFields++;
+      continue;
+    }
+    fields.push({
+      blockId: typeof block.block_id === "string" && block.block_id ? block.block_id : `b${index}`,
+      actionId:
+        typeof element.action_id === "string" && element.action_id
+          ? element.action_id
+          : `a${index}`,
+      label: textOf(block.label).trim().slice(0, 200) || `Field ${fields.length + 1}`,
+      hint: textOf(block.hint).trim().slice(0, 300),
+      optional: block.optional === true,
+      type: kind,
+      placeholder: textOf(element.placeholder).trim().slice(0, 150),
+      initialValue:
+        kind === "select"
+          ? (element.initial_option?.value ?? "")
+          : typeof element.initial_value === "string"
+            ? element.initial_value.slice(0, 3000)
+            : "",
+      options,
+    });
+  }
+
+  return {
+    id,
+    callbackId: typeof view.callback_id === "string" ? view.callback_id.slice(0, 255) : "",
+    title: textOf(view.title).trim().slice(0, 100) || "Untitled",
+    submitLabel: textOf(view.submit).trim().slice(0, 40) || "Submit",
+    closeLabel: textOf(view.close).trim().slice(0, 40) || "Cancel",
+    privateMetadata:
+      typeof view.private_metadata === "string" ? view.private_metadata.slice(0, 3000) : "",
+    // Sections and headers above the inputs still carry the explanation.
+    text: blocksToText(blocks.filter((b) => b?.type !== "input")),
+    fields,
+    droppedFields,
+  };
 }

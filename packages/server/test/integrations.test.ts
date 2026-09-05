@@ -758,3 +758,270 @@ describe("interactive buttons", () => {
     expect(set.data.error).toBe("challenge_failed");
   });
 });
+
+describe("modals", () => {
+  /** An app with a verified interactivity URL, ready to be pressed. */
+  async function interactiveApp(name: string) {
+    const created = await newApp(name);
+    stub.handler = (req) => {
+      const body = JSON.parse(req.body) as { challenge?: string };
+      return { body: JSON.stringify({ challenge: body.challenge }) };
+    };
+    await api(`/api/apps/${created.id}/interactivity`, {
+      method: "PUT",
+      token: aliceToken,
+      body: { url: stub.url("/interactions") },
+    });
+    return created;
+  }
+
+  /** Presses a button and returns the trigger_id the app was handed. */
+  async function pressButton(created: { id: string; token: string }, presser: string) {
+    const posted = await api<{ ts: string }>("/api/chat.postMessage", {
+      token: created.token,
+      body: {
+        channel: channelId,
+        text: "Open the form",
+        blocks: [
+          {
+            type: "actions",
+            elements: [
+              { type: "button", action_id: "open", text: { type: "plain_text", text: "Open" } },
+            ],
+          },
+        ],
+      },
+    });
+    stub.received.length = 0;
+    stub.handler = () => ({ body: "" });
+    await api(`/api/messages/${posted.data.ts}/actions`, {
+      token: presser,
+      body: { actionId: "open" },
+    });
+    const payload = JSON.parse(new URLSearchParams(stub.received[0]!.body).get("payload")!) as {
+      trigger_id: string;
+    };
+    return payload.trigger_id;
+  }
+
+  const view = {
+    type: "modal",
+    callback_id: "deploy_form",
+    private_metadata: "build-412",
+    title: { type: "plain_text", text: "Deploy" },
+    submit: { type: "plain_text", text: "Ship it" },
+    blocks: [
+      { type: "section", text: { type: "mrkdwn", text: "Where is this going?" } },
+      {
+        type: "input",
+        block_id: "where",
+        label: { type: "plain_text", text: "Environment" },
+        element: {
+          type: "static_select",
+          action_id: "env",
+          options: [
+            { text: { type: "plain_text", text: "Staging" }, value: "staging" },
+            { text: { type: "plain_text", text: "Production" }, value: "production" },
+          ],
+        },
+      },
+      {
+        type: "input",
+        block_id: "why",
+        optional: true,
+        label: { type: "plain_text", text: "Notes" },
+        element: { type: "plain_text_input", action_id: "notes", multiline: true },
+      },
+      // A control we cannot draw is dropped rather than shown as a dead field.
+      {
+        type: "input",
+        block_id: "when",
+        label: { type: "plain_text", text: "When" },
+        element: { type: "datepicker", action_id: "date" },
+      },
+    ],
+  };
+
+  it("opens a form on a trigger, pushes it to the presser, and delivers what they typed", async () => {
+    const created = await interactiveApp("Form Bot");
+    const trigger = await pressButton(created, bobToken);
+
+    const socket = connectWs(bobToken);
+    await socket.next((m) => m.type === "ready");
+
+    const opened = await api<{ ok: boolean; view: { id: string } }>("/api/views.open", {
+      token: created.token,
+      body: { trigger_id: trigger, view },
+    });
+    expect(opened.data.ok).toBe(true);
+
+    const pushed = (await socket.next(
+      (m) => m.type === "ephemeral" && m.event.type === "view.open",
+    )) as {
+      type: "ephemeral";
+      event: { type: "view.open"; view: PushedView };
+    };
+    const pushedView: PushedView = pushed.event.view;
+    type PushedView = {
+      id: string;
+      title: string;
+      submitLabel: string;
+      text: string;
+      fields: { blockId: string; type: string; optional: boolean; options: unknown[] }[];
+    };
+    expect(pushedView.title).toBe("Deploy");
+    expect(pushedView.submitLabel).toBe("Ship it");
+    expect(pushedView.text).toBe("Where is this going?");
+    // The date picker is gone; the two fields we can draw are not.
+    expect(pushedView.fields.map((f) => f.blockId)).toEqual(["where", "why"]);
+    expect(pushedView.fields[0]!.options).toHaveLength(2);
+    expect(pushedView.fields[1]!.optional).toBe(true);
+
+    // The app answers the submission with a field error; the form stays open.
+    stub.received.length = 0;
+    stub.handler = () => ({
+      body: JSON.stringify({
+        response_action: "errors",
+        errors: { where: "Not on a Friday." },
+      }),
+    });
+    const refused = await api<{ ok: boolean; errors: Record<string, string> }>(
+      `/api/views/${pushedView.id}/submit`,
+      { token: bobToken, body: { values: { where: { env: "production" }, why: { notes: "" } } } },
+    );
+    expect(refused.data).toEqual({ ok: false, errors: { where: "Not on a Friday." } });
+
+    const delivered = JSON.parse(new URLSearchParams(stub.received[0]!.body).get("payload")!) as {
+      type: string;
+      user: { id: string };
+      view: {
+        callback_id: string;
+        private_metadata: string;
+        state: {
+          values: Record<
+            string,
+            Record<string, { value?: string; selected_option?: { value: string } }>
+          >;
+        };
+      };
+    };
+    expect(delivered.type).toBe("view_submission");
+    expect(delivered.user.id).toBe(bob.id);
+    expect(delivered.view.callback_id).toBe("deploy_form");
+    expect(delivered.view.private_metadata).toBe("build-412");
+    expect(delivered.view.state.values.where!.env!.selected_option).toEqual({
+      value: "production",
+    });
+
+    // Accepting it closes the form for good.
+    stub.handler = () => ({ body: "" });
+    const accepted = await api<{ ok: boolean }>(`/api/views/${pushedView.id}/submit`, {
+      token: bobToken,
+      body: { values: { where: { env: "staging" }, why: { notes: "quick fix" } } },
+    });
+    expect(accepted.data.ok).toBe(true);
+    const reused = await api(`/api/views/${pushedView.id}/submit`, {
+      token: bobToken,
+      body: { values: { where: { env: "staging" } } },
+    });
+    expect(reused.status).toBe(404);
+    socket.ws.close();
+  });
+
+  it("holds back a submission that leaves a required field empty", async () => {
+    const created = await interactiveApp("Strict Bot");
+    const trigger = await pressButton(created, bobToken);
+    const opened = await api<{ view: { id: string } }>("/api/views.open", {
+      token: created.token,
+      body: { trigger_id: trigger, view },
+    });
+
+    stub.received.length = 0;
+    const result = await api<{ ok: boolean; errors: Record<string, string> }>(
+      `/api/views/${opened.data.view.id}/submit`,
+      { token: bobToken, body: { values: { where: { env: "  " }, why: { notes: "hi" } } } },
+    );
+    expect(result.data.ok).toBe(false);
+    expect(result.data.errors.where).toBeTruthy();
+    // The app is never asked about a form the form itself rejects.
+    expect(stub.received).toHaveLength(0);
+  });
+
+  it("will not pass on an answer the select never offered", async () => {
+    const created = await interactiveApp("Picky Bot");
+    const trigger = await pressButton(created, bobToken);
+    const opened = await api<{ view: { id: string } }>("/api/views.open", {
+      token: created.token,
+      body: { trigger_id: trigger, view },
+    });
+
+    stub.received.length = 0;
+    const result = await api<{ ok: boolean; errors: Record<string, string> }>(
+      `/api/views/${opened.data.view.id}/submit`,
+      { token: bobToken, body: { values: { where: { env: "the-moon" } } } },
+    );
+    expect(result.data.ok).toBe(false);
+    expect(result.data.errors.where).toBeTruthy();
+    // The app is entitled to trust its own options, so it is never told.
+    expect(stub.received).toHaveLength(0);
+  });
+
+  it("will not open a form in front of someone who did not ask for one", async () => {
+    const created = await interactiveApp("Pushy Bot");
+    const trigger = await pressButton(created, bobToken);
+
+    // Alice's socket must not receive Bob's form.
+    const hers = connectWs(aliceToken);
+    await hers.next((m) => m.type === "ready");
+    await api("/api/views.open", { token: created.token, body: { trigger_id: trigger, view } });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(hers.received.some((m) => m.type === "ephemeral" && m.event.type === "view.open")).toBe(
+      false,
+    );
+    hers.ws.close();
+
+    // And the trigger is spent: it cannot open a second form.
+    const again = await api<{ error: string }>("/api/views.open", {
+      token: created.token,
+      body: { trigger_id: trigger, view },
+    });
+    expect(again.status).toBe(400);
+    expect(again.data.error).toBe("expired_trigger_id");
+  });
+
+  it("refuses a view with nothing it can draw", async () => {
+    const created = await interactiveApp("Exotic Bot");
+    const trigger = await pressButton(created, bobToken);
+    const opened = await api<{ error: string }>("/api/views.open", {
+      token: created.token,
+      body: {
+        trigger_id: trigger,
+        view: {
+          title: { type: "plain_text", text: "Pick a day" },
+          blocks: [
+            {
+              type: "input",
+              block_id: "when",
+              label: { type: "plain_text", text: "When" },
+              element: { type: "datepicker", action_id: "date" },
+            },
+          ],
+        },
+      },
+    });
+    expect(opened.status).toBe(400);
+    expect(opened.data.error).toBe("unsupported_elements");
+  });
+
+  it("does not let one app open a form on another app's trigger", async () => {
+    const mine = await interactiveApp("Mine");
+    const theirs = await interactiveApp("Theirs");
+    const trigger = await pressButton(mine, bobToken);
+    const stolen = await api<{ error: string }>("/api/views.open", {
+      token: theirs.token,
+      body: { trigger_id: trigger, view },
+    });
+    expect(stolen.status).toBe(403);
+    expect(stolen.data.error).toBe("trigger_not_yours");
+  });
+});

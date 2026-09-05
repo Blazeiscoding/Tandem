@@ -165,6 +165,39 @@ export interface App {
   interactivityUrl: string;
 }
 
+/**
+ * A Block Kit modal, reduced to the parts that can be drawn and filled in.
+ * The app sends Slack's view object; this is what survives the trip.
+ */
+export interface ModalView {
+  /** Ours, not the app's — how a submission is tied back to what was opened. */
+  id: ID;
+  /** The app's own name for this view, echoed back on submission. */
+  callbackId: string;
+  title: string;
+  submitLabel: string;
+  closeLabel: string;
+  /** Opaque app state, carried through untouched. */
+  privateMetadata: string;
+  /** Anything above the fields — sections, headers — flattened to mrkdwn. */
+  text: string;
+  fields: ModalField[];
+}
+
+/** One input in a modal. Anything Slack offers that is not here is dropped. */
+export interface ModalField {
+  blockId: string;
+  actionId: string;
+  label: string;
+  hint: string;
+  optional: boolean;
+  type: "text" | "textarea" | "select";
+  placeholder: string;
+  initialValue: string;
+  /** Choices for a select; empty for the text kinds. */
+  options: { text: string; value: string }[];
+}
+
 export interface Webhook {
   id: ID;
   appId: ID;
