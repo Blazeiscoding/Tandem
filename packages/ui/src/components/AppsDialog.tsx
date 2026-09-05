@@ -179,6 +179,9 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
 
             <SectionLabel>Event subscriptions</SectionLabel>
             <SubscriptionList app={a} onChanged={load} />
+
+            <SectionLabel>Interactivity</SectionLabel>
+            <InteractivityUrl app={a} onChanged={load} />
           </li>
         ))}
       </ul>
@@ -373,5 +376,60 @@ function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () =>
       </form>
       {error && <p className="mt-1 text-[11px] text-alert">{error}</p>}
     </>
+  );
+}
+
+/**
+ * Where this app's button clicks go. One URL per app, like Slack's
+ * interactivity request URL, and it has to answer the same verification
+ * handshake a subscription does before it is accepted.
+ */
+function InteractivityUrl({ app, onChanged }: { app: AppDetail; onChanged: () => void }) {
+  const client = useClient();
+  const [url, setUrl] = useState(app.interactivityUrl);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await client.api.setInteractivityUrl(app.id, url.trim());
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.message ?? err.code) : "could not save");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save}>
+      <div className="flex gap-1.5">
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://bot.example.com/interactions"
+          className={`${smallInput} flex-1`}
+        />
+        <button
+          type="submit"
+          disabled={busy || url.trim() === app.interactivityUrl}
+          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
+        >
+          {busy ? "Checking…" : "Save"}
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] text-ink-faint">
+        Buttons in this app&apos;s messages post Slack&apos;s{" "}
+        <code className="font-mono">block_actions</code> payload here. Leave empty to turn them off.
+      </p>
+      {error && (
+        <p role="alert" className="mt-1 text-[11px] text-alert">
+          {error}
+        </p>
+      )}
+    </form>
   );
 }

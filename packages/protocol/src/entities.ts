@@ -96,6 +96,24 @@ export interface Message {
   files: FileMeta[];
   /** Pinned messages are shown to the whole channel. */
   pinned: boolean;
+  /** Buttons an app attached to this message; empty for anything a person sent. */
+  actions: MessageAction[];
+}
+
+/**
+ * A Block Kit button, reduced to what can actually be drawn and clicked here.
+ * Slack's element zoo is much larger; anything else in an `actions` block is
+ * dropped rather than rejected, the same way unknown blocks are.
+ */
+export interface MessageAction {
+  /** The app's own id for this button, echoed back when it is clicked. */
+  actionId: string;
+  blockId: string;
+  text: string;
+  value: string;
+  style: "default" | "primary" | "danger";
+  /** A link button opens this instead of calling the app back. */
+  url: string | null;
 }
 
 export interface Invite {
@@ -139,6 +157,12 @@ export interface App {
   botUserId: ID;
   createdBy: ID;
   createdAt: number;
+  /**
+   * Where a button click is delivered, Slack's "interactivity request URL".
+   * Empty means this app's buttons are inert, which is what an app that only
+   * posts should be.
+   */
+  interactivityUrl: string;
 }
 
 export interface Webhook {

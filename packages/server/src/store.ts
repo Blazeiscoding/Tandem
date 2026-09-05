@@ -9,6 +9,7 @@ import type {
   ID,
   Invite,
   Message,
+  MessageAction,
   ReactionGroup,
   NotifyLevel,
   ParsedSearch,
@@ -62,6 +63,21 @@ interface MessageRow {
   created_at: number;
   edited_at: number | null;
   deleted_at: number | null;
+  actions: string;
+}
+
+/**
+ * Buttons come back out of one JSON column. A row written by a future version,
+ * or corrupted somehow, costs its buttons rather than the whole message.
+ */
+function parseActions(raw: string | null): MessageAction[] {
+  if (!raw || raw === "[]") return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as MessageAction[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function toUser(r: UserRow): User {
@@ -480,12 +496,13 @@ export class Store {
     text: string;
     threadRootId: ID | null;
     nonce: string | null;
+    actions?: MessageAction[];
   }): Message {
     const id = ulid();
     this.db
       .prepare(
-        `INSERT INTO messages (id, channel_id, user_id, text, thread_root_id, nonce, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (id, channel_id, user_id, text, thread_root_id, nonce, created_at, actions)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -495,8 +512,14 @@ export class Store {
         input.threadRootId,
         input.nonce,
         Date.now(),
+        JSON.stringify(input.actions ?? []),
       );
     return this.getMessage(id)!;
+  }
+
+  /** Drops a message's buttons, for an app that has answered and moved on. */
+  clearMessageActions(id: ID): void {
+    this.db.prepare("UPDATE messages SET actions = '[]' WHERE id = ?").run(id);
   }
 
   /** Called after the event log assigns a seq to message.created. */
@@ -684,6 +707,7 @@ export class Store {
       reactions: reactionsByMsg.get(r.id) ?? [],
       files: filesByMsg.get(r.id) ?? [],
       pinned: pinned.has(r.id),
+      actions: parseActions(r.actions),
     }));
   }
 
@@ -975,7 +999,28 @@ export class Store {
         "INSERT INTO apps (id, name, bot_user_id, created_by, created_at, signing_secret) VALUES (?, ?, ?, ?, ?, ?)",
       )
       .run(id, input.name, input.botUserId, input.createdBy, now, input.signingSecret);
-    return { id, name: input.name, botUserId: input.botUserId, createdBy: input.createdBy, createdAt: now };
+    return {
+      id,
+      name: input.name,
+      botUserId: input.botUserId,
+      createdBy: input.createdBy,
+      createdAt: now,
+      interactivityUrl: "",
+    };
+  }
+
+  /** Where this app's button clicks go. Empty leaves its buttons inert. */
+  setInteractivityUrl(id: ID, url: string): boolean {
+    return this.db.prepare("UPDATE apps SET interactivity_url = ? WHERE id = ?").run(url, id)
+      .changes > 0;
+  }
+
+  /** The app a bot user posts as, for tracing a message back to its owner. */
+  appForBotUser(botUserId: ID): App | null {
+    const r = this.db.prepare("SELECT * FROM apps WHERE bot_user_id = ?").get(botUserId) as
+      | Parameters<Store["toApp"]>[0]
+      | undefined;
+    return r ? this.toApp(r) : null;
   }
 
   /**
@@ -995,6 +1040,7 @@ export class Store {
     bot_user_id: string;
     created_by: string;
     created_at: number;
+    interactivity_url?: string;
   }): App {
     return {
       id: r.id,
@@ -1002,6 +1048,7 @@ export class Store {
       botUserId: r.bot_user_id,
       createdBy: r.created_by,
       createdAt: r.created_at,
+      interactivityUrl: r.interactivity_url ?? "",
     };
   }
 

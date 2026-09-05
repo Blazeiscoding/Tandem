@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ let data: string;
 const base = "http://127.0.0.1:18543";
 test.beforeAll(async () => {
   data = mkdtempSync(join(tmpdir(), "slackoss-e2e-"));
-  server = spawn(process.execPath, ["apps/server-cli/dist/slackoss-server.js", "--data", data, "--port", "18543", "--host", "127.0.0.1", "--no-mdns", "--name", "Product Test"], { windowsHide: true, stdio: "pipe" });
+  server = spawn(process.execPath, ["apps/server-cli/dist/slackoss-server.js", "--data", data, "--port", "18543", "--host", "127.0.0.1", "--no-mdns", "--name", "Product Test", "--allow-private-hooks"], { windowsHide: true, stdio: "pipe" });
   await expect.poll(async () => { try { return (await fetch(base + "/api/health")).status; } catch { return 0; } }).toBe(200);
 });
 test.afterAll(async () => {
@@ -163,5 +164,82 @@ test("scrolls back through a long channel without unbounded growth or losing its
     expect(errors).toEqual([]);
   } finally {
     await context.close().catch(() => {});
+  }
+});
+
+test("an app's button calls it back and rewrites the message it sits on", async ({ browser }, info) => {
+  // Stands in for the third-party app the button points at.
+  let answer: (body: string) => string = () => "";
+  const received: string[] = [];
+  const stub: Server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => {
+      const body = Buffer.concat(chunks).toString("utf8");
+      received.push(body);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(answer(body));
+    });
+  });
+  await new Promise<void>((r) => stub.listen(0, "127.0.0.1", r));
+  const stubUrl = `http://127.0.0.1:${(stub.address() as { port: number }).port}/interactions`;
+
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  try {
+    // Alice owns this workspace, so she is the one who can create an app.
+    const login = await (await fetch(`${base}/api/auth/login`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: "alice", password: "password123" }),
+    })).json();
+    const admin = { authorization: `Bearer ${login.token}`, "content-type": "application/json" };
+    const created = await (await fetch(`${base}/api/apps`, {
+      method: "POST", headers: admin, body: JSON.stringify({ name: "Deploy Bot" }),
+    })).json();
+
+    // The URL has to echo the verification challenge before it is accepted.
+    answer = (body) => JSON.stringify({ challenge: JSON.parse(body).challenge });
+    const set = await fetch(`${base}/api/apps/${created.app.id}/interactivity`, {
+      method: "PUT", headers: admin, body: JSON.stringify({ url: stubUrl }),
+    });
+    expect(set.status).toBe(200);
+
+    await register(page, "dave");
+    const channels = await (await fetch(`${base}/api/channels`, { headers: admin })).json();
+    const general = channels.channels.find((c: { name: string }) => c.name === "general");
+
+    await fetch(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${created.token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        channel: general.id,
+        text: "Deploy 412 to production?",
+        blocks: [{ type: "actions", elements: [
+          { type: "button", action_id: "approve", style: "primary", value: "412", text: { type: "plain_text", text: "Approve" } },
+        ] }],
+      }),
+    });
+
+    const approve = page.getByRole("button", { name: "Approve", exact: true });
+    await expect(approve).toBeVisible();
+
+    await page.screenshot({ path: info.outputPath("buttons.png") });
+
+    received.length = 0;
+    answer = () => JSON.stringify({ replace_original: true, text: "Approved. Shipping 412." });
+    await approve.click();
+
+    // The app was called with the click, and its reply replaced the message.
+    await expect(page.getByText("Approved. Shipping 412.", { exact: true })).toBeVisible();
+    await expect(approve).toHaveCount(0);
+    const payload = JSON.parse(new URLSearchParams(received[0]!).get("payload")!);
+    expect(payload.type).toBe("block_actions");
+    expect(payload.actions[0].value).toBe("412");
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close().catch(() => {});
+    await new Promise<void>((r) => stub.close(() => r()));
   }
 });

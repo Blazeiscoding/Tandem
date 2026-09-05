@@ -1,3 +1,5 @@
+import type { MessageAction } from "@slackoss/protocol";
+
 /**
  * Slack Block Kit is what most existing integrations send. Rather than
  * implement the whole renderer, flatten the blocks that actually carry text
@@ -14,9 +16,19 @@ interface TextObject {
 
 interface Block {
   type?: string;
+  block_id?: string;
   text?: TextObject | string;
   fields?: TextObject[];
   elements?: (TextObject | { type?: string; text?: TextObject | string })[];
+}
+
+interface ButtonElement {
+  type?: string;
+  action_id?: string;
+  text?: TextObject | string;
+  value?: string;
+  style?: string;
+  url?: string;
 }
 
 function textOf(value: TextObject | string | undefined): string {
@@ -70,6 +82,45 @@ export function blocksToText(blocks: unknown): string {
   }
 
   return parts.join("\n\n").trim();
+}
+
+/** Slack's own ceilings, so a payload that works there works here. */
+const MAX_ACTIONS = 25;
+const MAX_BUTTON_TEXT = 75;
+const MAX_ACTION_VALUE = 2000;
+
+/**
+ * The buttons in a payload's `actions` blocks. Everything else an actions
+ * block can hold — selects, date pickers, overflow menus — is dropped, since
+ * drawing a button is the whole of what this can honour so far. Dropping is
+ * deliberate: half a form is worse than a message with no form.
+ */
+export function blocksToActions(blocks: unknown): MessageAction[] {
+  if (!Array.isArray(blocks)) return [];
+  const actions: MessageAction[] = [];
+
+  for (const [index, raw] of (blocks as Block[]).entries()) {
+    if (!raw || typeof raw !== "object" || raw.type !== "actions") continue;
+    const blockId = typeof raw.block_id === "string" ? raw.block_id.slice(0, 255) : `b${index}`;
+    for (const [n, el] of ((raw.elements ?? []) as ButtonElement[]).entries()) {
+      if (!el || typeof el !== "object" || el.type !== "button") continue;
+      const text = textOf(el.text).trim().slice(0, MAX_BUTTON_TEXT);
+      if (!text) continue;
+      const style = el.style === "primary" || el.style === "danger" ? el.style : "default";
+      actions.push({
+        actionId: typeof el.action_id === "string" && el.action_id ? el.action_id.slice(0, 255) : `a${index}_${n}`,
+        blockId,
+        text,
+        value: typeof el.value === "string" ? el.value.slice(0, MAX_ACTION_VALUE) : "",
+        style,
+        // Only http(s) links; a button is not a way to hand someone a
+        // javascript: or file: URL to click.
+        url: typeof el.url === "string" && /^https?:\/\//i.test(el.url) ? el.url.slice(0, 2000) : null,
+      });
+      if (actions.length >= MAX_ACTIONS) return actions;
+    }
+  }
+  return actions;
 }
 
 /**

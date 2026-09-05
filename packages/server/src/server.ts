@@ -15,6 +15,8 @@ import {
   createAppBody,
   createCommandBody,
   createSubscriptionBody,
+  interactivityBody,
+  messageActionBody,
   createWebhookBody,
   runCommandBody,
   createInviteBody,
@@ -32,6 +34,7 @@ import {
   updateMeBody,
   type EventEnvelope,
   type ID,
+  type MessageAction,
   type ServerInfo,
   type User,
   type WorkspaceEvent,
@@ -42,7 +45,7 @@ import { Gateway } from "./gateway.js";
 import { hashPassword, hashToken, newSessionToken, verifyPassword } from "./auth.js";
 import { advertise, type MdnsHandle } from "./mdns.js";
 import { imageSize } from "./imageSize.js";
-import { payloadToText } from "./blockKit.js";
+import { blocksToActions, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
@@ -185,6 +188,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     threadRootId: ID | null;
     nonce: string | null;
     fileIds: ID[];
+    actions?: MessageAction[];
   }) => {
     const created = store.createMessage({
       channelId: input.channelId,
@@ -192,6 +196,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       text: input.text,
       threadRootId: input.threadRootId,
       nonce: input.nonce,
+      actions: input.actions,
     });
     if (input.fileIds.length > 0) {
       store.attachFiles(input.fileIds, created.id, input.channelId, input.userId);
@@ -919,6 +924,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       threadRootId: null,
       nonce: null,
       fileIds: [],
+      actions: blocksToActions(payload.blocks),
     });
     // Slack replies with the literal string "ok"; tools check for it.
     return reply.type("text/plain").send("ok");
@@ -975,6 +981,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       threadRootId,
       nonce: null,
       fileIds: [],
+      actions: blocksToActions(body.blocks),
     });
     // `ts` is Slack's message identifier; ours is the message id.
     return { ok: true, channel: channel.id, ts: message.id, message };
@@ -1030,11 +1037,19 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     target: Omit<ResponseTarget, "expiresAt" | "usesLeft">,
     raw: string,
     contentType: string,
+    /** The message a button lives on, which the app may ask to replace. */
+    originMessageId?: ID,
   ): void => {
     const trimmed = raw.trim();
     if (!trimmed) return; // an empty 200 is a silent acknowledgement
 
-    let payload: { text?: unknown; blocks?: unknown; response_type?: unknown } = {};
+    let payload: {
+      text?: unknown;
+      blocks?: unknown;
+      response_type?: unknown;
+      replace_original?: unknown;
+      delete_original?: unknown;
+    } = {};
     if (contentType.includes("json") || trimmed.startsWith("{")) {
       try {
         payload = JSON.parse(trimmed) as typeof payload;
@@ -1043,6 +1058,29 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       }
     } else {
       payload = { text: trimmed };
+    }
+
+    // Slack lets a button's handler rewrite the message it sits on, which is
+    // how "Approve" becomes "Approved by @alice" with the buttons gone.
+    if (originMessageId && (payload.replace_original === true || payload.delete_original === true)) {
+      const existing = store.getMessage(originMessageId);
+      if (existing) {
+        if (payload.delete_original === true) {
+          store.deleteMessage(existing.id);
+          emit(
+            { type: "message.deleted", channelId: existing.channelId, messageId: existing.id, threadRootId: existing.threadRootId },
+            existing.channelId,
+          );
+          return;
+        }
+        const replacement = payloadToText(payload);
+        if (replacement) {
+          store.clearMessageActions(existing.id);
+          const updated = store.editMessage(existing.id, replacement);
+          emit({ type: "message.updated", message: updated }, updated.channelId);
+        }
+        return;
+      }
     }
 
     const text = payloadToText(payload);
@@ -1056,6 +1094,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         threadRootId: target.threadRootId,
         nonce: null,
         fileIds: [],
+        actions: blocksToActions(payload.blocks),
       });
     } else {
       sayEphemeral(target.channelId, target.invokerId, target.botUserId, text);
@@ -1204,25 +1243,22 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return { ok: true };
   });
 
-  // ---------- outgoing event subscriptions ----------
+  // ---------- interactive buttons ----------
 
-  app.post<{ Params: { id: string } }>("/api/apps/:id/subscriptions", async (req, reply) => {
-    requireAdmin(req);
-    const owner = store.getApp(req.params.id);
-    if (!owner) throw new HttpError(404, "not_found");
-    const body = createSubscriptionBody.parse(req.body);
-
-    // Slack's url_verification handshake, worth keeping for more than
-    // compatibility: an endpoint that cannot echo the challenge has not agreed
-    // to receive anything, so this is also what stops the server being aimed
-    // at an unrelated host as a way of flooding it.
+  /**
+   * Slack's url_verification handshake, worth keeping for more than
+   * compatibility: an endpoint that cannot echo the challenge has not agreed to
+   * receive anything, so this is also what stops the server being aimed at an
+   * unrelated host as a way of flooding it.
+   */
+  const verifyCallbackUrl = async (url: string, appId: ID): Promise<void> => {
     const challenge = secretToken();
     const probe = JSON.stringify({ type: "url_verification", token: "", challenge });
     let answered: string;
     try {
-      const res = await postToUrl(body.url, probe, "application/json", {
+      const res = await postToUrl(url, probe, "application/json", {
         allowPrivate: opts.allowPrivateHooks,
-        headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", probe),
+        headers: signatureHeaders(store.appSigningSecret(appId) ?? "", probe),
       });
       answered = res.body.trim();
       if (answered.startsWith("{")) {
@@ -1242,6 +1278,113 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         "the endpoint did not echo the url_verification challenge",
       );
     }
+  };
+
+  /**
+   * Where this app's button clicks are delivered. Verified the same way a
+   * subscription URL is: an endpoint that cannot echo the challenge has not
+   * agreed to receive anything, which is also what stops this server being
+   * aimed at an unrelated host.
+   */
+  app.put<{ Params: { id: string } }>("/api/apps/:id/interactivity", async (req) => {
+    requireAdmin(req);
+    const owner = store.getApp(req.params.id);
+    if (!owner) throw new HttpError(404, "not_found");
+    const body = interactivityBody.parse(req.body);
+
+    if (!body.url) {
+      store.setInteractivityUrl(owner.id, "");
+      return { app: store.getApp(owner.id) };
+    }
+    await verifyCallbackUrl(body.url, owner.id);
+    store.setInteractivityUrl(owner.id, body.url);
+    return { app: store.getApp(owner.id) };
+  });
+
+  /**
+   * Someone pressed a button. This posts Slack's `block_actions` payload to
+   * the owning app and renders whatever comes back, so an integration written
+   * for Slack works unchanged.
+   */
+  app.post<{ Params: { id: string } }>("/api/messages/:id/actions", async (req) => {
+    const me = requireUser(req);
+    const body = messageActionBody.parse(req.body);
+    const message = store.getMessage(req.params.id);
+    if (!message) throw new HttpError(404, "message_not_found");
+    const channel = requireChannelAccess(message.channelId, me);
+    if (channel.archived) throw new HttpError(400, "channel_archived");
+
+    const action = message.actions.find((a) => a.actionId === body.actionId);
+    // A stale button — the message was edited or its buttons cleared — is a
+    // 404 rather than a silent success, so the UI can say so.
+    if (!action) throw new HttpError(404, "action_not_found");
+    // A link button is handled entirely in the client; nothing to call.
+    if (action.url) throw new HttpError(400, "link_action");
+
+    const owner = store.appForBotUser(message.userId);
+    if (!owner) throw new HttpError(400, "not_an_app_message");
+    if (!owner.interactivityUrl) throw new HttpError(400, "no_interactivity_url");
+
+    const target = {
+      channelId: channel.id,
+      invokerId: me.id,
+      botUserId: owner.botUserId,
+      threadRootId: message.threadRootId,
+    };
+    const responseUrl = newResponseUrl(target, requestOrigin(req));
+    const payload = JSON.stringify({
+      type: "block_actions",
+      // Slack sends this as a form field named payload; so do we below.
+      team: { id: store.getMeta("workspace_id") ?? "", domain: workspaceName() },
+      user: { id: me.id, username: me.handle, name: me.displayName },
+      api_app_id: owner.id,
+      channel: { id: channel.id, name: channel.name },
+      message: { ts: message.id, text: message.text, user: message.userId },
+      container: { type: "message", message_ts: message.id, channel_id: channel.id },
+      trigger_id: ulid(),
+      response_url: responseUrl,
+      actions: [
+        {
+          type: "button",
+          action_id: action.actionId,
+          block_id: action.blockId,
+          text: { type: "plain_text", text: action.text },
+          value: action.value,
+          style: action.style === "default" ? undefined : action.style,
+          action_ts: String(Date.now() / 1000),
+        },
+      ],
+    });
+    const form = new URLSearchParams({ payload }).toString();
+
+    try {
+      const res = await postToUrl(owner.interactivityUrl, form, "application/x-www-form-urlencoded", {
+        allowPrivate: opts.allowPrivateHooks,
+        headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
+      });
+      if (res.status < 200 || res.status >= 300) {
+        sayEphemeral(channel.id, me.id, owner.botUserId, `That button failed: the app answered ${res.status}.`);
+        return { ok: false, error: "action_failed" };
+      }
+      deliverCommandReply(target, res.body, res.contentType, message.id);
+      return { ok: true };
+    } catch (err) {
+      const why =
+        err instanceof OutboundError && err.code === "blocked_host" ? err.message : "the app did not answer";
+      sayEphemeral(channel.id, me.id, owner.botUserId, `That button failed: ${why}.`);
+      return { ok: false, error: "action_failed" };
+    }
+  });
+
+  // ---------- outgoing event subscriptions ----------
+
+  app.post<{ Params: { id: string } }>("/api/apps/:id/subscriptions", async (req, reply) => {
+    requireAdmin(req);
+    const owner = store.getApp(req.params.id);
+    if (!owner) throw new HttpError(404, "not_found");
+    const body = createSubscriptionBody.parse(req.body);
+
+    await verifyCallbackUrl(body.url, owner.id);
 
     const subscription = store.createSubscription({
       appId: owner.id,

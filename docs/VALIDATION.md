@@ -27,8 +27,8 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite | Command | Result |
 | --- | --- | --- |
 | Types | `pnpm typecheck` | 8 packages, clean |
-| Unit and integration | `pnpm test` | 119 tests: server 61, client-core 37, ui 9, protocol 12 |
-| Browser end to end | `pnpm test:e2e` | 2 scenarios, passed |
+| Unit and integration | `pnpm test` | 123 tests: server 65, client-core 37, ui 9, protocol 12 |
+| Browser end to end | `pnpm test:e2e` | 3 scenarios, passed |
 | Packaged Windows app | `pnpm test:desktop` | 1 scenario, passed |
 | Container | `node tests/docker-smoke.mjs` | passed |
 
@@ -89,6 +89,29 @@ duplicate transceivers and audio that flowed only one way while the UI showed
 "connected". Chromium also reports a receiver's track as unmuted once the
 transport is up even when no frame has ever arrived, so what a peer is sending
 is stated explicitly over signalling rather than inferred.
+
+## Integrations, end to end
+
+The integration tests run a real HTTP server standing in for the third-party
+app, so a slash command, an event subscription and a button press are all
+delivered over a socket rather than mocked. What is checked, beyond the happy
+path:
+
+- the `block_actions` payload's signature matches an HMAC computed
+  independently in the test, under both `x-slack-signature` and
+  `x-slackoss-signature`
+- a button on a message in a private channel is a 404 to someone outside it,
+  and nothing is sent onward on their behalf
+- an interactivity URL that will not echo the verification challenge is
+  refused, so this server cannot be aimed at an unrelated host
+- a `javascript:` URL on a button is dropped rather than rendered as a link
+- the whole round trip again through the browser: the button is drawn, pressing
+  it calls the app, and the app's `replace_original` reply rewrites the message
+  and removes the button
+
+Schema upgrades are tested against real data, not only against a fresh
+database: a workspace is created, wound back to the previous schema version
+with its messages in place, and reopened, then read from and written to.
 
 ## Packaged desktop app
 

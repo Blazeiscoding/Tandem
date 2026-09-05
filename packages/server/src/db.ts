@@ -233,6 +233,13 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_friends_high ON friendships(user_high);
   `,
+
+  // v9 — interactive buttons: what an app attached to a message, and where a
+  // click on one is delivered.
+  `
+  ALTER TABLE messages ADD COLUMN actions TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE apps ADD COLUMN interactivity_url TEXT NOT NULL DEFAULT '';
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

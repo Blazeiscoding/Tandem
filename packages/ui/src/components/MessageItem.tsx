@@ -137,6 +137,7 @@ export function MessageItem({
                 files={message.files}
                 onOpenImage={(f) => onOpenImage?.(f)}
               />
+              <MessageActions message={message} />
             </>
           )}
 
@@ -252,5 +253,71 @@ function ToolbarButton(props: {
     >
       {props.label}
     </button>
+  );
+}
+
+/**
+ * The buttons an app attached to a message. A link button is an ordinary
+ * anchor; everything else calls the app back and waits, because the answer
+ * usually rewrites the very message the button sits on.
+ */
+function MessageActions({ message }: { message: Message }) {
+  const client = useClient();
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (message.actions.length === 0) return null;
+
+  const styles: Record<string, string> = {
+    primary: "border-online bg-online/15 text-online hover:bg-online/25",
+    danger: "border-alert bg-alert/15 text-alert hover:bg-alert/25",
+    default: "border-edge text-ink-dim hover:border-ink-faint hover:text-ink",
+  };
+
+  async function press(actionId: string) {
+    setError(null);
+    setPending(actionId);
+    try {
+      const res = await client.api.runMessageAction(message.id, actionId);
+      if (!res.ok) setError("That did not go through.");
+    } catch {
+      setError("That did not go through.");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {message.actions.map((action) =>
+        action.url ? (
+          <a
+            key={action.actionId}
+            href={action.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors ${styles.default}`}
+          >
+            {action.text}
+          </a>
+        ) : (
+          <button
+            key={action.actionId}
+            disabled={pending !== null}
+            onClick={() => void press(action.actionId)}
+            className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-50 ${
+              styles[action.style] ?? styles.default
+            }`}
+          >
+            {pending === action.actionId ? "…" : action.text}
+          </button>
+        ),
+      )}
+      {error && (
+        <span role="alert" className="text-[12px] text-alert">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,5 +132,44 @@ describe("self-hosted product", () => {
     expect(parseIceServers(undefined)).toEqual([]);
     expect(parseIceServers('[{"urls":["stun:example.org","turn:example.org"],"username":"u","credential":"p"}]')).toHaveLength(1);
     expect(() => parseIceServers('[{"urls":"https://invalid","credential":"secret"}]')).toThrow("SLACKOSS_ICE_SERVERS must be");
+  });
+  it("upgrades a workspace that predates message buttons", async () => {
+    const base = await start();
+    const owner = await request(base, "/api/auth/register", undefined, "POST", {
+      handle: "owner", displayName: "Owner", password: "password123",
+    });
+    const channel = server!.store.getChannelByName("general")!;
+    const posted = await request(base, `/api/channels/${channel.id}/messages`, owner.data.token, "POST", {
+      text: "written before buttons existed", nonce: "old-1",
+    });
+    expect(posted.status).toBe(201);
+    const dir = directory!;
+    await server!.stop();
+    server = undefined;
+
+    // Wind the schema back to what v8 shipped, data and all.
+    const db = new DatabaseSync(join(dir, "workspace.db"));
+    db.exec("ALTER TABLE messages DROP COLUMN actions");
+    db.exec("ALTER TABLE apps DROP COLUMN interactivity_url");
+    db.exec("PRAGMA user_version = 8");
+    db.close();
+
+    // Reopening migrates it forward without losing what was there.
+    server = await createWorkspaceServer({ dataDir: dir, port: 0, host: "127.0.0.1", mdns: false });
+    const reopened = `http://127.0.0.1:${server.port}`;
+    const login = await request(reopened, "/api/auth/login", undefined, "POST", {
+      handle: "owner", password: "password123",
+    });
+    const messages = await request(reopened, `/api/channels/${channel.id}/messages`, login.data.token);
+    const old = messages.data.messages.find((m: { nonce: string }) => m.nonce === "old-1");
+    expect(old.text).toBe("written before buttons existed");
+    expect(old.actions).toEqual([]);
+
+    // And the new column is really there: writing one would fail without it.
+    const after = await request(reopened, `/api/channels/${channel.id}/messages`, login.data.token, "POST", {
+      text: "written after", nonce: "new-1",
+    });
+    expect(after.status).toBe(201);
+    expect(after.data.message.actions).toEqual([]);
   });
 });

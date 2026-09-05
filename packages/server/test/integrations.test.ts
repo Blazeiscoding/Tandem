@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import {
   PROTOCOL_VERSION,
   escapeMrkdwn,
+  type Message,
   type ServerToClient,
   type User,
 } from "@slackoss/protocol";
@@ -565,5 +566,182 @@ describe("outgoing event subscriptions", () => {
     });
     await new Promise((r) => setTimeout(r, 150));
     expect(stub.received.filter((r) => r.url === "/gone")).toHaveLength(0);
+  });
+});
+
+describe("interactive buttons", () => {
+  /** Accepts the interactivity URL by echoing the verification challenge. */
+  const acceptVerification = () => {
+    stub.handler = (req) => {
+      const body = JSON.parse(req.body) as { challenge?: string };
+      return { body: JSON.stringify({ challenge: body.challenge }) };
+    };
+  };
+
+  it("carries a Block Kit actions block through to a pressable button", async () => {
+    const created = await newApp("Deploy Bot");
+    acceptVerification();
+    const set = await api(`/api/apps/${created.id}/interactivity`, {
+      method: "PUT",
+      token: aliceToken,
+      body: { url: stub.url("/interactions") },
+    });
+    expect(set.status).toBe(200);
+
+    const posted = await api<{ ok: boolean; ts: string; message: Message }>(
+      "/api/chat.postMessage",
+      {
+        token: created.token,
+        body: {
+          channel: channelId,
+          text: "Deploy 412 to production?",
+          blocks: [
+            {
+              type: "actions",
+              block_id: "deploy",
+              elements: [
+                {
+                  type: "button",
+                  action_id: "approve",
+                  text: { type: "plain_text", text: "Approve" },
+                  style: "primary",
+                  value: "412",
+                },
+                {
+                  type: "button",
+                  action_id: "docs",
+                  text: { type: "plain_text", text: "Docs" },
+                  url: "https://example.com/docs",
+                },
+                // Not a button, and not something we can draw: dropped rather
+                // than shown as something that does nothing.
+                { type: "static_select", action_id: "pick" },
+                // A button that would hand someone a javascript: URL to click.
+                {
+                  type: "button",
+                  action_id: "sneaky",
+                  text: { type: "plain_text", text: "Click" },
+                  url: "javascript:alert(1)",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    );
+    expect(posted.data.message.actions.map((a) => a.actionId)).toEqual([
+      "approve",
+      "docs",
+      "sneaky",
+    ]);
+    expect(posted.data.message.actions[0]).toMatchObject({
+      blockId: "deploy",
+      text: "Approve",
+      style: "primary",
+      value: "412",
+      url: null,
+    });
+    expect(posted.data.message.actions[1]!.url).toBe("https://example.com/docs");
+    // The javascript: URL is dropped, so that button calls the app instead of
+    // handing the browser a scheme it should never follow.
+    expect(posted.data.message.actions[2]!.url).toBeNull();
+
+    // Pressing it delivers Slack's block_actions payload, signed as Slack signs.
+    stub.received.length = 0;
+    stub.handler = () => ({
+      body: JSON.stringify({ replace_original: true, text: "Approved by Bob" }),
+    });
+    const pressed = await api<{ ok: boolean }>(`/api/messages/${posted.data.ts}/actions`, {
+      token: bobToken,
+      body: { actionId: "approve" },
+    });
+    expect(pressed.data.ok).toBe(true);
+
+    const delivered = stub.received[0]!;
+    expect(delivered.url).toBe("/interactions");
+    const ts = delivered.headers["x-slack-request-timestamp"]!;
+    expect(delivered.headers["x-slack-signature"]).toBe(
+      `v0=${createHmac("sha256", created.signingSecret).update(`v0:${ts}:${delivered.body}`).digest("hex")}`,
+    );
+    const payload = JSON.parse(
+      new URLSearchParams(delivered.body).get("payload")!,
+    ) as {
+      type: string;
+      user: { id: string };
+      actions: { action_id: string; value: string; style?: string }[];
+      response_url: string;
+      message: { ts: string };
+    };
+    expect(payload.type).toBe("block_actions");
+    expect(payload.user.id).toBe(bob.id);
+    expect(payload.actions[0]).toMatchObject({ action_id: "approve", value: "412", style: "primary" });
+    expect(payload.message.ts).toBe(posted.data.ts);
+
+    // replace_original rewrote the message it sat on, and took the buttons.
+    const after = await api<{ messages: Message[] }>(`/api/channels/${channelId}/messages`, {
+      token: bobToken,
+    });
+    const updated = after.data.messages.find((m) => m.id === posted.data.ts)!;
+    expect(updated.text).toBe("Approved by Bob");
+    expect(updated.actions).toEqual([]);
+
+    // And the button is gone for good: pressing it again finds nothing.
+    const again = await api<{ error?: string }>(`/api/messages/${posted.data.ts}/actions`, {
+      token: bobToken,
+      body: { actionId: "approve" },
+    });
+    expect(again.status).toBe(404);
+  });
+
+  it("refuses a button on a message the presser cannot see", async () => {
+    const created = await newApp("Private Bot");
+    acceptVerification();
+    await api(`/api/apps/${created.id}/interactivity`, {
+      method: "PUT",
+      token: aliceToken,
+      body: { url: stub.url("/interactions") },
+    });
+    const { data: madeChannel } = await api<{ channel: { id: string } }>("/api/channels", {
+      token: aliceToken,
+      body: { type: "private", name: "war-room" },
+    });
+    server.store.addMember(madeChannel.channel.id, created.botUser.id);
+
+    const posted = await api<{ ts: string }>("/api/chat.postMessage", {
+      token: created.token,
+      body: {
+        channel: madeChannel.channel.id,
+        text: "ship it?",
+        blocks: [
+          {
+            type: "actions",
+            elements: [
+              { type: "button", action_id: "yes", text: { type: "plain_text", text: "Ship" } },
+            ],
+          },
+        ],
+      },
+    });
+
+    stub.received.length = 0;
+    const pressed = await api(`/api/messages/${posted.data.ts}/actions`, {
+      token: bobToken,
+      body: { actionId: "yes" },
+    });
+    expect(pressed.status).toBe(404);
+    // Nothing was sent onward on behalf of someone who cannot see the message.
+    expect(stub.received).toHaveLength(0);
+  });
+
+  it("does not accept an interactivity URL that will not answer the handshake", async () => {
+    const created = await newApp("Silent Bot");
+    stub.handler = () => ({ body: "" });
+    const set = await api<{ error: string }>(`/api/apps/${created.id}/interactivity`, {
+      method: "PUT",
+      token: aliceToken,
+      body: { url: stub.url("/nope") },
+    });
+    expect(set.status).toBe(400);
+    expect(set.data.error).toBe("challenge_failed");
   });
 });

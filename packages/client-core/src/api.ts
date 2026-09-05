@@ -369,6 +369,15 @@ export class Api {
     return this.request("POST", `/api/channels/${channelId}/commands`, body);
   }
 
+  /** Presses a button an app put on a message. */
+  runMessageAction(messageId: ID, actionId: string): Promise<{ ok: boolean; error?: string }> {
+    return this.request("POST", `/api/messages/${messageId}/actions`, { actionId });
+  }
+
+  setInteractivityUrl(appId: ID, url: string): Promise<{ app: App }> {
+    return this.request("PUT", `/api/apps/${appId}/interactivity`, { url });
+  }
+
   createInvite(body: CreateInviteBody = {}): Promise<{ invite: Invite }> {
     return this.request("POST", "/api/invites", body);
   }

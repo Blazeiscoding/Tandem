@@ -147,7 +147,8 @@ curl -X POST http://your-server:8543/api/chat.postMessage   -H "authorization: B
 `chat.postMessage` accepts a channel id or `#name`, supports `thread_ts`, and
 replies with Slack's `{ok, channel, ts}` — or `{ok:false, error}` on failure.
 Block Kit payloads are flattened to text rather than rejected, so a message
-written for Slack still reads sensibly.
+written for Slack still reads sensibly, and the **buttons** in an `actions`
+block are drawn as buttons.
 
 Apps can also **answer** rather than only post:
 
@@ -163,6 +164,20 @@ Apps can also **answer** rather than only post:
   challenge before it is accepted, an app only receives events from channels
   its bot has been added to, and an app is never sent its own bot's actions —
   which is the loop every chat integration otherwise causes.
+
+- **Interactive buttons.** Give the app an interactivity request URL and its
+  buttons become live. A press posts Slack's `block_actions` payload — the
+  pressed `action_id` and `value`, who pressed it, where, and a `response_url`
+  — and the reply is rendered. Answering `replace_original` rewrites the
+  message the button sits on and takes the buttons with it, which is how
+  *Approve* becomes *Approved, shipping 412*; `delete_original` removes it.
+  Anything else answers privately to whoever pressed, or in the channel with
+  `response_type: "in_channel"`.
+
+  Only buttons are drawn so far. Selects, date pickers and modals are dropped
+  rather than shown as controls that do nothing, and a button's `url` is
+  ignored unless it is `http(s)` — a message is not a way to hand someone a
+  `javascript:` link to click.
 
 Both are signed like Slack's: `v0=HMAC-SHA256(v0:timestamp:body)` under the
 app's signing secret, sent as `x-slack-signature` **and** `x-slackoss-signature`,
@@ -209,8 +224,7 @@ concurrency. See
 
 ## Roadmap
 
-- **Next**: interactive Block Kit (buttons and modals) so an app can do more
-  than answer in text; a huddle grid worth looking at with more than a few
-  people in it.
+- **Next**: the rest of interactive Block Kit — modals, selects and date
+  pickers, so a button can open a form rather than only report a result.
 - **Later**: an SFU for larger huddles, message forwarding, sidebar sections,
   a fuller admin console, optional Postgres and S3, and SSO.

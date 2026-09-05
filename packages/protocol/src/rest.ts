@@ -133,6 +133,16 @@ export const createSubscriptionBody = z.object({
   eventTypes: z.array(z.string().max(40)).max(20).optional(),
 });
 
+/** Empty clears it, which leaves the app's buttons inert. */
+export const interactivityBody = z.object({
+  url: z.union([integrationUrl, z.literal("")]),
+});
+
+/** Which button on a message was pressed. */
+export const messageActionBody = z.object({
+  actionId: z.string().min(1).max(255),
+});
+
 export const runCommandBody = z.object({
   /** The whole line the user typed, leading slash included. */
   text: z.string().min(1).max(4000),
@@ -179,4 +189,6 @@ export type CreateAppBody = z.infer<typeof createAppBody>;
 export type CreateWebhookBody = z.infer<typeof createWebhookBody>;
 export type CreateCommandBody = z.infer<typeof createCommandBody>;
 export type CreateSubscriptionBody = z.infer<typeof createSubscriptionBody>;
+export type InteractivityBody = z.infer<typeof interactivityBody>;
+export type MessageActionBody = z.infer<typeof messageActionBody>;
 export type RunCommandBody = z.infer<typeof runCommandBody>;
