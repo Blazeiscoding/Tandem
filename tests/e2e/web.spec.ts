@@ -60,6 +60,20 @@ async function register(page: Page, handle: string) {
   await expect(page.locator("textarea")).toBeVisible();
 }
 
+/** Signs an existing account in, rather than creating one. */
+async function signIn(page: Page, handle: string) {
+  await page.goto(base);
+  await page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev").fill(base);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByPlaceholder("username", { exact: true })).toBeVisible();
+  const signInTab = page.getByRole("button", { name: "Sign in", exact: true }).first();
+  if (await signInTab.isVisible().catch(() => false)) await signInTab.click();
+  await page.getByPlaceholder("username", { exact: true }).fill(handle);
+  await page.getByPlaceholder("Password", { exact: true }).fill("password123");
+  await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
+  await expect(page.locator("textarea")).toBeVisible();
+}
+
 test("two people register, chat, become friends, reconnect, and exchange real WebRTC media", async ({
   browser,
 }, info) => {
@@ -531,5 +545,59 @@ test("a button opens the app's form, and what you type reaches the app", async (
   } finally {
     await context.close().catch(() => {});
     await new Promise<void>((r) => stub.close(() => r()));
+  }
+});
+
+test("deactivating someone signs them out of the app they already have open", async ({
+  browser,
+}) => {
+  const ownerContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const leaverContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const ownerPage = await ownerContext.newPage();
+  const leaverPage = await leaverContext.newPage();
+  try {
+    // Alice registered first, so she owns this workspace.
+    await signIn(ownerPage, "alice");
+    await register(leaverPage, "frank");
+    await expect(leaverPage.locator("textarea")).toBeVisible();
+
+    await ownerPage.getByRole("button", { name: "⚙ People", exact: true }).click();
+    const dialog = ownerPage.getByRole("dialog", { name: "People" });
+    await expect(dialog).toBeVisible();
+
+    // The owner's own row offers nothing: you cannot lock yourself out.
+    const ownerRow = dialog.locator("li").filter({ hasText: "@alice" });
+    await expect(ownerRow.getByRole("button")).toHaveCount(0);
+
+    const leaverRow = dialog.locator("li").filter({ hasText: "@frank" });
+    await leaverRow.getByRole("button", { name: "Deactivate", exact: true }).click();
+    // Deactivated accounts drop out of the list, and are still reachable behind
+    // a toggle, because reactivating is the other half of this.
+    await expect(leaverRow).toHaveCount(0);
+    await dialog.getByRole("button", { name: /Show 1 deactivated account/ }).click();
+    await expect(
+      dialog.locator("li").filter({ hasText: "@frank" }).getByText("Deactivated"),
+    ).toBeVisible();
+
+    // Frank's open app does not keep working: it drops back to the join screen.
+    await expect(leaverPage.getByText("Find your workspace", { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // And signing back in from that same screen is refused.
+    await leaverPage.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev").fill(base);
+    await leaverPage.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(leaverPage.getByPlaceholder("username", { exact: true })).toBeVisible();
+    const signInTab = leaverPage.getByRole("button", { name: "Sign in", exact: true }).first();
+    if (await signInTab.isVisible().catch(() => false)) await signInTab.click();
+    await leaverPage.getByPlaceholder("username", { exact: true }).fill("frank");
+    await leaverPage.getByPlaceholder("Password", { exact: true }).fill("password123");
+    await leaverPage.getByRole("button", { name: "Sign in", exact: true }).last().click();
+    await leaverPage.waitForTimeout(1000);
+    await expect(leaverPage.locator("textarea")).toHaveCount(0);
+    await expect(leaverPage.getByPlaceholder("username", { exact: true })).toBeVisible();
+  } finally {
+    await ownerContext.close().catch(() => {});
+    await leaverContext.close().catch(() => {});
   }
 });

@@ -27,8 +27,8 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite                | Command                       | Result                                                  |
 | -------------------- | ----------------------------- | ------------------------------------------------------- |
 | Types                | `pnpm typecheck`              | 8 packages, clean                                       |
-| Unit and integration | `pnpm test`                   | 129 tests: server 71, client-core 37, ui 9, protocol 12 |
-| Browser end to end   | `pnpm test:e2e`               | 3 scenarios, passed                                     |
+| Unit and integration | `pnpm test`                   | 133 tests: server 75, client-core 37, ui 9, protocol 12 |
+| Browser end to end   | `pnpm test:e2e`               | 5 scenarios, passed                                     |
 | Packaged Windows app | `pnpm test:desktop`           | 1 scenario, passed                                      |
 | Container            | `node tests/docker-smoke.mjs` | passed                                                  |
 
@@ -115,6 +115,19 @@ path:
   message; and a button opens the app's form, a refusal comes back attached to
   the field it belongs to, and the accepted answer reaches the app with the
   values that were typed
+
+Taking someone's access away is checked for what it has to reach, not just the
+flag it sets. The token already in their hands stops working, the WebSocket
+they already had open is closed, signing in again is refused, a message they
+had queued for later is held rather than posted in their name, and reactivating
+restores all of it. A deactivated app goes quiet the same way: its bot token
+and its webhooks both stop, without the app being deleted or its configuration
+lost.
+
+The rules about who may act on whom are tested from the losing side — an admin
+cannot deactivate another admin or the owner, nobody can change their own
+account, and a member cannot reach any of it. In the browser, the app a
+deactivated person still has open drops back to the join screen on its own.
 
 Schema upgrades are tested against real data, not only against a fresh
 database: a workspace is created, wound back to the previous schema version

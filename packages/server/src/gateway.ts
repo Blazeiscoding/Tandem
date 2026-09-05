@@ -286,6 +286,18 @@ export class Gateway {
     }
   }
 
+  /**
+   * Cuts every live socket a person has. Deactivating an account revokes its
+   * sessions, but an already-open WebSocket authenticated once and would
+   * otherwise keep streaming the workspace to someone who has just been
+   * removed from it.
+   */
+  disconnectUser(userId: ID): void {
+    for (const client of [...(this.byUser.get(userId) ?? [])]) {
+      client.ws.close(4003, "account deactivated");
+    }
+  }
+
   /** Sends an ephemeral event to every socket of one user (their other devices). */
   sendToUser(userId: ID, event: EphemeralEvent): void {
     const frame = JSON.stringify({ type: "ephemeral", event } satisfies ServerToClient);

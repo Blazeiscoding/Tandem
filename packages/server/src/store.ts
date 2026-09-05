@@ -213,6 +213,8 @@ export class Store {
       statusText?: string;
       statusEmoji?: string;
       dndUntil?: number | null;
+      role?: Role;
+      deactivated?: boolean;
     },
   ): User {
     const sets: string[] = [];
@@ -232,6 +234,14 @@ export class Store {
     if (patch.dndUntil !== undefined) {
       sets.push("dnd_until = ?");
       params.push(patch.dndUntil);
+    }
+    if (patch.role !== undefined) {
+      sets.push("role = ?");
+      params.push(patch.role);
+    }
+    if (patch.deactivated !== undefined) {
+      sets.push("deactivated = ?");
+      params.push(patch.deactivated ? 1 : 0);
     }
     if (sets.length > 0) {
       this.db
@@ -268,6 +278,23 @@ export class Store {
 
   deleteSession(tokenHash: string): void {
     this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+  }
+
+  /**
+   * Signs someone out everywhere. Deactivating an account has to do this:
+   * a token already in someone's hands keeps working otherwise, which is
+   * exactly the case deactivation exists for.
+   */
+  deleteSessionsFor(userId: ID): number {
+    return this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId).changes as number;
+  }
+
+  /** When each account was last seen, for the admin list. */
+  lastSeenByUser(): Record<ID, number> {
+    const rows = this.db
+      .prepare("SELECT user_id, MAX(last_seen_at) AS seen FROM sessions GROUP BY user_id")
+      .all() as unknown as { user_id: string; seen: number }[];
+    return Object.fromEntries(rows.map((r) => [r.user_id, r.seen]));
   }
 
   // ---------- channels ----------
@@ -972,9 +999,19 @@ export class Store {
   }
 
   /** Everything now due, across all users. */
+  /**
+   * Messages now due. A deactivated author's are skipped: the queue lives on
+   * the server, so without this a message could post itself in the name of
+   * someone whose access was taken away yesterday.
+   */
   dueScheduled(now = Date.now()): ScheduledMessage[] {
     const rows = this.db
-      .prepare("SELECT * FROM scheduled_messages WHERE send_at <= ? ORDER BY send_at")
+      .prepare(
+        `SELECT s.* FROM scheduled_messages s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.send_at <= ? AND u.deactivated = 0
+         ORDER BY s.send_at`,
+      )
       .all(now) as unknown as Parameters<Store["toScheduled"]>[0][];
     return rows.map((r) => this.toScheduled(r));
   }
@@ -1087,9 +1124,19 @@ export class Store {
   }
 
   /** The app a bot token belongs to, or null if it is unknown. */
+  /**
+   * The app a bot token belongs to. A deactivated bot user is refused here as
+   * well as at the login form: silencing a misbehaving integration should not
+   * mean deleting it and losing its configuration.
+   */
   appForToken(tokenHash: string): App | null {
     const r = this.db
-      .prepare("SELECT a.* FROM app_tokens t JOIN apps a ON a.id = t.app_id WHERE t.token_hash = ?")
+      .prepare(
+        `SELECT a.* FROM app_tokens t
+         JOIN apps a ON a.id = t.app_id
+         JOIN users u ON u.id = a.bot_user_id
+         WHERE t.token_hash = ? AND u.deactivated = 0`,
+      )
       .get(tokenHash) as Parameters<Store["toApp"]>[0] | undefined;
     return r ? this.toApp(r) : null;
   }
@@ -1111,7 +1158,8 @@ export class Store {
       { id: string; app_id: string; channel_id: string; created_at: number } | undefined;
     if (!r) return null;
     const app = this.getApp(r.app_id);
-    if (!app) return null;
+    // Same as a bot token: a deactivated bot's webhooks go quiet too.
+    if (!app || this.getUser(app.botUserId)?.deactivated) return null;
     return {
       webhook: { id: r.id, appId: r.app_id, channelId: r.channel_id, createdAt: r.created_at },
       app,

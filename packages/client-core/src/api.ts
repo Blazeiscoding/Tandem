@@ -388,6 +388,19 @@ export class Api {
     return this.request("POST", `/api/views/${viewId}/submit`, { values });
   }
 
+  /** Everyone with an account, with when they were last seen. Admins only. */
+  listAllUsers(): Promise<{ users: (User & { lastSeenAt: number | null })[] }> {
+    return this.request("GET", "/api/admin/users");
+  }
+
+  /** Change someone's role, or take their access away. Admins only. */
+  updateUserAdmin(
+    userId: ID,
+    patch: { role?: "member" | "admin"; deactivated?: boolean },
+  ): Promise<{ user: User }> {
+    return this.request("PATCH", `/api/admin/users/${userId}`, patch);
+  }
+
   setInteractivityUrl(appId: ID, url: string): Promise<{ app: App }> {
     return this.request("PUT", `/api/apps/${appId}/interactivity`, { url });
   }

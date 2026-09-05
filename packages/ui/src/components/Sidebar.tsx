@@ -16,6 +16,7 @@ interface Props {
   onEditProfile: () => void;
   /** Admins only; absent for members. */
   onManageApps?: () => void;
+  onManagePeople?: () => void;
   connectionLabel: string | null;
 }
 
@@ -154,6 +155,14 @@ export function Sidebar(props: Props) {
         >
           + Invite people
         </button>
+        {props.onManagePeople && (
+          <button
+            onClick={props.onManagePeople}
+            className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+          >
+            ⚙ People
+          </button>
+        )}
         {props.onManageApps && (
           <button
             onClick={props.onManageApps}

@@ -759,6 +759,66 @@ describe("interactive buttons", () => {
   });
 });
 
+describe("a deactivated app", () => {
+  it("goes quiet without being deleted", async () => {
+    const created = await newApp("Noisy Bot");
+    const hook = await api<{ url: string }>(`/api/apps/${created.id}/webhooks`, {
+      token: aliceToken,
+      body: { channelId },
+    });
+
+    // It works to begin with, both ways in.
+    const before = await api("/api/chat.postMessage", {
+      token: created.token,
+      body: { channel: channelId, text: "still here" },
+    });
+    expect(before.status).toBe(200);
+    expect(
+      (
+        await fetch(`${base}${hook.data.url}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: "via hook" }),
+        })
+      ).status,
+    ).toBe(200);
+
+    await api(`/api/admin/users/${created.botUser.id}`, {
+      method: "PATCH",
+      token: aliceToken,
+      body: { deactivated: true },
+    });
+
+    // Its token and its webhooks both stop, and the app itself is still there
+    // to be turned back on.
+    const after = await api<{ error: string }>("/api/chat.postMessage", {
+      token: created.token,
+      body: { channel: channelId, text: "should not appear" },
+    });
+    expect(after.status).toBe(401);
+    expect(
+      (
+        await fetch(`${base}${hook.data.url}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: "should not appear" }),
+        })
+      ).status,
+    ).toBe(404);
+
+    await api(`/api/admin/users/${created.botUser.id}`, {
+      method: "PATCH",
+      token: aliceToken,
+      body: { deactivated: false },
+    });
+    const back = await api("/api/chat.postMessage", {
+      token: created.token,
+      body: { channel: channelId, text: "back on" },
+    });
+    expect(back.status).toBe(200);
+  });
+});
+
 describe("modals", () => {
   /** An app with a verified interactivity URL, ready to be pressed. */
   async function interactiveApp(name: string) {

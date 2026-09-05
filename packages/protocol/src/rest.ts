@@ -154,6 +154,16 @@ export const viewSubmitBody = z.object({
   values: z.record(z.string().max(255), z.record(z.string().max(255), z.string().max(3000))),
 });
 
+/** What an admin is changing about someone. Both are optional; at least one is required. */
+export const adminUserBody = z
+  .object({
+    role: z.enum(["member", "admin"]).optional(),
+    deactivated: z.boolean().optional(),
+  })
+  .refine((b) => b.role !== undefined || b.deactivated !== undefined, {
+    message: "nothing to change",
+  });
+
 export const runCommandBody = z.object({
   /** The whole line the user typed, leading slash included. */
   text: z.string().min(1).max(4000),
@@ -208,4 +218,5 @@ export type CreateSubscriptionBody = z.infer<typeof createSubscriptionBody>;
 export type InteractivityBody = z.infer<typeof interactivityBody>;
 export type MessageActionBody = z.infer<typeof messageActionBody>;
 export type ViewSubmitBody = z.infer<typeof viewSubmitBody>;
+export type AdminUserBody = z.infer<typeof adminUserBody>;
 export type RunCommandBody = z.infer<typeof runCommandBody>;

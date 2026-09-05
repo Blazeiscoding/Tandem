@@ -85,8 +85,8 @@ typing indicators, presence, unread tracking, file and image sharing with
 inline previews and a lightbox, pins, saved items, per-conversation drafts that
 survive a restart, user profiles and statuses, channel topics and member
 management, per-channel notification preferences with mute, Do Not Disturb
-snoozing, invites, LAN discovery, in-app hosting, and a browser client served
-by the server itself.
+snoozing, invites, LAN discovery, in-app hosting, member administration, and a
+browser client served by the server itself.
 
 Search covers every channel you can see, with modifiers:
 
@@ -213,6 +213,23 @@ host would hand us a private one.
 LAN-hosted bots are a reasonable thing to want here, so this is a default rather
 than a rule: `--allow-private-hooks` turns it off.
 
+## Running the workspace
+
+**People** in the sidebar (owner and admins) lists everyone with an account,
+what they can do, and when they were last seen. Someone who leaves is
+**deactivated**: their sessions are revoked, the app they already have open is
+disconnected and drops back to the join screen, and they cannot sign in again.
+Their messages stay where they are, because the rest of the conversation still
+needs them, but anything they had queued to send later is held rather than
+posted in the name of someone who no longer has access. Reactivating undoes all
+of it. Apps are in the same list: deactivating one silences its token and its
+webhooks without deleting the app or losing its configuration.
+
+Roles are deliberately blunt. An admin can promote and remove members; only the
+owner can change another admin, the owner's own account cannot be touched, and
+nobody can change their own — so a workspace cannot be lost to an argument
+between two admins, or to a misclick.
+
 ## Friends
 
 Open **Friends** in the sidebar to find workspace members, send requests, accept
@@ -244,4 +261,4 @@ concurrency. See
 - **Next**: the rest of Block Kit's inputs — date pickers, multi-selects,
   checkboxes — and `views.update` so a form can change as it is filled in.
 - **Later**: an SFU for larger huddles, message forwarding, sidebar sections,
-  a fuller admin console, optional Postgres and S3, and SSO.
+  optional Postgres and S3, and SSO.

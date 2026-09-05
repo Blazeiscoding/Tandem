@@ -12,6 +12,7 @@ import {
   PROTOCOL_VERSION,
   createChannelBody,
   channelPrefsBody,
+  adminUserBody,
   createAppBody,
   createCommandBody,
   createSubscriptionBody,
@@ -1282,6 +1283,62 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? {});
     deliverCommandReply(target, text, "application/json");
     return { ok: true };
+  });
+
+  // ---------- people ----------
+
+  /**
+   * Everyone with an account, for an admin who has to run this workspace: who
+   * they are, what they can do, and when they were last seen. Bots are in the
+   * list because a forgotten bot is exactly the account worth noticing.
+   */
+  app.get("/api/admin/users", async (req) => {
+    requireAdmin(req);
+    const lastSeen = store.lastSeenByUser();
+    return {
+      users: store.listUsers().map((u) => ({ ...u, lastSeenAt: lastSeen[u.id] ?? null })),
+    };
+  });
+
+  /**
+   * Change what someone can do, or take their access away.
+   *
+   * The rules are about who may act on whom, and they are deliberately narrow:
+   * the owner is untouchable and cannot be locked out of their own server, an
+   * admin cannot demote or deactivate another admin (a workspace should not be
+   * losable to an argument between two of them), and nobody can act on
+   * themselves — an admin cannot quietly promote themselves to owner or lock
+   * themselves out by accident.
+   */
+  app.patch<{ Params: { id: string } }>("/api/admin/users/:id", async (req) => {
+    const me = requireAdmin(req);
+    const body = adminUserBody.parse(req.body);
+    const target = store.getUser(req.params.id);
+    if (!target) throw new HttpError(404, "user_not_found");
+    if (target.id === me.id) throw new HttpError(400, "cannot_change_self");
+    if (target.role === "owner") throw new HttpError(403, "owner_is_protected");
+    if (target.role === "admin" && me.role !== "owner") {
+      throw new HttpError(403, "admins_are_equals", "only the owner can change another admin");
+    }
+    if (body.role !== undefined && target.isBot) {
+      throw new HttpError(400, "bots_have_no_role");
+    }
+
+    const updated = store.updateUser(target.id, {
+      role: body.role,
+      deactivated: body.deactivated,
+    });
+
+    if (body.deactivated === true) {
+      // Revoking access has to reach what is already in their hands: every
+      // session token, and every socket that authenticated with one.
+      store.deleteSessionsFor(target.id);
+      gateway.disconnectUser(target.id);
+    }
+    // Everyone sees the change, so a deactivated person drops out of the member
+    // lists and the composer's autocomplete without a reload.
+    emit({ type: "user.updated", user: updated }, null);
+    return { user: updated };
   });
 
   // ---------- interactive buttons and modals ----------

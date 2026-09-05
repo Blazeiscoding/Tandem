@@ -22,6 +22,7 @@ import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
 import { AppsDialog } from "../components/AppsDialog.js";
+import { PeopleDialog } from "../components/PeopleDialog.js";
 import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
 
@@ -46,7 +47,8 @@ type DialogKind =
   | { kind: "profile"; userId: ID }
   | { kind: "channel-details" }
   | { kind: "shortcuts" }
-  | { kind: "apps" };
+  | { kind: "apps" }
+  | { kind: "people" };
 
 /** Only one right-hand panel is open at a time. */
 type SidePanel =
@@ -236,6 +238,11 @@ function WorkspaceInner({
             ? () => setDialog({ kind: "apps" })
             : undefined
         }
+        onManagePeople={
+          self?.role === "owner" || self?.role === "admin"
+            ? () => setDialog({ kind: "people" })
+            : undefined
+        }
         connectionLabel={connectionLabel}
       />
 
@@ -360,6 +367,7 @@ function WorkspaceInner({
       {dialog.kind === "search" && <SearchDialog onClose={closeDialog} onJump={jumpToMessage} />}
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
       {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
+      {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}
       {/* Not one of the workspace's own dialogs: an app asked for this one, so
           it shows itself whenever one arrives. */}
       <ViewModal />

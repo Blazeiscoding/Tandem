@@ -266,4 +266,163 @@ describe("self-hosted product", () => {
     expect(after.status).toBe(201);
     expect(after.data.message.actions).toEqual([]);
   });
+  it("takes access away from someone who has left, everywhere at once", async () => {
+    const base = await start();
+    const owner = await register(base, "owner");
+    const invite = (await request(base, "/api/invites", owner.data.token, "POST", { maxUses: 5 }))
+      .data.invite.code;
+    const leaver = await register(base, "leaver", invite);
+    const leaverToken = leaver.data.token;
+
+    // They are here, and their socket is live.
+    expect((await request(base, "/api/channels", leaverToken)).status).toBe(200);
+    const socket = new WebSocket(`ws://127.0.0.1:${server!.port}/ws`);
+    const closed = new Promise<number>((resolve) => socket.on("close", (code) => resolve(code)));
+    await new Promise<void>((resolve, reject) => {
+      socket.on("open", () => {
+        socket.send(
+          JSON.stringify({ type: "hello", token: leaverToken, lastSeq: null, protocolVersion: 1 }),
+        );
+      });
+      socket.on("message", (data) => {
+        if (JSON.parse(String(data)).type === "ready") resolve();
+      });
+      socket.on("error", reject);
+    });
+
+    const patched = await request(
+      base,
+      `/api/admin/users/${leaver.data.user.id}`,
+      owner.data.token,
+      "PATCH",
+      { deactivated: true },
+    );
+    expect(patched.data.user.deactivated).toBe(true);
+
+    // The token in their hands stops working, the socket they already had is
+    // cut, and they cannot sign back in to get a new one.
+    expect((await request(base, "/api/channels", leaverToken)).status).toBe(401);
+    expect(await closed).toBe(4003);
+    const retry = await request(base, "/api/auth/login", undefined, "POST", {
+      handle: "leaver",
+      password: "password123",
+    });
+    expect(retry.status).toBe(401);
+
+    // Reactivating lets them back in with a fresh sign-in.
+    await request(base, `/api/admin/users/${leaver.data.user.id}`, owner.data.token, "PATCH", {
+      deactivated: false,
+    });
+    const back = await request(base, "/api/auth/login", undefined, "POST", {
+      handle: "leaver",
+      password: "password123",
+    });
+    expect(back.status).toBe(200);
+    expect((await request(base, "/api/channels", back.data.token)).status).toBe(200);
+  });
+
+  it("does not send a message queued by someone who has since been deactivated", async () => {
+    const base = await start();
+    const owner = await register(base, "owner");
+    const invite = (await request(base, "/api/invites", owner.data.token, "POST", { maxUses: 5 }))
+      .data.invite.code;
+    const leaver = await register(base, "leaver", invite);
+    const channel = server!.store.getChannelByName("general")!;
+
+    // Queued through the store so it is already due; the API rightly refuses a
+    // time in the past, and what is under test is what the sender picks up.
+    server!.store.scheduleMessage({
+      channelId: channel.id,
+      userId: leaver.data.user.id,
+      text: "posted by a ghost",
+      threadRootId: null,
+      fileIds: [],
+      sendAt: Date.now() - 1000,
+    });
+    expect(server!.store.dueScheduled().some((m) => m.text === "posted by a ghost")).toBe(true);
+
+    await request(base, `/api/admin/users/${leaver.data.user.id}`, owner.data.token, "PATCH", {
+      deactivated: true,
+    });
+    expect(server!.store.dueScheduled().some((m) => m.text === "posted by a ghost")).toBe(false);
+
+    // It is held, not thrown away: reactivating lets it go out.
+    await request(base, `/api/admin/users/${leaver.data.user.id}`, owner.data.token, "PATCH", {
+      deactivated: false,
+    });
+    expect(server!.store.dueScheduled().some((m) => m.text === "posted by a ghost")).toBe(true);
+  });
+
+  it("keeps the workspace from being taken away from its owner", async () => {
+    const base = await start();
+    const owner = await register(base, "owner");
+    const invite = (await request(base, "/api/invites", owner.data.token, "POST", { maxUses: 5 }))
+      .data.invite.code;
+    const one = await register(base, "adminone", invite);
+    const two = await register(base, "admintwo", invite);
+    for (const who of [one, two]) {
+      const made = await request(
+        base,
+        `/api/admin/users/${who.data.user.id}`,
+        owner.data.token,
+        "PATCH",
+        { role: "admin" },
+      );
+      expect(made.data.user.role).toBe("admin");
+    }
+
+    // An admin cannot turn on another admin, so the workspace cannot be lost
+    // to an argument between two of them.
+    const coup = await request(
+      base,
+      `/api/admin/users/${two.data.user.id}`,
+      one.data.token,
+      "PATCH",
+      { deactivated: true },
+    );
+    expect(coup.status).toBe(403);
+    expect(coup.data.error).toBe("admins_are_equals");
+
+    // Nor on the owner.
+    const regicide = await request(
+      base,
+      `/api/admin/users/${owner.data.user.id}`,
+      one.data.token,
+      "PATCH",
+      { deactivated: true },
+    );
+    expect(regicide.status).toBe(403);
+
+    // Nor on themselves, in either direction.
+    const selfHarm = await request(
+      base,
+      `/api/admin/users/${one.data.user.id}`,
+      one.data.token,
+      "PATCH",
+      { deactivated: true },
+    );
+    expect(selfHarm.status).toBe(400);
+
+    // A plain member cannot use any of this.
+    const member = await register(base, "member", invite);
+    expect((await request(base, "/api/admin/users", member.data.token)).status).toBe(403);
+    const sneaky = await request(
+      base,
+      `/api/admin/users/${member.data.user.id}`,
+      member.data.token,
+      "PATCH",
+      { role: "admin" },
+    );
+    expect(sneaky.status).toBe(403);
+
+    // The owner can still demote an admin.
+    const demoted = await request(
+      base,
+      `/api/admin/users/${one.data.user.id}`,
+      owner.data.token,
+      "PATCH",
+      { role: "member" },
+    );
+    expect(demoted.data.user.role).toBe("member");
+  });
 });
