@@ -187,6 +187,28 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return envelope;
   };
 
+  /** Commit synchronous state and its event log before exposing any side effects. */
+  const mutate = <T>(
+    work: (record: typeof emit, afterCommit: (effect: () => void) => void) => T,
+  ): T => {
+    const events: { envelope: EventEnvelope; channelId: ID | null }[] = [];
+    const effects: (() => void)[] = [];
+    const result = store.transaction(() =>
+      work(
+        (event, channelId) => {
+          const envelope = recordEvent(event, channelId);
+          events.push({ envelope, channelId });
+          return envelope;
+        },
+        (effect) => effects.push(effect),
+      ),
+    );
+    // Access revocation must happen before fanout, but only after a successful commit.
+    for (const effect of effects) effect();
+    for (const { envelope, channelId } of events) publish(envelope, channelId);
+    return result;
+  };
+
   /**
    * Fans a durable event out to apps subscribed over HTTP. Deliberately fire
    * and forget: a slow or broken endpoint must never hold up the person who
@@ -443,64 +465,63 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
     // Everything after hashing is synchronous: concurrent registrations cannot
     // both become owner or consume the same final invitation use.
-    const isFirstUser = store.userCount() === 0;
+    const { token, user } = mutate((emit) => {
+      const isFirstUser = store.userCount() === 0;
 
-    if (store.getUserAuthByHandle(body.handle)) {
-      throw new HttpError(409, "handle_taken");
-    }
-
-    if (isFirstUser) {
-      const expected = claimCode();
-      if (expected && !isLocalRequest(req) && body.claimCode !== expected) {
-        throw new HttpError(
-          403,
-          "claim_required",
-          "this workspace has no owner yet; enter the claim code its host printed at startup",
-        );
+      if (store.getUserAuthByHandle(body.handle)) {
+        throw new HttpError(409, "handle_taken");
       }
-    }
 
-    if (!isFirstUser && inviteOnly()) {
-      if (!body.inviteCode || !store.consumeInvite(body.inviteCode)) {
-        throw new HttpError(403, "invite_required", "a valid invite code is required to join");
+      if (isFirstUser) {
+        const expected = claimCode();
+        if (expected && !isLocalRequest(req) && body.claimCode !== expected) {
+          throw new HttpError(
+            403,
+            "claim_required",
+            "this workspace has no owner yet; enter the claim code its host printed at startup",
+          );
+        }
       }
-    }
-    if (store.getUserAuthByHandle(body.handle)) {
-      throw new HttpError(409, "handle_taken");
-    }
 
-    const { hash, salt } = credentials;
-    const user = store.createUser({
-      handle: body.handle,
-      displayName: body.displayName,
-      passwordHash: hash,
-      salt,
-      role: isFirstUser ? "owner" : "member",
-    });
-
-    if (isFirstUser) {
-      // Single use: the workspace now has an owner and cannot be claimed again.
-      store.setMeta("claim_code", "");
-      // Bootstrap the workspace with #general.
-      const general = store.createChannel({
-        type: "public",
-        name: "general",
-        description: "This channel is for workspace-wide communication.",
-        creatorId: user.id,
-        memberIds: [user.id],
+      if (!isFirstUser && inviteOnly()) {
+        if (!body.inviteCode || !store.consumeInvite(body.inviteCode)) {
+          throw new HttpError(403, "invite_required", "a valid invite code is required to join");
+        }
+      }
+      const { hash, salt } = credentials;
+      const user = store.createUser({
+        handle: body.handle,
+        displayName: body.displayName,
+        passwordHash: hash,
+        salt,
+        role: isFirstUser ? "owner" : "member",
       });
-      emit({ type: "channel.created", channel: general }, general.id);
-    } else {
-      emit({ type: "user.joined", user }, null);
-      // Everyone lands in #general automatically.
-      const general = store.getChannelByName("general");
-      if (general && store.addMember(general.id, user.id)) {
-        emit({ type: "member.joined", channelId: general.id, userId: user.id }, general.id);
-      }
-    }
 
-    const { token, tokenHash } = newSessionToken();
-    store.createSession(tokenHash, user.id, deviceName(req));
+      if (isFirstUser) {
+        // Single use: the workspace now has an owner and cannot be claimed again.
+        store.setMeta("claim_code", "");
+        // Bootstrap the workspace with #general.
+        const general = store.createChannel({
+          type: "public",
+          name: "general",
+          description: "This channel is for workspace-wide communication.",
+          creatorId: user.id,
+          memberIds: [user.id],
+        });
+        emit({ type: "channel.created", channel: general }, general.id);
+      } else {
+        emit({ type: "user.joined", user }, null);
+        // Everyone lands in #general automatically.
+        const general = store.getChannelByName("general");
+        if (general && store.addMember(general.id, user.id)) {
+          emit({ type: "member.joined", channelId: general.id, userId: user.id }, general.id);
+        }
+      }
+
+      const { token, tokenHash } = newSessionToken();
+      store.createSession(tokenHash, user.id, deviceName(req));
+      return { token, user };
+    });
     return reply.status(201).send({ token, user });
   });
 
@@ -627,9 +648,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.patch("/api/me", async (req) => {
     const me = requireUser(req);
     const body = updateMeBody.parse(req.body);
-    const user = store.updateUser(me.id, body);
-    emit({ type: "user.updated", user }, null);
-    return { user };
+    return mutate((emit) => {
+      const user = store.updateUser(me.id, body);
+      emit({ type: "user.updated", user }, null);
+      return { user };
+    });
   });
 
   app.get("/api/users", async (req) => {
@@ -674,45 +697,51 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.post("/api/channels", async (req, reply) => {
     const me = requireUser(req);
     const body = createChannelBody.parse(req.body);
+    return mutate((emit) => {
+      if (body.type === "public" || body.type === "private") {
+        if (store.getChannelByName(body.name)) throw new HttpError(409, "name_taken");
+        const memberIds =
+          body.type === "private" ? [...new Set([me.id, ...(body.memberIds ?? [])])] : [me.id];
+        for (const id of memberIds) {
+          if (!store.getUser(id)) throw new HttpError(400, "unknown_user", id);
+        }
+        const channel = store.createChannel({
+          type: body.type,
+          name: body.name,
+          topic: body.topic,
+          description: body.description,
+          creatorId: me.id,
+          memberIds,
+        });
+        emit({ type: "channel.created", channel }, channel.id);
+        // Named channels carry no memberIds, so announce the founding members
+        // explicitly or clients won't know they belong to it.
+        for (const userId of memberIds) {
+          emit({ type: "member.joined", channelId: channel.id, userId }, channel.id);
+        }
+        reply.status(201);
+        return { channel };
+      }
 
-    if (body.type === "public" || body.type === "private") {
-      if (store.getChannelByName(body.name)) throw new HttpError(409, "name_taken");
-      const memberIds =
-        body.type === "private" ? [...new Set([me.id, ...(body.memberIds ?? [])])] : [me.id];
+      // dm / group_dm — idempotent on the member set.
+      const memberIds = [...new Set([me.id, ...body.memberIds])].sort();
+      for (const id of memberIds) {
+        if (!store.getUser(id)) throw new HttpError(400, "unknown_user", id);
+      }
+      const dmKey = memberIds.join(":");
+      const existing = store.findDmByKey(dmKey);
+      if (existing) return { channel: existing };
+
       const channel = store.createChannel({
-        type: body.type,
-        name: body.name,
-        topic: body.topic,
-        description: body.description,
+        type: memberIds.length === 2 ? "dm" : "group_dm",
         creatorId: me.id,
         memberIds,
+        dmKey,
       });
       emit({ type: "channel.created", channel }, channel.id);
-      // Named channels carry no memberIds, so announce the founding members
-      // explicitly or clients won't know they belong to it.
-      for (const userId of memberIds) {
-        emit({ type: "member.joined", channelId: channel.id, userId }, channel.id);
-      }
-      return reply.status(201).send({ channel });
-    }
-
-    // dm / group_dm — idempotent on the member set.
-    const memberIds = [...new Set([me.id, ...body.memberIds])].sort();
-    for (const id of memberIds) {
-      if (!store.getUser(id)) throw new HttpError(400, "unknown_user", id);
-    }
-    const dmKey = memberIds.join(":");
-    const existing = store.findDmByKey(dmKey);
-    if (existing) return { channel: existing };
-
-    const channel = store.createChannel({
-      type: memberIds.length === 2 ? "dm" : "group_dm",
-      creatorId: me.id,
-      memberIds,
-      dmKey,
+      reply.status(201);
+      return { channel };
     });
-    emit({ type: "channel.created", channel }, channel.id);
-    return reply.status(201).send({ channel });
   });
 
   app.patch<{ Params: { id: string } }>("/api/channels/:id", async (req) => {
@@ -725,18 +754,22 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (body.name && body.name !== existing.name && store.getChannelByName(body.name)) {
       throw new HttpError(409, "name_taken");
     }
-    const channel = store.updateChannel(existing.id, body);
-    emit({ type: "channel.updated", channel }, channel.id);
-    return { channel };
+    return mutate((emit) => {
+      const channel = store.updateChannel(existing.id, body);
+      emit({ type: "channel.updated", channel }, channel.id);
+      return { channel };
+    });
   });
 
   app.post<{ Params: { id: string } }>("/api/channels/:id/join", async (req) => {
     const me = requireUser(req);
     const channel = store.getChannel(req.params.id);
     if (!channel || channel.type !== "public") throw new HttpError(404, "channel_not_found");
-    if (store.addMember(channel.id, me.id)) {
-      emit({ type: "member.joined", channelId: channel.id, userId: me.id }, channel.id);
-    }
+    mutate((emit) => {
+      if (store.addMember(channel.id, me.id)) {
+        emit({ type: "member.joined", channelId: channel.id, userId: me.id }, channel.id);
+      }
+    });
     return { ok: true };
   });
 
@@ -744,10 +777,12 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const me = requireUser(req);
     const channel = requireChannelAccess(req.params.id, me);
     if (channel.type === "dm") throw new HttpError(400, "cannot_leave_dm");
-    if (store.removeMember(channel.id, me.id)) {
-      gateway.updateChannelAccess(channel.id, me.id);
-      emit({ type: "member.left", channelId: channel.id, userId: me.id }, channel.id);
-    }
+    mutate((emit, afterCommit) => {
+      if (store.removeMember(channel.id, me.id)) {
+        afterCommit(() => gateway.updateChannelAccess(channel.id, me.id));
+        emit({ type: "member.left", channelId: channel.id, userId: me.id }, channel.id);
+      }
+    });
     return { ok: true };
   });
 
@@ -755,14 +790,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const me = requireUser(req);
     const channel = requireChannelAccess(req.params.id, me);
     const { userId } = (req.body ?? {}) as { userId?: string };
-    if (!userId || !store.getUser(userId)) throw new HttpError(400, "unknown_user");
+    if (typeof userId !== "string" || !store.getUser(userId))
+      throw new HttpError(400, "unknown_user");
     if (channel.type === "dm" || channel.type === "group_dm") {
       throw new HttpError(400, "cannot_invite_to_dm");
     }
-    if (store.addMember(channel.id, userId)) {
-      gateway.updateChannelAccess(channel.id, userId);
-      emit({ type: "member.joined", channelId: channel.id, userId }, channel.id);
-    }
+    mutate((emit, afterCommit) => {
+      if (store.addMember(channel.id, userId)) {
+        afterCommit(() => gateway.updateChannelAccess(channel.id, userId));
+        emit({ type: "member.joined", channelId: channel.id, userId }, channel.id);
+      }
+    });
     return { ok: true };
   });
 
@@ -1512,21 +1550,23 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       throw new HttpError(400, "bots_have_no_role");
     }
 
-    const updated = store.updateUser(target.id, {
-      role: body.role,
-      deactivated: body.deactivated,
-    });
+    return mutate((emit, afterCommit) => {
+      const updated = store.updateUser(target.id, {
+        role: body.role,
+        deactivated: body.deactivated,
+      });
 
-    if (body.deactivated === true) {
-      // Revoking access has to reach what is already in their hands: every
-      // session token, and every socket that authenticated with one.
-      store.deleteSessionsFor(target.id);
-      gateway.disconnectUser(target.id);
-    }
-    // Everyone sees the change, so a deactivated person drops out of the member
-    // lists and the composer's autocomplete without a reload.
-    emit({ type: "user.updated", user: updated }, null);
-    return { user: updated };
+      if (body.deactivated === true) {
+        // Revoking access has to reach what is already in their hands: every
+        // session token, and every socket that authenticated with one.
+        store.deleteSessionsFor(target.id);
+        afterCommit(() => gateway.disconnectUser(target.id));
+      }
+      // Everyone sees the change, so a deactivated person drops out of the member
+      // lists and the composer's autocomplete without a reload.
+      emit({ type: "user.updated", user: updated }, null);
+      return { user: updated };
+    });
   });
 
   /**
@@ -1582,13 +1622,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (!target) throw new HttpError(404, "user_not_found");
     if (target.id === me.id) throw new HttpError(400, "already_owner");
     if (target.isBot || target.deactivated) throw new HttpError(400, "invalid_owner");
-    const [newOwner, formerOwner] = store.transaction(() => [
-      store.updateUser(target.id, { role: "owner" }),
-      store.updateUser(me.id, { role: "admin" }),
-    ]);
-    emit({ type: "user.updated", user: newOwner }, null);
-    emit({ type: "user.updated", user: formerOwner }, null);
-    return { owner: newOwner, previousOwner: formerOwner };
+    return mutate((emit) => {
+      const newOwner = store.updateUser(target.id, { role: "owner" });
+      const formerOwner = store.updateUser(me.id, { role: "admin" });
+      emit({ type: "user.updated", user: newOwner }, null);
+      emit({ type: "user.updated", user: formerOwner }, null);
+      return { owner: newOwner, previousOwner: formerOwner };
+    });
   });
 
   // ---------- interactive buttons and modals ----------

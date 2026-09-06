@@ -236,7 +236,7 @@ U01 and U03 are larger than this batch item. Navigation and URL-addressable scre
 
 Local storage is keyed by server URL plus account ID. The server already persists a workspace ID for integrations, but the client handshake does not expose it for storage identity; O03 should carry it through so address changes can preserve local work. Drafts and the outbox are still plain text in browser local storage and desktop settings JSON. OS-protected credential storage remains unfinished.
 
-R03 covers the message pipeline. Registration, invite consumption, channel and member creation, app lifecycle and scheduling mutations still write outside a shared transaction boundary, so milestone 0 is not complete.
+R03 covers message creation and scheduled completion, registration/invite consumption, channel creation/update/membership, profile changes, account deactivation and ownership transfer. These changes commit their state and durable events together; live access changes happen only after commit. App lifecycle, other message mutations, broader scheduling changes and filesystem/outbound compensation still need work, so milestone 0 is not complete.
 
 The current schema is version 12: v10 adds `message_requests`, v11 adds the scheduled-message lifecycle, and v12 adds session IDs, device descriptions and expiry. Opening a workspace written by a newer server is refused with an explanation rather than a partial migration, and a failed migration closes the file instead of leaving a handle on it.
 
@@ -247,7 +247,11 @@ The current schema is version 12: v10 adds `message_requests`, v11 adds the sche
 - **Owner setup (A02/U03):** forwarded requests require the startup claim code. The browser now displays that field, submits it, and preserves registration input when a code is rejected. The full browser journey exercises wrong-code correction and successful setup behind forwarded headers. A proxy that strips every forwarding header must set the server's public URL to disable the local bypass.
 - **LAN browser sending (R02/U03):** send keys use `crypto.getRandomValues`, which is available on plain HTTP LAN origins. A regression removes the secure-context `randomUUID` API and verifies that a real send still settles.
 
-The account APIs still need user-facing session/device controls, password-change and administrative recovery screens. Admin-issued temporary passwords are not forced to change at next login. Ownership changes still need their event-log writes inside the same transaction. These remain follow-up work, alongside the broader R03 mutations noted above.
+The account APIs still need user-facing session/device controls, password-change and administrative recovery screens. Admin-issued temporary passwords are not forced to change at next login. These remain follow-up work, alongside the broader R03 mutations noted above.
+
+### Core transaction phase
+
+Registration now rolls back invitation consumption, the owner claim, default-channel creation, membership, session creation and events as one unit. Named and direct channels, channel metadata/membership, profile updates, deactivation and ownership transfer use the same mutation boundary. Failed writes cannot publish partial events or apply live access changes. Unknown founding members are rejected before creating a private channel. Eleven regression cases in `packages/server/test/transactions.test.ts` exercise rollback and concurrent use of a final invitation.
 
 After this batch, prioritize complete threads, unread/activity/search, composer improvements, secure owner/account recovery, and the hosting control center. Visual refinements can accompany these features once the handoff's intended direction is resolved.
 
