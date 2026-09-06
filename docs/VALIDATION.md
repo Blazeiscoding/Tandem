@@ -24,13 +24,45 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 
 ## Automated suites
 
-| Suite                | Command                       | Result                                                  |
-| -------------------- | ----------------------------- | ------------------------------------------------------- |
-| Types                | `pnpm typecheck`              | 8 packages, clean                                       |
-| Unit and integration | `pnpm test`                   | 138 tests: server 75, client-core 42, ui 9, protocol 12 |
-| Browser end to end   | `pnpm test:e2e`               | 6 scenarios, passed                                     |
-| Packaged Windows app | `pnpm test:desktop`           | 1 scenario, passed                                      |
-| Container            | `node tests/docker-smoke.mjs` | passed                                                  |
+| Suite                | Command                       | Result                                                    | Last run   |
+| -------------------- | ----------------------------- | --------------------------------------------------------- | ---------- |
+| Types                | `pnpm typecheck`              | 7 packages, clean                                         | 2026-09-06 |
+| Unit and integration | `pnpm test`                   | 200 tests: server 120, client-core 52, ui 16, protocol 12 | 2026-09-06 |
+| Browser end to end   | `pnpm test:e2e`               | 7 scenarios, passed                                       | 2026-09-06 |
+| Packaged Windows app | `pnpm test:desktop`           | 1 scenario, passed                                        | 2026-09-05 |
+| Container            | `node tests/docker-smoke.mjs` | passed                                                    | 2026-09-05 |
+
+The latest combined verification used `pnpm exec turbo test typecheck build --force`:
+all 14 tasks passed without cached results, including the web, desktop and server CLI builds.
+
+The last two rows were not re-run for the reliability work recorded in
+`IMPROVEMENT-PLAN-2026-09.md`; their dates are the last run that did happen.
+Packaging and the container image are unchanged by that work, but "unchanged
+code" is an argument, not a measurement, so the dates say what they say.
+
+### What the suites actually cover
+
+Named so that a gap is visible as a gap, rather than hidden inside a total.
+
+| File                                                          | What it holds to                                                                                                                                                                                          |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/server/test/server.test.ts`                         | REST and socket behaviour of a live workspace: auth, channels, messages, threads, search, pins, huddle signalling, scheduling, admin.                                                                     |
+| `packages/server/test/product.test.ts`                        | Self-hosted concerns: streamed uploads and size limits, bot-token boundaries, forward migration from a v8 database, owner protection.                                                                     |
+| `packages/server/test/reliability.test.ts`                    | Send idempotency and transaction rollback, page-size validation, session-scoped sign-out, expired sockets losing incoming/outgoing access, huddle seats following channel access, and scheduled delivery. |
+| `packages/server/test/accounts.test.ts`                       | Owner claims behind forwarded headers, session-list privacy and revocation scope, password changes/reset permissions, authorization changes during hashing, and ownership transfer.                       |
+| `packages/server/test/integrations.test.ts`                   | Slash commands, event subscriptions with signatures, interactivity, modals, and webhooks.                                                                                                                 |
+| `packages/server/test/backup.test.ts`                         | Backup/restore round trip; missing blobs/inventory, unsafe paths, misleading schema metadata, overlapping directories, damaged bytes, and live writes during snapshot capture.                            |
+| `packages/client-core/test/workspace.test.ts`                 | Timeline paging and the bounded message cache.                                                                                                                                                            |
+| `packages/client-core/test/recovery.test.ts`                  | Reconnect replay, resync preserving drafts, live membership changes, durable outbox, and sends when the browser's secure-context randomUUID API is unavailable.                                           |
+| `packages/client-core/test/{fileCache,huddle,notify}.test.ts` | Blob-cache lifetime and invalidation, huddle session state, and notification rules.                                                                                                                       |
+| `packages/ui/test/connection.test.ts`                         | Which reason a failed connection reports, and protocol-compatibility messages.                                                                                                                            |
+| `packages/ui/test/mrkdwn.test.tsx`                            | Message rendering and escaping.                                                                                                                                                                           |
+| `packages/ui/test/deeplink.test.ts`                           | `slackoss://` link parsing.                                                                                                                                                                               |
+| `tests/e2e/web.spec.ts`                                       | Seven browser journeys, including served-browser onboarding, owner claim-code rejection/retry behind forwarded headers, real WebRTC, long-channel scrolling, and sign-out of an open app.                 |
+
+Known gaps: no test drives the desktop hosting controls, and no component-level
+interaction tests exist — the UI package renders to static markup only, so
+anything requiring a click is covered end-to-end or not at all.
 
 The two end-to-end suites drive real software, not mocks: `test:e2e` runs the
 built browser client against a real server in headless Chromium, and
@@ -38,7 +70,7 @@ built browser client against a real server in headless Chromium, and
 
 ## Gatherline frontend refresh
 
-The sixth browser scenario covers the redesigned production UI at 1280 × 820
+The capped-timeline browser scenario covers the redesigned production UI at 1280 × 820
 and 390 × 844, including reduced-motion mode. It sends 315 additional live
 messages to a channel, checks the DOM stays capped at 300 messages, and verifies
 that the latest message remains in the viewport. It also checks disk-backed

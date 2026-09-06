@@ -65,22 +65,47 @@ reduce processing and bandwidth but do not guarantee a fixed RAM budget.
 
 ## Backups, restore, updates
 
-Stop the server before copying its complete data directory: database, WAL files
-if present, and `files/`. For Docker, stop the Compose service and export the named
-volume using your normal volume backup tooling, then start the service again.
-Store encrypted backups away from the host and test restoring into an isolated
-workspace. Never copy only a live SQLite main file and assume it is complete.
+Use the built-in commands rather than copying files by hand:
+
+```sh
+slackoss-server backup  --data ./data --out ./backups/2026-09-06
+slackoss-server verify-backup --from ./backups/2026-09-06
+slackoss-server restore --from ./backups/2026-09-06 --data ./data
+```
+
+`backup` writes a consistent database snapshot (including anything still in the
+write-ahead log), every attachment referenced by that snapshot, and a `manifest.json`
+recording the schema version, checksums, and row counts from the copied database.
+`--out` must be a new or empty directory outside the workspace data directory.
+Stop the server first for a backup that is certain to be complete.
+If an attachment disappears during capture, backup fails instead of reporting success.
+
+`verify-backup` checks checksums, safe attachment paths, the actual database schema,
+row counts, foreign keys and attachment inventory without changing a workspace.
+An omitted attachment is rejected even if all listed checksums match.
+
+`restore` verifies the backup, stages and re-verifies it beside the target, and only then swaps
+it in; the previous data directory is renamed to `data.superseded-<timestamp>`
+rather than deleted. Stop the server before restoring. A backup from a newer
+server than the one restoring it is refused instead of half-applied.
+
+Store backups away from the host, encrypted. For Docker, run the same commands
+inside the container against the mounted volume.
 
 Before upgrading, take a backup. Rebuild and restart with Compose; SQLite migrations
 run automatically. To roll back a schema change, restore the matching backup and
-previous application version together. Deleting a container preserves the named
-volume; `docker compose down -v` deletes it, so avoid that command for real data.
+previous application version together — the server refuses to open a database
+newer than it understands, so an application rollback alone will not start.
+Deleting a container preserves the named volume; `docker compose down -v` deletes
+it, so avoid that command for real data.
 
 There are no separate Redis, Postgres, or message broker services to maintain.
 Monitor disk usage for uploads and history, resource use, health, and backups.
 
 ## Current boundaries
 
-Friends and accounts do not federate across servers. There is no SSO, account
-recovery workflow, large-call SFU, automated update service, or signed public release
+Friends and accounts do not federate across servers. Password changes, session
+revocation, admin password reset and ownership transfer exist as APIs; their
+account-management screens remain unfinished. There is no SSO, email-based account
+recovery, large-call SFU, automated update service, or signed public release
 pipeline yet. Test with your environment before an office-wide rollout.
