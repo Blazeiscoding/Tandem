@@ -134,9 +134,34 @@ export interface ServerInfo {
   userCount: number;
   /** True once an owner exists; joining then requires an invite code. */
   requiresInvite: boolean;
+  /**
+   * True when this workspace has no owner yet and the caller is not on the
+   * machine running it — claiming it needs the code the server printed at
+   * startup. Whoever is at the keyboard does not need one.
+   */
+  requiresClaim: boolean;
+}
+
+/** One signed-in device or browser, as its owner sees it. */
+export interface SessionInfo {
+  id: ID;
+  createdAt: number;
+  lastSeenAt: number;
+  expiresAt: number;
+  /** What the client called itself when it signed in. Never trusted, only shown. */
+  userAgent: string;
+  /** The session making this request. */
+  current: boolean;
 }
 
 export const PROTOCOL_VERSION = 1;
+
+/**
+ * Where a queued message is in its delivery lifecycle. `held` is reversible —
+ * every flush re-checks it, so unarchiving a channel or regaining access sends
+ * the message. `failed` is terminal and only an explicit reschedule revives it.
+ */
+export type ScheduledStatus = "queued" | "held" | "failed" | "sent";
 
 /** A message queued to be posted at a future time. */
 export interface ScheduledMessage {
@@ -148,6 +173,12 @@ export interface ScheduledMessage {
   fileIds: ID[];
   sendAt: number;
   createdAt: number;
+  status: ScheduledStatus;
+  /** Why delivery is held or failed, phrased for the author. */
+  failureReason: string | null;
+  attempts: number;
+  /** Set when delivered, in the same transaction as the message itself. */
+  messageId: ID | null;
 }
 
 /** An integration: a bot user plus the tokens and hooks that drive it. */

@@ -5,11 +5,15 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_PORT } from "@slackoss/protocol";
 import { createWorkspaceServer, SERVER_VERSION } from "./server.js";
+import { backupWorkspace, restoreWorkspace, verifyBackup } from "./backup.js";
 import { parseIceServers } from "./rtc.js";
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
   options: {
     data: { type: "string", default: "./data" },
+    out: { type: "string" },
+    from: { type: "string" },
     port: { type: "string", default: String(DEFAULT_PORT) },
     host: { type: "string", default: "0.0.0.0" },
     name: { type: "string" },
@@ -26,6 +30,9 @@ if (values.help) {
   console.log(`slackoss-server v${SERVER_VERSION}
 
 Usage: slackoss-server [options]
+       slackoss-server backup  --data <dir> --out <dir>
+       slackoss-server restore --from <dir> --data <dir>
+       slackoss-server verify-backup --from <dir>
 
   --data <dir>      Data directory (default ./data)
   --port <port>     Port to listen on (default ${DEFAULT_PORT})
@@ -43,8 +50,78 @@ Usage: slackoss-server [options]
                     this server can reach your whole LAN, and an admin-typed
                     URL should not become a way to probe it. Turn it on when
                     your bots really do run on the same network.
+
+Backups
+
+  backup          Copy a workspace to a new, empty directory: the database as
+                  a consistent snapshot, every attachment, and a manifest with
+                  checksums and the schema version. Stop the server first for a
+                  backup that is certain to be complete.
+  verify-backup   Check a backup's checksums and database without restoring it.
+  restore         Replace --data with a backup, after verifying it. The old
+                  directory is renamed rather than deleted. Stop the server
+                  before restoring.
 `);
   process.exit(0);
+}
+
+const command = positionals[0];
+
+if (command === "backup") {
+  if (!values.out) {
+    console.error("backup needs --out <dir>, an empty directory to write into");
+    process.exit(1);
+  }
+  const manifest = await backupWorkspace({
+    dataDir: resolve(values.data),
+    out: resolve(values.out),
+  });
+  const totals = Object.entries(manifest.counts)
+    .map(([table, n]) => `${n} ${table.replace(/_/g, " ")}`)
+    .join(", ");
+  console.log(`
+  Backed up "${manifest.workspaceName}" to ${resolve(values.out)}`);
+  console.log(`  Schema v${manifest.schemaVersion}, ${manifest.files.length} attachments`);
+  console.log(`  ${totals}
+`);
+  process.exit(0);
+}
+
+if (command === "verify-backup" || command === "restore") {
+  if (!values.from) {
+    console.error(`${command} needs --from <dir>, the backup directory`);
+    process.exit(1);
+  }
+  try {
+    if (command === "verify-backup") {
+      const manifest = await verifyBackup(resolve(values.from));
+      const when = new Date(manifest.createdAt).toISOString();
+      console.log(`
+  Backup of "${manifest.workspaceName}" is intact`);
+      console.log(`  Taken ${when} by server v${manifest.serverVersion}, schema v${manifest.schemaVersion}
+`);
+    } else {
+      const { manifest, supersededDir } = await restoreWorkspace({
+        backupDir: resolve(values.from),
+        dataDir: resolve(values.data),
+      });
+      console.log(`
+  Restored "${manifest.workspaceName}" into ${resolve(values.data)}`);
+      if (supersededDir) console.log(`  The previous data directory is kept at ${supersededDir}`);
+      console.log("");
+    }
+  } catch (err) {
+    console.error(`
+  ${err instanceof Error ? err.message : String(err)}
+`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+if (command !== undefined) {
+  console.error(`Unknown command "${command}". Run with --help to see what is available.`);
+  process.exit(1);
 }
 
 function lanAddresses(): string[] {
@@ -85,6 +162,13 @@ console.log(`  Data: ${resolve(values.data)}`);
 console.log(`  Local:   http://localhost:${server.port}`);
 for (const addr of lanAddresses()) {
   console.log(`  Network: http://${addr}:${server.port}  <- share this with your team`);
+}
+if (server.claimCode) {
+  console.log("");
+  console.log("  This workspace has no owner yet.");
+  console.log(`  Claim code: ${server.claimCode}`);
+  console.log("  Creating the first account from this machine does not need it.");
+  console.log("  From anywhere else, enter it when you create that account.");
 }
 console.log("");
 

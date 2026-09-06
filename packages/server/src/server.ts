@@ -23,6 +23,8 @@ import {
   runCommandBody,
   createInviteBody,
   scheduleMessageBody,
+  rescheduleBody,
+  changePasswordBody,
   editMessageBody,
   loginBody,
   markReadBody,
@@ -55,6 +57,12 @@ import { BUILTIN_COMMANDS } from "./commands.js";
 import { secretToken, ulid } from "./ids.js";
 
 export const SERVER_VERSION = "0.1.0";
+
+/** How many times an unexplained delivery error is retried before giving up. */
+const SCHEDULED_ATTEMPTS = 3;
+
+/** Delivered queue rows are kept this long as proof of completion. */
+const SCHEDULED_RETENTION_MS = 7 * 24 * 3600_000;
 
 export interface ServerOptions {
   /** Directory holding workspace.db and uploads. Use ":memory:" for tests. */
@@ -93,6 +101,11 @@ export interface WorkspaceServer {
   port: number;
   store: Store;
   gateway: Gateway;
+  /**
+   * The code needed to claim an unowned workspace from off this machine. Null
+   * once someone owns it. The host prints it; it is not served over the API.
+   */
+  claimCode: string | null;
   /** Posts anything now due. Runs on a timer; exposed so tests need not wait. */
   flushScheduled: () => void;
   stop: () => Promise<void>;
@@ -121,17 +134,56 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const workspaceName = () => store.getMeta("workspace_name")!;
   const inviteOnly = () => store.getMeta("invite_only") === "1";
 
+  /**
+   * A workspace with no owner is up for grabs. Until one exists, the account
+   * that becomes owner must come either from the machine running the server or
+   * from someone holding the code it printed at startup — otherwise the first
+   * stranger to find it on the network owns it.
+   */
+  if (store.userCount() === 0 && !store.getMeta("claim_code")) {
+    store.setMeta("claim_code", secretToken());
+  }
+  const claimCode = () => store.getMeta("claim_code") || null;
+  /** Whatever the client called itself. Shown back to its owner, never trusted. */
+  const deviceName = (req: FastifyRequest) => String(req.headers["user-agent"] ?? "").slice(0, 200);
+  /**
+   * Whether this request came from the machine running the server.
+   *
+   * Behind a reverse proxy every request arrives from loopback, which would
+   * hand the local bypass to the whole internet. So a request that shows any
+   * sign of having been forwarded is never local, and neither is any request to
+   * a server configured with a public URL.
+   */
+  const isLocalRequest = (req: FastifyRequest) => {
+    if (opts.publicUrl) return false;
+    if (
+      ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip"].some(
+        (name) => req.headers[name] !== undefined,
+      )
+    )
+      return false;
+    const ip = (req.ip || "").replace(/^::ffff:/, "");
+    return ip === "127.0.0.1" || ip === "::1";
+  };
+
   const gateway = new Gateway(store, workspaceName);
 
-  /** Append to the durable log, then fan out to connected clients. */
-  const emit = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
+  const recordEvent = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
     const envelope = store.appendEvent(event, channelId);
     if (event.type === "message.created") {
       store.stampMessageSeq(event.message.id, event.message.channelId, envelope.seq);
       event.message.seq = envelope.seq;
     }
+    return envelope;
+  };
+  const publish = (envelope: EventEnvelope, channelId: ID | null) => {
     gateway.publish(envelope, channelId);
     dispatchToSubscribers(envelope, channelId);
+  };
+  /** Simple events; message mutations use a transaction before publishing. */
+  const emit = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
+    const envelope = recordEvent(event, channelId);
+    publish(envelope, channelId);
     return envelope;
   };
 
@@ -192,21 +244,64 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     nonce: string | null;
     fileIds: ID[];
     actions?: MessageAction[];
+    /** Marks this queue row delivered in the same transaction as the message. */
+    scheduledId?: ID;
   }) => {
-    const created = store.createMessage({
-      channelId: input.channelId,
-      userId: input.userId,
-      text: input.text,
-      threadRootId: input.threadRootId,
-      nonce: input.nonce,
-      actions: input.actions,
+    const events: EventEnvelope[] = [];
+    const message = store.transaction(() => {
+      const channel = store.getChannel(input.channelId);
+      if (!channel || !store.canAccess(channel.id, input.userId))
+        throw new HttpError(404, "channel_not_found");
+      if (store.getUser(input.userId)?.deactivated) throw new HttpError(403, "account_deactivated");
+      const requestHash = hashToken(
+        JSON.stringify([
+          input.channelId,
+          input.text,
+          input.threadRootId,
+          [...input.fileIds].sort(),
+        ]),
+      );
+      if (input.nonce !== null) {
+        const previous = store.messageRequest(input.userId, input.nonce);
+        if (previous) {
+          const existing = store.getMessage(previous.messageId);
+          if (!existing) throw new HttpError(409, "message_deleted");
+          if (
+            (previous.requestHash !== null && previous.requestHash !== requestHash) ||
+            existing.channelId !== input.channelId ||
+            existing.threadRootId !== input.threadRootId
+          ) {
+            throw new HttpError(409, "nonce_conflict");
+          }
+          return existing;
+        }
+      }
+      if (channel.archived) throw new HttpError(400, "channel_archived");
+      if (input.threadRootId) {
+        const root = store.getMessage(input.threadRootId);
+        if (!root || root.channelId !== channel.id || root.threadRootId)
+          throw new HttpError(400, "bad_thread_root");
+      }
+      if (channel.type === "public" && !store.isMember(channel.id, input.userId)) {
+        store.addMember(channel.id, input.userId);
+        events.push(
+          recordEvent(
+            { type: "member.joined", channelId: channel.id, userId: input.userId },
+            channel.id,
+          ),
+        );
+      }
+      const created = store.createMessage(input);
+      if (!store.attachFiles(input.fileIds, created.id, input.channelId, input.userId))
+        throw new HttpError(400, "invalid_attachments");
+      const hydrated = store.getMessage(created.id)!;
+      if (input.nonce !== null)
+        store.recordMessageRequest(input.userId, input.nonce, created.id, requestHash);
+      if (input.scheduledId) store.markScheduledSent(input.scheduledId, created.id);
+      events.push(recordEvent({ type: "message.created", message: hydrated }, input.channelId));
+      return hydrated;
     });
-    if (input.fileIds.length > 0) {
-      store.attachFiles(input.fileIds, created.id, input.channelId, input.userId);
-    }
-    // Re-read so the broadcast event carries the attachments.
-    const message = store.getMessage(created.id)!;
-    emit({ type: "message.created", message }, input.channelId);
+    for (const event of events) publish(event, input.channelId);
     return message;
   };
 
@@ -324,14 +419,16 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     authJobs++;
   };
 
-  app.get("/api/server-info", async (): Promise<ServerInfo> => {
+  app.get("/api/server-info", async (req): Promise<ServerInfo> => {
+    const userCount = store.userCount();
     return {
       app: "slackoss",
       protocolVersion: PROTOCOL_VERSION,
       serverVersion: SERVER_VERSION,
       workspaceName: workspaceName(),
-      userCount: store.userCount(),
-      requiresInvite: store.userCount() > 0 && inviteOnly(),
+      userCount,
+      requiresInvite: userCount > 0 && inviteOnly(),
+      requiresClaim: userCount === 0 && !!claimCode() && !isLocalRequest(req),
     };
   });
 
@@ -350,6 +447,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
     if (store.getUserAuthByHandle(body.handle)) {
       throw new HttpError(409, "handle_taken");
+    }
+
+    if (isFirstUser) {
+      const expected = claimCode();
+      if (expected && !isLocalRequest(req) && body.claimCode !== expected) {
+        throw new HttpError(
+          403,
+          "claim_required",
+          "this workspace has no owner yet; enter the claim code its host printed at startup",
+        );
+      }
     }
 
     if (!isFirstUser && inviteOnly()) {
@@ -371,6 +479,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     });
 
     if (isFirstUser) {
+      // Single use: the workspace now has an owner and cannot be claimed again.
+      store.setMeta("claim_code", "");
       // Bootstrap the workspace with #general.
       const general = store.createChannel({
         type: "public",
@@ -390,7 +500,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
 
     const { token, tokenHash } = newSessionToken();
-    store.createSession(tokenHash, user.id);
+    store.createSession(tokenHash, user.id, deviceName(req));
     return reply.status(201).send({ token, user });
   });
 
@@ -407,19 +517,107 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     } finally {
       authJobs--;
     }
-    if (!auth || !valid) {
+    const latest = auth ? store.getUserAuthByHandle(auth.handle) : null;
+    if (
+      !auth ||
+      !valid ||
+      !latest ||
+      latest.deactivated ||
+      latest.passwordHash !== auth.passwordHash ||
+      latest.salt !== auth.salt
+    ) {
       throw new HttpError(401, "invalid_credentials");
     }
     const { token, tokenHash } = newSessionToken();
-    store.createSession(tokenHash, auth.id);
-    const { passwordHash: _p, salt: _s, ...user } = auth;
+    store.createSession(tokenHash, auth.id, deviceName(req));
+    const { passwordHash: _p, salt: _s, ...user } = latest;
     return { token, user };
   });
 
   app.post("/api/auth/logout", async (req) => {
     const token = bearerToken(req);
-    if (token) store.deleteSession(hashToken(token));
+    if (token) {
+      const tokenHash = hashToken(token);
+      store.deleteSession(tokenHash);
+      gateway.disconnectSession(tokenHash);
+    }
     return { ok: true };
+  });
+
+  /**
+   * Changing a password proves you know the current one, then signs out
+   * everywhere else. A password is usually changed because someone else might
+   * know it; leaving their sessions running would defeat the whole exercise.
+   */
+  app.post("/api/auth/password", async (req) => {
+    const me = requireUser(req);
+    const body = changePasswordBody.parse(req.body);
+    const auth = store.getUserAuthByHandle(me.handle);
+    if (!auth) throw new HttpError(404, "user_not_found");
+    beginAuth();
+    let valid = false;
+    try {
+      valid = await verifyPassword(body.currentPassword, auth.salt, auth.passwordHash);
+    } finally {
+      authJobs--;
+    }
+    if (!valid)
+      throw new HttpError(403, "invalid_credentials", "that is not your current password");
+    beginAuth();
+    let credentials: Awaited<ReturnType<typeof hashPassword>>;
+    try {
+      credentials = await hashPassword(body.newPassword);
+    } finally {
+      authJobs--;
+    }
+    // Hashing yields: sign-out, deactivation, or another reset may have happened meanwhile.
+    requireUser(req);
+    const latest = store.getUserAuthByHandle(me.handle);
+    if (!latest || latest.passwordHash !== auth.passwordHash || latest.salt !== auth.salt) {
+      throw new HttpError(
+        409,
+        "credentials_changed",
+        "Your password changed while this request was running. Sign in again.",
+      );
+    }
+    const keep = hashToken(bearerToken(req)!);
+    const revokedSessions = store.transaction(() => {
+      store.setPassword(me.id, credentials.hash, credentials.salt);
+      return store.revokeSessions(me.id, { exceptTokenHash: keep });
+    });
+    for (const revoked of revokedSessions) {
+      gateway.disconnectSession(revoked);
+    }
+    return { ok: true };
+  });
+
+  /** Everywhere this account is signed in, so its owner can see and end them. */
+  app.get("/api/auth/sessions", async (req) => {
+    const me = requireUser(req);
+    const current = hashToken(bearerToken(req)!);
+    const currentId = store.sessionIdFor(current);
+    return {
+      sessions: store
+        .listSessions(me.id)
+        .map((session) => ({ ...session, current: session.id === currentId })),
+    };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/auth/sessions/:id", async (req) => {
+    const me = requireUser(req);
+    const revoked = store.revokeSessions(me.id, { id: req.params.id });
+    if (revoked.length === 0) throw new HttpError(404, "session_not_found");
+    for (const tokenHash of revoked) gateway.disconnectSession(tokenHash);
+    return { ok: true };
+  });
+
+  /** "Sign out my other devices" — the one asking stays signed in. */
+  app.delete("/api/auth/sessions", async (req) => {
+    const me = requireUser(req);
+    const keep = hashToken(bearerToken(req)!);
+    const revoked = store.revokeSessions(me.id, { exceptTokenHash: keep });
+    for (const tokenHash of revoked) gateway.disconnectSession(tokenHash);
+    return { revoked: revoked.length };
   });
 
   // ---------- me / users ----------
@@ -547,6 +745,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const channel = requireChannelAccess(req.params.id, me);
     if (channel.type === "dm") throw new HttpError(400, "cannot_leave_dm");
     if (store.removeMember(channel.id, me.id)) {
+      gateway.updateChannelAccess(channel.id, me.id);
       emit({ type: "member.left", channelId: channel.id, userId: me.id }, channel.id);
     }
     return { ok: true };
@@ -561,6 +760,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       throw new HttpError(400, "cannot_invite_to_dm");
     }
     if (store.addMember(channel.id, userId)) {
+      gateway.updateChannelAccess(channel.id, userId);
       emit({ type: "member.joined", channelId: channel.id, userId }, channel.id);
     }
     return { ok: true };
@@ -600,7 +800,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     async (req) => {
       const me = requireUser(req);
       requireChannelAccess(req.params.id, me);
-      const limit = Math.min(Number((req.query as { limit?: string }).limit) || 50, 200);
+      const { limit } = messageHistoryQuery.parse(req.query);
       return store.listMessagesAround(req.params.id, req.params.messageId, limit);
     },
   );
@@ -610,7 +810,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     async (req) => {
       const me = requireUser(req);
       requireChannelAccess(req.params.id, me);
-      const limit = Math.min(Number((req.query as { limit?: string }).limit) || 50, 200);
+      const { limit } = messageHistoryQuery.parse(req.query);
       return { messages: store.listMessagesAfter(req.params.id, req.params.messageId, limit) };
     },
   );
@@ -620,18 +820,6 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const channel = requireChannelAccess(req.params.id, me);
     if (channel.archived) throw new HttpError(400, "channel_archived");
     const body = sendMessageBody.parse(req.body);
-
-    if (channel.type === "public" && !store.isMember(channel.id, me.id)) {
-      // Posting into a public channel you haven't joined joins you (Slack behavior).
-      store.addMember(channel.id, me.id);
-      emit({ type: "member.joined", channelId: channel.id, userId: me.id }, channel.id);
-    }
-    if (body.threadRootId) {
-      const root = store.getMessage(body.threadRootId);
-      if (!root || root.channelId !== channel.id || root.threadRootId) {
-        throw new HttpError(400, "bad_thread_root");
-      }
-    }
 
     const message = postMessage({
       channelId: channel.id,
@@ -1341,6 +1529,68 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return { user: updated };
   });
 
+  /**
+   * Password recovery for an installation with no email: an admin issues a
+   * temporary password and reads it to the person over whatever channel they
+   * trust. It is shown once, all their sessions end, and they are expected to
+   * change it. The rules match those above — the owner cannot be reset by an
+   * admin, and nobody resets themselves, since that is what the ordinary
+   * password change is for.
+   */
+  app.post<{ Params: { id: string } }>("/api/admin/users/:id/password", async (req) => {
+    const authorize = () => {
+      const me = requireAdmin(req);
+      const target = store.getUser(req.params.id);
+      if (!target) throw new HttpError(404, "user_not_found");
+      if (target.id === me.id) throw new HttpError(400, "cannot_reset_self");
+      if (target.isBot) throw new HttpError(400, "bots_have_no_password");
+      if (target.role === "owner") throw new HttpError(403, "owner_is_protected");
+      if (target.role === "admin" && me.role !== "owner") {
+        throw new HttpError(403, "admins_are_equals", "only the owner can reset another admin");
+      }
+      return target;
+    };
+    authorize();
+    const temporaryPassword = secretToken().slice(0, 16);
+    beginAuth();
+    let credentials: Awaited<ReturnType<typeof hashPassword>>;
+    try {
+      credentials = await hashPassword(temporaryPassword);
+    } finally {
+      authJobs--;
+    }
+    const target = authorize();
+    const revokedSessions = store.transaction(() => {
+      store.setPassword(target.id, credentials.hash, credentials.salt);
+      return store.revokeSessions(target.id);
+    });
+    for (const tokenHash of revokedSessions) {
+      gateway.disconnectSession(tokenHash);
+    }
+    return { temporaryPassword };
+  });
+
+  /**
+   * Hands the workspace to someone else. Only the owner can do it, and they
+   * become an admin rather than losing their access — a workspace with no owner
+   * is the state this whole area exists to prevent.
+   */
+  app.post<{ Params: { id: string } }>("/api/admin/users/:id/owner", async (req) => {
+    const me = requireUser(req);
+    if (me.role !== "owner") throw new HttpError(403, "owner_only");
+    const target = store.getUser(req.params.id);
+    if (!target) throw new HttpError(404, "user_not_found");
+    if (target.id === me.id) throw new HttpError(400, "already_owner");
+    if (target.isBot || target.deactivated) throw new HttpError(400, "invalid_owner");
+    const [newOwner, formerOwner] = store.transaction(() => [
+      store.updateUser(target.id, { role: "owner" }),
+      store.updateUser(me.id, { role: "admin" }),
+    ]);
+    emit({ type: "user.updated", user: newOwner }, null);
+    emit({ type: "user.updated", user: formerOwner }, null);
+    return { owner: newOwner, previousOwner: formerOwner };
+  });
+
   // ---------- interactive buttons and modals ----------
 
   /**
@@ -1710,6 +1960,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (body.sendAt <= Date.now()) {
       throw new HttpError(400, "send_at_in_past", "pick a time in the future");
     }
+    // Queuing validates what sending validates, so a message cannot sit in the
+    // queue for hours only to be rejected when it comes due.
+    if (body.threadRootId) {
+      const root = store.getMessage(body.threadRootId);
+      if (!root || root.channelId !== channel.id || root.threadRootId) {
+        throw new HttpError(400, "bad_thread_root");
+      }
+    }
+    if (!store.unattachedFiles(body.fileIds ?? [], channel.id, me.id)) {
+      throw new HttpError(400, "invalid_attachments");
+    }
     const scheduled = store.scheduleMessage({
       channelId: channel.id,
       userId: me.id,
@@ -1733,6 +1994,19 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (!scheduled || scheduled.userId !== me.id) throw new HttpError(404, "not_found");
     store.deleteScheduled(scheduled.id);
     return { ok: true };
+  });
+
+  /** The recovery path for a held or failed message: a past time sends it now. */
+  app.patch<{ Params: { id: string } }>("/api/scheduled/:id", async (req) => {
+    const me = requireUser(req);
+    const scheduled = store.getScheduled(req.params.id);
+    if (!scheduled || scheduled.userId !== me.id || scheduled.status === "sent") {
+      throw new HttpError(404, "not_found");
+    }
+    const body = rescheduleBody.parse(req.body);
+    requireChannelAccess(scheduled.channelId, me);
+    store.rescheduleMessage(scheduled.id, body.sendAt);
+    return { scheduled: store.getScheduled(scheduled.id)! };
   });
 
   // ---------- pins & saved items ----------
@@ -1840,7 +2114,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   try {
     await app.listen({ port, host });
   } catch (err) {
-    gateway.close();
+    await gateway.close();
     await app.close();
     db.close();
     throw err;
@@ -1855,40 +2129,80 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   /**
    * Posts anything that has come due. Runs on a timer and once at startup, so
    * messages scheduled while the server was down still go out.
+   *
+   * Nothing is dropped silently. Delivery marks the queue row sent inside the
+   * message transaction, so a crash between the two replays rather than losing
+   * or duplicating the message. An obstacle that the author can clear holds the
+   * row; one they cannot fails it. Either way the reason is theirs to read.
    */
   const flushScheduled = () => {
     for (const item of store.dueScheduled()) {
-      // Drop it first: a message that fails to post must not retry forever.
-      store.deleteScheduled(item.id);
       const channel = store.getChannel(item.channelId);
-      if (!channel || channel.archived || !store.canAccess(item.channelId, item.userId)) continue;
-      postMessage({
-        channelId: item.channelId,
-        userId: item.userId,
-        text: item.text,
-        threadRootId: item.threadRootId,
-        nonce: null,
-        fileIds: item.fileIds,
-      });
+      const held = !channel
+        ? "That channel no longer exists."
+        : channel.archived
+          ? "That channel is archived."
+          : !store.canAccess(channel.id, item.userId)
+            ? "You are no longer a member of that channel."
+            : store.getUser(item.userId)?.deactivated
+              ? "Your account is deactivated."
+              : null;
+      if (held) {
+        store.holdScheduled(item.id, held);
+        continue;
+      }
+      try {
+        postMessage({
+          channelId: item.channelId,
+          userId: item.userId,
+          text: item.text,
+          threadRootId: item.threadRootId,
+          nonce: null,
+          fileIds: item.fileIds,
+          scheduledId: item.id,
+        });
+      } catch (err) {
+        const code = err instanceof HttpError ? err.code : null;
+        if (code === "bad_thread_root") {
+          store.failScheduled(item.id, "The message this replied to was deleted.");
+        } else if (code === "invalid_attachments") {
+          store.failScheduled(item.id, "Its attachments are no longer available.");
+        } else if (store.countScheduledAttempt(item.id) >= SCHEDULED_ATTEMPTS) {
+          store.failScheduled(item.id, "Sending failed repeatedly, so it was not posted.");
+        } else {
+          store.holdScheduled(item.id, "Sending failed. It will be tried again shortly.");
+        }
+      }
     }
   };
   flushScheduled();
   const scheduleTimer = setInterval(flushScheduled, 15_000);
 
-  const pruneTimer = setInterval(() => store.pruneEvents(), 3600_000);
+  const pruneTimer = setInterval(() => {
+    store.pruneEvents();
+    store.pruneScheduled(Date.now() - SCHEDULED_RETENTION_MS);
+    store.pruneSessions();
+  }, 3600_000);
+  let stopping: Promise<void> | null = null;
 
   return {
     port: actualPort,
     store,
     gateway,
+    /** Set only while the workspace still has no owner. */
+    claimCode: claimCode(),
     flushScheduled,
-    stop: async () => {
+    stop: () => {
+      if (stopping) return stopping;
       clearInterval(scheduleTimer);
       clearInterval(pruneTimer);
       mdnsHandle?.stop();
-      gateway.close();
-      await app.close();
-      db.close();
+      stopping = (async () => {
+        await gateway.close();
+        await app.close();
+        db.close();
+      })();
+      return stopping;
     },
   };
 }

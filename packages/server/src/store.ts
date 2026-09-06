@@ -15,6 +15,7 @@ import type {
   ParsedSearch,
   Role,
   ScheduledMessage,
+  SessionInfo,
   User,
   EventSubscription,
   SlashCommand,
@@ -95,8 +96,42 @@ function toUser(r: UserRow): User {
   };
 }
 
+/** How long a session survives without being used. */
+export const SESSION_TTL_MS = 30 * 24 * 3600_000;
+
 export class Store {
   constructor(private db: DatabaseSync) {}
+
+  /** Only synchronous database work belongs here; publish events after this returns. */
+  transaction<T>(work: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const value = work();
+      this.db.exec("COMMIT");
+      return value;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  messageRequest(userId: ID, nonce: string): { messageId: ID; requestHash: string | null } | null {
+    return (
+      (this.db
+        .prepare(
+          "SELECT message_id AS messageId, request_hash AS requestHash FROM message_requests WHERE user_id = ? AND nonce = ?",
+        )
+        .get(userId, nonce) as { messageId: ID; requestHash: string | null } | undefined) ?? null
+    );
+  }
+
+  recordMessageRequest(userId: ID, nonce: string, messageId: ID, requestHash: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO message_requests (user_id, nonce, message_id, request_hash) VALUES (?, ?, ?, ?)",
+      )
+      .run(userId, nonce, messageId, requestHash);
+  }
 
   listFriends(userId: ID): Friendship[] {
     const rows = this.db
@@ -253,31 +288,112 @@ export class Store {
 
   // ---------- sessions ----------
 
-  createSession(tokenHash: string, userId: ID): void {
+  createSession(tokenHash: string, userId: ID, userAgent = "", ttlMs = SESSION_TTL_MS): ID {
     const now = Date.now();
+    const id = ulid();
     this.db
       .prepare(
-        "INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at) VALUES (?, ?, ?, ?)",
+        `INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, id, user_agent, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(tokenHash, userId, now, now);
+      .run(tokenHash, userId, now, now, id, userAgent.slice(0, 200), now + ttlMs);
+    return id;
   }
 
-  getSessionUser(tokenHash: string): User | null {
+  /**
+   * The account behind a token, if the session is still alive.
+   *
+   * Expiry slides forward on every use: a session in daily use never asks its
+   * owner to sign in again, while one abandoned on a borrowed machine stops
+   * working on its own.
+   */
+  getSessionUser(tokenHash: string, ttlMs = SESSION_TTL_MS): User | null {
+    const now = Date.now();
     const r = this.db
       .prepare(
         `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = ? AND u.deactivated = 0`,
+         WHERE s.token_hash = ? AND u.deactivated = 0 AND s.expires_at > ?`,
       )
-      .get(tokenHash) as UserRow | undefined;
+      .get(tokenHash, now) as UserRow | undefined;
     if (!r) return null;
     this.db
-      .prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?")
-      .run(Date.now(), tokenHash);
+      .prepare("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?")
+      .run(now, now + ttlMs, tokenHash);
     return toUser(r);
+  }
+
+  /** One person's signed-in devices, newest first. */
+  listSessions(userId: ID): Omit<SessionInfo, "current">[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, created_at, last_seen_at, expires_at, user_agent FROM sessions
+         WHERE user_id = ? AND expires_at > ? ORDER BY last_seen_at DESC`,
+      )
+      .all(userId, Date.now()) as unknown as {
+      id: string;
+      created_at: number;
+      last_seen_at: number;
+      expires_at: number;
+      user_agent: string;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      createdAt: r.created_at,
+      lastSeenAt: r.last_seen_at,
+      expiresAt: r.expires_at,
+      userAgent: r.user_agent,
+    }));
+  }
+
+  /**
+   * Ends sessions and reports which tokens they were, so their live sockets can
+   * be closed too. A revoked session that keeps receiving messages is not revoked.
+   */
+  revokeSessions(userId: ID, opts: { id?: ID; exceptTokenHash?: string } = {}): string[] {
+    const where = ["user_id = ?"];
+    const params: string[] = [userId];
+    if (opts.id !== undefined) {
+      where.push("id = ?");
+      params.push(opts.id);
+    }
+    if (opts.exceptTokenHash !== undefined) {
+      where.push("token_hash != ?");
+      params.push(opts.exceptTokenHash);
+    }
+    const clause = where.join(" AND ");
+    const rows = this.db
+      .prepare(`SELECT token_hash FROM sessions WHERE ${clause}`)
+      .all(...params) as unknown as { token_hash: string }[];
+    this.db.prepare(`DELETE FROM sessions WHERE ${clause}`).run(...params);
+    return rows.map((r) => r.token_hash);
+  }
+
+  /** The listable id of the session behind a token, so it can mark itself. */
+  sessionIdFor(tokenHash: string): ID | null {
+    const r = this.db.prepare("SELECT id FROM sessions WHERE token_hash = ?").get(tokenHash) as
+      { id: string } | undefined;
+    return r?.id ?? null;
+  }
+
+  /** Drops sessions nobody can use any more. */
+  pruneSessions(now = Date.now()): void {
+    this.db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(now);
   }
 
   deleteSession(tokenHash: string): void {
     this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+  }
+
+  /** Checks a live socket without extending a session merely for receiving traffic. */
+  isSessionActive(tokenHash: string, userId: ID): boolean {
+    return (
+      this.db
+        .prepare(
+          `SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ? AND s.user_id = ? AND s.expires_at > ? AND u.deactivated = 0`,
+        )
+        .get(tokenHash, userId, Date.now()) !== undefined
+    );
   }
 
   /**
@@ -287,6 +403,13 @@ export class Store {
    */
   deleteSessionsFor(userId: ID): number {
     return this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId).changes as number;
+  }
+
+  /** Replaces someone's password. Their sessions are the caller's to revoke. */
+  setPassword(userId: ID, passwordHash: string, salt: string): void {
+    this.db
+      .prepare("UPDATE users SET password_hash = ?, salt = ? WHERE id = ?")
+      .run(passwordHash, salt, userId);
   }
 
   /** When each account was last seen, for the admin list. */
@@ -815,12 +938,15 @@ export class Store {
   }
 
   /** Binds uploads to their message. Only the uploader's own unattached files in this channel. */
-  attachFiles(fileIds: ID[], messageId: ID, channelId: ID, userId: ID): void {
+  attachFiles(fileIds: ID[], messageId: ID, channelId: ID, userId: ID): boolean {
     const stmt = this.db.prepare(
       `UPDATE files SET message_id = ?
        WHERE id = ? AND user_id = ? AND channel_id = ? AND message_id IS NULL`,
     );
-    for (const fileId of fileIds) stmt.run(messageId, fileId, userId, channelId);
+    for (const fileId of fileIds) {
+      if (stmt.run(messageId, fileId, userId, channelId).changes !== 1) return false;
+    }
+    return true;
   }
 
   /** File ids belonging to a message — used to delete blobs when the message goes. */
@@ -965,6 +1091,10 @@ export class Store {
     file_ids: string;
     send_at: number;
     created_at: number;
+    status: string;
+    failure_reason: string | null;
+    attempts: number;
+    message_id: string | null;
   }): ScheduledMessage {
     let fileIds: ID[] = [];
     try {
@@ -981,6 +1111,10 @@ export class Store {
       fileIds,
       sendAt: r.send_at,
       createdAt: r.created_at,
+      status: r.status as ScheduledMessage["status"],
+      failureReason: r.failure_reason,
+      attempts: r.attempts,
+      messageId: r.message_id,
     };
   }
 
@@ -990,30 +1124,93 @@ export class Store {
     return r ? this.toScheduled(r) : null;
   }
 
-  /** One user's pending messages, soonest first. */
+  /** One user's outstanding messages, soonest first. Delivered ones are done. */
   listScheduled(userId: ID): ScheduledMessage[] {
     const rows = this.db
-      .prepare("SELECT * FROM scheduled_messages WHERE user_id = ? ORDER BY send_at")
+      .prepare(
+        "SELECT * FROM scheduled_messages WHERE user_id = ? AND status != 'sent' ORDER BY send_at",
+      )
       .all(userId) as unknown as Parameters<Store["toScheduled"]>[0][];
     return rows.map((r) => this.toScheduled(r));
   }
 
-  /** Everything now due, across all users. */
   /**
-   * Messages now due. A deactivated author's are skipped: the queue lives on
-   * the server, so without this a message could post itself in the name of
-   * someone whose access was taken away yesterday.
+   * Messages now due, across all users. Held ones come back every flush so a
+   * reversible obstacle — an archived channel, lost membership, a deactivated
+   * author — sends the message once it clears. The caller re-checks those
+   * conditions: the queue lives on the server, so without that check a message
+   * could post itself in the name of someone whose access was taken away
+   * yesterday.
    */
   dueScheduled(now = Date.now()): ScheduledMessage[] {
     const rows = this.db
       .prepare(
-        `SELECT s.* FROM scheduled_messages s
-         JOIN users u ON u.id = s.user_id
-         WHERE s.send_at <= ? AND u.deactivated = 0
-         ORDER BY s.send_at`,
+        `SELECT * FROM scheduled_messages
+         WHERE send_at <= ? AND status IN ('queued', 'held')
+         ORDER BY send_at`,
       )
       .all(now) as unknown as Parameters<Store["toScheduled"]>[0][];
     return rows.map((r) => this.toScheduled(r));
+  }
+
+  /** Delivery, written inside the posting transaction so neither can happen alone. */
+  markScheduledSent(id: ID, messageId: ID): void {
+    this.db
+      .prepare(
+        "UPDATE scheduled_messages SET status = 'sent', message_id = ?, failure_reason = NULL WHERE id = ?",
+      )
+      .run(messageId, id);
+  }
+
+  /** A reason that may clear on its own. The next flush tries again. */
+  holdScheduled(id: ID, reason: string): void {
+    this.db
+      .prepare("UPDATE scheduled_messages SET status = 'held', failure_reason = ? WHERE id = ?")
+      .run(reason, id);
+  }
+
+  /** Terminal. Only an explicit reschedule puts it back in the queue. */
+  failScheduled(id: ID, reason: string): void {
+    this.db
+      .prepare("UPDATE scheduled_messages SET status = 'failed', failure_reason = ? WHERE id = ?")
+      .run(reason, id);
+  }
+
+  /** Counts one delivery attempt and returns the new total, so retries stay bounded. */
+  countScheduledAttempt(id: ID): number {
+    this.db.prepare("UPDATE scheduled_messages SET attempts = attempts + 1 WHERE id = ?").run(id);
+    return (
+      (
+        this.db.prepare("SELECT attempts FROM scheduled_messages WHERE id = ?").get(id) as
+          { attempts: number } | undefined
+      )?.attempts ?? 0
+    );
+  }
+
+  /** Puts a held or failed message back in the queue at a new time. */
+  rescheduleMessage(id: ID, sendAt: number): void {
+    this.db
+      .prepare(
+        `UPDATE scheduled_messages
+         SET send_at = ?, status = 'queued', failure_reason = NULL, attempts = 0
+         WHERE id = ? AND status != 'sent'`,
+      )
+      .run(sendAt, id);
+  }
+
+  /** Delivered rows are kept as proof of completion, then aged out. */
+  pruneScheduled(before: number): void {
+    this.db
+      .prepare("DELETE FROM scheduled_messages WHERE status = 'sent' AND send_at < ?")
+      .run(before);
+  }
+
+  /** True when every id is one of this user's own unattached uploads in this channel. */
+  unattachedFiles(fileIds: ID[], channelId: ID, userId: ID): boolean {
+    const stmt = this.db.prepare(
+      "SELECT 1 FROM files WHERE id = ? AND user_id = ? AND channel_id = ? AND message_id IS NULL",
+    );
+    return fileIds.every((id) => stmt.get(id, userId, channelId) !== undefined);
   }
 
   deleteScheduled(id: ID): boolean {

@@ -36,6 +36,12 @@ export interface EventEnvelope {
 
 /** Ephemeral events — never logged, never replayed. */
 export type EphemeralEvent =
+  | {
+      type: "channel.access";
+      channelId: ID;
+      channel: Channel | null;
+      membership: { lastReadSeq: number; prefs: ChannelPrefs } | null;
+    }
   | { type: "friends"; friends: Friendship[] }
   | { type: "typing"; channelId: ID; userId: ID }
   | { type: "presence"; userId: ID; presence: Presence }
@@ -73,6 +79,8 @@ export type Presence = "online" | "away" | "offline";
 export interface ReadySnapshot {
   type: "ready";
   seq: number;
+  /** Present for syncVersion 1: null replaces history; otherwise replay follows from this cursor. */
+  replayFrom?: number | null;
   self: User;
   users: User[];
   channels: Channel[];
@@ -91,6 +99,7 @@ export interface ReadySnapshot {
 /** Everything the server can push over the socket. */
 export type ServerToClient =
   | ReadySnapshot
+  | { type: "synced"; seq: number }
   | { type: "event"; envelope: EventEnvelope }
   | { type: "ephemeral"; event: EphemeralEvent }
   /** lastSeq was pruned from the log — client must drop caches and re-sync. */
@@ -99,7 +108,13 @@ export type ServerToClient =
   | { type: "pong" };
 
 export type ClientToServer =
-  | { type: "hello"; token: string; lastSeq: number | null; protocolVersion: number }
+  | {
+      type: "hello";
+      token: string;
+      lastSeq: number | null;
+      protocolVersion: number;
+      syncVersion?: 1;
+    }
   | { type: "typing"; channelId: ID }
   | { type: "huddle.join"; channelId: ID }
   | { type: "huddle.leave"; channelId: ID }

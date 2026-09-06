@@ -17,6 +17,7 @@ import { socketMessage } from "./socketSchema.js";
 interface Client {
   ws: WebSocket;
   userId: ID;
+  tokenHash: string;
   alive: boolean;
 }
 
@@ -37,6 +38,8 @@ export class Gateway {
   private huddles = new Map<ID, Set<ID>>();
   private heartbeat: NodeJS.Timeout;
   private sockets = new Set<WebSocket>();
+  private closing = false;
+  private closePromise: Promise<void> | null = null;
 
   constructor(
     private store: Store,
@@ -44,6 +47,7 @@ export class Gateway {
   ) {
     this.heartbeat = setInterval(() => {
       for (const c of this.clients) {
+        if (!this.authorized(c)) continue;
         if (!c.alive) {
           c.ws.terminate();
           continue;
@@ -61,6 +65,10 @@ export class Gateway {
       perMessageDeflate: false,
     });
     server.on("upgrade", (req, socket, head) => {
+      if (this.closing) {
+        socket.destroy();
+        return;
+      }
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname !== path) {
         socket.destroy();
@@ -70,9 +78,20 @@ export class Gateway {
     });
   }
 
-  close(): void {
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closing = true;
     clearInterval(this.heartbeat);
-    for (const ws of this.sockets) ws.terminate();
+    this.closePromise = Promise.all(
+      [...this.sockets].map(
+        (ws) =>
+          new Promise<void>((resolve) => {
+            ws.once("close", () => resolve());
+            ws.terminate();
+          }),
+      ),
+    ).then(() => {});
+    return this.closePromise;
   }
 
   onlineUserIds(): ID[] {
@@ -98,6 +117,7 @@ export class Gateway {
     });
 
     ws.on("message", (data) => {
+      if (this.closing || (client && !this.clients.has(client))) return;
       let msg: ClientToServer;
       try {
         const parsed = socketMessage.safeParse(JSON.parse(String(data)));
@@ -121,13 +141,14 @@ export class Gateway {
           ws.close(4002);
           return;
         }
-        const user = this.store.getSessionUser(hashToken(msg.token));
+        const tokenHash = hashToken(msg.token);
+        const user = this.store.getSessionUser(tokenHash);
         if (!user) {
           this.send(ws, { type: "error", code: "auth_failed", message: "invalid token" });
           ws.close(4003);
           return;
         }
-        client = { ws, userId: user.id, alive: true };
+        client = { ws, userId: user.id, tokenHash, alive: true };
         this.register(client);
 
         const snapshot: ReadySnapshot = {
@@ -144,21 +165,23 @@ export class Gateway {
           workspaceName: this.workspaceName(),
           friends: this.store.listFriends(user.id),
         };
+        const missed =
+          msg.lastSeq !== null && msg.lastSeq <= snapshot.seq
+            ? this.store.eventsSince(msg.lastSeq, user.id)
+            : null;
+        if (msg.syncVersion === 1) snapshot.replayFrom = missed === null ? null : msg.lastSeq;
         this.send(ws, snapshot);
-
-        // Replay anything the client missed while offline.
-        if (msg.lastSeq !== null && msg.lastSeq < snapshot.seq) {
-          const missed = this.store.eventsSince(msg.lastSeq, user.id);
-          if (missed === null) {
-            this.send(ws, { type: "resync" });
-          } else {
-            for (const envelope of missed) this.send(ws, { type: "event", envelope });
-          }
+        if (missed !== null) {
+          for (const envelope of missed) this.send(ws, { type: "event", envelope });
+        } else if (msg.lastSeq !== null && msg.syncVersion !== 1) {
+          this.send(ws, { type: "resync" });
         }
+        if (msg.syncVersion === 1) this.send(ws, { type: "synced", seq: snapshot.seq });
         return;
       }
 
       if (!client) return;
+      if (!this.authorized(client)) return;
       if (msg.type === "ping") {
         this.send(ws, { type: "pong" });
       } else if (msg.type === "typing") {
@@ -177,7 +200,12 @@ export class Gateway {
       } else if (msg.type === "huddle.signal") {
         // Only relay between two people actually in the same huddle.
         const room = this.huddles.get(msg.channelId);
-        if (room?.has(client.userId) && room.has(msg.to)) {
+        if (
+          room?.has(client.userId) &&
+          room.has(msg.to) &&
+          this.store.canAccess(msg.channelId, client.userId) &&
+          this.store.canAccess(msg.channelId, msg.to)
+        ) {
           this.sendToUser(msg.to, {
             type: "huddle.signal",
             channelId: msg.channelId,
@@ -211,7 +239,7 @@ export class Gateway {
   }
 
   private unregister(client: Client): void {
-    this.clients.delete(client);
+    if (!this.clients.delete(client)) return;
     const set = this.byUser.get(client.userId);
     if (set) {
       set.delete(client);
@@ -256,6 +284,17 @@ export class Gateway {
     this.publishHuddle(channelId);
   }
 
+  /** Membership changes also invalidate a call and notify the affected user's devices. */
+  updateChannelAccess(channelId: ID, userId: ID): void {
+    const membership =
+      this.store.memberships(userId).find((m) => m.channelId === channelId) ?? null;
+    const channel = this.store.canAccess(channelId, userId)
+      ? this.store.getChannel(channelId)
+      : null;
+    if (!channel) this.leaveHuddle(channelId, userId);
+    this.sendToUser(userId, { type: "channel.access", channelId, channel, membership });
+  }
+
   /** Tells the channel who is in its huddle now. */
   private publishHuddle(channelId: ID): void {
     this.broadcastEphemeral(
@@ -282,7 +321,8 @@ export class Gateway {
     const audience = channelId === null ? null : this.audienceForChannel(channelId);
     const frame = JSON.stringify({ type: "event", envelope } satisfies ServerToClient);
     for (const c of this.clients) {
-      if (audience === null || audience.has(c.userId)) this.sendRaw(c.ws, frame);
+      if ((audience === null || audience.has(c.userId)) && this.authorized(c))
+        this.sendRaw(c.ws, frame);
     }
   }
 
@@ -294,20 +334,43 @@ export class Gateway {
    */
   disconnectUser(userId: ID): void {
     for (const client of [...(this.byUser.get(userId) ?? [])]) {
-      client.ws.close(4003, "account deactivated");
+      this.revoke(client, "account deactivated");
     }
+  }
+
+  disconnectSession(tokenHash: string): void {
+    for (const client of [...this.clients]) {
+      if (client.tokenHash === tokenHash) this.revoke(client, "signed out");
+    }
+  }
+
+  private revoke(client: Client, reason: string): void {
+    this.send(client.ws, { type: "error", code: "auth_failed", message: reason });
+    // Stop fanout and accepting frames immediately, without waiting for the close handshake.
+    this.unregister(client);
+    client.ws.close(4003, reason);
+  }
+
+  private authorized(client: Client): boolean {
+    if (!this.clients.has(client)) return false;
+    if (this.store.isSessionActive(client.tokenHash, client.userId)) return true;
+    this.revoke(client, "session expired or revoked");
+    return false;
   }
 
   /** Sends an ephemeral event to every socket of one user (their other devices). */
   sendToUser(userId: ID, event: EphemeralEvent): void {
     const frame = JSON.stringify({ type: "ephemeral", event } satisfies ServerToClient);
-    for (const c of this.byUser.get(userId) ?? []) this.sendRaw(c.ws, frame);
+    for (const c of this.byUser.get(userId) ?? []) {
+      if (this.authorized(c)) this.sendRaw(c.ws, frame);
+    }
   }
 
   broadcastEphemeral(event: EphemeralEvent, audience: Set<ID> | null): void {
     const frame = JSON.stringify({ type: "ephemeral", event } satisfies ServerToClient);
     for (const c of this.clients) {
-      if (audience === null || audience.has(c.userId)) this.sendRaw(c.ws, frame);
+      if ((audience === null || audience.has(c.userId)) && this.authorized(c))
+        this.sendRaw(c.ws, frame);
     }
   }
 

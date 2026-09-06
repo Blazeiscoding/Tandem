@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkspaceServer, type WorkspaceServer } from "../src/server.js";
 import { parseIceServers } from "../src/rtc.js";
+import { openDbAtVersion } from "../src/db.js";
 
 let server: WorkspaceServer | undefined;
 let directory: string | undefined;
@@ -48,6 +49,15 @@ const register = (base: string, handle: string, inviteCode?: string) =>
     inviteCode,
   });
 
+/** Every table, index and trigger definition, in a stable order. */
+function schemaOf(db: DatabaseSync): string[] {
+  return (
+    db
+      .prepare("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY sql")
+      .all() as unknown as { sql: string }[]
+  ).map((r) => r.sql.replace(/\s+/g, " ").trim());
+}
+
 describe("self-hosted product", () => {
   it("streams uploads and downloads and removes partial oversized files", async () => {
     const base = await start(2 * 1024 * 1024);
@@ -77,7 +87,9 @@ describe("self-hosted product", () => {
     });
     expect(rejected.status).toBe(413);
     expect(readdirSync(join(directory!, "files"))).toEqual([file.id]);
-  });
+    // Four megabytes over real HTTP plus a password hash: the default five
+    // seconds is a coin toss on a machine that is also typechecking.
+  }, 30_000);
 
   it("does not let bot tokens join private channels by posting", async () => {
     const base = await start();
@@ -230,10 +242,25 @@ describe("self-hosted product", () => {
     server = undefined;
 
     // Wind the schema back to what v8 shipped, data and all.
+    //
+    // Every migration added since has to be undone here. Rather than trust that
+    // to memory, the result is compared against a v8 database built from the
+    // migration list itself, so forgetting one fails with the difference named.
     const db = new DatabaseSync(join(dir, "workspace.db"));
+    db.exec("DROP INDEX idx_sessions_id");
+    for (const column of ["id", "user_agent", "expires_at"]) {
+      db.exec(`ALTER TABLE sessions DROP COLUMN ${column}`);
+    }
+    db.exec("DROP INDEX idx_scheduled_due");
+    for (const column of ["status", "failure_reason", "attempts", "message_id"]) {
+      db.exec(`ALTER TABLE scheduled_messages DROP COLUMN ${column}`);
+    }
+    db.exec("CREATE INDEX idx_scheduled_due ON scheduled_messages(send_at)");
+    db.exec("DROP TABLE message_requests");
     db.exec("ALTER TABLE messages DROP COLUMN actions");
     db.exec("ALTER TABLE apps DROP COLUMN interactivity_url");
     db.exec("PRAGMA user_version = 8");
+    expect(schemaOf(db)).toEqual(schemaOf(openDbAtVersion(":memory:", 8)));
     db.close();
 
     // Reopening migrates it forward without losing what was there.
@@ -331,7 +358,7 @@ describe("self-hosted product", () => {
 
     // Queued through the store so it is already due; the API rightly refuses a
     // time in the past, and what is under test is what the sender picks up.
-    server!.store.scheduleMessage({
+    const queued = server!.store.scheduleMessage({
       channelId: channel.id,
       userId: leaver.data.user.id,
       text: "posted by a ghost",
@@ -339,18 +366,28 @@ describe("self-hosted product", () => {
       fileIds: [],
       sendAt: Date.now() - 1000,
     });
-    expect(server!.store.dueScheduled().some((m) => m.text === "posted by a ghost")).toBe(true);
+    const ghosted = () =>
+      server!.store
+        .listMessages({ channelId: channel.id, limit: 50 })
+        .some((m) => m.text === "posted by a ghost");
 
     await request(base, `/api/admin/users/${leaver.data.user.id}`, owner.data.token, "PATCH", {
       deactivated: true,
     });
-    expect(server!.store.dueScheduled().some((m) => m.text === "posted by a ghost")).toBe(false);
+    server!.flushScheduled();
+    expect(ghosted()).toBe(false);
 
-    // It is held, not thrown away: reactivating lets it go out.
+    // It is held with a reason, not thrown away: reactivating lets it go out.
+    const held = server!.store.getScheduled(queued.id)!;
+    expect(held.status).toBe("held");
+    expect(held.failureReason).toMatch(/deactivated/);
+
     await request(base, `/api/admin/users/${leaver.data.user.id}`, owner.data.token, "PATCH", {
       deactivated: false,
     });
-    expect(server!.store.dueScheduled().some((m) => m.text === "posted by a ghost")).toBe(true);
+    server!.flushScheduled();
+    expect(ghosted()).toBe(true);
+    expect(server!.store.getScheduled(queued.id)!.status).toBe("sent");
   });
 
   it("keeps the workspace from being taken away from its owner", async () => {

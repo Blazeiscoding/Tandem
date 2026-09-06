@@ -11,6 +11,13 @@ export const registerBody = z.object({
   displayName: z.string().min(1).max(80),
   password: z.string().min(8).max(256),
   inviteCode: z.string().optional(),
+  /** Proves the first account is being created by whoever runs the server. */
+  claimCode: z.string().max(128).optional(),
+});
+
+export const changePasswordBody = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword: z.string().min(8).max(256),
 });
 
 export const loginBody = z.object({
@@ -86,6 +93,11 @@ export const scheduleMessageBody = z
   .refine((b) => b.text.trim().length > 0 || (b.fileIds?.length ?? 0) > 0, {
     message: "message must have text or files",
   });
+
+/** Moves a held or failed message back into the queue. A past time sends it now. */
+export const rescheduleBody = z.object({
+  sendAt: z.number().int().positive(),
+});
 
 export const createAppBody = z.object({
   name: z.string().min(1).max(60),
@@ -211,6 +223,8 @@ export type MarkReadBody = z.infer<typeof markReadBody>;
 export type CreateInviteBody = z.infer<typeof createInviteBody>;
 export type ChannelPrefsBody = z.infer<typeof channelPrefsBody>;
 export type ScheduleMessageBody = z.infer<typeof scheduleMessageBody>;
+export type RescheduleBody = z.infer<typeof rescheduleBody>;
+export type ChangePasswordBody = z.infer<typeof changePasswordBody>;
 export type CreateAppBody = z.infer<typeof createAppBody>;
 export type CreateWebhookBody = z.infer<typeof createWebhookBody>;
 export type CreateCommandBody = z.infer<typeof createCommandBody>;

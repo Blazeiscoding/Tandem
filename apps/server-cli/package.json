@@ -12,13 +12,14 @@
   ],
   "scripts": {
     "build": "tsup && node scripts/postbuild.mjs",
-    "typecheck": "echo skip",
+    "typecheck": "tsc -p tsconfig.json",
     "start": "node dist/slackoss-server.js"
   },
   "dependencies": {},
   "devDependencies": {
     "@slackoss/server": "workspace:*",
     "@slackoss/web": "workspace:*",
+    "@types/node": "^24.3.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2"
   }

@@ -240,9 +240,52 @@ const MIGRATIONS: string[] = [
   ALTER TABLE messages ADD COLUMN actions TEXT NOT NULL DEFAULT '[]';
   ALTER TABLE apps ADD COLUMN interactivity_url TEXT NOT NULL DEFAULT '';
   `,
+  // v10 — stable send keys. Preserve old duplicate messages, reserving their first key.
+  `
+  CREATE TABLE message_requests (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    nonce TEXT NOT NULL,
+    message_id TEXT NOT NULL REFERENCES messages(id),
+    request_hash TEXT,
+    PRIMARY KEY (user_id, nonce)
+  );
+  INSERT INTO message_requests (user_id, nonce, message_id)
+    SELECT user_id, nonce, MIN(id) FROM messages WHERE nonce IS NOT NULL GROUP BY user_id, nonce;
+  `,
+  // v11 — scheduled delivery records an outcome instead of vanishing.
+  `
+  ALTER TABLE scheduled_messages ADD COLUMN status TEXT NOT NULL DEFAULT 'queued';
+  ALTER TABLE scheduled_messages ADD COLUMN failure_reason TEXT;
+  ALTER TABLE scheduled_messages ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE scheduled_messages ADD COLUMN message_id TEXT;
+  DROP INDEX idx_scheduled_due;
+  CREATE INDEX idx_scheduled_due ON scheduled_messages(status, send_at);
+  `,
+  // v12 — sessions become listable, revocable one at a time, and expiring.
+  `
+  ALTER TABLE sessions ADD COLUMN id TEXT;
+  ALTER TABLE sessions ADD COLUMN user_agent TEXT NOT NULL DEFAULT '';
+  ALTER TABLE sessions ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;
+  UPDATE sessions SET id = lower(hex(randomblob(16))) WHERE id IS NULL;
+  UPDATE sessions SET expires_at = last_seen_at + 2592000000 WHERE expires_at = 0;
+  CREATE UNIQUE INDEX idx_sessions_id ON sessions(id);
+  `,
 ];
 
-export function openDb(path: string): DatabaseSync {
+/** The schema this build understands. A workspace above it cannot be opened. */
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
+/**
+ * Builds a database at an older schema level, for testing that upgrades from
+ * historical versions still work. Reading the same migration list the product
+ * does is the point: a fixture written by hand drifts away from it silently.
+ */
+export function openDbAtVersion(path: string, version: number): DatabaseSync {
+  if (version > MIGRATIONS.length) throw new Error(`No schema v${version} exists`);
+  return openDb(path, version);
+}
+
+export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL");
@@ -250,7 +293,13 @@ export function openDb(path: string): DatabaseSync {
   db.exec("PRAGMA busy_timeout = 5000");
 
   const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-  for (let v = user_version; v < MIGRATIONS.length; v++) {
+  if (user_version > MIGRATIONS.length) {
+    db.close();
+    throw new Error(
+      "This workspace was created by a newer server version. Upgrade the server before opening it.",
+    );
+  }
+  for (let v = user_version; v < upTo; v++) {
     db.exec("BEGIN");
     try {
       db.exec(MIGRATIONS[v]!);
@@ -258,6 +307,9 @@ export function openDb(path: string): DatabaseSync {
       db.exec("COMMIT");
     } catch (err) {
       db.exec("ROLLBACK");
+      // Leave nothing holding the file: on Windows a leaked handle blocks the
+      // caller from even moving the workspace aside to recover it.
+      db.close();
       throw err;
     }
   }
