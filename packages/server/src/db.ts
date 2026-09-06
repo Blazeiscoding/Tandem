@@ -270,6 +270,12 @@ const MIGRATIONS: string[] = [
   UPDATE sessions SET expires_at = last_seen_at + 2592000000 WHERE expires_at = 0;
   CREATE UNIQUE INDEX idx_sessions_id ON sessions(id);
   `,
+  // v13 — blob removal survives process exit and temporary filesystem errors.
+  `
+  CREATE TABLE pending_file_deletions (
+    file_id TEXT PRIMARY KEY
+  );
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

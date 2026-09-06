@@ -102,6 +102,13 @@ it, so avoid that command for real data.
 There are no separate Redis, Postgres, or message broker services to maintain.
 Monitor disk usage for uploads and history, resource use, health, and backups.
 
+Schema v13 keeps a persistent queue for deleted attachments. Message and file
+metadata are removed atomically; physical file removal follows the commit.
+Temporary filesystem failures remain queued for retry every 15 seconds and on
+restart. Cleanup handles at most 100 queued files per pass; shutdown awaits the
+active pass before closing the database. A locked file can remain on disk until
+cleanup succeeds, but the download API no longer serves it after deletion commits.
+
 ## Current boundaries
 
 Friends and accounts do not federate across servers. Password changes, session

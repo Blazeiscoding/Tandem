@@ -962,6 +962,25 @@ export class Store {
     for (const id of fileIds) stmt.run(id);
   }
 
+  queueFileDeletions(fileIds: ID[]): void {
+    const stmt = this.db.prepare(
+      "INSERT OR IGNORE INTO pending_file_deletions (file_id) VALUES (?)",
+    );
+    for (const id of fileIds) stmt.run(id);
+  }
+
+  pendingFileDeletions(): ID[] {
+    return (
+      this.db.prepare("SELECT file_id FROM pending_file_deletions LIMIT 100").all() as unknown as {
+        file_id: string;
+      }[]
+    ).map((row) => row.file_id);
+  }
+
+  completeFileDeletion(fileId: ID): void {
+    this.db.prepare("DELETE FROM pending_file_deletions WHERE file_id = ?").run(fileId);
+  }
+
   // ---------- reactions ----------
 
   addReaction(messageId: ID, userId: ID, emoji: string): boolean {

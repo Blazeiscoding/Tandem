@@ -195,3 +195,76 @@ describe("atomic channel and account changes", () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 });
+
+describe("atomic messages and integrations", () => {
+  it.each(["edit", "delete", "add reaction", "remove reaction", "pin", "unpin"])(
+    "rolls back %s when its event fails",
+    async (action) => {
+      await owner();
+      const channelId = server.store.getChannelByName("general")!.id;
+      const message = (await request(`/api/channels/${channelId}/messages`, { text: "original" }))
+        .body.message;
+      if (action === "remove reaction")
+        await request(`/api/messages/${message.id}/reactions/yes`, undefined, "PUT");
+      if (action === "unpin") await request(`/api/messages/${message.id}/pin`, undefined, "PUT");
+      const before = server.store.getMessage(message.id);
+      const seq = server.store.currentSeq();
+      const publish = vi.spyOn(server.gateway, "publish");
+      failEvent();
+      const path =
+        `/api/messages/${message.id}` +
+        (action.includes("reaction") ? "/reactions/yes" : action.includes("pin") ? "/pin" : "");
+      const method =
+        action === "edit"
+          ? "PATCH"
+          : ["delete", "remove reaction", "unpin"].includes(action)
+            ? "DELETE"
+            : "PUT";
+      expect(
+        (await request(path, action === "edit" ? { text: "changed" } : undefined, method)).status,
+      ).toBe(500);
+      expect(server.store.getMessage(message.id)).toEqual(before);
+      expect(server.store.currentSeq()).toBe(seq);
+      expect(publish).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not leave a bot account behind when app-token creation fails", async () => {
+    await owner();
+    const count = server.store.listUsers().length;
+    const seq = server.store.currentSeq();
+    vi.spyOn(server.store, "addAppToken").mockImplementationOnce(() => {
+      throw new Error("token write failed");
+    });
+    expect((await request("/api/apps", { name: "Test App" })).status).toBe(500);
+    expect(server.store.listUsers()).toHaveLength(count);
+    expect(server.store.listApps()).toHaveLength(0);
+    expect(server.store.currentSeq()).toBe(seq);
+    expect((await request("/api/apps", { name: "Test App" })).status).toBe(201);
+  });
+
+  it("rolls back a webhook and bot membership together", async () => {
+    await owner();
+    const app = (await request("/api/apps", { name: "Test App" })).body.app;
+    const channelId = server.store.getChannelByName("general")!.id;
+    failEvent();
+    expect((await request(`/api/apps/${app.id}/webhooks`, { channelId })).status).toBe(500);
+    expect(server.store.listWebhooks(app.id)).toHaveLength(0);
+    expect(server.store.isMember(channelId, app.botUserId)).toBe(false);
+  });
+
+  it("restores all app resources if deletion fails after removing them", async () => {
+    await owner();
+    const app = (await request("/api/apps", { name: "Test App" })).body.app;
+    const channelId = server.store.getChannelByName("general")!.id;
+    const hook = (await request(`/api/apps/${app.id}/webhooks`, { channelId })).body.webhook;
+    const remove = server.store.deleteApp.bind(server.store);
+    vi.spyOn(server.store, "deleteApp").mockImplementationOnce((id) => {
+      remove(id);
+      throw new Error("final write failed");
+    });
+    expect((await request(`/api/apps/${app.id}`, undefined, "DELETE")).status).toBe(500);
+    expect(server.store.getApp(app.id)).toEqual(app);
+    expect(server.store.listWebhooks(app.id)).toEqual([hook]);
+  });
+});

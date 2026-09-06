@@ -27,7 +27,7 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite                | Command                       | Result                                                    | Last run   |
 | -------------------- | ----------------------------- | --------------------------------------------------------- | ---------- |
 | Types                | `pnpm typecheck`              | 7 packages, clean                                         | 2026-09-06 |
-| Unit and integration | `pnpm test`                   | 200 tests: server 120, client-core 52, ui 16, protocol 12 | 2026-09-06 |
+| Unit and integration | `pnpm test`                   | 223 tests: server 143, client-core 52, ui 16, protocol 12 | 2026-09-06 |
 | Browser end to end   | `pnpm test:e2e`               | 7 scenarios, passed                                       | 2026-09-06 |
 | Packaged Windows app | `pnpm test:desktop`           | 1 scenario, passed                                        | 2026-09-05 |
 | Container            | `node tests/docker-smoke.mjs` | passed                                                    | 2026-09-05 |
@@ -43,6 +43,11 @@ code" is an argument, not a measurement, so the dates say what they say.
 ### What the suites actually cover
 
 Named so that a gap is visible as a gap, rather than hidden inside a total.
+
+The core transaction phases add `packages/server/test/transactions.test.ts` (20
+rollback/concurrency cases across registration, invitations, accounts, channels,
+messages and apps) and `packages/server/test/fileCleanup.test.ts` (3 cases covering
+attachment rollback, cleanup retry across restart, and session revocation during upload).
 
 | File                                                          | What it holds to                                                                                                                                                                                          |
 | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

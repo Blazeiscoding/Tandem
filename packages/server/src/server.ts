@@ -39,6 +39,7 @@ import {
   type EventEnvelope,
   type ID,
   type MessageAction,
+  type Message,
   type ModalView,
   type ServerInfo,
   type User,
@@ -108,6 +109,8 @@ export interface WorkspaceServer {
   claimCode: string | null;
   /** Posts anything now due. Runs on a timer; exposed so tests need not wait. */
   flushScheduled: () => void;
+  /** Retries a bounded batch of committed attachment deletions. */
+  flushFileDeletions: () => Promise<void>;
   stop: () => Promise<void>;
 }
 
@@ -180,16 +183,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     gateway.publish(envelope, channelId);
     dispatchToSubscribers(envelope, channelId);
   };
-  /** Simple events; message mutations use a transaction before publishing. */
-  const emit = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
-    const envelope = recordEvent(event, channelId);
-    publish(envelope, channelId);
-    return envelope;
-  };
-
   /** Commit synchronous state and its event log before exposing any side effects. */
   const mutate = <T>(
-    work: (record: typeof emit, afterCommit: (effect: () => void) => void) => T,
+    work: (record: typeof recordEvent, afterCommit: (effect: () => void) => void) => T,
   ): T => {
     const events: { envelope: EventEnvelope; channelId: ID | null }[] = [];
     const effects: (() => void)[] = [];
@@ -332,6 +328,52 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   if (filesDir) mkdirSync(filesDir, { recursive: true });
   const maxFileSize = opts.maxFileSize ?? 100 * 1024 * 1024;
   const blobPath = (fileId: string) => join(filesDir!, fileId);
+
+  let fileCleanup: Promise<void> | null = null;
+  const flushFileDeletions = (): Promise<void> => {
+    if (fileCleanup) return fileCleanup;
+    fileCleanup = (async () => {
+      for (const id of store.pendingFileDeletions()) {
+        if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) {
+          app.log.error({ fileId: id }, "invalid attachment cleanup id");
+          continue;
+        }
+        try {
+          if (filesDir) await unlink(blobPath(id));
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            app.log.warn({ fileId: id, err }, "attachment cleanup deferred");
+            continue;
+          }
+        }
+        store.completeFileDeletion(id);
+      }
+    })()
+      .catch((err) => {
+        app.log.error({ err }, "attachment cleanup failed; pending work retained");
+      })
+      .finally(() => {
+        fileCleanup = null;
+      });
+    return fileCleanup;
+  };
+
+  const removeMessage = (existing: Message) =>
+    mutate((emit) => {
+      const fileIds = store.fileIdsForMessage(existing.id);
+      store.deleteFiles(fileIds);
+      store.queueFileDeletions(fileIds);
+      store.deleteMessage(existing.id);
+      emit(
+        {
+          type: "message.deleted",
+          channelId: existing.channelId,
+          messageId: existing.id,
+          threadRootId: existing.threadRootId,
+        },
+        existing.channelId,
+      );
+    });
 
   const app = Fastify({ logger: opts.logger ?? false, forceCloseConnections: true });
   // The default allow-list is GET/HEAD/POST only, which silently breaks
@@ -878,9 +920,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
     if (existing.userId !== me.id) throw new HttpError(403, "not_your_message");
     const body = editMessageBody.parse(req.body);
-    const message = store.editMessage(existing.id, body.text);
-    emit({ type: "message.updated", message }, message.channelId);
-    return { message };
+    return mutate((emit) => {
+      const message = store.editMessage(existing.id, body.text);
+      emit({ type: "message.updated", message }, message.channelId);
+      return { message };
+    });
   });
 
   app.delete<{ Params: { id: string } }>("/api/messages/:id", async (req) => {
@@ -892,22 +936,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const isPrivileged = me.role === "owner" || me.role === "admin";
     if (existing.userId !== me.id && !isPrivileged) throw new HttpError(403, "not_your_message");
 
-    // Drop the blobs along with the message so deleted content really goes.
-    const fileIds = store.fileIdsForMessage(existing.id);
-    store.deleteFiles(fileIds);
-    if (filesDir) {
-      await Promise.all(fileIds.map((id) => unlink(blobPath(id)).catch(() => {})));
-    }
-    store.deleteMessage(existing.id);
-    emit(
-      {
-        type: "message.deleted",
-        channelId: existing.channelId,
-        messageId: existing.id,
-        threadRootId: existing.threadRootId,
-      },
-      existing.channelId,
-    );
+    removeMessage(existing);
+    await flushFileDeletions();
     return { ok: true };
   });
 
@@ -940,6 +970,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       await pipeline(part.file, meter, createWriteStream(blobPath(id), { flags: "wx" }));
       if (part.file.truncated)
         throw new HttpError(413, "file_too_large", `files must be under ${maxFileSize} bytes`);
+      // Upload streaming yields; access may have been revoked while bytes arrived.
+      requireUser(req);
+      requireChannelAccess(channel.id, me);
       const dims = part.mimetype.startsWith("image/") ? imageSize(Buffer.concat(header)) : null;
       const file = store.createFile({
         id,
@@ -992,18 +1025,20 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         throw new HttpError(404, "message_not_found");
       }
       const emoji = decodeURIComponent(req.params.emoji).slice(0, 64);
-      if (store.addReaction(msg.id, me.id, emoji)) {
-        emit(
-          {
-            type: "reaction.added",
-            channelId: msg.channelId,
-            messageId: msg.id,
-            emoji,
-            userId: me.id,
-          },
-          msg.channelId,
-        );
-      }
+      mutate((emit) => {
+        if (store.addReaction(msg.id, me.id, emoji)) {
+          emit(
+            {
+              type: "reaction.added",
+              channelId: msg.channelId,
+              messageId: msg.id,
+              emoji,
+              userId: me.id,
+            },
+            msg.channelId,
+          );
+        }
+      });
       return { ok: true };
     },
   );
@@ -1017,18 +1052,20 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         throw new HttpError(404, "message_not_found");
       }
       const emoji = decodeURIComponent(req.params.emoji).slice(0, 64);
-      if (store.removeReaction(msg.id, me.id, emoji)) {
-        emit(
-          {
-            type: "reaction.removed",
-            channelId: msg.channelId,
-            messageId: msg.id,
-            emoji,
-            userId: me.id,
-          },
-          msg.channelId,
-        );
-      }
+      mutate((emit) => {
+        if (store.removeReaction(msg.id, me.id, emoji)) {
+          emit(
+            {
+              type: "reaction.removed",
+              channelId: msg.channelId,
+              messageId: msg.id,
+              emoji,
+              userId: me.id,
+            },
+            msg.channelId,
+          );
+        }
+      });
       return { ok: true };
     },
   );
@@ -1067,23 +1104,27 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     } finally {
       authJobs--;
     }
-    const { hash, salt } = credentials;
-    const bot = store.createBotUser(botHandle(body.name), body.name, hash, salt);
-    const signingSecret = secretToken();
-    const created = store.createApp({
-      name: body.name,
-      botUserId: bot.id,
-      createdBy: me.id,
-      signingSecret,
+    requireAdmin(req);
+    const result = mutate((emit) => {
+      const { hash, salt } = credentials;
+      const bot = store.createBotUser(botHandle(body.name), body.name, hash, salt);
+      const signingSecret = secretToken();
+      const created = store.createApp({
+        name: body.name,
+        botUserId: bot.id,
+        createdBy: me.id,
+        signingSecret,
+      });
+
+      const token = secretToken("xoxb-");
+      store.addAppToken(created.id, hashToken(token));
+      emit({ type: "user.joined", user: bot }, null);
+
+      // The bot token is shown once and only stored hashed; the signing secret
+      // stays readable to admins because verification needs the key itself.
+      return { app: created, botUser: bot, token, signingSecret };
     });
-
-    const token = secretToken("xoxb-");
-    store.addAppToken(created.id, hashToken(token));
-    emit({ type: "user.joined", user: bot }, null);
-
-    // The bot token is shown once and only stored hashed; the signing secret
-    // stays readable to admins because verification needs the key itself.
-    return reply.status(201).send({ app: created, botUser: bot, token, signingSecret });
+    return reply.status(201).send(result);
   });
 
   app.get("/api/apps", async (req) => {
@@ -1103,7 +1144,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.delete<{ Params: { id: string } }>("/api/apps/:id", async (req) => {
     requireAdmin(req);
     if (!store.getApp(req.params.id)) throw new HttpError(404, "not_found");
-    store.deleteApp(req.params.id);
+    store.transaction(() => store.deleteApp(req.params.id));
     return { ok: true };
   });
 
@@ -1115,15 +1156,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const channel = requireChannelAccess(body.channelId, me);
 
     const token = secretToken();
-    const webhook = store.createWebhook({
-      appId: owner.id,
-      channelId: channel.id,
-      tokenHash: hashToken(token),
+    const webhook = mutate((emit) => {
+      const created = store.createWebhook({
+        appId: owner.id,
+        channelId: channel.id,
+        tokenHash: hashToken(token),
+      });
+      // The bot must be in the channel to post to it.
+      if (store.addMember(channel.id, owner.botUserId)) {
+        emit({ type: "member.joined", channelId: channel.id, userId: owner.botUserId }, channel.id);
+      }
+      return created;
     });
-    // The bot must be in the channel to post to it.
-    if (store.addMember(channel.id, owner.botUserId)) {
-      emit({ type: "member.joined", channelId: channel.id, userId: owner.botUserId }, channel.id);
-    }
     return reply.status(201).send({ webhook, url: `/hooks/${token}` });
   });
 
@@ -1218,10 +1262,6 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
     const text = payloadToText(body);
     if (!text) return reply.status(400).send({ ok: false, error: "no_text" });
-
-    if (store.addMember(channel.id, owner.botUserId)) {
-      emit({ type: "member.joined", channelId: channel.id, userId: owner.botUserId }, channel.id);
-    }
 
     let threadRootId: ID | null = null;
     if (body.thread_ts) {
@@ -1324,23 +1364,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       const existing = store.getMessage(originMessageId);
       if (existing) {
         if (payload.delete_original === true) {
-          store.deleteMessage(existing.id);
-          emit(
-            {
-              type: "message.deleted",
-              channelId: existing.channelId,
-              messageId: existing.id,
-              threadRootId: existing.threadRootId,
-            },
-            existing.channelId,
-          );
+          removeMessage(existing);
+          void flushFileDeletions();
           return;
         }
         const replacement = payloadToText(payload);
         if (replacement) {
-          store.clearMessageActions(existing.id);
-          const updated = store.editMessage(existing.id, replacement);
-          emit({ type: "message.updated", message: updated }, updated.channelId);
+          mutate((emit) => {
+            store.clearMessageActions(existing.id);
+            const updated = store.editMessage(existing.id, replacement);
+            emit({ type: "message.updated", message: updated }, updated.channelId);
+          });
         }
         return;
       }
@@ -1438,12 +1472,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (!found) throw new HttpError(404, "unknown_command", `/${name} is not a command here`);
 
     // The bot has to be in the channel to answer in it.
-    if (store.addMember(channel.id, found.app.botUserId)) {
-      emit(
-        { type: "member.joined", channelId: channel.id, userId: found.app.botUserId },
-        channel.id,
-      );
-    }
+    mutate((emit) => {
+      if (store.addMember(channel.id, found.app.botUserId)) {
+        emit(
+          { type: "member.joined", channelId: channel.id, userId: found.app.botUserId },
+          channel.id,
+        );
+      }
+    });
 
     const target = {
       channelId: channel.id,
@@ -2063,24 +2099,28 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.put<{ Params: { id: string } }>("/api/messages/:id/pin", async (req) => {
     const me = requireUser(req);
     const message = requireVisibleMessage(req.params.id, me);
-    if (store.addPin(message.channelId, message.id, me.id)) {
-      emit(
-        { type: "pin.added", channelId: message.channelId, messageId: message.id, userId: me.id },
-        message.channelId,
-      );
-    }
+    mutate((emit) => {
+      if (store.addPin(message.channelId, message.id, me.id)) {
+        emit(
+          { type: "pin.added", channelId: message.channelId, messageId: message.id, userId: me.id },
+          message.channelId,
+        );
+      }
+    });
     return { ok: true };
   });
 
   app.delete<{ Params: { id: string } }>("/api/messages/:id/pin", async (req) => {
     const me = requireUser(req);
     const message = requireVisibleMessage(req.params.id, me);
-    if (store.removePin(message.id)) {
-      emit(
-        { type: "pin.removed", channelId: message.channelId, messageId: message.id },
-        message.channelId,
-      );
-    }
+    mutate((emit) => {
+      if (store.removePin(message.id)) {
+        emit(
+          { type: "pin.removed", channelId: message.channelId, messageId: message.id },
+          message.channelId,
+        );
+      }
+    });
     return { ok: true };
   });
 
@@ -2216,7 +2256,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
   };
   flushScheduled();
-  const scheduleTimer = setInterval(flushScheduled, 15_000);
+  void flushFileDeletions();
+  const scheduleTimer = setInterval(() => {
+    flushScheduled();
+    void flushFileDeletions();
+  }, 15_000);
 
   const pruneTimer = setInterval(() => {
     store.pruneEvents();
@@ -2232,6 +2276,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     /** Set only while the workspace still has no owner. */
     claimCode: claimCode(),
     flushScheduled,
+    flushFileDeletions,
     stop: () => {
       if (stopping) return stopping;
       clearInterval(scheduleTimer);
@@ -2240,6 +2285,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       stopping = (async () => {
         await gateway.close();
         await app.close();
+        await flushFileDeletions();
         db.close();
       })();
       return stopping;

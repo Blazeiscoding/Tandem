@@ -247,21 +247,27 @@ describe("self-hosted product", () => {
     // to memory, the result is compared against a v8 database built from the
     // migration list itself, so forgetting one fails with the difference named.
     const db = new DatabaseSync(join(dir, "workspace.db"));
-    db.exec("DROP INDEX idx_sessions_id");
-    for (const column of ["id", "user_agent", "expires_at"]) {
-      db.exec(`ALTER TABLE sessions DROP COLUMN ${column}`);
+    const historical = openDbAtVersion(":memory:", 8);
+    try {
+      db.exec("DROP TABLE pending_file_deletions");
+      db.exec("DROP INDEX idx_sessions_id");
+      for (const column of ["id", "user_agent", "expires_at"]) {
+        db.exec(`ALTER TABLE sessions DROP COLUMN ${column}`);
+      }
+      db.exec("DROP INDEX idx_scheduled_due");
+      for (const column of ["status", "failure_reason", "attempts", "message_id"]) {
+        db.exec(`ALTER TABLE scheduled_messages DROP COLUMN ${column}`);
+      }
+      db.exec("CREATE INDEX idx_scheduled_due ON scheduled_messages(send_at)");
+      db.exec("DROP TABLE message_requests");
+      db.exec("ALTER TABLE messages DROP COLUMN actions");
+      db.exec("ALTER TABLE apps DROP COLUMN interactivity_url");
+      db.exec("PRAGMA user_version = 8");
+      expect(schemaOf(db)).toEqual(schemaOf(historical));
+    } finally {
+      historical.close();
+      db.close();
     }
-    db.exec("DROP INDEX idx_scheduled_due");
-    for (const column of ["status", "failure_reason", "attempts", "message_id"]) {
-      db.exec(`ALTER TABLE scheduled_messages DROP COLUMN ${column}`);
-    }
-    db.exec("CREATE INDEX idx_scheduled_due ON scheduled_messages(send_at)");
-    db.exec("DROP TABLE message_requests");
-    db.exec("ALTER TABLE messages DROP COLUMN actions");
-    db.exec("ALTER TABLE apps DROP COLUMN interactivity_url");
-    db.exec("PRAGMA user_version = 8");
-    expect(schemaOf(db)).toEqual(schemaOf(openDbAtVersion(":memory:", 8)));
-    db.close();
 
     // Reopening migrates it forward without losing what was there.
     server = await createWorkspaceServer({ dataDir: dir, port: 0, host: "127.0.0.1", mdns: false });
