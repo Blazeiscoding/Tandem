@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useCopy } from "../lib/useCopy.js";
 import type { ID } from "@slackoss/protocol";
 import { ApiError, type AppDetail } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
@@ -6,7 +7,7 @@ import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 
 /** A secret with a copy button. Bot tokens are shown once; others can be re-read. */
 function SecretRow({ label, value, once }: { label: string; value: string; once?: boolean }) {
-  const [copied, setCopied] = useState(false);
+  const { copy, label: copyLabel, copied } = useCopy();
   const [shown, setShown] = useState(false);
   return (
     <div className="mt-2 rounded-lg border border-copper/40 bg-copper/10 p-2.5">
@@ -27,14 +28,12 @@ function SecretRow({ label, value, once }: { label: string; value: string; once?
           </button>
         )}
         <button
-          onClick={() => {
-            void navigator.clipboard.writeText(value);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          }}
-          className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-lifted hover:text-ink"
+          onClick={() => void copy(value)}
+          className={`shrink-0 rounded px-2 py-1 text-[11px] hover:bg-lifted hover:text-ink ${
+            copied && !copied.ok ? "text-alert" : "text-ink-dim"
+          }`}
         >
-          {copied ? "Copied" : "Copy"}
+          {copyLabel("Copy", "Copied", "Copy failed")}
         </button>
       </div>
     </div>

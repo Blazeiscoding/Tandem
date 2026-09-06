@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { useCopy } from "../lib/useCopy.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { formatTime } from "../lib/format.js";
@@ -36,7 +37,7 @@ export const MessageItem = memo(function MessageItem({
   const self = useWorkspace((s) => s.self);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const [copied, setCopied] = useState(false);
+  const { copy, copied } = useCopy(1200);
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
   const mine = message.userId === self?.id;
@@ -190,17 +191,15 @@ export const MessageItem = memo(function MessageItem({
             />
           )}
           <ToolbarButton
-            label={copied ? "✓" : "🔗"}
-            title="Copy link to message"
-            onClick={() => {
-              void navigator.clipboard.writeText(
+            label={copied ? (copied.ok ? "✓" : "✕") : "🔗"}
+            title={copied && !copied.ok ? "Could not copy the link" : "Copy link to message"}
+            onClick={() =>
+              void copy(
                 `slackoss://message?host=${encodeURIComponent(
                   client.baseUrl.replace(/^https?:\/\//, ""),
                 )}&channel=${message.channelId}&id=${message.id}`,
-              );
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
-            }}
+              )
+            }
           />
           <ToolbarButton
             label="🔖"

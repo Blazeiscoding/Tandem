@@ -12,5 +12,6 @@ export type {
   ConnectionStatus,
   LocalAttachment,
   PendingMessage,
+  StoredPending,
   WorkspaceState,
 } from "./workspace.js";

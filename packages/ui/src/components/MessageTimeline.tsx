@@ -359,7 +359,7 @@ function PendingRow({ pending }: { pending: PendingMessage }) {
           <PendingAttachments attachments={pending.attachments} progress={pending.uploadProgress} />
           {pending.failed ? (
             <span className="ml-2 text-[12px] text-alert">
-              Not sent.{" "}
+              {pending.failureReason ?? "Not sent."}{" "}
               <button className="underline" onClick={() => client.retrySend(pending.nonce)}>
                 Retry
               </button>{" "}

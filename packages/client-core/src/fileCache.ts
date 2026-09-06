@@ -59,6 +59,7 @@ export class FileCache {
       .fetchFile(fileId)
       .then((blob) => {
         if (this.disposed) throw new Error("File cache is closed");
+        if (this.inflight.get(fileId) !== request) throw new Error("File access was invalidated");
         const url = URL.createObjectURL(blob);
         this.urls.set(fileId, url);
         this.sizes.set(fileId, blob.size);
@@ -67,7 +68,7 @@ export class FileCache {
         return url;
       })
       .catch((err: unknown) => {
-        this.inflight.delete(fileId);
+        if (this.inflight.get(fileId) === request) this.inflight.delete(fileId);
         throw err;
       });
     this.inflight.set(fileId, request);
@@ -77,6 +78,15 @@ export class FileCache {
   /** Already-resolved URL, for a first paint with no flash. */
   peek(fileId: ID): string | undefined {
     return this.urls.get(fileId);
+  }
+
+  invalidate(fileId: ID): void {
+    this.inflight.delete(fileId);
+    const url = this.urls.get(fileId);
+    if (url) URL.revokeObjectURL(url);
+    this.urls.delete(fileId);
+    this.sizes.delete(fileId);
+    this.references.delete(fileId);
   }
 
   dispose(): void {

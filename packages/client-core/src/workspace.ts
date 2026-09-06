@@ -19,7 +19,8 @@ import { Api, ApiError, type CommandHint } from "./api.js";
 import { FileCache } from "./fileCache.js";
 import { HuddleSession, type HuddleState } from "./huddle.js";
 
-export type ConnectionStatus = "connecting" | "online" | "reconnecting" | "auth_failed" | "closed";
+export type ConnectionStatus =
+  "connecting" | "online" | "reconnecting" | "auth_failed" | "protocol_mismatch" | "closed";
 
 /** A file shown in the composer or in an optimistic message, before the server has it. */
 export interface LocalAttachment {
@@ -38,9 +39,57 @@ export interface PendingMessage {
   userId: ID;
   createdAt: number;
   failed: boolean;
+  /** Why it did not send, in words the author can act on. Null while in flight. */
+  failureReason: string | null;
   attachments: LocalAttachment[];
   /** 0–1 while uploading attachments; null once the message itself is in flight. */
   uploadProgress: number | null;
+}
+
+/**
+ * An outbox entry as it survives a restart. File objects cannot be serialized,
+ * so only their descriptions travel; see `restoreOutbox` for what that means.
+ */
+export interface StoredPending {
+  nonce: string;
+  channelId: ID;
+  threadRootId: ID | null;
+  text: string;
+  userId: ID;
+  createdAt: number;
+  attachments: { name: string; size: number; mime: string }[];
+}
+
+/** How many unsent messages are kept across a restart. */
+const OUTBOX_LIMIT = 50;
+
+const MISSING_ATTACHMENTS =
+  "The attached files were not kept when the app closed. Attach them again to send this.";
+
+/** Turns a send failure into something the author can act on. */
+function sendFailureReason(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return "Could not reach the workspace. It will be sent when you try again.";
+  }
+  switch (error.code) {
+    case "channel_archived":
+      return "This conversation is archived.";
+    case "channel_not_found":
+      return "You no longer have access to this conversation.";
+    case "bad_thread_root":
+      return "The message this replies to is gone.";
+    case "invalid_attachments":
+      return "The attached files are no longer available.";
+    case "nonce_conflict":
+    case "message_deleted":
+      return "This was already sent once. Discard it to clear it.";
+    case "account_deactivated":
+      return "This account is deactivated.";
+    default:
+      return error.status >= 500
+        ? "The workspace had a problem saving this."
+        : "This message was refused.";
+  }
 }
 
 export interface ChannelTimeline {
@@ -188,6 +237,10 @@ export class WorkspaceClient {
    * already happened; everything above it is arriving as it is sent.
    */
   private connectedAtSeq = 0;
+  private historyEpoch = 0;
+  private reloadChannels = new Set<ID>();
+  private reloadThreads = new Map<ID, ID>();
+  private acknowledgedMessages = new Set<ID>();
 
   constructor(
     public readonly baseUrl: string,
@@ -203,6 +256,9 @@ export class WorkspaceClient {
   }
 
   connect(): void {
+    if (this.ws) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.stopped = false;
     this.openSocket(this.state.lastSeq > 0 ? this.state.lastSeq : null);
     this.typingSweep ??= setInterval(() => this.sweepTyping(), 2000);
@@ -210,6 +266,7 @@ export class WorkspaceClient {
 
   destroy(): void {
     this.stopped = true;
+    this.historyEpoch++;
     // Release the microphone before the socket goes, so no call is left open.
     this.leaveHuddle();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -221,6 +278,8 @@ export class WorkspaceClient {
       for (const a of p.attachments) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
     }
     this.files.dispose();
+    this.retryFiles.clear();
+    this.uploadedFiles.clear();
     this.store.setState({ status: "closed" });
   }
 
@@ -236,20 +295,33 @@ export class WorkspaceClient {
           token: this.token,
           lastSeq,
           protocolVersion: PROTOCOL_VERSION,
+          syncVersion: 1,
         }),
       );
     };
 
     ws.onmessage = (e) => {
-      const msg = JSON.parse(String(e.data)) as ServerToClient;
-      this.handleServerMessage(msg);
+      if (this.ws !== ws || this.stopped) return;
+      try {
+        const msg = JSON.parse(String(e.data)) as ServerToClient;
+        this.handleServerMessage(msg);
+      } catch {
+        ws.close(4000, "invalid server message");
+      }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (this.ws !== ws) return;
       this.ws = null;
       this.leaveHuddle();
-      if (this.stopped || this.state.status === "auth_failed") return;
+      if (event.code === 4003) this.store.setState({ status: "auth_failed" });
+      if (event.code === 4002) this.store.setState({ status: "protocol_mismatch" });
+      if (
+        this.stopped ||
+        this.state.status === "auth_failed" ||
+        this.state.status === "protocol_mismatch"
+      )
+        return;
       this.store.setState({ status: "reconnecting" });
       this.reconnectTimer = setTimeout(() => {
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000);
@@ -265,6 +337,9 @@ export class WorkspaceClient {
       case "ready":
         this.applyReady(msg);
         break;
+      case "synced":
+        this.store.setState((s) => ({ lastSeq: Math.max(s.lastSeq, msg.seq), status: "online" }));
+        break;
       case "event":
         this.applyEvent(msg.envelope);
         break;
@@ -272,14 +347,16 @@ export class WorkspaceClient {
         this.applyEphemeral(msg.event);
         break;
       case "resync":
-        // Too far behind — drop local caches and start clean.
-        this.store.setState({ ...initialState, status: "connecting" });
+        // Compatibility with servers that predate replayFrom/synced.
+        this.resetHistory();
+        this.store.setState({ lastSeq: 0, status: "connecting" });
         this.ws?.close();
         this.reconnectDelay = 1000;
         this.openSocket(null);
         break;
       case "error":
         if (msg.code === "auth_failed") this.store.setState({ status: "auth_failed" });
+        if (msg.code === "protocol_mismatch") this.store.setState({ status: "protocol_mismatch" });
         break;
       case "pong":
         break;
@@ -291,6 +368,12 @@ export class WorkspaceClient {
     // Anything the server had already recorded when we connected is history,
     // however soon after it reaches us.
     this.connectedAtSeq = snap.seq;
+    const visible = new Set(snap.channels.map((c) => c.id));
+    for (const id of Object.keys(this.state.channels)) {
+      if (!visible.has(id)) this.removeChannel(id);
+    }
+    const reset = snap.replayFrom === null || this.state.lastSeq > snap.seq;
+    if (reset) this.resetHistory();
     const users: Record<ID, User> = {};
     for (const u of snap.users) users[u.id] = u;
     const channels: Record<ID, Channel> = {};
@@ -305,7 +388,7 @@ export class WorkspaceClient {
     for (const id of snap.savedMessageIds) saved[id] = true;
 
     this.store.setState((prev) => ({
-      status: "online",
+      status: snap.replayFrom === undefined ? "online" : "connecting",
       workspaceName: snap.workspaceName,
       self: snap.self,
       users,
@@ -317,7 +400,7 @@ export class WorkspaceClient {
       saved,
       huddles: snap.huddles,
       friends: snap.friends ?? [],
-      lastSeq: Math.max(prev.lastSeq, snap.seq),
+      lastSeq: reset || prev.lastSeq === 0 ? snap.seq : (snap.replayFrom ?? prev.lastSeq),
       // Keep loaded timelines — replayed events patch them incrementally.
       timelines: prev.timelines,
       threads: prev.threads,
@@ -326,25 +409,105 @@ export class WorkspaceClient {
       huddle: prev.huddle,
       typing: {},
     }));
+    for (const id of [...this.reloadChannels]) {
+      this.reloadChannels.delete(id);
+      if (channels[id]) void this.loadTimeline(id).catch(() => {});
+    }
+    for (const [rootId, channelId] of [...this.reloadThreads]) {
+      this.reloadThreads.delete(rootId);
+      if (channels[channelId]) void this.loadThread(rootId, channelId).catch(() => {});
+    }
   }
 
-  private applyEvent(envelope: EventEnvelope): void {
+  private resetHistory(): void {
+    this.historyEpoch++;
+    for (const [id, timeline] of Object.entries(this.state.timelines)) {
+      if (timeline.loaded) this.reloadChannels.add(id);
+    }
+    for (const [rootId, replies] of Object.entries(this.state.threads)) {
+      const channelId =
+        replies[0]?.channelId ??
+        Object.entries(this.state.timelines).find(([, t]) =>
+          t.items.some((m) => m.id === rootId),
+        )?.[0];
+      if (channelId) this.reloadThreads.set(rootId, channelId);
+    }
+    this.acknowledgedMessages.clear();
+    this.store.setState({ timelines: {}, threads: {}, typing: {}, ephemerals: {}, modal: null });
+  }
+
+  private removeChannel(channelId: ID): void {
+    this.historyEpoch++;
+    if (this.session?.channelId === channelId) this.leaveHuddle();
+    const state = this.state;
+    const roots = new Set(state.timelines[channelId]?.items.map((m) => m.id) ?? []);
+    for (const [id, replies] of Object.entries(state.threads)) {
+      if (replies.some((m) => m.channelId === channelId)) roots.add(id);
+    }
+    const fileIds = [
+      ...(state.timelines[channelId]?.items ?? []),
+      ...Object.values(state.threads)
+        .flat()
+        .filter((m) => m.channelId === channelId),
+    ].flatMap((m) => m.files.map((f) => f.id));
+    for (const id of fileIds) this.files.invalidate(id);
+    const without = <T>(values: Record<ID, T>) =>
+      Object.fromEntries(Object.entries(values).filter(([id]) => id !== channelId));
+    this.store.setState({
+      channels: without(state.channels),
+      memberships: without(state.memberships),
+      prefs: without(state.prefs),
+      timelines: without(state.timelines),
+      channelLastSeq: without(state.channelLastSeq),
+      typing: without(state.typing),
+      huddles: without(state.huddles),
+      ephemerals: without(state.ephemerals),
+      threads: Object.fromEntries(
+        Object.entries(state.threads).filter(
+          ([id, replies]) => !roots.has(id) && !replies.some((m) => m.channelId === channelId),
+        ),
+      ),
+      saved: Object.fromEntries(Object.entries(state.saved).filter(([id]) => !roots.has(id))),
+      modal: null,
+    });
+  }
+
+  private applyEvent(envelope: EventEnvelope, fromHttp = false): void {
     const { event, seq } = envelope;
     const s = this.store.getState();
-    if (seq <= s.lastSeq && s.lastSeq !== 0) return; // duplicate delivery
-    const patch: Partial<WorkspaceState> = { lastSeq: seq };
+    if (!fromHttp && seq <= s.lastSeq && s.lastSeq !== 0) return;
+    const patch: Partial<WorkspaceState> = fromHttp ? {} : { lastSeq: seq };
+    // Snapshot metadata is already current; replay only changes message caches.
+    if (!fromHttp && seq <= this.connectedAtSeq && /^(channel|member|user)\./.test(event.type)) {
+      this.store.setState(patch);
+      return;
+    }
 
     switch (event.type) {
       case "message.created": {
         const message = { ...event.message, seq };
-        patch.channelLastSeq = { ...s.channelLastSeq, [message.channelId]: seq };
+        if (!s.channels[message.channelId]) break;
+        if (!fromHttp && this.acknowledgedMessages.delete(message.id)) break;
+        if (
+          fromHttp &&
+          !s.pending.some((p) => p.userId === message.userId && p.nonce === message.nonce)
+        )
+          return;
+        if (fromHttp && seq > s.lastSeq) this.acknowledgedMessages.add(message.id);
+        patch.channelLastSeq = {
+          ...s.channelLastSeq,
+          [message.channelId]: Math.max(s.channelLastSeq[message.channelId] ?? 0, seq),
+        };
         // The real message replaces our optimistic one — release its previews.
-        const settled = s.pending.find((p) => p.nonce === message.nonce);
+        const settled = s.pending.find(
+          (p) => p.userId === message.userId && p.nonce === message.nonce,
+        );
         if (settled) {
           for (const a of settled.attachments) {
             if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
           }
           this.retryFiles.delete(settled.nonce);
+          this.uploadedFiles.delete(settled.nonce);
           patch.pending = s.pending.filter((p) => p.nonce !== message.nonce);
         }
         if (message.threadRootId) {
@@ -546,7 +709,26 @@ export class WorkspaceClient {
       return;
     }
     const s = this.store.getState();
-    if (event.type === "presence") {
+    if (event.type === "channel.access") {
+      if (!event.channel) {
+        this.removeChannel(event.channelId);
+        return;
+      }
+      const memberships = { ...s.memberships };
+      const prefs = { ...s.prefs };
+      if (event.membership) {
+        memberships[event.channelId] = event.membership.lastReadSeq;
+        prefs[event.channelId] = event.membership.prefs;
+      } else {
+        delete memberships[event.channelId];
+        delete prefs[event.channelId];
+      }
+      this.store.setState({
+        channels: { ...s.channels, [event.channelId]: event.channel },
+        memberships,
+        prefs,
+      });
+    } else if (event.type === "presence") {
       this.store.setState({ presence: { ...s.presence, [event.userId]: event.presence } });
     } else if (event.type === "huddle.participants") {
       const huddles = { ...s.huddles };
@@ -627,12 +809,14 @@ export class WorkspaceClient {
 
   /** Load the initial page (or older pages) of a channel's timeline. */
   async loadTimeline(channelId: ID, opts: { older?: boolean } = {}): Promise<void> {
+    const epoch = this.historyEpoch;
     const tl = this.state.timelines[channelId];
     if (tl?.loaded && !opts.older) return;
     if (opts.older && (!tl?.hasMore || tl.items.length === 0)) return;
 
     const before = opts.older ? tl!.items[0]!.id : undefined;
     const { messages } = await this.api.listMessages(channelId, { before, limit: 50 });
+    if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
     const page = [...messages].reverse(); // API returns newest-first
 
     this.store.setState((s) => {
@@ -665,6 +849,7 @@ export class WorkspaceClient {
    * a search hit or a pinned message.
    */
   async jumpToMessage(channelId: ID, messageId: ID): Promise<void> {
+    const epoch = this.historyEpoch;
     const existing = this.state.timelines[channelId];
     // Already on screen in a tail view — nothing to reload.
     if (
@@ -678,6 +863,7 @@ export class WorkspaceClient {
       channelId,
       messageId,
     );
+    if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
     this.store.setState((s) => ({
       timelines: {
         ...s.timelines,
@@ -693,10 +879,12 @@ export class WorkspaceClient {
 
   /** Pages forward from an anchored view back toward the newest messages. */
   async loadNewer(channelId: ID): Promise<void> {
+    const epoch = this.historyEpoch;
     const tl = this.state.timelines[channelId];
     if (!tl?.loaded || !tl.hasMoreNewer || tl.items.length === 0) return;
     const newest = tl.items[tl.items.length - 1]!;
     const { messages } = await this.api.listMessagesAfter(channelId, newest.id, 50);
+    if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
     this.store.setState((s) => {
       const current = s.timelines[channelId];
       if (!current) return {};
@@ -726,7 +914,9 @@ export class WorkspaceClient {
   }
 
   async loadThread(threadRootId: ID, channelId: ID): Promise<void> {
+    const epoch = this.historyEpoch;
     const { messages } = await this.api.listMessages(channelId, { threadRootId, limit: 200 });
+    if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
     this.store.setState((s) => ({
       threads: { ...s.threads, [threadRootId]: [...messages].reverse() },
     }));
@@ -734,6 +924,7 @@ export class WorkspaceClient {
 
   /** Files held for a retry, keyed by nonce — never exposed to the store. */
   private retryFiles = new Map<string, File[]>();
+  private uploadedFiles = new Map<string, ID[]>();
 
   /**
    * Optimistic send: the message (and local image previews) appear instantly,
@@ -753,7 +944,10 @@ export class WorkspaceClient {
       return;
     }
 
-    const nonce = `${self.id}-${Date.now()}-${++this.nonceCounter}`;
+    // getRandomValues also works on plain HTTP LAN origins, unlike randomUUID.
+    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
     const attachments: LocalAttachment[] = files.map((f) => ({
       name: f.name,
       size: f.size,
@@ -768,6 +962,7 @@ export class WorkspaceClient {
       userId: self.id,
       createdAt: Date.now(),
       failed: false,
+      failureReason: null,
       attachments,
       uploadProgress: files.length > 0 ? 0 : null,
     };
@@ -790,13 +985,17 @@ export class WorkspaceClient {
       }));
 
     try {
-      const fileIds: ID[] = [];
+      const fileIds = this.uploadedFiles.get(nonce) ?? [];
+      this.uploadedFiles.set(nonce, fileIds);
       for (const [i, file] of files.entries()) {
+        if (i < fileIds.length) continue;
+        if (this.stopped || !this.state.pending.some((p) => p.nonce === nonce)) return;
         const { file: uploaded } = await this.api.uploadFile(channelId, file, file.name, {
           onProgress: (fraction) => setProgress((i + fraction) / files.length),
         });
         fileIds.push(uploaded.id);
       }
+      if (this.stopped || !this.state.pending.some((p) => p.nonce === nonce)) return;
       if (files.length > 0) setProgress(1);
 
       const body: SendMessageBody = {
@@ -805,27 +1004,85 @@ export class WorkspaceClient {
         ...(threadRootId ? { threadRootId } : {}),
         ...(fileIds.length > 0 ? { fileIds } : {}),
       };
-      await this.api.sendMessage(channelId, body);
-      this.retryFiles.delete(nonce);
-    } catch {
-      this.store.setState((s) => ({
-        pending: s.pending.map((p) =>
-          p.nonce === nonce ? { ...p, failed: true, uploadProgress: null } : p,
-        ),
-      }));
+      const { message } = await this.api.sendMessage(channelId, body);
+      if (!this.stopped && this.state.status !== "auth_failed") {
+        this.applyEvent({ seq: message.seq, event: { type: "message.created", message } }, true);
+      }
+    } catch (error) {
+      this.failPending(nonce, sendFailureReason(error));
     }
+  }
+
+  private failPending(nonce: string, failureReason: string): void {
+    this.store.setState((s) => ({
+      pending: s.pending.map((p) =>
+        p.nonce === nonce ? { ...p, failed: true, failureReason, uploadProgress: null } : p,
+      ),
+    }));
   }
 
   retrySend(nonce: string): void {
     const p = this.state.pending.find((p) => p.nonce === nonce);
-    if (!p) return;
-    // send() makes fresh preview URLs from the same File objects.
+    if (!p?.failed) return;
     const files = this.retryFiles.get(nonce) ?? [];
-    this.dropPending(nonce);
-    this.send(p.channelId, p.text, {
-      threadRootId: p.threadRootId ?? undefined,
-      files,
-    });
+    // Sending now would post the words without the files the author chose.
+    if (p.attachments.length > 0 && files.length !== p.attachments.length) {
+      this.failPending(nonce, MISSING_ATTACHMENTS);
+      return;
+    }
+    this.store.setState((s) => ({
+      pending: s.pending.map((item) =>
+        item.nonce === nonce ? { ...item, failed: false, failureReason: null } : item,
+      ),
+    }));
+    void this.deliver(p.channelId, p.text, files, nonce, p.threadRootId ?? undefined);
+  }
+
+  /** The outbox in a form that survives a restart. Preview URLs are not kept. */
+  outboxSnapshot(): StoredPending[] {
+    return this.state.pending.slice(-OUTBOX_LIMIT).map((p) => ({
+      nonce: p.nonce,
+      channelId: p.channelId,
+      threadRootId: p.threadRootId,
+      text: p.text,
+      userId: p.userId,
+      createdAt: p.createdAt,
+      attachments: p.attachments.map((a) => ({ name: a.name, size: a.size, mime: a.mime })),
+    }));
+  }
+
+  /**
+   * Puts back work the author had already committed to sending. Re-delivery is
+   * safe because the server settles a repeated request key onto the same
+   * message, so a send that did reach the server before the restart cannot
+   * become a second one. Attachments do not survive a restart, so those entries
+   * stop and say so instead of posting the words without the files.
+   */
+  restoreOutbox(entries: StoredPending[]): void {
+    const self = this.state.self;
+    if (!self) return;
+    const restored = entries
+      .filter((e) => e.userId === self.id && !this.state.pending.some((p) => p.nonce === e.nonce))
+      .slice(-OUTBOX_LIMIT)
+      .map((e) => ({
+        ...e,
+        failed: e.attachments.length > 0,
+        failureReason: e.attachments.length > 0 ? MISSING_ATTACHMENTS : null,
+        attachments: e.attachments.map((a) => ({ ...a, previewUrl: null })),
+        uploadProgress: null,
+      }));
+    if (restored.length === 0) return;
+    this.store.setState((s) => ({ pending: [...s.pending, ...restored] }));
+    for (const entry of restored) {
+      if (entry.failed) continue;
+      void this.deliver(
+        entry.channelId,
+        entry.text,
+        [],
+        entry.nonce,
+        entry.threadRootId ?? undefined,
+      );
+    }
   }
 
   discardSend(nonce: string): void {
@@ -838,6 +1095,7 @@ export class WorkspaceClient {
       for (const a of p.attachments) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
     }
     this.retryFiles.delete(nonce);
+    this.uploadedFiles.delete(nonce);
     this.store.setState((s) => ({ pending: s.pending.filter((x) => x.nonce !== nonce) }));
   }
 

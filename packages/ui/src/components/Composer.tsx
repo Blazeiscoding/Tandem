@@ -71,6 +71,20 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     return () => clearTimeout(timer);
   }, [client, draftKey, text, savedDraft]);
 
+  // That debounce is cancelled by every keystroke, including the last one
+  // before the composer unmounts or the conversation changes. This effect only
+  // re-runs when the conversation does, so its cleanup still closes over the
+  // conversation being left, while the refs hold what was typed into it.
+  const typed = useRef({ text, savedDraft });
+  typed.current = { text, savedDraft };
+  useEffect(() => {
+    return () => {
+      if (edited.current && typed.current.text !== typed.current.savedDraft) {
+        client.setDraft(draftKey, typed.current.text);
+      }
+    };
+  }, [client, draftKey]);
+
   function addFiles(files: FileList | File[] | null) {
     if (!files) return;
     const incoming = [...files];

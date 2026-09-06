@@ -169,12 +169,12 @@ function WorkspaceInner({
 
   // Pick #general (or the first channel) once the snapshot lands.
   useEffect(() => {
-    if (!activeChannelId) {
+    if (!activeChannelId || (status === "online" && !channels[activeChannelId])) {
       const list = Object.values(channels);
       const general = list.find((c) => c.name === "general") ?? list[0];
       if (general) setActiveChannelId(general.id);
     }
-  }, [channels, activeChannelId]);
+  }, [channels, activeChannelId, status]);
 
   // Desktop notifications for incoming messages, gated by channel preferences,
   // mute and Do Not Disturb (the rules live in client-core so they're testable).
@@ -252,7 +252,9 @@ function WorkspaceInner({
         ? "reconnecting…"
         : status === "auth_failed"
           ? "signed out"
-          : "offline";
+          : status === "protocol_mismatch"
+            ? "Server version incompatible — update Gatherline"
+            : "offline";
 
   useEffect(() => {
     if (status === "auth_failed") onLeaveWorkspace();

@@ -3,6 +3,7 @@ import type { ServerInfo } from "@slackoss/protocol";
 import { Api, ApiError, normalizeServerUrl } from "@slackoss/client-core";
 import type { DiscoveredServer, HostingStatus, Platform, SavedServer } from "../platform.js";
 import { BrandMark, Icon } from "../components/Icon.js";
+import { connectionFailure, host, incompatibleWorkspace } from "../lib/connection.js";
 
 interface Props {
   platform: Platform;
@@ -21,6 +22,20 @@ type Stage =
   | { view: "auth"; url: string; info: ServerInfo }
   | { view: "probing"; url: string };
 
+/** Something that went wrong, and what the reader can do about it. */
+interface Notice {
+  text: string;
+  retry?: () => void;
+}
+
+function selfOrigin(): string | null {
+  if (typeof window === "undefined") return null;
+  const { origin, protocol } = window.location;
+  return protocol === "http:" || protocol === "https:" ? origin : null;
+}
+
+const pageProtocol = () => (typeof window === "undefined" ? undefined : window.location.protocol);
+
 export function JoinScreen({
   platform,
   savedServers,
@@ -33,7 +48,48 @@ export function JoinScreen({
   const [stage, setStage] = useState<Stage>({ view: "browse" });
   const [lanServers, setLanServers] = useState<DiscoveredServer[]>([]);
   const [hosting, setHosting] = useState<HostingStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Notice | null>(null);
+  const [selfServed, setSelfServed] = useState<{ url: string; info: ServerInfo } | null>(null);
+  // Web only: whether the question "is this page served by a workspace?" has
+  // been answered yet. Rendering the full list before it is answered shows a
+  // screen that is about to be replaced.
+  const [selfChecked, setSelfChecked] = useState(platform.kind !== "web");
+  const probeAttempt = useRef(0);
+
+  // A browser that was served *by* a workspace already knows where it is. Ask
+  // that origin quietly; if it is not a workspace (a dev server, a static
+  // host), nothing is shown and nothing is said.
+  useEffect(() => {
+    const origin = platform.kind === "web" ? selfOrigin() : null;
+    if (!origin) {
+      setSelfChecked(true);
+      return;
+    }
+    let disposed = false;
+    void new Api(origin)
+      .serverInfo()
+      .then((info) => {
+        if (disposed || incompatibleWorkspace(origin, info)) return;
+        setSelfServed({ url: origin, info });
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!disposed) setSelfChecked(true);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [platform]);
+
+  // With nowhere else to go, the workspace serving this page is the answer.
+  useEffect(() => {
+    if (!selfServed || savedServers.length > 0 || autoProbe) return;
+    setStage((current) =>
+      current.view === "browse"
+        ? { view: "auth", url: selfServed.url, info: selfServed.info }
+        : current,
+    );
+  }, [selfServed, savedServers.length, autoProbe]);
 
   useEffect(() => {
     if (!platform.discoverLan) return;
@@ -60,7 +116,15 @@ export function JoinScreen({
       if (err instanceof ApiError && err.status === 401) {
         await probe(saved.url);
       } else {
-        setError(`${saved.workspaceName} isn't reachable right now.`);
+        setError({
+          text: connectionFailure({
+            url: saved.url,
+            error: err,
+            name: saved.workspaceName,
+            pageProtocol: pageProtocol(),
+          }),
+          retry: () => void openSaved(saved),
+        });
         setStage({ view: "browse" });
       }
     }
@@ -72,18 +136,37 @@ export function JoinScreen({
     try {
       url = normalizeServerUrl(input);
     } catch {
-      setError("That doesn't look like a valid address.");
+      setError({ text: "That doesn't look like a workspace address." });
       return;
     }
+    const attempt = ++probeAttempt.current;
     setStage({ view: "probing", url });
     try {
       const info = await new Api(url).serverInfo();
-      if (info.app !== "slackoss") throw new Error();
+      // A slower probe the user cancelled, or moved on from, must not win.
+      if (probeAttempt.current !== attempt) return;
+      const incompatible = incompatibleWorkspace(url, info);
+      if (incompatible) {
+        setError({ text: incompatible });
+        setStage({ view: "browse" });
+        return;
+      }
       setStage({ view: "auth", url, info });
-    } catch {
-      setError(`No workspace is answering at ${url.replace(/^https?:\/\//, "")}.`);
+    } catch (err) {
+      if (probeAttempt.current !== attempt) return;
+      setError({
+        text: connectionFailure({ url, error: err, pageProtocol: pageProtocol() }),
+        retry: () => void probe(url),
+      });
       setStage({ view: "browse" });
     }
+  }
+
+  /** Abandons a probe that is taking too long, without waiting for it to finish. */
+  function cancelProbe() {
+    probeAttempt.current++;
+    setError(null);
+    setStage({ view: "browse" });
   }
 
   return (
@@ -141,6 +224,10 @@ export function JoinScreen({
                 onBack={() => setStage({ view: "browse" })}
                 onConnected={onConnected}
               />
+            ) : !selfChecked && savedServers.length === 0 && !autoProbe ? (
+              <p className="rounded-xl border border-dashed border-edge px-4 py-8 text-center font-mono text-xs text-ink-faint">
+                looking for this workspace…
+              </p>
             ) : (
               <BrowseCard
                 savedServers={savedServers}
@@ -148,6 +235,8 @@ export function JoinScreen({
                 lanSupported={!!platform.discoverLan}
                 probing={stage.view === "probing" ? stage.url : null}
                 error={error}
+                selfServed={selfServed}
+                onCancelProbe={cancelProbe}
                 hostedPort={hosting?.running ? (hosting.port ?? null) : null}
                 onSelect={probe}
                 onOpenSaved={openSaved}
@@ -167,7 +256,10 @@ function BrowseCard(props: {
   lanServers: DiscoveredServer[];
   lanSupported: boolean;
   probing: string | null;
-  error: string | null;
+  error: Notice | null;
+  /** The workspace serving this page, when a browser was opened from one. */
+  selfServed: { url: string; info: ServerInfo } | null;
+  onCancelProbe: () => void;
   /** Port of the workspace this machine is hosting, if any. */
   hostedPort: number | null;
   onSelect: (address: string) => void;
@@ -186,6 +278,35 @@ function BrowseCard(props: {
 
   return (
     <div className="space-y-6">
+      {props.error && (
+        <div className="rounded-xl border border-alert/40 bg-alert/10 px-4 py-3 text-sm text-alert">
+          <p>{props.error.text}</p>
+          {props.error.retry && (
+            <button
+              onClick={props.error.retry}
+              className="mt-1.5 font-medium underline underline-offset-2"
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+
+      {props.selfServed && (
+        <section>
+          <SectionLabel>This workspace</SectionLabel>
+          <ul className="overflow-hidden rounded-xl border border-copper/40">
+            <ServerRow
+              title={props.selfServed.info.workspaceName}
+              subtitle={host(props.selfServed.url)}
+              meta="serving this page"
+              busy={props.probing === props.selfServed.url}
+              onClick={() => props.onSelect(props.selfServed!.url)}
+            />
+          </ul>
+        </section>
+      )}
+
       {props.savedServers.length > 0 && (
         <section>
           <SectionLabel>Your workspaces</SectionLabel>
@@ -260,7 +381,14 @@ function BrowseCard(props: {
             Connect
           </button>
         </form>
-        {props.error && <p className="mt-2 text-sm text-alert">{props.error}</p>}
+        {props.probing && (
+          <p className="mt-2 flex items-center gap-2 text-sm text-ink-dim">
+            <span className="font-mono text-xs">Contacting {host(props.probing)}…</span>
+            <button onClick={props.onCancelProbe} className="underline underline-offset-2">
+              Cancel
+            </button>
+          </p>
+        )}
       </section>
 
       {props.onHostClick && (
@@ -366,6 +494,8 @@ function AuthCard(props: {
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [inviteCode, setInviteCode] = useState(props.presetInviteCode ?? "");
+  const [claimCode, setClaimCode] = useState("");
+  const [requiresClaim, setRequiresClaim] = useState(!!props.info.requiresClaim);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const firstField = useRef<HTMLInputElement>(null);
@@ -386,6 +516,7 @@ function AuthCard(props: {
               displayName: displayName.trim() || handle.trim(),
               password,
               ...(inviteCode.trim() ? { inviteCode: inviteCode.trim() } : {}),
+              ...(claimCode.trim() ? { claimCode: claimCode.trim() } : {}),
             });
       props.onConnected({
         url: props.url,
@@ -395,6 +526,7 @@ function AuthCard(props: {
         lastUsedAt: Date.now(),
       });
     } catch (err) {
+      if (err instanceof ApiError && err.code === "claim_required") setRequiresClaim(true);
       setError(errorMessage(err, mode));
       setBusy(false);
     }
@@ -479,7 +611,32 @@ function AuthCard(props: {
             className={`${inputCls} font-mono`}
           />
         )}
-        {error && <p className="text-sm text-alert">{error}</p>}
+        {mode === "register" && requiresClaim && (
+          <div>
+            <label className="mb-1 block text-sm" htmlFor="workspace-claim-code">
+              Workspace claim code
+            </label>
+            <input
+              id="workspace-claim-code"
+              type="password"
+              autoComplete="off"
+              value={claimCode}
+              onChange={(e) => setClaimCode(e.target.value)}
+              placeholder="Claim code from the host"
+              aria-describedby="workspace-claim-help"
+              spellCheck={false}
+              className={`${inputCls} font-mono`}
+            />
+            <p id="workspace-claim-help" className="mt-1 text-xs text-ink-dim">
+              Enter the code shown when the host started this workspace to create its owner account.
+            </p>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-alert">
+            {error}
+          </p>
+        )}
         <button
           type="submit"
           disabled={busy || !handle.trim() || !password}
@@ -501,6 +658,8 @@ function errorMessage(err: unknown, mode: "login" | "register"): string {
         return "That username is taken — sign in instead?";
       case "invite_required":
         return "This workspace needs an invite code to join.";
+      case "claim_required":
+        return "Enter the workspace claim code shown on the host. The code you entered was not accepted.";
       case "invalid_request":
         return mode === "register"
           ? "Usernames are lowercase letters and digits; passwords need 8+ characters."

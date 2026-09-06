@@ -118,6 +118,7 @@ export class Api {
     displayName: string;
     password: string;
     inviteCode?: string;
+    claimCode?: string;
   }): Promise<{ token: string; user: User }> {
     return this.request("POST", "/api/auth/register", body);
   }
@@ -288,6 +289,11 @@ export class Api {
 
   cancelScheduled(id: ID): Promise<{ ok: true }> {
     return this.request("DELETE", `/api/scheduled/${id}`);
+  }
+
+  /** Requeues a held or failed message. A past time sends it on the next flush. */
+  rescheduleMessage(id: ID, sendAt: number): Promise<{ scheduled: ScheduledMessage }> {
+    return this.request("PATCH", `/api/scheduled/${id}`, { sendAt });
   }
 
   setChannelPrefs(channelId: ID, body: ChannelPrefsBody): Promise<{ prefs: ChannelPrefs }> {

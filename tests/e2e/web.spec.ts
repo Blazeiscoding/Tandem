@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 let server: ChildProcess;
 let data: string;
+let claimCode = "";
 const base = "http://127.0.0.1:18543";
 test.beforeAll(async () => {
   data = mkdtempSync(join(tmpdir(), "slackoss-e2e-"));
@@ -27,6 +28,11 @@ test.beforeAll(async () => {
     ],
     { windowsHide: true, stdio: "pipe" },
   );
+  let startupOutput = "";
+  server.stdout!.on("data", (chunk) => {
+    startupOutput += String(chunk);
+    claimCode = startupOutput.match(/Claim code: (\S+)/)?.[1] ?? "";
+  });
   await expect
     .poll(async () => {
       try {
@@ -46,26 +52,50 @@ test.afterAll(async () => {
   if (data) rmSync(data, { recursive: true, force: true });
 });
 
-async function register(page: Page, handle: string) {
+/**
+ * Opens the join screen at the workspace's own address. A browser served by a
+ * workspace goes straight to its sign-in card, so the address field is only
+ * there when the app has to ask which workspace is meant.
+ */
+async function openAuthCard(page: Page) {
+  const address = page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev");
+  const username = page.getByPlaceholder("username", { exact: true });
+  // Whichever the join screen settles on: a served browser skips the list.
+  await expect(address.or(username).first()).toBeVisible();
+  if (await address.isVisible().catch(() => false)) {
+    await address.fill(base);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+  }
+  await expect(username).toBeVisible();
+}
+
+/** The same, from a cold load. */
+async function reachAuthCard(page: Page) {
   await page.goto(base);
-  await page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev").fill(base);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByPlaceholder("username", { exact: true })).toBeVisible();
+  await openAuthCard(page);
+}
+
+async function register(page: Page, handle: string, claim?: string) {
+  await reachAuthCard(page);
   const create = page.getByRole("button", { name: "Create account", exact: true });
   if (await create.isVisible()) await create.click();
   await page.getByPlaceholder("username", { exact: true }).fill(handle);
   await page.getByPlaceholder("Display name", { exact: true }).fill(handle);
   await page.getByPlaceholder("Password (8+ characters)").fill("password123");
+  if (claim) {
+    await page.getByLabel("Workspace claim code", { exact: true }).fill("incorrect-code");
+    await page.getByRole("button", { name: "Join workspace", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("not accepted");
+    await expect(page.getByPlaceholder("username", { exact: true })).toHaveValue(handle);
+    await page.getByLabel("Workspace claim code", { exact: true }).fill(claim);
+  }
   await page.getByRole("button", { name: "Join workspace", exact: true }).click();
   await expect(page.locator("textarea")).toBeVisible();
 }
 
 /** Signs an existing account in, rather than creating one. */
 async function signIn(page: Page, handle: string) {
-  await page.goto(base);
-  await page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev").fill(base);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByPlaceholder("username", { exact: true })).toBeVisible();
+  await reachAuthCard(page);
   const signInTab = page.getByRole("button", { name: "Sign in", exact: true }).first();
   if (await signInTab.isVisible().catch(() => false)) await signInTab.click();
   await page.getByPlaceholder("username", { exact: true }).fill(handle);
@@ -73,6 +103,22 @@ async function signIn(page: Page, handle: string) {
   await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
   await expect(page.locator("textarea")).toBeVisible();
 }
+
+test("a browser served by a workspace offers that workspace without being asked", async ({
+  page,
+}) => {
+  await page.goto(base);
+  // The page came from the workspace, so there is nothing to look up: it goes
+  // straight to signing in, named, with no address to type.
+  await expect(page.getByRole("heading", { name: "Product Test" })).toBeVisible();
+  await expect(page.getByPlaceholder("username", { exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toHaveCount(0);
+
+  // The way back to the full list is still there for a second workspace.
+  await page.getByRole("button", { name: "← All workspaces" }).click();
+  await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toBeVisible();
+  await expect(page.getByText("serving this page")).toBeVisible();
+});
 
 test("two people register, chat, become friends, reconnect, and exchange real WebRTC media", async ({
   browser,
@@ -102,7 +148,16 @@ test("two people register, chat, become friends, reconnect, and exchange real We
     });
   }
   try {
-    await register(alice, "alice");
+    // A reverse proxy removes the localhost claim bypass. The owner can still
+    // complete setup in the browser, including correcting an invalid code.
+    await expect.poll(() => claimCode.length).toBeGreaterThan(0);
+    await alice.route("**/api/**", (route) =>
+      route.continue({
+        headers: { ...route.request().headers(), "x-forwarded-for": "192.0.2.10" },
+      }),
+    );
+    await register(alice, "alice", claimCode);
+    await alice.unroute("**/api/**");
     await register(bob, "bobby");
     await alice.locator("textarea").fill("Hello from Alice — live delivery");
     await alice.locator("textarea").press("Enter");
@@ -756,8 +811,7 @@ test("deactivating someone signs them out of the app they already have open", as
     });
 
     // And signing back in from that same screen is refused.
-    await leaverPage.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev").fill(base);
-    await leaverPage.getByRole("button", { name: "Connect", exact: true }).click();
+    await openAuthCard(leaverPage);
     await expect(leaverPage.getByPlaceholder("username", { exact: true })).toBeVisible();
     const signInTab = leaverPage.getByRole("button", { name: "Sign in", exact: true }).first();
     if (await signInTab.isVisible().catch(() => false)) await signInTab.click();

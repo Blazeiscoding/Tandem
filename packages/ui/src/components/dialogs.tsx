@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useCopy } from "../lib/useCopy.js";
 import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
@@ -192,19 +193,13 @@ export function NewDmDialog(props: { onClose: () => void; onOpen: (id: ID) => vo
 export function InviteDialog(props: { onClose: () => void }) {
   const client = useClient();
   const [invite, setInvite] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  const { copy, label, copied } = useCopy();
   const host = client.baseUrl.replace(/^https?:\/\//, "");
   const link = invite ? `slackoss://join?host=${host}&code=${invite}` : null;
 
   async function generate() {
     const { invite } = await client.api.createInvite({ expiresInHours: 24 * 7 });
     setInvite(invite.code);
-  }
-
-  function copy(text: string, which: string) {
-    void navigator.clipboard.writeText(text);
-    setCopied(which);
-    setTimeout(() => setCopied(null), 1500);
   }
 
   return (
@@ -220,10 +215,10 @@ export function InviteDialog(props: { onClose: () => void }) {
         <div className="flex items-center justify-between gap-2">
           <code className="font-mono text-sm text-copper">{host}</code>
           <button
-            onClick={() => copy(host, "host")}
+            onClick={() => void copy(host, "host")}
             className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
           >
-            {copied === "host" ? "Copied" : "Copy"}
+            {label("Copy", "Copied", "Copy failed", "host")}
           </button>
         </div>
       </div>
@@ -237,10 +232,10 @@ export function InviteDialog(props: { onClose: () => void }) {
               {invite}
             </code>
             <button
-              onClick={() => copy(link!, "link")}
+              onClick={() => void copy(link!, "link")}
               className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
             >
-              {copied === "link" ? "Copied" : "Copy link"}
+              {label("Copy link", "Copied", "Copy failed", "link")}
             </button>
           </div>
         </div>

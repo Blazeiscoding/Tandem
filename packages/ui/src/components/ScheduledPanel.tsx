@@ -32,6 +32,16 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
     await client.api.cancelScheduled(id).catch(load);
   }
 
+  /** Held and failed messages wait for the author. This puts one back in line. */
+  async function sendNow(id: ID) {
+    setItems(
+      (prev) =>
+        prev?.map((s) => (s.id === id ? { ...s, status: "queued", failureReason: null } : s)) ??
+        null,
+    );
+    await client.api.rescheduleMessage(id, Date.now()).catch(load);
+  }
+
   return (
     <aside className="flex w-[380px] shrink-0 flex-col border-l border-edge bg-ground">
       <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
@@ -73,6 +83,16 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                     {formatScheduleTime(s.sendAt)}
                   </span>
                 </div>
+                {s.status !== "queued" && (
+                  <p
+                    className={`mb-1.5 text-[11px] ${s.status === "failed" ? "text-alert" : "text-ink-faint"}`}
+                  >
+                    <span className="font-medium">
+                      {s.status === "failed" ? "Not sent" : "Waiting"}
+                    </span>
+                    {s.failureReason ? ` — ${s.failureReason}` : ""}
+                  </p>
+                )}
                 <div className="text-sm text-ink-dim">
                   {s.text ? (
                     <Mrkdwn text={s.text} users={users} channels={channels} selfId={selfId} />
@@ -82,12 +102,22 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={() => void cancel(s.id)}
-                  className="mt-2 rounded-lg border border-edge px-2.5 py-1 text-[12px] text-ink-faint transition-colors hover:border-alert hover:text-alert"
-                >
-                  Cancel
-                </button>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => void cancel(s.id)}
+                    className="rounded-lg border border-edge px-2.5 py-1 text-[12px] text-ink-faint transition-colors hover:border-alert hover:text-alert"
+                  >
+                    {s.status === "queued" ? "Cancel" : "Discard"}
+                  </button>
+                  {s.status !== "queued" && (
+                    <button
+                      onClick={() => void sendNow(s.id)}
+                      className="rounded-lg border border-edge px-2.5 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-copper"
+                    >
+                      Try again
+                    </button>
+                  )}
+                </div>
               </li>
             );
           })}

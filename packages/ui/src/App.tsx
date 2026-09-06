@@ -6,6 +6,7 @@ import { parseDeepLink } from "./lib/deeplink.js";
 import { JoinScreen } from "./screens/JoinScreen.js";
 import { WorkspaceScreen } from "./screens/WorkspaceScreen.js";
 import { Dialog, inputCls, primaryBtnCls } from "./components/Dialog.js";
+import { ErrorBoundary } from "./components/ErrorBoundary.js";
 
 type Session =
   | { view: "loading" }
@@ -135,43 +136,45 @@ export function App({ platform }: { platform: Platform }) {
 
   return (
     <PlatformContext.Provider value={platform}>
-      <div className="h-full">
-        {session.view === "loading" && (
-          <div className="flex h-full items-center justify-center font-mono text-sm text-ink-faint">
-            starting…
-          </div>
-        )}
-        {session.view === "join" && (
-          <JoinScreen
-            platform={platform}
-            savedServers={savedServers}
-            autoProbe={session.autoProbe}
-            inviteCode={session.inviteCode}
-            onConnected={(server) => openWorkspace(server, savedServers)}
-            onForget={forgetServer}
-            onHostClick={platform.hosting ? () => setHostDialogOpen(true) : undefined}
-          />
-        )}
-        {session.view === "workspace" && (
-          <WorkspaceScreen
-            key={session.server.url}
-            client={session.client}
-            platform={platform}
-            initialTarget={session.target ?? null}
-            onLeaveWorkspace={leaveWorkspace}
-          />
-        )}
-        {hostDialogOpen && platform.hosting && (
-          <HostDialog
-            hosting={platform.hosting}
-            onClose={() => setHostDialogOpen(false)}
-            onStarted={(status) => {
-              setHostDialogOpen(false);
-              setSession({ view: "join", autoProbe: `localhost:${status.port}` });
-            }}
-          />
-        )}
-      </div>
+      <ErrorBoundary>
+        <div className="h-full">
+          {session.view === "loading" && (
+            <div className="flex h-full items-center justify-center font-mono text-sm text-ink-faint">
+              starting…
+            </div>
+          )}
+          {session.view === "join" && (
+            <JoinScreen
+              platform={platform}
+              savedServers={savedServers}
+              autoProbe={session.autoProbe}
+              inviteCode={session.inviteCode}
+              onConnected={(server) => openWorkspace(server, savedServers)}
+              onForget={forgetServer}
+              onHostClick={platform.hosting ? () => setHostDialogOpen(true) : undefined}
+            />
+          )}
+          {session.view === "workspace" && (
+            <WorkspaceScreen
+              key={session.server.url}
+              client={session.client}
+              platform={platform}
+              initialTarget={session.target ?? null}
+              onLeaveWorkspace={leaveWorkspace}
+            />
+          )}
+          {hostDialogOpen && platform.hosting && (
+            <HostDialog
+              hosting={platform.hosting}
+              onClose={() => setHostDialogOpen(false)}
+              onStarted={(status) => {
+                setHostDialogOpen(false);
+                setSession({ view: "join", autoProbe: `localhost:${status.port}` });
+              }}
+            />
+          )}
+        </div>
+      </ErrorBoundary>
     </PlatformContext.Provider>
   );
 }
