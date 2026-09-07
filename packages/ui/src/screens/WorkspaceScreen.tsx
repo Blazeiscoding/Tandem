@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss/client-core";
 import { ClientContext, useClient, useWorkspace } from "../context.js";
@@ -58,7 +58,7 @@ type DialogKind =
 /** Only one right-hand panel is open at a time. */
 type SidePanel =
   | { kind: "none" }
-  | { kind: "thread"; rootId: ID }
+  | { kind: "thread"; rootId: ID; targetId?: ID }
   | { kind: "pins" }
   | { kind: "later" }
   | { kind: "scheduled" };
@@ -116,6 +116,16 @@ function WorkspaceInner({
   const [dialog, setDialog] = useState<DialogKind>({ kind: "none" });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const clientFromCtx = useClient();
+  const navigation = useRef(0);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [navigating, setNavigating] = useState(false);
+  useEffect(
+    () => () => {
+      navigation.current++;
+      clientFromCtx.cancelMessageJump();
+    },
+    [clientFromCtx],
+  );
 
   useEffect(() => {
     if (dialog.kind !== "none") setSidebarOpen(false);
@@ -165,13 +175,10 @@ function WorkspaceInner({
   useEffect(() => {
     if (!initialTarget) return;
     const { channelId, messageId } = initialTarget;
-    void clientFromCtx
-      .jumpToMessage(channelId, messageId)
-      .then(() => {
-        setActiveChannelId(channelId);
-        setHighlightMessageId(messageId);
-      })
-      .catch(() => setHighlightMessageId(null));
+    jumpToMessage(channelId, messageId);
+    return () => {
+      navigation.current++;
+    };
   }, [clientFromCtx, initialTarget]);
 
   // The composer's slash-command hints. Re-fetched when an admin adds one.
@@ -236,23 +243,46 @@ function WorkspaceInner({
   const title = activeChannel ? channelTitle(activeChannel, users, self?.id) : "";
   const isRoom = activeChannel?.type === "public" || activeChannel?.type === "private";
 
-  const openChannel = useCallback((id: ID) => {
-    setActiveChannelId(id);
-    setHighlightMessageId(null);
-    setPanel({ kind: "none" });
-    setDialog({ kind: "none" });
-    setSidebarOpen(false);
-  }, []);
+  const openChannel = useCallback(
+    (id: ID) => {
+      navigation.current++;
+      clientFromCtx.cancelMessageJump();
+      setNavigating(false);
+      setNavigationError(null);
+      setActiveChannelId(id);
+      setHighlightMessageId(null);
+      setPanel({ kind: "none" });
+      setDialog({ kind: "none" });
+      setSidebarOpen(false);
+    },
+    [clientFromCtx],
+  );
   const openThread = useCallback((rootId: ID) => setPanel({ kind: "thread", rootId }), []);
   const openProfile = useCallback((userId: ID) => setDialog({ kind: "profile", userId }), []);
 
   /** Opens a channel scrolled to one message, from search, pins or Later. */
   function jumpToMessage(channelId: ID, messageId: ID) {
+    const ticket = ++navigation.current;
     setDialog({ kind: "none" });
-    void clientFromCtx.jumpToMessage(channelId, messageId).then(() => {
-      setActiveChannelId(channelId);
-      setHighlightMessageId(messageId);
-    });
+    setNavigationError(null);
+    setNavigating(true);
+    void clientFromCtx
+      .jumpToMessage(channelId, messageId)
+      .then((rootId) => {
+        if (ticket !== navigation.current || rootId === undefined) return;
+        setActiveChannelId(channelId);
+        setHighlightMessageId(rootId ?? messageId);
+        setPanel(rootId ? { kind: "thread", rootId, targetId: messageId } : { kind: "none" });
+      })
+      .catch(() => {
+        if (ticket === navigation.current)
+          setNavigationError(
+            "Could not open this message. It may have been deleted, access may have changed, or the workspace may be offline.",
+          );
+      })
+      .finally(() => {
+        if (ticket === navigation.current) setNavigating(false);
+      });
   }
 
   const closeDialog = () => setDialog({ kind: "none" });
@@ -316,6 +346,22 @@ function WorkspaceInner({
       />
 
       <main inert={sidebarOpen} className="flex min-w-0 flex-1 flex-col">
+        {navigating && (
+          <p role="status" className="px-5 py-2 text-sm text-ink-faint">
+            Opening message…
+          </p>
+        )}
+        {navigationError && (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-3 border-b border-edge px-5 py-2 text-sm text-ink-dim"
+          >
+            {navigationError}
+            <button className="text-copper" onClick={() => setNavigationError(null)}>
+              Dismiss
+            </button>
+          </div>
+        )}
         <header className="channel-header titlebar-drag flex h-[76px] shrink-0 items-center gap-3 border-b border-edge px-5">
           <button
             className="mobile-nav-toggle rounded-lg p-2 text-ink-dim hover:bg-lifted"
@@ -423,6 +469,7 @@ function WorkspaceInner({
         <ThreadPanel
           channelId={activeChannelId}
           rootId={panel.rootId}
+          targetId={panel.targetId}
           onClose={() => setPanel({ kind: "none" })}
           onChannelClick={openChannel}
           onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
@@ -451,7 +498,9 @@ function WorkspaceInner({
       {dialog.kind === "new-dm" && <NewDmDialog onClose={closeDialog} onOpen={openChannel} />}
       {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
       {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
-      {dialog.kind === "search" && <SearchDialog onClose={closeDialog} onJump={jumpToMessage} />}
+      {dialog.kind === "search" && (
+        <SearchDialog channelId={activeChannelId} onClose={closeDialog} onJump={jumpToMessage} />
+      )}
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
       {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
       {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}

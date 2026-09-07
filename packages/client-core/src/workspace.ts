@@ -302,6 +302,7 @@ export class WorkspaceClient {
   private reloadChannels = new Set<ID>();
   private reloadThreads = new Map<ID, ID>();
   private threadLoads = new Map<ID, { events: EventEnvelope[]; overflow: boolean }>();
+  private messageJump = 0;
   private acknowledgedMessages = new Set<ID>();
 
   constructor(
@@ -954,7 +955,8 @@ export class WorkspaceClient {
    * Replaces the timeline with a window centred on `messageId`, for jumping to
    * a search hit or a pinned message.
    */
-  async jumpToMessage(channelId: ID, messageId: ID): Promise<void> {
+  async jumpToMessage(channelId: ID, messageId: ID): Promise<ID | null | undefined> {
+    const ticket = ++this.messageJump;
     const epoch = this.historyEpoch;
     const existing = this.state.timelines[channelId];
     // Already on screen in a tail view — nothing to reload.
@@ -963,13 +965,17 @@ export class WorkspaceClient {
       !existing.hasMoreNewer &&
       existing.items.some((m) => m.id === messageId)
     ) {
-      return;
+      return null;
     }
-    const { messages, hasMoreOlder, hasMoreNewer } = await this.api.listMessagesAround(
-      channelId,
-      messageId,
-    );
-    if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
+    const { messages, hasMoreOlder, hasMoreNewer, threadRootId } =
+      await this.api.listMessagesAround(channelId, messageId);
+    if (
+      this.stopped ||
+      epoch !== this.historyEpoch ||
+      ticket !== this.messageJump ||
+      !this.state.channels[channelId]
+    )
+      return;
     this.store.setState((s) => ({
       timelines: {
         ...s.timelines,
@@ -981,6 +987,11 @@ export class WorkspaceClient {
         },
       },
     }));
+    return threadRootId ?? null;
+  }
+
+  cancelMessageJump(): void {
+    this.messageJump++;
   }
 
   /** Pages forward from an anchored view back toward the newest messages. */
@@ -1023,6 +1034,7 @@ export class WorkspaceClient {
     threadRootId: ID,
     channelId: ID,
     direction: "latest" | "older" | "newer" = "latest",
+    around?: ID,
   ): Promise<void> {
     const previous = this.state.threadPages[threadRootId];
     const items = this.state.threads[threadRootId] ?? [];
@@ -1065,7 +1077,9 @@ export class WorkspaceClient {
           ? { before: items[0]!.id }
           : direction === "newer"
             ? { after: items.at(-1)!.id }
-            : {}),
+            : around
+              ? { around }
+              : {}),
         limit: 50,
       });
       if (!current()) return;

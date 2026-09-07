@@ -66,7 +66,7 @@ export class Api {
     method: string,
     path: string,
     body?: unknown,
-    opts?: { timeoutMs?: number },
+    opts?: { timeoutMs?: number; signal?: AbortSignal },
   ): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
@@ -75,7 +75,11 @@ export class Api {
         ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: opts?.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
+      signal: opts?.timeoutMs
+        ? opts.signal
+          ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs)])
+          : AbortSignal.timeout(opts.timeoutMs)
+        : opts?.signal,
     });
     if (!res.ok) {
       let code = "http_error";
@@ -231,10 +235,17 @@ export class Api {
     channelId: ID,
     messageId: ID,
     limit = 50,
-  ): Promise<{ messages: Message[]; hasMoreOlder: boolean; hasMoreNewer: boolean }> {
+  ): Promise<{
+    messages: Message[];
+    hasMoreOlder: boolean;
+    hasMoreNewer: boolean;
+    threadRootId?: ID | null;
+  }> {
     return this.request(
       "GET",
       `/api/channels/${channelId}/messages/around/${messageId}?limit=${limit}`,
+      undefined,
+      { timeoutMs: 10_000 },
     );
   }
 
@@ -248,7 +259,7 @@ export class Api {
   threadHistory(
     channelId: ID,
     rootId: ID,
-    opts: { before?: ID; after?: ID; limit?: number } = {},
+    opts: { before?: ID; after?: ID; around?: ID; limit?: number } = {},
   ): Promise<{
     root: Message;
     messages: Message[];
@@ -476,8 +487,18 @@ export class Api {
     return this.request("POST", "/api/invites", body);
   }
 
-  search(q: string, limit = 30): Promise<{ messages: Message[] }> {
-    return this.request("GET", `/api/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+  search(
+    q: string,
+    limit = 30,
+    opts: { cursor?: ID; channelId?: ID; signal?: AbortSignal } = {},
+  ): Promise<{ messages: Message[]; nextCursor: ID | null }> {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    if (opts.cursor) params.set("cursor", opts.cursor);
+    if (opts.channelId) params.set("channelId", opts.channelId);
+    return this.request("GET", `/api/search?${params}`, undefined, {
+      timeoutMs: 10_000,
+      signal: opts.signal,
+    });
   }
 }
 

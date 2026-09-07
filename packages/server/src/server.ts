@@ -872,6 +872,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       const root = store.getMessage(req.params.rootId);
       if (!root || root.channelId !== req.params.id || root.threadRootId)
         throw new HttpError(404, "thread_not_found");
+      if (query.around) {
+        const target = store.getMessage(query.around);
+        if (!target || target.channelId !== root.channelId || target.threadRootId !== root.id)
+          throw new HttpError(404, "message_not_found");
+      }
       return {
         root,
         ...store.threadHistory(root.channelId, root.id, query),
@@ -899,7 +904,16 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       const me = requireUser(req);
       requireChannelAccess(req.params.id, me);
       const { limit } = messageHistoryQuery.parse(req.query);
-      return store.listMessagesAround(req.params.id, req.params.messageId, limit);
+      const target = store.getMessage(req.params.messageId);
+      if (!target || target.channelId !== req.params.id)
+        throw new HttpError(404, "message_not_found");
+      const rootId = target.threadRootId ?? target.id;
+      if (target.threadRootId && !store.getMessage(rootId))
+        throw new HttpError(404, "thread_not_found");
+      return {
+        ...store.listMessagesAround(req.params.id, rootId, limit),
+        threadRootId: target.threadRootId,
+      };
     },
   );
 
@@ -2198,10 +2212,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.get("/api/search", async (req) => {
     const me = requireUser(req);
     const q = searchQuery.parse(req.query);
+    if (q.channelId) requireChannelAccess(q.channelId, me);
     const parsed = parseSearchQuery(q.q);
     // A query of nothing but stray punctuation should return nothing, not everything.
-    if (!hasSearchCriteria(parsed)) return { messages: [] };
-    return { messages: store.searchMessages(me.id, parsed, q.limit) };
+    if (!hasSearchCriteria(parsed) && !q.channelId) return { messages: [], nextCursor: null };
+    const matches = store.searchMessages(me.id, parsed, q.limit + 1, q);
+    const messages = matches.slice(0, q.limit);
+    return { messages, nextCursor: matches.length > q.limit ? messages.at(-1)!.id : null };
   });
 
   // ---------- start ----------

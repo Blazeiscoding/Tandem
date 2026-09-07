@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { parseSearchQuery } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
-import { Dialog, inputCls } from "./Dialog.js";
+import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { formatTime } from "../lib/format.js";
 
@@ -140,6 +140,7 @@ function SearchHints({ query }: { query: string }) {
 export function SearchDialog(props: {
   onClose: () => void;
   onJump: (channelId: ID, messageId: ID) => void;
+  channelId?: ID | null;
 }) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
@@ -149,61 +150,285 @@ export function SearchDialog(props: {
     null,
   );
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [scope, setScope] = useState("");
+  const [author, setAuthor] = useState("");
+  const [has, setHas] = useState("");
+  const [after, setAfter] = useState("");
+  const [before, setBefore] = useState("");
+  const [submitted, setSubmitted] = useState<{ query: string; channelId?: ID } | null>(null);
+  const [cursors, setCursors] = useState<(ID | undefined)[]>([undefined]);
+  const [page, setPage] = useState(0);
+  const request = useRef<AbortController | null>(null);
+  const failed = useRef<(() => void) | null>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const query = [
+    q.trim(),
+    author && `from:${author}`,
+    has && `has:${has}`,
+    after && `after:${after}`,
+    before && `before:${before}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
-  async function run(e: React.FormEvent) {
-    e.preventDefault();
-    if (!q.trim()) return;
+  useEffect(() => () => request.current?.abort(), []);
+
+  async function search(
+    criteria: { query: string; channelId?: ID },
+    cursor: ID | undefined,
+    nextPage: number,
+    nextCursors: (ID | undefined)[],
+  ) {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    failed.current = () => {
+      void search(criteria, cursor, nextPage, nextCursors);
+    };
     setBusy(true);
+    setError(null);
     try {
-      setResults(await client.api.search(q.trim()));
+      const found = await client.api.search(criteria.query, 30, {
+        cursor,
+        channelId: criteria.channelId,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setResults(found);
+      setSubmitted(criteria);
+      setPage(nextPage);
+      setCursors(nextCursors);
+      list.current?.closest('[role="dialog"]')?.scrollTo({ top: 0 });
+    } catch {
+      if (!controller.signal.aborted)
+        setError("Could not search this workspace. Check your connection and try again.");
     } finally {
-      setBusy(false);
+      if (request.current === controller && !controller.signal.aborted) setBusy(false);
     }
+  }
+
+  function run(e: React.FormEvent) {
+    e.preventDefault();
+    if ((!query && !scope) || query.length > 200) return;
+    void search({ query, channelId: scope || undefined }, undefined, 0, [undefined]);
   }
 
   return (
     <Dialog title="Search messages" onClose={props.onClose} width={560}>
-      <form onSubmit={run} className="mb-2 flex gap-2">
-        <input
-          autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search every channel you can see"
-          className={inputCls}
-        />
+      <form onSubmit={run} className="mb-3 space-y-2">
+        <div className="flex gap-2">
+          <input
+            autoFocus
+            aria-label="Search messages"
+            maxLength={200}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search every channel you can see"
+            className={inputCls}
+          />
+          <button
+            type="submit"
+            className={primaryBtnCls}
+            disabled={busy || (!query && !scope) || query.length > 200}
+          >
+            Search
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-ink-faint">
+            Conversation
+            <select className={inputCls} value={scope} onChange={(e) => setScope(e.target.value)}>
+              <option value="">All conversations</option>
+              {Object.values(channels).map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  {channelTitle(ch, users, client.state.self?.id ?? "")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-ink-faint">
+            From
+            <select className={inputCls} value={author} onChange={(e) => setAuthor(e.target.value)}>
+              <option value="">Anyone</option>
+              {Object.values(users).map((user) => (
+                <option key={user.id} value={user.handle}>
+                  {user.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-ink-faint">
+            Contains
+            <select className={inputCls} value={has} onChange={(e) => setHas(e.target.value)}>
+              <option value="">Anything</option>
+              <option value="file">Files</option>
+              <option value="link">Links</option>
+            </select>
+          </label>
+          <div className="flex items-end">
+            <button
+              type="button"
+              className="py-2 text-xs text-copper"
+              onClick={() => {
+                setScope("");
+                setAuthor("");
+                setHas("");
+                setAfter("");
+                setBefore("");
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+          <label className="min-w-0 text-xs text-ink-faint">
+            On or after
+            <input
+              type="date"
+              className={inputCls}
+              value={after}
+              onChange={(e) => setAfter(e.target.value)}
+            />
+          </label>
+          <label className="min-w-0 text-xs text-ink-faint">
+            Before
+            <input
+              type="date"
+              className={inputCls}
+              value={before}
+              onChange={(e) => setBefore(e.target.value)}
+            />
+          </label>
+        </div>
+        {props.channelId && scope !== props.channelId && (
+          <button
+            type="button"
+            className="text-xs text-copper"
+            onClick={() => setScope(props.channelId!)}
+          >
+            Search this conversation
+          </button>
+        )}
+        {query.length > 200 && (
+          <p role="alert" className="text-xs text-ink-dim">
+            Shorten the search or remove a filter (200 characters maximum).
+          </p>
+        )}
       </form>
-      <SearchHints query={q} />
-      {busy && <p className="py-4 text-center text-sm text-ink-faint">Searching…</p>}
-      {results && !busy && (
-        <ul className="space-y-2">
-          {results.messages.map((m) => {
-            const ch = channels[m.channelId];
-            return (
-              <li key={m.id}>
-                <button
-                  onClick={() => props.onJump(m.channelId, m.id)}
-                  className="w-full rounded-lg border border-edge bg-ground p-3 text-left transition-colors hover:border-copper/50"
-                >
-                  <div className="mb-1 flex items-baseline gap-2 text-[12px] text-ink-faint">
-                    <span className="font-medium text-copper">
-                      {ch ? (ch.name ? `#${ch.name}` : "Direct message") : "unknown"}
-                    </span>
-                    <span>{users[m.userId]?.displayName}</span>
-                    <span className="ml-auto font-mono">{formatTime(m.createdAt)}</span>
-                  </div>
-                  <div className="text-sm">
-                    <Mrkdwn text={m.text} users={users} channels={channels} />
-                  </div>
-                </button>
+      <SearchHints query={query} />
+      {error && (
+        <p role="alert" className="py-3 text-sm text-ink-dim">
+          {error}{" "}
+          <button
+            className="text-copper underline"
+            onClick={() => failed.current?.()}
+            disabled={busy}
+          >
+            Retry
+          </button>
+        </p>
+      )}
+      {busy && (
+        <p role="status" className="py-4 text-center text-sm text-ink-faint">
+          Searching…
+        </p>
+      )}
+      {results && (
+        <>
+          <p role="status" className="mb-2 text-xs text-ink-faint">
+            {results.messages.length} results · Page {page + 1} · Newest first
+            {submitted?.query ? ` · “${submitted.query}”` : ""}
+          </p>
+          <ul
+            ref={list}
+            className="space-y-2"
+            aria-busy={busy}
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+              const buttons = [
+                ...(list.current?.querySelectorAll<HTMLButtonElement>("[data-search-open]") ?? []),
+              ];
+              const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+              if (index < 0) return;
+              e.preventDefault();
+              buttons[
+                Math.max(0, Math.min(buttons.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)))
+              ]?.focus();
+            }}
+          >
+            {results.messages
+              .filter((m) => !!channels[m.channelId])
+              .map((m) => {
+                const ch = channels[m.channelId];
+                return (
+                  <li key={m.id} className="rounded-lg border border-edge bg-ground p-3">
+                    <div className="mb-1 flex items-baseline gap-2 text-[12px] text-ink-faint">
+                      <span className="font-medium text-copper">
+                        {ch
+                          ? channelTitle(ch, users, client.state.self?.id ?? "")
+                          : "Unavailable conversation"}
+                      </span>
+                      <span>{users[m.userId]?.displayName}</span>
+                      <time
+                        dateTime={new Date(m.createdAt).toISOString()}
+                        className="ml-auto text-right"
+                      >
+                        {new Date(m.createdAt).toLocaleDateString()} {formatTime(m.createdAt)}
+                      </time>
+                    </div>
+                    <div className="text-sm">
+                      <Mrkdwn text={m.text} users={users} channels={channels} />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-ink-faint">
+                      <span>
+                        {m.threadRootId ? "Thread reply" : "Message"}
+                        {m.files.length > 0
+                          ? ` · ${m.files.length} attachment${m.files.length === 1 ? "" : "s"}`
+                          : ""}
+                      </span>
+                      <button
+                        data-search-open
+                        className="text-copper underline"
+                        disabled={busy || !ch}
+                        onClick={() => props.onJump(m.channelId, m.id)}
+                      >
+                        Open in conversation
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            {results.messages.length === 0 && (
+              <li className="py-4 text-center text-sm text-ink-faint">
+                Nothing matched. Try different words.
               </li>
-            );
-          })}
-          {results.messages.length === 0 && (
-            <p className="py-4 text-center text-sm text-ink-faint">
-              Nothing matched. Try different words.
-            </p>
-          )}
-        </ul>
+            )}
+          </ul>
+          <div className="mt-4 flex justify-between text-sm text-copper">
+            <button
+              disabled={busy || page === 0}
+              onClick={() =>
+                submitted &&
+                void search(submitted, cursors[page - 1], page - 1, cursors.slice(0, page))
+              }
+            >
+              Previous page
+            </button>
+            <button
+              disabled={busy || !results.nextCursor}
+              onClick={() =>
+                submitted &&
+                results.nextCursor &&
+                void search(submitted, results.nextCursor, page + 1, [
+                  ...cursors,
+                  results.nextCursor,
+                ])
+              }
+            >
+              Next page
+            </button>
+          </div>
+        </>
       )}
     </Dialog>
   );

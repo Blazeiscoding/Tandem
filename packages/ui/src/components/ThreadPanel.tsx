@@ -8,12 +8,20 @@ import { Lightbox, PendingAttachments } from "./Attachments.js";
 interface Props {
   channelId: ID;
   rootId: ID;
+  targetId?: ID;
   onClose: () => void;
   onChannelClick: (id: ID) => void;
   onOpenProfile: (userId: ID) => void;
 }
 
-export function ThreadPanel({ channelId, rootId, onClose, onChannelClick, onOpenProfile }: Props) {
+export function ThreadPanel({
+  channelId,
+  rootId,
+  targetId,
+  onClose,
+  onChannelClick,
+  onOpenProfile,
+}: Props) {
   const client = useClient();
   const page = useWorkspace((s) => s.threadPages[rootId]);
   const root = useWorkspace((s) =>
@@ -27,6 +35,7 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick, onOpen
   const scroller = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const anchor = useRef<{ id: string; top: number } | null>(null);
+  const targetPositioned = useRef(false);
 
   function load(direction: "latest" | "older" | "newer") {
     const container = scroller.current;
@@ -45,14 +54,30 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick, onOpen
   }
 
   useEffect(() => {
-    follow.current = true;
+    follow.current = !targetId;
+    targetPositioned.current = false;
     anchor.current = null;
-    void client.loadThread(rootId, channelId);
-  }, [client, rootId, channelId]);
+    void client.loadThread(rootId, channelId, "latest", targetId);
+  }, [client, rootId, channelId, targetId]);
 
   useLayoutEffect(() => {
     const container = scroller.current;
     if (!container) return;
+    if (targetId && !targetPositioned.current && page?.loaded && !page.loading) {
+      const target = [...container.querySelectorAll<HTMLElement>("[data-reply]")].find(
+        (el) => el.dataset.reply === targetId,
+      );
+      if (target) {
+        container.scrollTop +=
+          target.getBoundingClientRect().top -
+          container.getBoundingClientRect().top -
+          container.clientHeight / 2 +
+          target.clientHeight / 2;
+        targetPositioned.current = true;
+        follow.current = false;
+        return;
+      }
+    }
     if (anchor.current && !page?.loading) {
       const saved = anchor.current;
       const element = [...container.querySelectorAll<HTMLElement>("[data-reply]")].find(
@@ -61,7 +86,7 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick, onOpen
       if (element) container.scrollTop += element.getBoundingClientRect().top - saved.top;
       anchor.current = null;
     } else if (follow.current) container.scrollTop = container.scrollHeight;
-  }, [replies, page?.loading, pending.length]);
+  }, [replies, page?.loading, pending.length, targetId]);
 
   return (
     <aside
@@ -149,6 +174,7 @@ export function ThreadPanel({ channelId, rootId, onClose, onChannelClick, onOpen
             <div key={msg.id} data-reply={msg.id}>
               <MessageItem
                 message={msg}
+                highlighted={msg.id === targetId}
                 compact={compact}
                 inThread
                 onChannelClick={onChannelClick}

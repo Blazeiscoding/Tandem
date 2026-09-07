@@ -756,7 +756,32 @@ export class Store {
   }
 
   /** Thread pages are oldest-first and contain only direct replies to this root. */
-  threadHistory(channelId: ID, rootId: ID, opts: { before?: ID; after?: ID; limit: number }) {
+  threadHistory(
+    channelId: ID,
+    rootId: ID,
+    opts: { before?: ID; after?: ID; around?: ID; limit: number },
+  ): { messages: Message[]; hasMoreOlder: boolean; hasMoreNewer: boolean } {
+    if (opts.around) {
+      const olderLimit = Math.floor((opts.limit - 1) / 2);
+      const older = this.threadHistory(channelId, rootId, {
+        before: opts.around,
+        limit: olderLimit,
+      });
+      const newer = this.threadHistory(channelId, rootId, {
+        after: opts.around,
+        limit: opts.limit - 1 - olderLimit,
+      });
+      const target = this.getMessage(opts.around);
+      return {
+        messages: [
+          ...older.messages,
+          ...(target?.channelId === channelId && target.threadRootId === rootId ? [target] : []),
+          ...newer.messages,
+        ],
+        hasMoreOlder: older.hasMoreOlder,
+        hasMoreNewer: newer.hasMoreNewer,
+      };
+    }
     const cursor = opts.before ?? opts.after;
     const rows = this.db
       .prepare(
@@ -810,8 +835,10 @@ export class Store {
       )
       .all(channelId, messageId, half + 1) as unknown as MessageRow[];
     const targetRow = this.db
-      .prepare("SELECT * FROM messages WHERE id = ? AND deleted_at IS NULL")
-      .get(messageId) as MessageRow | undefined;
+      .prepare(
+        "SELECT * FROM messages WHERE id = ? AND channel_id = ? AND thread_root_id IS NULL AND deleted_at IS NULL",
+      )
+      .get(messageId, channelId) as MessageRow | undefined;
 
     const hasMoreOlder = olderRows.length > half;
     const hasMoreNewer = newerRows.length > half;
@@ -1659,9 +1686,22 @@ export class Store {
    * filters (from:/in:/has:/before:/after:) applied as plain SQL. Free-text
    * terms go to FTS5; a query with only modifiers skips FTS entirely.
    */
-  searchMessages(userId: ID, query: ParsedSearch, limit: number): Message[] {
+  searchMessages(
+    userId: ID,
+    query: ParsedSearch,
+    limit: number,
+    opts: { cursor?: ID; channelId?: ID } = {},
+  ): Message[] {
     const where: string[] = ["m.deleted_at IS NULL"];
     const params: (string | number)[] = [];
+    if (opts.cursor) {
+      where.push("m.id < ?");
+      params.push(opts.cursor);
+    }
+    if (opts.channelId) {
+      where.push("m.channel_id = ?");
+      params.push(opts.channelId);
+    }
 
     if (query.terms.length > 0) {
       // Quote every term so user input can never break FTS5 syntax.

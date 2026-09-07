@@ -208,17 +208,23 @@ export const messageHistoryQuery = z.object({
 });
 
 export const searchQuery = z.object({
-  q: z.string().min(1).max(200),
+  q: z.string().max(200).default(""),
   limit: z.coerce.number().int().positive().max(100).default(30),
+  cursor: z.string().min(1).max(100).optional(),
+  channelId: z.string().min(1).max(100).optional(),
 });
 
 export const threadHistoryQuery = z
   .object({
     before: z.string().min(1).optional(),
     after: z.string().min(1).optional(),
+    around: z.string().min(1).optional(),
     limit: z.coerce.number().int().positive().max(100).default(50),
   })
-  .refine((query) => !(query.before && query.after), "Choose before or after, not both");
+  .refine(
+    (query) => [query.before, query.after, query.around].filter(Boolean).length <= 1,
+    "Choose one history cursor",
+  );
 
 export type RegisterBody = z.infer<typeof registerBody>;
 export type LoginBody = z.infer<typeof loginBody>;
