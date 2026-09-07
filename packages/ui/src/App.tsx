@@ -21,6 +21,7 @@ type Session =
 
 export function App({ platform }: { platform: Platform }) {
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
+  const savedServersRef = useRef<SavedServer[]>([]);
   const [session, setSession] = useState<Session>({ view: "loading" });
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
   const clientRef = useRef<WorkspaceClient | null>(null);
@@ -29,6 +30,7 @@ export function App({ platform }: { platform: Platform }) {
 
   const persistServers = useCallback(
     (list: SavedServer[]) => {
+      savedServersRef.current = list;
       setSavedServers(list);
       void platform.storage.set("servers", list);
     },
@@ -60,6 +62,7 @@ export function App({ platform }: { platform: Platform }) {
   useEffect(() => {
     void platform.storage.get<SavedServer[]>("servers").then((stored) => {
       const list = stored ?? [];
+      savedServersRef.current = list;
       setSavedServers(list);
       if (list.length > 0) {
         openWorkspace(list[0]!, list);
@@ -134,6 +137,19 @@ export function App({ platform }: { platform: Platform }) {
     [persistServers, savedServers],
   );
 
+  const endSession = useCallback(
+    (server: SavedServer, client: WorkspaceClient) => {
+      // A late logout response must not remove a newer sign-in to the same workspace.
+      persistServers(
+        savedServersRef.current.filter(
+          (saved) => saved.url !== server.url || saved.token !== server.token,
+        ),
+      );
+      if (clientRef.current === client) leaveWorkspace();
+    },
+    [persistServers, leaveWorkspace],
+  );
+
   return (
     <PlatformContext.Provider value={platform}>
       <ErrorBoundary>
@@ -161,6 +177,7 @@ export function App({ platform }: { platform: Platform }) {
               platform={platform}
               initialTarget={session.target ?? null}
               onLeaveWorkspace={leaveWorkspace}
+              onSignedOut={() => endSession(session.server, session.client)}
             />
           )}
           {hostDialogOpen && platform.hosting && (

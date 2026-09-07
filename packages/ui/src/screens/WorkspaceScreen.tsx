@@ -23,6 +23,7 @@ import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
 import { AppsDialog } from "../components/AppsDialog.js";
 import { PeopleDialog } from "../components/PeopleDialog.js";
+import { AccountDialog } from "../components/AccountDialog.js";
 import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
@@ -34,6 +35,7 @@ interface Props {
   /** A message to open on arrival, from a slackoss://message link. */
   initialTarget?: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
+  onSignedOut: () => void;
 }
 
 type DialogKind =
@@ -46,6 +48,7 @@ type DialogKind =
   | { kind: "switcher" }
   | { kind: "search" }
   | { kind: "edit-profile" }
+  | { kind: "account" }
   | { kind: "profile"; userId: ID }
   | { kind: "channel-details" }
   | { kind: "shortcuts" }
@@ -60,7 +63,13 @@ type SidePanel =
   | { kind: "later" }
   | { kind: "scheduled" };
 
-export function WorkspaceScreen({ client, platform, initialTarget, onLeaveWorkspace }: Props) {
+export function WorkspaceScreen({
+  client,
+  platform,
+  initialTarget,
+  onLeaveWorkspace,
+  onSignedOut,
+}: Props) {
   return (
     <ClientContext.Provider value={client}>
       <div className="flex h-full min-h-0 flex-col">
@@ -74,6 +83,7 @@ export function WorkspaceScreen({ client, platform, initialTarget, onLeaveWorksp
             platform={platform}
             initialTarget={initialTarget ?? null}
             onLeaveWorkspace={onLeaveWorkspace}
+            onSignedOut={onSignedOut}
           />
         </div>
       </div>
@@ -85,10 +95,12 @@ function WorkspaceInner({
   platform,
   initialTarget,
   onLeaveWorkspace,
+  onSignedOut,
 }: {
   platform: Platform;
   initialTarget: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
+  onSignedOut: () => void;
 }) {
   const status = useWorkspace((s) => s.status);
   const channels = useWorkspace((s) => s.channels);
@@ -257,8 +269,8 @@ function WorkspaceInner({
             : "offline";
 
   useEffect(() => {
-    if (status === "auth_failed") onLeaveWorkspace();
-  }, [status, onLeaveWorkspace]);
+    if (status === "auth_failed") onSignedOut();
+  }, [status, onSignedOut]);
 
   return (
     <div className={`workspace-shell relative flex h-full ${sidebarOpen ? "sidebar-open" : ""}`}>
@@ -289,6 +301,7 @@ function WorkspaceInner({
         onInvite={() => setDialog({ kind: "invite" })}
         onSwitchWorkspace={onLeaveWorkspace}
         onEditProfile={() => setDialog({ kind: "edit-profile" })}
+        onAccountSettings={() => setDialog({ kind: "account" })}
         onManageApps={
           self?.role === "owner" || self?.role === "admin"
             ? () => setDialog({ kind: "apps" })
@@ -442,6 +455,9 @@ function WorkspaceInner({
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
       {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
       {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}
+      {dialog.kind === "account" && (
+        <AccountDialog onClose={closeDialog} onSignedOut={onSignedOut} />
+      )}
       {/* Not one of the workspace's own dialogs: an app asked for this one, so
           it shows itself whenever one arrives. */}
       <ViewModal />

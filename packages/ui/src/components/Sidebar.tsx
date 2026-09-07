@@ -18,6 +18,7 @@ interface Props {
   onInvite: () => void;
   onSwitchWorkspace: () => void;
   onEditProfile: () => void;
+  onAccountSettings: () => void;
   /** Admins only; absent for members. */
   onManageApps?: () => void;
   onManagePeople?: () => void;
@@ -229,6 +230,12 @@ export function Sidebar(props: Props) {
           className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
         >
           ⇄ Switch workspace
+        </button>
+        <button
+          onClick={props.onAccountSettings}
+          className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+        >
+          Account settings
         </button>
       </footer>
     </nav>

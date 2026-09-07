@@ -14,6 +14,7 @@ import type {
   ScheduledMessage,
   ScheduleMessageBody,
   ServerInfo,
+  SessionInfo,
   SlashCommand,
   EventSubscription,
   UpdateChannelBody,
@@ -128,7 +129,45 @@ export class Api {
   }
 
   logout(): Promise<{ ok: true }> {
-    return this.request("POST", "/api/auth/logout");
+    return this.request("POST", "/api/auth/logout", undefined, { timeoutMs: 10_000 });
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Promise<{ ok: true }> {
+    return this.request(
+      "POST",
+      "/api/auth/password",
+      { currentPassword, newPassword },
+      { timeoutMs: 20_000 },
+    );
+  }
+
+  listSessions(): Promise<{ sessions: SessionInfo[] }> {
+    return this.request("GET", "/api/auth/sessions", undefined, { timeoutMs: 10_000 });
+  }
+
+  revokeSession(id: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/auth/sessions/${encodeURIComponent(id)}`, undefined, {
+      timeoutMs: 10_000,
+    });
+  }
+
+  revokeOtherSessions(): Promise<{ revoked: number }> {
+    return this.request("DELETE", "/api/auth/sessions", undefined, { timeoutMs: 10_000 });
+  }
+
+  resetPassword(userId: ID): Promise<{ temporaryPassword: string }> {
+    return this.request(
+      "POST",
+      `/api/admin/users/${encodeURIComponent(userId)}/password`,
+      undefined,
+      { timeoutMs: 20_000 },
+    );
+  }
+
+  transferOwnership(userId: ID): Promise<{ owner: User; previousOwner: User }> {
+    return this.request("POST", `/api/admin/users/${encodeURIComponent(userId)}/owner`, undefined, {
+      timeoutMs: 10_000,
+    });
   }
 
   me(): Promise<{ user: User }> {
