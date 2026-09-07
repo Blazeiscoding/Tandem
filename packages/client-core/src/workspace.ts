@@ -106,6 +106,65 @@ export interface ChannelTimeline {
   loaded: boolean;
 }
 
+export interface ThreadPage {
+  channelId: ID;
+  root: Message | null;
+  hasMoreOlder: boolean;
+  hasMoreNewer: boolean;
+  loading: boolean;
+  loaded: boolean;
+  error: string | null;
+}
+
+const THREAD_WINDOW = 300;
+
+/** Apply only events newer than a history response when reconciling that response. */
+function updateThread(
+  rootId: ID,
+  root: Message | null,
+  items: Message[],
+  envelopes: EventEnvelope[],
+  anchored: boolean,
+) {
+  for (const { event } of envelopes) {
+    const patch = (id: ID, change: (message: Message) => Message) => {
+      if (root?.id === id) root = change(root);
+      if (items.some((message) => message.id === id))
+        items = items.map((message) => (message.id === id ? change(message) : message));
+    };
+    if (event.type === "message.created" && event.message.threadRootId === rootId) {
+      if (!items.some((message) => message.id === event.message.id)) {
+        if (root) root = { ...root, replyCount: root.replyCount + 1 };
+        if (!anchored) items = sortedInsert(items, event.message);
+      }
+    } else if (event.type === "message.updated") {
+      patch(event.message.id, () => event.message);
+    } else if (event.type === "message.deleted") {
+      if (event.messageId === rootId) {
+        root = null;
+        items = [];
+      } else if (event.threadRootId === rootId) {
+        if (root) root = { ...root, replyCount: Math.max(0, root.replyCount - 1) };
+        items = items.filter((message) => message.id !== event.messageId);
+      }
+    } else if (event.type === "pin.added" || event.type === "pin.removed") {
+      patch(event.messageId, (message) => ({ ...message, pinned: event.type === "pin.added" }));
+    } else if (event.type === "reaction.added" || event.type === "reaction.removed") {
+      patch(event.messageId, (message) => {
+        const old = message.reactions.find((group) => group.emoji === event.emoji)?.userIds ?? [];
+        const userIds =
+          event.type === "reaction.added"
+            ? [...new Set([...old, event.userId])]
+            : old.filter((id) => id !== event.userId);
+        const reactions = message.reactions.filter((group) => group.emoji !== event.emoji);
+        if (userIds.length) reactions.push({ emoji: event.emoji, userIds });
+        return { ...message, reactions };
+      });
+    }
+  }
+  return { root, items };
+}
+
 /**
  * A reply only this client can see — a slash command's private answer, or a
  * local note about one that failed. Never persisted; a reload clears them.
@@ -139,6 +198,7 @@ export interface WorkspaceState {
   timelines: Record<ID, ChannelTimeline>;
   /** threadRootId -> replies oldest → newest. */
   threads: Record<ID, Message[]>;
+  threadPages: Record<ID, ThreadPage>;
   pending: PendingMessage[];
   /** Message ids this user saved for later. */
   saved: Record<ID, true>;
@@ -171,6 +231,7 @@ const initialState: WorkspaceState = {
   lastSeq: 0,
   timelines: {},
   threads: {},
+  threadPages: {},
   pending: [],
   saved: {},
   drafts: {},
@@ -240,6 +301,7 @@ export class WorkspaceClient {
   private historyEpoch = 0;
   private reloadChannels = new Set<ID>();
   private reloadThreads = new Map<ID, ID>();
+  private threadLoads = new Map<ID, { events: EventEnvelope[]; overflow: boolean }>();
   private acknowledgedMessages = new Set<ID>();
 
   constructor(
@@ -426,6 +488,7 @@ export class WorkspaceClient {
     }
     for (const [rootId, replies] of Object.entries(this.state.threads)) {
       const channelId =
+        this.state.threadPages[rootId]?.channelId ??
         replies[0]?.channelId ??
         Object.entries(this.state.timelines).find(([, t]) =>
           t.items.some((m) => m.id === rootId),
@@ -433,7 +496,15 @@ export class WorkspaceClient {
       if (channelId) this.reloadThreads.set(rootId, channelId);
     }
     this.acknowledgedMessages.clear();
-    this.store.setState({ timelines: {}, threads: {}, typing: {}, ephemerals: {}, modal: null });
+    this.threadLoads.clear();
+    this.store.setState({
+      timelines: {},
+      threads: {},
+      threadPages: {},
+      typing: {},
+      ephemerals: {},
+      modal: null,
+    });
   }
 
   private removeChannel(channelId: ID): void {
@@ -441,11 +512,17 @@ export class WorkspaceClient {
     if (this.session?.channelId === channelId) this.leaveHuddle();
     const state = this.state;
     const roots = new Set(state.timelines[channelId]?.items.map((m) => m.id) ?? []);
+    for (const [id, page] of Object.entries(state.threadPages))
+      if (page.channelId === channelId) roots.add(id);
+    for (const id of roots) this.threadLoads.delete(id);
     for (const [id, replies] of Object.entries(state.threads)) {
       if (replies.some((m) => m.channelId === channelId)) roots.add(id);
     }
     const fileIds = [
       ...(state.timelines[channelId]?.items ?? []),
+      ...Object.values(state.threadPages).flatMap((page) =>
+        page.channelId === channelId && page.root ? [page.root] : [],
+      ),
       ...Object.values(state.threads)
         .flat()
         .filter((m) => m.channelId === channelId),
@@ -466,6 +543,9 @@ export class WorkspaceClient {
         Object.entries(state.threads).filter(
           ([id, replies]) => !roots.has(id) && !replies.some((m) => m.channelId === channelId),
         ),
+      ),
+      threadPages: Object.fromEntries(
+        Object.entries(state.threadPages).filter(([, page]) => page.channelId !== channelId),
       ),
       saved: Object.fromEntries(Object.entries(state.saved).filter(([id]) => !roots.has(id))),
       modal: null,
@@ -668,6 +748,32 @@ export class WorkspaceClient {
       }
     }
 
+    const channelId =
+      "message" in event ? event.message.channelId : "channelId" in event ? event.channelId : null;
+    if (channelId && /^(message|reaction|pin)\./.test(event.type)) {
+      for (const [rootId, page] of Object.entries(s.threadPages)) {
+        if (page.channelId !== channelId) continue;
+        const load = this.threadLoads.get(rootId);
+        if (load) {
+          if (load.events.length < 2000) load.events.push(envelope);
+          else load.overflow = true;
+        }
+        const items = s.threads[rootId] ?? [];
+        const next = updateThread(rootId, page.root, items, [envelope], page.hasMoreNewer);
+        patch.threads = {
+          ...(patch.threads ?? s.threads),
+          [rootId]: next.items.slice(-THREAD_WINDOW),
+        };
+        patch.threadPages = {
+          ...(patch.threadPages ?? s.threadPages),
+          [rootId]: {
+            ...page,
+            root: next.root,
+            hasMoreOlder: page.hasMoreOlder || next.items.length > THREAD_WINDOW,
+          },
+        };
+      }
+    }
     this.store.setState(patch);
   }
 
@@ -913,13 +1019,126 @@ export class WorkspaceClient {
     await this.loadTimeline(channelId);
   }
 
-  async loadThread(threadRootId: ID, channelId: ID): Promise<void> {
+  async loadThread(
+    threadRootId: ID,
+    channelId: ID,
+    direction: "latest" | "older" | "newer" = "latest",
+  ): Promise<void> {
+    const previous = this.state.threadPages[threadRootId];
+    const items = this.state.threads[threadRootId] ?? [];
+    if (
+      direction !== "latest" &&
+      (previous?.loading ||
+        !items.length ||
+        (direction === "older" ? !previous?.hasMoreOlder : !previous?.hasMoreNewer))
+    )
+      return;
     const epoch = this.historyEpoch;
-    const { messages } = await this.api.listMessages(channelId, { threadRootId, limit: 200 });
-    if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
+    const request = { events: [] as EventEnvelope[], overflow: false };
+    this.threadLoads.set(threadRootId, request);
     this.store.setState((s) => ({
-      threads: { ...s.threads, [threadRootId]: [...messages].reverse() },
+      threads: { ...s.threads, [threadRootId]: items },
+      threadPages: {
+        ...s.threadPages,
+        [threadRootId]: {
+          channelId,
+          root:
+            previous?.root ??
+            s.timelines[channelId]?.items.find((m) => m.id === threadRootId) ??
+            null,
+          hasMoreOlder: previous?.hasMoreOlder ?? false,
+          hasMoreNewer: previous?.hasMoreNewer ?? false,
+          loaded: previous?.loaded ?? false,
+          loading: true,
+          error: null,
+        },
+      },
     }));
+    const current = () =>
+      !this.stopped &&
+      epoch === this.historyEpoch &&
+      !!this.state.channels[channelId] &&
+      this.threadLoads.get(threadRootId) === request;
+    try {
+      const response = await this.api.threadHistory(channelId, threadRootId, {
+        ...(direction === "older"
+          ? { before: items[0]!.id }
+          : direction === "newer"
+            ? { after: items.at(-1)!.id }
+            : {}),
+        limit: 50,
+      });
+      if (!current()) return;
+      if (request.overflow) throw new Error("Thread changed too quickly to reconcile this page");
+      const next = updateThread(
+        threadRootId,
+        response.root,
+        response.messages,
+        request.events.filter((e) => e.seq > response.seq),
+        response.hasMoreNewer,
+      );
+      let merged =
+        direction === "latest"
+          ? next.items
+          : [
+              ...new Map(
+                [...next.items, ...(this.state.threads[threadRootId] ?? [])].map((m) => [m.id, m]),
+              ).values(),
+            ].sort((a, b) => a.id.localeCompare(b.id));
+      let hasMoreOlder =
+        direction === "newer"
+          ? this.state.threadPages[threadRootId]!.hasMoreOlder
+          : response.hasMoreOlder;
+      let hasMoreNewer =
+        direction === "older"
+          ? this.state.threadPages[threadRootId]!.hasMoreNewer
+          : response.hasMoreNewer;
+      if (merged.length > THREAD_WINDOW) {
+        if (direction === "older") {
+          merged = merged.slice(0, THREAD_WINDOW);
+          hasMoreNewer = true;
+        } else {
+          merged = merged.slice(-THREAD_WINDOW);
+          hasMoreOlder = true;
+        }
+      }
+      if (!next.root) merged = [];
+      this.store.setState((s) => ({
+        threads: { ...s.threads, [threadRootId]: merged },
+        threadPages: {
+          ...s.threadPages,
+          [threadRootId]: {
+            channelId,
+            root: next.root,
+            hasMoreOlder,
+            hasMoreNewer,
+            loading: false,
+            loaded: true,
+            error: null,
+          },
+        },
+      }));
+    } catch (error) {
+      if (!current()) return;
+      this.store.setState((s) => ({
+        threadPages: {
+          ...s.threadPages,
+          [threadRootId]: {
+            ...s.threadPages[threadRootId]!,
+            loading: false,
+            ...(error instanceof ApiError && error.status === 404
+              ? { root: null, loaded: true }
+              : {}),
+            error:
+              error instanceof ApiError && error.status === 404
+                ? "This thread is no longer available."
+                : "Could not load replies. Try again.",
+          },
+        },
+      }));
+    } finally {
+      if (this.threadLoads.get(threadRootId) === request) this.threadLoads.delete(threadRootId);
+    }
   }
 
   /** Files held for a retry, keyed by nonce — never exposed to the store. */

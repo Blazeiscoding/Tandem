@@ -212,6 +212,14 @@ export const searchQuery = z.object({
   limit: z.coerce.number().int().positive().max(100).default(30),
 });
 
+export const threadHistoryQuery = z
+  .object({
+    before: z.string().min(1).optional(),
+    after: z.string().min(1).optional(),
+    limit: z.coerce.number().int().positive().max(100).default(50),
+  })
+  .refine((query) => !(query.before && query.after), "Choose before or after, not both");
+
 export type RegisterBody = z.infer<typeof registerBody>;
 export type LoginBody = z.infer<typeof loginBody>;
 export type UpdateMeBody = z.infer<typeof updateMeBody>;

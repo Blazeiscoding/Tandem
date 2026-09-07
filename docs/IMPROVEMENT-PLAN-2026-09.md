@@ -251,6 +251,8 @@ Account settings now provides password changes, signed-in device lists, individu
 
 The September 7 UI phases use focused typechecking/build validation. Automated interaction tests for these new screens are deferred at the user's request; the test totals above describe the last completed reliability test run.
 
+Thread history now has an authorized, cursor-paginated endpoint that fetches the original message independently of the channel timeline (C03/E05). The panel loads 50 replies at a time, preserves its visible reply when paging, offers older/newer/latest navigation, caps each reply window at 300, and exposes loading errors and failed-send retry/discard. In-flight history responses reconcile newer message/reaction/pin events and are ignored after access loss or resync. Root deletion removes the composer. Search-to-reply navigation, thread following/unread inbox, persisted scroll, and a total cache budget remain. All ten workspace typecheck/build tasks passed; new tests remain deferred.
+
 ### Core transaction phases
 
 Registration now rolls back invitation consumption, the owner claim, default-channel creation, membership, session creation and events as one unit. Named and direct channels, channel metadata/membership, profile updates, deactivation and ownership transfer use the same mutation boundary. Failed writes cannot publish partial events or apply live access changes. Unknown founding members are rejected before creating a private channel. Eleven regression cases in `packages/server/test/transactions.test.ts` exercise rollback and concurrent use of a final invitation.

@@ -755,6 +755,33 @@ export class Store {
     return this.hydrateMessages(rows);
   }
 
+  /** Thread pages are oldest-first and contain only direct replies to this root. */
+  threadHistory(channelId: ID, rootId: ID, opts: { before?: ID; after?: ID; limit: number }) {
+    const cursor = opts.before ?? opts.after;
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE channel_id = ? AND thread_root_id = ? AND deleted_at IS NULL
+       ${cursor ? `AND id ${opts.after ? ">" : "<"} ?` : ""}
+       ORDER BY id ${opts.after ? "ASC" : "DESC"} LIMIT ?`,
+      )
+      .all(channelId, rootId, ...(cursor ? [cursor] : []), opts.limit) as unknown as MessageRow[];
+    if (!opts.after) rows.reverse();
+    const first = rows[0]?.id ?? cursor;
+    const last = rows.at(-1)?.id ?? cursor;
+    const exists = (direction: "<" | ">", id?: ID) =>
+      !!id &&
+      this.db
+        .prepare(
+          `SELECT 1 FROM messages WHERE channel_id = ? AND thread_root_id = ? AND deleted_at IS NULL AND id ${direction} ? LIMIT 1`,
+        )
+        .get(channelId, rootId, id) !== undefined;
+    return {
+      messages: this.hydrateMessages(rows),
+      hasMoreOlder: exists("<", first),
+      hasMoreNewer: exists(">", last),
+    };
+  }
+
   /**
    * A window of messages centred on one message, for jumping to a search hit
    * or a pinned message. Returns newest-first like listMessages, plus whether

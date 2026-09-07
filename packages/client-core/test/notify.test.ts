@@ -63,6 +63,7 @@ function state(over: Partial<WorkspaceState> = {}): WorkspaceState {
     lastSeq: 0,
     timelines: {},
     threads: {},
+    threadPages: {},
     pending: [],
     saved: {},
     drafts: {},

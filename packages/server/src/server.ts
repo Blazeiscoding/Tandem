@@ -29,6 +29,7 @@ import {
   loginBody,
   markReadBody,
   messageHistoryQuery,
+  threadHistoryQuery,
   registerBody,
   parseSearchQuery,
   hasSearchCriteria,
@@ -861,6 +862,23 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   });
 
   // ---------- messages ----------
+
+  app.get<{ Params: { id: string; rootId: string } }>(
+    "/api/channels/:id/threads/:rootId",
+    async (req) => {
+      const me = requireUser(req);
+      requireChannelAccess(req.params.id, me);
+      const query = threadHistoryQuery.parse(req.query);
+      const root = store.getMessage(req.params.rootId);
+      if (!root || root.channelId !== req.params.id || root.threadRootId)
+        throw new HttpError(404, "thread_not_found");
+      return {
+        root,
+        ...store.threadHistory(root.channelId, root.id, query),
+        seq: store.currentSeq(),
+      };
+    },
+  );
 
   app.get<{ Params: { id: string } }>("/api/channels/:id/messages", async (req) => {
     const me = requireUser(req);

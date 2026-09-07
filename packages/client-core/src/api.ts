@@ -245,6 +245,28 @@ export class Api {
     );
   }
 
+  threadHistory(
+    channelId: ID,
+    rootId: ID,
+    opts: { before?: ID; after?: ID; limit?: number } = {},
+  ): Promise<{
+    root: Message;
+    messages: Message[];
+    hasMoreOlder: boolean;
+    hasMoreNewer: boolean;
+    seq: number;
+  }> {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(opts))
+      if (value !== undefined) query.set(key, String(value));
+    return this.request(
+      "GET",
+      `/api/channels/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(rootId)}?${query}`,
+      undefined,
+      { timeoutMs: 10_000 },
+    );
+  }
+
   sendMessage(channelId: ID, body: SendMessageBody): Promise<{ message: Message }> {
     return this.request("POST", `/api/channels/${channelId}/messages`, body);
   }
