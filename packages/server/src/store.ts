@@ -1694,6 +1694,34 @@ export class Store {
    * filters (from:/in:/has:/before:/after:) applied as plain SQL. Free-text
    * terms go to FTS5; a query with only modifiers skips FTS entirely.
    */
+  activityMessages(
+    userId: ID,
+    opts: { mode: "unread" | "mentions"; cursor?: ID; limit: number },
+  ): Message[] {
+    const conditions = ["cm.user_id = ?", "m.user_id != ?", "m.deleted_at IS NULL"];
+    const params: (string | number)[] = [userId, userId];
+    if (opts.mode === "unread") conditions.push("m.seq > cm.last_read_seq");
+    else {
+      conditions.push(
+        "(instr(m.text, ?) > 0 OR (c.type IN ('public', 'private') AND (instr(m.text, '<!channel>') > 0 OR instr(m.text, '<!here>') > 0 OR instr(m.text, '<!everyone>') > 0)))",
+      );
+      params.push(`<@${userId}>`);
+    }
+    if (opts.cursor) {
+      conditions.push("m.id < ?");
+      params.push(opts.cursor);
+    }
+    conditions.push(
+      "(m.thread_root_id IS NULL OR EXISTS (SELECT 1 FROM messages root WHERE root.id = m.thread_root_id AND root.deleted_at IS NULL))",
+    );
+    const rows = this.db
+      .prepare(
+        `SELECT m.* FROM messages m JOIN channels c ON c.id = m.channel_id JOIN channel_members cm ON cm.channel_id = c.id WHERE ${conditions.join(" AND ")} ORDER BY m.id DESC LIMIT ?`,
+      )
+      .all(...params, opts.limit) as unknown as MessageRow[];
+    return this.hydrateMessages(rows);
+  }
+
   searchMessages(
     userId: ID,
     query: ParsedSearch,

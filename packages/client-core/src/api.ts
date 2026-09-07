@@ -506,6 +506,18 @@ export class Api {
     return this.request("POST", "/api/invites", body);
   }
 
+  activity(
+    mode: "unread" | "mentions",
+    opts: { cursor?: ID; signal?: AbortSignal } = {},
+  ): Promise<{ messages: Message[]; nextCursor: ID | null }> {
+    const params = new URLSearchParams({ mode });
+    if (opts.cursor) params.set("cursor", opts.cursor);
+    return this.request("GET", `/api/activity?${params}`, undefined, {
+      signal: opts.signal,
+      timeoutMs: 10_000,
+    });
+  }
+
   search(
     q: string,
     limit = 30,

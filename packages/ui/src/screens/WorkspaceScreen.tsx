@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss/client-core";
 import { ClientContext, useClient, useWorkspace } from "../context.js";
@@ -28,6 +28,10 @@ import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
+
+const ActivityPanel = lazy(() =>
+  import("../components/ActivityPanel.js").then((module) => ({ default: module.ActivityPanel })),
+);
 
 interface Props {
   client: WorkspaceClient;
@@ -61,7 +65,8 @@ type SidePanel =
   | { kind: "thread"; rootId: ID; targetId?: ID }
   | { kind: "pins" }
   | { kind: "later" }
-  | { kind: "scheduled" };
+  | { kind: "scheduled" }
+  | { kind: "activity" };
 
 export function WorkspaceScreen({
   client,
@@ -323,6 +328,10 @@ function WorkspaceInner({
           setSidebarOpen(false);
         }}
         onFriends={() => setDialog({ kind: "friends" })}
+        onActivity={() => {
+          setPanel({ kind: "activity" });
+          setSidebarOpen(false);
+        }}
         activeChannelId={activeChannelId}
         onSelect={openChannel}
         onBrowseChannels={() => setDialog({ kind: "browse" })}
@@ -486,6 +495,20 @@ function WorkspaceInner({
       )}
       {panel.kind === "later" && (
         <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+      )}
+      {panel.kind === "activity" && (
+        <Suspense
+          fallback={
+            <aside
+              role="status"
+              className="w-[420px] max-w-full border-l border-edge bg-ground p-5 text-sm text-ink-faint"
+            >
+              Loading activity…
+            </aside>
+          }
+        >
+          <ActivityPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+        </Suspense>
       )}
       {panel.kind === "scheduled" && (
         <ScheduledPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />

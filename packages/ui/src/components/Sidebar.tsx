@@ -15,6 +15,7 @@ interface Props {
   onSearch: () => void;
   onSaved: () => void;
   onScheduled: () => void;
+  onActivity: () => void;
   onInvite: () => void;
   onSwitchWorkspace: () => void;
   onEditProfile: () => void;
@@ -99,6 +100,23 @@ export function Sidebar(props: Props) {
           <Icon name="search" size={15} />
           <span className="flex-1 text-left">Jump to…</span>
           <kbd className="rounded border border-edge px-1 text-[10px]">Ctrl K</kbd>
+        </button>
+        <button
+          onClick={props.onActivity}
+          className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink"
+        >
+          <span className="flex items-center gap-2">
+            <Icon name="activity" size={17} />
+            Activity
+          </span>
+          {Object.keys(memberships).some((id) => isUnread(id)) && (
+            <span
+              aria-label="Unread conversations"
+              className="rounded-full bg-copper/15 px-2 text-xs text-copper"
+            >
+              {Object.keys(memberships).filter((id) => isUnread(id)).length}
+            </span>
+          )}
         </button>
         <button
           onClick={props.onFriends}

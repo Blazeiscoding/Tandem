@@ -214,6 +214,12 @@ export const searchQuery = z.object({
   channelId: z.string().min(1).max(100).optional(),
 });
 
+export const activityQuery = z.object({
+  mode: z.enum(["unread", "mentions"]).default("unread"),
+  cursor: z.string().min(1).max(100).optional(),
+  limit: z.coerce.number().int().positive().max(100).default(30),
+});
+
 export const threadHistoryQuery = z
   .object({
     before: z.string().min(1).optional(),

@@ -34,6 +34,7 @@ import {
   parseSearchQuery,
   hasSearchCriteria,
   searchQuery,
+  activityQuery,
   sendMessageBody,
   updateChannelBody,
   updateMeBody,
@@ -2213,6 +2214,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       maxUses: body.maxUses ?? null,
     });
     return reply.status(201).send({ invite });
+  });
+
+  app.get("/api/activity", async (req) => {
+    const me = requireUser(req);
+    const query = activityQuery.parse(req.query);
+    const matches = store.activityMessages(me.id, { ...query, limit: query.limit + 1 });
+    const messages = matches.slice(0, query.limit);
+    return { messages, nextCursor: matches.length > query.limit ? messages.at(-1)!.id : null };
   });
 
   app.get("/api/search", async (req) => {
