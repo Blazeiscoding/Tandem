@@ -26,6 +26,13 @@ export function AccountDialog({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const confirmationPanel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (confirmation) {
+      confirmationPanel.current?.focus();
+      confirmationPanel.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [confirmation]);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
@@ -288,6 +295,8 @@ export function AccountDialog({
       </div>
       {confirmation && (
         <section
+          ref={confirmationPanel}
+          tabIndex={-1}
           aria-label="Confirm sign out"
           className="mt-4 rounded-xl border border-alert/40 bg-ground p-4"
         >

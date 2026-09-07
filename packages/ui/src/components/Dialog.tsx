@@ -5,15 +5,18 @@ interface Props {
   onClose: () => void;
   children: React.ReactNode;
   width?: number;
+  dismissible?: boolean;
 }
 
-export function Dialog({ title, onClose, children, width = 440 }: Props) {
+export function Dialog({ title, onClose, children, width = 440, dismissible = true }: Props) {
   const backdrop = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   // Capture before child autoFocus runs during commit.
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   const close = useRef(onClose);
-  close.current = onClose;
+  close.current = () => {
+    if (dismissible) onClose();
+  };
 
   useEffect(() => {
     const previous = previousFocus.current;
@@ -58,7 +61,7 @@ export function Dialog({ title, onClose, children, width = 440 }: Props) {
     <div
       ref={backdrop}
       onMouseDown={(e) => {
-        if (e.target === backdrop.current) onClose();
+        if (e.target === backdrop.current) close.current();
       }}
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-3 pt-[10vh]"
     >
@@ -74,7 +77,8 @@ export function Dialog({ title, onClose, children, width = 440 }: Props) {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">{title}</h2>
           <button
-            onClick={onClose}
+            onClick={() => close.current()}
+            disabled={!dismissible}
             aria-label="Close"
             className="rounded-lg px-2 py-1 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
           >

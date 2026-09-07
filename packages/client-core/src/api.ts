@@ -435,7 +435,7 @@ export class Api {
 
   /** Everyone with an account, with when they were last seen. Admins only. */
   listAllUsers(): Promise<{ users: (User & { lastSeenAt: number | null })[] }> {
-    return this.request("GET", "/api/admin/users");
+    return this.request("GET", "/api/admin/users", undefined, { timeoutMs: 10_000 });
   }
 
   /** Change someone's role, or take their access away. Admins only. */

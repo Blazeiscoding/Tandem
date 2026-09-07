@@ -111,8 +111,10 @@ cleanup succeeds, but the download API no longer serves it after deletion commit
 
 ## Current boundaries
 
-Friends and accounts do not federate across servers. Password changes, session
-revocation, admin password reset and ownership transfer exist as APIs; their
-account-management screens remain unfinished. There is no SSO, email-based account
+Friends and accounts do not federate across servers. Account settings offers password
+changes and signed-in device management. Administrators can reset member passwords
+from People; the owner can transfer ownership there after confirming the target handle.
+Share temporary passwords privately and ask recipients to change them after sign-in.
+There is no SSO, email-based account
 recovery, large-call SFU, automated update service, or signed public release
 pipeline yet. Test with your environment before an office-wide rollout.

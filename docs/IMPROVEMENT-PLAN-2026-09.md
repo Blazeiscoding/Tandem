@@ -247,7 +247,9 @@ The current schema is version 13: v10 adds `message_requests`, v11 adds the sche
 - **Owner setup (A02/U03):** forwarded requests require the startup claim code. The browser now displays that field, submits it, and preserves registration input when a code is rejected. The full browser journey exercises wrong-code correction and successful setup behind forwarded headers. A proxy that strips every forwarding header must set the server's public URL to disable the local bypass.
 - **LAN browser sending (R02/U03):** send keys use `crypto.getRandomValues`, which is available on plain HTTP LAN origins. A regression removes the secure-context `randomUUID` API and verifies that a real send still settles.
 
-The account APIs still need user-facing session/device controls, password-change and administrative recovery screens. Admin-issued temporary passwords are not forced to change at next login. These remain follow-up work, alongside the broader R03 mutations noted above.
+Account settings now provides password changes, signed-in device lists, individual/all-other session revocation and explicit workspace sign-out. People provides confirmed administrator password resets and typed-confirmation ownership transfer. Temporary passwords are displayed only in the current dialog, with reveal/copy controls; they are not persisted locally. Admin-issued temporary passwords are still not forced to change at next login, and local emergency recovery remains unfinished.
+
+The September 7 UI phases use focused typechecking/build validation. Automated interaction tests for these new screens are deferred at the user's request; the test totals above describe the last completed reliability test run.
 
 ### Core transaction phases
 
