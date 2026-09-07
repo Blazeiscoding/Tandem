@@ -369,17 +369,17 @@ export class Api {
     });
   }
 
-  listScheduled(): Promise<{ scheduled: ScheduledMessage[] }> {
-    return this.request("GET", "/api/scheduled");
+  listScheduled(signal?: AbortSignal): Promise<{ scheduled: ScheduledMessage[] }> {
+    return this.request("GET", "/api/scheduled", undefined, { signal, timeoutMs: 10_000 });
   }
 
   cancelScheduled(id: ID): Promise<{ ok: true }> {
-    return this.request("DELETE", `/api/scheduled/${id}`);
+    return this.request("DELETE", `/api/scheduled/${id}`, undefined, { timeoutMs: 10_000 });
   }
 
   /** Requeues a held or failed message. A past time sends it on the next flush. */
   rescheduleMessage(id: ID, sendAt: number): Promise<{ scheduled: ScheduledMessage }> {
-    return this.request("PATCH", `/api/scheduled/${id}`, { sendAt });
+    return this.request("PATCH", `/api/scheduled/${id}`, { sendAt }, { timeoutMs: 10_000 });
   }
 
   setChannelPrefs(channelId: ID, body: ChannelPrefsBody): Promise<{ prefs: ChannelPrefs }> {

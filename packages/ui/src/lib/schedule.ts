@@ -4,9 +4,15 @@ export interface SchedulePreset {
   at: Date;
 }
 
+/** Value for datetime-local inputs, without converting the local clock to UTC. */
+export function localDateTime(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** Next occurrence of `hour` on the given day offset, at minute 0. */
-function at(hour: number, dayOffset = 0): Date {
-  const d = new Date();
+function at(hour: number, dayOffset = 0, base = new Date()): Date {
+  const d = new Date(base);
   d.setDate(d.getDate() + dayOffset);
   d.setHours(hour, 0, 0, 0);
   return d;
@@ -23,15 +29,15 @@ export function schedulePresets(now = new Date()): SchedulePreset[] {
   ];
 
   // "This evening" is only meaningful while it is still ahead.
-  const evening = at(18);
+  const evening = at(18, 0, now);
   if (evening.getTime() > now.getTime() + 60 * 60_000) {
     out.push({ label: "This evening", at: evening });
   }
 
-  out.push({ label: "Tomorrow morning", at: at(9, 1) });
+  out.push({ label: "Tomorrow morning", at: at(9, 1, now) });
 
   // Monday, skipping to next week if today is already Monday.
-  const monday = at(9, (8 - now.getDay()) % 7 || 7);
+  const monday = at(9, (8 - now.getDay()) % 7 || 7, now);
   out.push({ label: "Monday morning", at: monday });
 
   return out;

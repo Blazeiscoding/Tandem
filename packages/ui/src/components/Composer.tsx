@@ -4,7 +4,7 @@ import { ApiError } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
-import { formatScheduleTime, schedulePresets } from "../lib/schedule.js";
+import { formatScheduleTime, localDateTime, schedulePresets } from "../lib/schedule.js";
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import {
@@ -50,6 +50,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const [attached, setAttached] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [customTime, setCustomTime] = useState("");
   const [scheduleNote, setScheduleNote] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
@@ -76,6 +77,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setPreview(false);
     setAttachmentNote(null);
     setScheduleOpen(false);
+    setCustomTime("");
     setScheduleNote(null);
     setScheduleError(null);
     setScheduling(false);
@@ -257,6 +259,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   /** Queues the current draft for later instead of sending it now. */
   async function schedule(at: Date) {
+    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
+      setScheduleError("Choose a date and time in the future.");
+      return;
+    }
     const trimmed = text.trim();
     if (scheduleLock.current || (!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT)
       return;
@@ -657,6 +663,35 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                   </button>
                 </li>
               ))}
+              <li className="border-t border-edge p-3">
+                <form
+                  className="space-y-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void schedule(new Date(customTime));
+                  }}
+                >
+                  <label className="block text-xs text-ink-faint">
+                    Choose a date and time
+                    <input
+                      type="datetime-local"
+                      required
+                      value={customTime}
+                      min={localDateTime(new Date())}
+                      onChange={(e) => setCustomTime(e.target.value)}
+                      className="mt-1 w-full min-w-0 rounded border border-edge bg-ground px-2 py-1 text-sm text-ink"
+                    />
+                  </label>
+                  <p className="text-[10px] text-ink-faint">Uses your device's time zone.</p>
+                  <button
+                    type="submit"
+                    disabled={!customTime}
+                    className="text-xs text-copper disabled:opacity-40"
+                  >
+                    Schedule message
+                  </button>
+                </form>
+              </li>
             </ul>
           )}
         </div>

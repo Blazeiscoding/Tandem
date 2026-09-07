@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ID, ScheduledMessage } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
-import { formatScheduleTime } from "../lib/schedule.js";
+import { formatScheduleTime, localDateTime } from "../lib/schedule.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 
 /** Messages queued to go out later, with the option to call them back. */
@@ -12,40 +12,99 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
   const channels = useWorkspace((s) => s.channels);
   const selfId = useWorkspace((s) => s.self?.id);
   const [items, setItems] = useState<ScheduledMessage[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<ID | null>(null);
+  const [confirmation, setConfirmation] = useState<{ id: ID; kind: "cancel" | "send" } | null>(
+    null,
+  );
+  const [changing, setChanging] = useState<ID | null>(null);
+  const [when, setWhen] = useState("");
+  const request = useRef<AbortController | null>(null);
+  const alive = useRef(true);
+  const mutating = useRef(false);
 
-  const load = useCallback(() => {
-    client.api
-      .listScheduled()
-      .then((r) => setItems(r.scheduled))
-      .catch(() => setItems([]));
+  const load = useCallback(async () => {
+    if (mutating.current) return;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await client.api.listScheduled(controller.signal);
+      if (!controller.signal.aborted && alive.current) setItems(result.scheduled);
+    } catch {
+      if (!controller.signal.aborted && alive.current)
+        setError("Could not refresh scheduled messages. The list below may be out of date.");
+    } finally {
+      if (request.current === controller && alive.current) setLoading(false);
+    }
   }, [client]);
 
   useEffect(() => {
-    load();
+    alive.current = true;
+    void load();
     // Entries vanish as they send, so keep the list honest while it is open.
     const timer = setInterval(load, 15_000);
-    return () => clearInterval(timer);
+    return () => {
+      alive.current = false;
+      request.current?.abort();
+      clearInterval(timer);
+    };
   }, [load]);
 
-  async function cancel(id: ID) {
-    setItems((prev) => prev?.filter((s) => s.id !== id) ?? null);
-    await client.api.cancelScheduled(id).catch(load);
-  }
-
-  /** Held and failed messages wait for the author. This puts one back in line. */
-  async function sendNow(id: ID) {
-    setItems(
-      (prev) =>
-        prev?.map((s) => (s.id === id ? { ...s, status: "queued", failureReason: null } : s)) ??
-        null,
-    );
-    await client.api.rescheduleMessage(id, Date.now()).catch(load);
+  async function change(id: ID, sendAt?: number) {
+    if (mutating.current) return;
+    mutating.current = true;
+    request.current?.abort();
+    setLoading(false);
+    setBusy(id);
+    setError(null);
+    try {
+      if (sendAt === undefined) {
+        await client.api.cancelScheduled(id);
+        if (alive.current)
+          setItems((previous) => previous?.filter((item) => item.id !== id) ?? null);
+      } else {
+        const result = await client.api.rescheduleMessage(id, sendAt);
+        if (alive.current)
+          setItems(
+            (previous) =>
+              previous
+                ?.map((item) => (item.id === id ? result.scheduled : item))
+                .sort((a, b) => a.sendAt - b.sendAt) ?? null,
+          );
+      }
+      if (alive.current) {
+        setConfirmation(null);
+        setChanging(null);
+      }
+    } catch {
+      if (alive.current)
+        setError(
+          "Could not confirm this change. Refresh the list before trying again; it may already have been sent or changed on another device.",
+        );
+    } finally {
+      mutating.current = false;
+      if (alive.current) setBusy(null);
+    }
   }
 
   return (
-    <aside className="flex w-[380px] shrink-0 flex-col border-l border-edge bg-ground">
+    <aside
+      aria-label="Scheduled messages"
+      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
+    >
       <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
         <h2 className="font-bold">Scheduled</h2>
+        <button
+          className="ml-auto mr-2 text-xs text-copper disabled:opacity-40"
+          disabled={loading || busy !== null}
+          onClick={() => void load()}
+        >
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
         <button
           onClick={props.onClose}
           aria-label="Close scheduled messages"
@@ -54,8 +113,20 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
           ✕
         </button>
       </header>
-      <div className="flex-1 overflow-y-auto p-3">
-        {items === null && (
+      <div className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={loading}>
+        {error && (
+          <p role="alert" className="mb-3 text-sm text-ink-dim">
+            {error}{" "}
+            <button
+              disabled={loading || busy !== null}
+              className="text-copper underline"
+              onClick={() => void load()}
+            >
+              Refresh
+            </button>
+          </p>
+        )}
+        {items === null && loading && (
           <p className="py-6 text-center font-mono text-xs text-ink-faint">loading…</p>
         )}
         {items?.length === 0 && (
@@ -71,13 +142,14 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                 <div className="mb-1.5 flex items-center gap-2 text-[11px]">
                   <button
                     onClick={() => props.onJump(s.channelId)}
+                    disabled={!channel}
                     className="font-medium text-copper hover:underline"
                   >
                     {channel
                       ? channel.name
                         ? `#${channel.name}`
                         : channelTitle(channel, users, selfId)
-                      : "unknown"}
+                      : "Unavailable conversation"}
                   </button>
                   <span className="ml-auto font-mono text-ink-faint">
                     {formatScheduleTime(s.sendAt)}
@@ -102,22 +174,106 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                     </span>
                   )}
                 </div>
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   <button
-                    onClick={() => void cancel(s.id)}
+                    disabled={busy !== null}
+                    onClick={() => {
+                      setConfirmation({ id: s.id, kind: "cancel" });
+                      setChanging(null);
+                    }}
                     className="rounded-lg border border-edge px-2.5 py-1 text-[12px] text-ink-faint transition-colors hover:border-alert hover:text-alert"
                   >
                     {s.status === "queued" ? "Cancel" : "Discard"}
                   </button>
-                  {s.status !== "queued" && (
-                    <button
-                      onClick={() => void sendNow(s.id)}
-                      className="rounded-lg border border-edge px-2.5 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-copper"
-                    >
-                      Try again
-                    </button>
-                  )}
+                  <button
+                    disabled={busy !== null}
+                    onClick={() => {
+                      setConfirmation({ id: s.id, kind: "send" });
+                      setChanging(null);
+                    }}
+                    className="rounded-lg border border-edge px-2.5 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-copper"
+                  >
+                    {s.status === "queued" ? "Send now" : "Retry now"}
+                  </button>
+                  <button
+                    disabled={busy !== null}
+                    className="rounded-lg border border-edge px-2.5 py-1 text-xs text-ink-dim hover:border-copper"
+                    onClick={() => {
+                      setChanging(s.id);
+                      setWhen(localDateTime(new Date(Math.max(s.sendAt, Date.now() + 3600_000))));
+                      setConfirmation(null);
+                    }}
+                  >
+                    Change time
+                  </button>
                 </div>
+                {confirmation?.id === s.id && (
+                  <div className="mt-3 rounded-lg border border-edge p-2 text-sm">
+                    <p>
+                      {confirmation.kind === "cancel"
+                        ? "Remove this scheduled message?"
+                        : "Queue this message to send now?"}
+                    </p>
+                    <div className="mt-2 flex gap-3">
+                      <button
+                        disabled={busy !== null}
+                        className="text-copper"
+                        onClick={() =>
+                          void change(s.id, confirmation.kind === "send" ? Date.now() : undefined)
+                        }
+                      >
+                        {busy === s.id
+                          ? "Working…"
+                          : confirmation.kind === "cancel"
+                            ? "Remove message"
+                            : "Send now"}
+                      </button>
+                      <button disabled={busy !== null} onClick={() => setConfirmation(null)}>
+                        Keep as is
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {changing === s.id && (
+                  <form
+                    className="mt-3 space-y-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const time = new Date(when).getTime();
+                      if (!Number.isFinite(time) || time <= Date.now()) {
+                        setError("Choose a time in the future.");
+                        return;
+                      }
+                      void change(s.id, time);
+                    }}
+                  >
+                    <label className="block text-xs text-ink-faint">
+                      New date and time
+                      <input
+                        type="datetime-local"
+                        required
+                        disabled={busy !== null}
+                        value={when}
+                        min={localDateTime(new Date())}
+                        onChange={(e) => setWhen(e.target.value)}
+                        className="mt-1 w-full min-w-0 rounded border border-edge bg-ground px-2 py-1 text-sm text-ink"
+                      />
+                    </label>
+                    <p className="text-[11px] text-ink-faint">Uses your device's time zone.</p>
+                    <div className="flex gap-3 text-xs">
+                      <button disabled={busy !== null} className="text-copper" type="submit">
+                        {busy === s.id ? "Saving…" : "Save time"}
+                      </button>
+                      <button
+                        disabled={busy !== null}
+                        type="button"
+                        onClick={() => setChanging(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
               </li>
             );
           })}
