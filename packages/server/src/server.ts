@@ -857,8 +857,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const me = requireUser(req);
     requireChannelAccess(req.params.id, me);
     const { seq } = markReadBody.parse(req.body);
-    store.markRead(req.params.id, me.id, seq);
-    return { ok: true };
+    if (!store.isMember(req.params.id, me.id)) throw new HttpError(404, "channel_not_found");
+    const acknowledged = store.markRead(req.params.id, me.id, seq);
+    gateway.sendToUser(me.id, {
+      type: "channel.read",
+      channelId: req.params.id,
+      seq: acknowledged,
+    });
+    return { ok: true, seq: acknowledged };
   });
 
   // ---------- messages ----------
@@ -895,7 +901,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       limit: q.limit,
       threadRootId: q.threadRootId,
     });
-    return { messages };
+    return { messages, readThroughSeq: store.lastMessageSeq(req.params.id) };
   });
 
   app.get<{ Params: { id: string; messageId: string } }>(

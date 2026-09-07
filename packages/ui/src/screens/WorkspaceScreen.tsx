@@ -443,6 +443,7 @@ function WorkspaceInner({
         {activeChannelId ? (
           <>
             <MessageTimeline
+              readActive={dialog.kind === "none" && panel.kind === "none" && !sidebarOpen}
               channelId={activeChannelId}
               highlightMessageId={highlightMessageId}
               onOpenThread={openThread}
@@ -467,6 +468,7 @@ function WorkspaceInner({
 
       {panel.kind === "thread" && activeChannelId && (
         <ThreadPanel
+          readActive={dialog.kind === "none" && !sidebarOpen}
           channelId={activeChannelId}
           rootId={panel.rootId}
           targetId={panel.targetId}

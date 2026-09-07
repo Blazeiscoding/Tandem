@@ -93,6 +93,8 @@ function sendFailureReason(error: unknown): string {
 }
 
 export interface ChannelTimeline {
+  /** Channel message watermark represented by this loaded tail, not future arrivals. */
+  readThroughSeq?: number;
   /** Oldest → newest, top-level messages only. */
   items: Message[];
   /** More history exists before the first loaded message. */
@@ -303,6 +305,9 @@ export class WorkspaceClient {
   private reloadThreads = new Map<ID, ID>();
   private threadLoads = new Map<ID, { events: EventEnvelope[]; overflow: boolean }>();
   private messageJump = 0;
+  private pendingReads = new Map<ID, number>();
+  private readRequests = new Map<ID, AbortController>();
+  private readRetryTimer: ReturnType<typeof setInterval> | null = null;
   private acknowledgedMessages = new Set<ID>();
 
   constructor(
@@ -325,11 +330,15 @@ export class WorkspaceClient {
     this.stopped = false;
     this.openSocket(this.state.lastSeq > 0 ? this.state.lastSeq : null);
     this.typingSweep ??= setInterval(() => this.sweepTyping(), 2000);
+    this.readRetryTimer ??= setInterval(() => this.flushReads(), 5000);
   }
 
   destroy(): void {
     this.stopped = true;
     this.historyEpoch++;
+    this.clearReadRequests();
+    if (this.readRetryTimer) clearInterval(this.readRetryTimer);
+    this.readRetryTimer = null;
     // Release the microphone before the socket goes, so no call is left open.
     this.leaveHuddle();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -402,6 +411,7 @@ export class WorkspaceClient {
         break;
       case "synced":
         this.store.setState((s) => ({ lastSeq: Math.max(s.lastSeq, msg.seq), status: "online" }));
+        this.flushReads();
         break;
       case "event":
         this.applyEvent(msg.envelope);
@@ -444,7 +454,9 @@ export class WorkspaceClient {
     const memberships: Record<ID, number> = {};
     const prefs: Record<ID, ChannelPrefs> = {};
     for (const m of snap.memberships) {
-      memberships[m.channelId] = m.lastReadSeq;
+      const pending = this.pendingReads.get(m.channelId) ?? 0;
+      if (pending <= m.lastReadSeq || pending > snap.seq) this.pendingReads.delete(m.channelId);
+      memberships[m.channelId] = Math.max(m.lastReadSeq, this.pendingReads.get(m.channelId) ?? 0);
       prefs[m.channelId] = m.prefs;
     }
     const saved: Record<ID, true> = {};
@@ -484,6 +496,7 @@ export class WorkspaceClient {
 
   private resetHistory(): void {
     this.historyEpoch++;
+    this.clearReadRequests();
     for (const [id, timeline] of Object.entries(this.state.timelines)) {
       if (timeline.loaded) this.reloadChannels.add(id);
     }
@@ -509,6 +522,9 @@ export class WorkspaceClient {
   }
 
   private removeChannel(channelId: ID): void {
+    this.pendingReads.delete(channelId);
+    this.readRequests.get(channelId)?.abort();
+    this.readRequests.delete(channelId);
     this.historyEpoch++;
     if (this.session?.channelId === channelId) this.leaveHuddle();
     const state = this.state;
@@ -606,6 +622,10 @@ export class WorkspaceClient {
               ...s.timelines,
               [message.channelId]: {
                 ...tl,
+                readThroughSeq:
+                  !tl.hasMoreNewer && tl.items.some((m) => m.id === message.threadRootId)
+                    ? Math.max(tl.readThroughSeq ?? 0, seq)
+                    : tl.readThroughSeq,
                 items: tl.items.map((m) =>
                   m.id === message.threadRootId ? { ...m, replyCount: m.replyCount + 1 } : m,
                 ),
@@ -619,7 +639,11 @@ export class WorkspaceClient {
             patch.timelines = {
               ...s.timelines,
               [message.channelId]: windowTimeline(
-                { ...tl, items: sortedInsert(tl.items, message) },
+                {
+                  ...tl,
+                  items: sortedInsert(tl.items, message),
+                  readThroughSeq: Math.max(tl.readThroughSeq ?? 0, seq),
+                },
                 "oldest",
               ),
             };
@@ -851,6 +875,16 @@ export class WorkspaceClient {
       if (this.session?.channelId === event.channelId) {
         void this.session.handleSignal(event.from, event.signal);
       }
+    } else if (event.type === "channel.read") {
+      if (!(event.channelId in s.memberships)) return;
+      const pending = this.pendingReads.get(event.channelId) ?? 0;
+      if (pending <= event.seq) this.pendingReads.delete(event.channelId);
+      this.store.setState({
+        memberships: {
+          ...s.memberships,
+          [event.channelId]: Math.max(s.memberships[event.channelId] ?? 0, event.seq),
+        },
+      });
     } else if (event.type === "prefs") {
       this.store.setState({ prefs: { ...s.prefs, [event.channelId]: event.prefs } });
     } else if (event.type === "saved") {
@@ -922,7 +956,10 @@ export class WorkspaceClient {
     if (opts.older && (!tl?.hasMore || tl.items.length === 0)) return;
 
     const before = opts.older ? tl!.items[0]!.id : undefined;
-    const { messages } = await this.api.listMessages(channelId, { before, limit: 50 });
+    const { messages, readThroughSeq } = await this.api.listMessages(channelId, {
+      before,
+      limit: 50,
+    });
     if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
     const page = [...messages].reverse(); // API returns newest-first
 
@@ -940,6 +977,9 @@ export class WorkspaceClient {
               hasMore: messages.length === 50,
               // loadTimeline always lands at the tail.
               hasMoreNewer: opts.older ? (existing?.hasMoreNewer ?? false) : false,
+              readThroughSeq: opts.older
+                ? existing?.readThroughSeq
+                : Math.max(existing?.readThroughSeq ?? 0, readThroughSeq ?? page.at(-1)?.seq ?? 0),
               loaded: true,
             },
             // Paging up drops the far end, which is now hundreds of messages
@@ -1498,12 +1538,55 @@ export class WorkspaceClient {
     this.store.setState({ drafts });
   }
 
-  markRead(channelId: ID): void {
-    const seq = this.state.channelLastSeq[channelId] ?? 0;
+  markRead(channelId: ID, seq = this.state.channelLastSeq[channelId] ?? 0): void {
+    if (!(channelId in this.state.memberships) || !Number.isSafeInteger(seq) || seq < 0) return;
     const current = this.state.memberships[channelId] ?? 0;
     if (seq <= current) return;
+    this.pendingReads.set(channelId, Math.max(this.pendingReads.get(channelId) ?? 0, seq));
     this.store.setState((s) => ({ memberships: { ...s.memberships, [channelId]: seq } }));
-    void this.api.markRead(channelId, seq).catch(() => {});
+    this.flushReads();
+  }
+
+  private clearReadRequests(): void {
+    for (const controller of this.readRequests.values()) controller.abort();
+    this.readRequests.clear();
+    this.pendingReads.clear();
+  }
+
+  private flushReads(): void {
+    if (this.stopped || this.state.status !== "online") return;
+    for (const [channelId, seq] of this.pendingReads) {
+      if (!(channelId in this.state.memberships)) {
+        this.pendingReads.delete(channelId);
+        continue;
+      }
+      if (this.readRequests.has(channelId)) continue;
+      const controller = new AbortController();
+      this.readRequests.set(channelId, controller);
+      void this.api
+        .markRead(channelId, seq, controller.signal)
+        .then((result) => {
+          if (
+            controller.signal.aborted ||
+            this.stopped ||
+            this.readRequests.get(channelId) !== controller
+          )
+            return;
+          const acknowledged = result.seq ?? seq;
+          if ((this.pendingReads.get(channelId) ?? 0) <= acknowledged)
+            this.pendingReads.delete(channelId);
+          this.applyEphemeral({ type: "channel.read", channelId, seq: acknowledged });
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          if (error instanceof ApiError && (error.status === 403 || error.status === 404))
+            this.pendingReads.delete(channelId);
+          // Network failures retain the largest pending cursor for reconnect or the retry timer.
+        })
+        .finally(() => {
+          if (this.readRequests.get(channelId) === controller) this.readRequests.delete(channelId);
+        });
+    }
   }
 
   /**

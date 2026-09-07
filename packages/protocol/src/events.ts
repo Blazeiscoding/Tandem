@@ -36,6 +36,7 @@ export interface EventEnvelope {
 
 /** Ephemeral events — never logged, never replayed. */
 export type EphemeralEvent =
+  | { type: "channel.read"; channelId: ID; seq: number }
   | {
       type: "channel.access";
       channelId: ID;

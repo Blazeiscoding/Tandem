@@ -214,14 +214,19 @@ export class Api {
     return this.request("GET", `/api/channels/${id}/members`);
   }
 
-  markRead(channelId: ID, seq: number): Promise<{ ok: true }> {
-    return this.request("POST", `/api/channels/${channelId}/read`, { seq });
+  markRead(channelId: ID, seq: number, signal?: AbortSignal): Promise<{ ok: true; seq?: number }> {
+    return this.request(
+      "POST",
+      `/api/channels/${channelId}/read`,
+      { seq },
+      { timeoutMs: 10_000, signal },
+    );
   }
 
   listMessages(
     channelId: ID,
     opts: { before?: ID; limit?: number; threadRootId?: ID } = {},
-  ): Promise<{ messages: Message[] }> {
+  ): Promise<{ messages: Message[]; readThroughSeq?: number }> {
     const params = new URLSearchParams();
     if (opts.before) params.set("before", opts.before);
     if (opts.limit) params.set("limit", String(opts.limit));

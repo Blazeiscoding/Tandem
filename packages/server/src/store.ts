@@ -626,12 +626,20 @@ export class Store {
     return this.getChannelPrefs(channelId, userId);
   }
 
-  markRead(channelId: ID, userId: ID, seq: number): void {
-    this.db
+  markRead(channelId: ID, userId: ID, seq: number): number {
+    const row = this.db
       .prepare(
-        "UPDATE channel_members SET last_read_seq = MAX(last_read_seq, ?) WHERE channel_id = ? AND user_id = ?",
+        "UPDATE channel_members SET last_read_seq = MAX(last_read_seq, ?) WHERE channel_id = ? AND user_id = ? RETURNING last_read_seq",
       )
-      .run(seq, channelId, userId);
+      .get(Math.min(seq, this.currentSeq()), channelId, userId) as
+      { last_read_seq: number } | undefined;
+    return row?.last_read_seq ?? 0;
+  }
+
+  lastMessageSeq(channelId: ID): number {
+    const row = this.db.prepare("SELECT last_msg_seq FROM channels WHERE id = ?").get(channelId) as
+      { last_msg_seq: number } | undefined;
+    return row?.last_msg_seq ?? 0;
   }
 
   /** channelId -> last message seq, for every channel the user can see. */

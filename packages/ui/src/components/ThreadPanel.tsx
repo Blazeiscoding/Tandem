@@ -9,6 +9,7 @@ interface Props {
   channelId: ID;
   rootId: ID;
   targetId?: ID;
+  readActive?: boolean;
   onClose: () => void;
   onChannelClick: (id: ID) => void;
   onOpenProfile: (userId: ID) => void;
@@ -18,6 +19,7 @@ export function ThreadPanel({
   channelId,
   rootId,
   targetId,
+  readActive = true,
   onClose,
   onChannelClick,
   onOpenProfile,
@@ -33,9 +35,39 @@ export function ThreadPanel({
   const pending = useWorkspace((s) => s.pending).filter((p) => p.threadRootId === rootId);
   const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
-  const follow = useRef(true);
+  const follow = useRef(!targetId);
   const anchor = useRef<{ id: string; top: number } | null>(null);
   const targetPositioned = useRef(false);
+  const readContext = useRef<string | null>(null);
+  const contextKey = `${channelId}:${rootId}:${targetId ?? ""}`;
+
+  function readVisibleReplies() {
+    if (
+      readContext.current !== contextKey ||
+      !readActive ||
+      !page?.loaded ||
+      page.loading ||
+      page.hasMoreNewer ||
+      !follow.current ||
+      !document.hasFocus() ||
+      document.visibilityState !== "visible"
+    )
+      return;
+    client.markRead(
+      channelId,
+      Math.max(root?.seq ?? 0, ...(replies ?? []).map((message) => message.seq)),
+    );
+  }
+
+  useEffect(() => {
+    readVisibleReplies();
+    window.addEventListener("focus", readVisibleReplies);
+    document.addEventListener("visibilitychange", readVisibleReplies);
+    return () => {
+      window.removeEventListener("focus", readVisibleReplies);
+      document.removeEventListener("visibilitychange", readVisibleReplies);
+    };
+  }, [client, channelId, replies, page?.loaded, page?.loading, page?.hasMoreNewer, readActive]);
 
   function load(direction: "latest" | "older" | "newer") {
     const container = scroller.current;
@@ -55,6 +87,7 @@ export function ThreadPanel({
 
   useEffect(() => {
     follow.current = !targetId;
+    readContext.current = contextKey;
     targetPositioned.current = false;
     anchor.current = null;
     void client.loadThread(rootId, channelId, "latest", targetId);
@@ -108,6 +141,7 @@ export function ThreadPanel({
         onScroll={() => {
           const el = scroller.current;
           if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          readVisibleReplies();
         }}
         className="min-h-0 flex-1 overflow-y-auto py-2"
         aria-busy={page?.loading}

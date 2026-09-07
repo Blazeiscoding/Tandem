@@ -35,6 +35,7 @@ function restoreAnchor(el: HTMLElement, anchor: Anchor | null): void {
 
 interface Props {
   channelId: ID;
+  readActive?: boolean;
   /** When set, scroll to this message and flash it. */
   highlightMessageId?: ID | null;
   onOpenThread: (rootId: ID) => void;
@@ -44,6 +45,7 @@ interface Props {
 
 export const MessageTimeline = memo(function MessageTimeline({
   channelId,
+  readActive = true,
   highlightMessageId,
   onOpenThread,
   onChannelClick,
@@ -56,6 +58,9 @@ export const MessageTimeline = memo(function MessageTimeline({
   const typing = useWorkspace((s) => s.typing[channelId]);
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
+  const readBoundary = useRef({ channelId, seq: client.state.memberships[channelId] ?? 0 });
+  if (readBoundary.current.channelId !== channelId)
+    readBoundary.current = { channelId, seq: client.state.memberships[channelId] ?? 0 };
   const scroller = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const loadingOlder = useRef(false);
@@ -74,6 +79,9 @@ export const MessageTimeline = memo(function MessageTimeline({
   }, [client, channelId, highlightMessageId]);
 
   const items = timeline?.items ?? [];
+  const firstUnread = items.findIndex(
+    (message) => message.seq > readBoundary.current.seq && message.userId !== selfId,
+  );
   const channelPending = pending.filter((p) => p.channelId === channelId && !p.threadRootId);
   // Bring the jumped-to message into view once it has rendered.
   useEffect(() => {
@@ -146,20 +154,44 @@ export const MessageTimeline = memo(function MessageTimeline({
     lastScrollTop.current = scroller.current?.scrollTop ?? 0;
   }, [channelId]);
 
-  // Reading the latest message marks the channel read.
+  function readVisibleTail() {
+    if (
+      !readActive ||
+      !timeline?.loaded ||
+      timeline.hasMoreNewer ||
+      !pinnedToBottom.current ||
+      !document.hasFocus() ||
+      document.visibilityState !== "visible"
+    )
+      return;
+    client.markRead(channelId, timeline.readThroughSeq ?? items.at(-1)?.seq ?? 0);
+  }
+
+  // Do not acknowledge a newer socket watermark until its history is on screen.
   useEffect(() => {
-    // Only reading the newest messages counts as catching up.
-    if (timeline?.hasMoreNewer) return;
-    if (pinnedToBottom.current && document.hasFocus()) client.markRead(channelId);
-  }, [client, channelId, items.length, items.at(-1)?.id, timeline?.hasMoreNewer]);
+    readVisibleTail();
+    window.addEventListener("focus", readVisibleTail);
+    document.addEventListener("visibilitychange", readVisibleTail);
+    return () => {
+      window.removeEventListener("focus", readVisibleTail);
+      document.removeEventListener("visibilitychange", readVisibleTail);
+    };
+  }, [
+    client,
+    channelId,
+    items.length,
+    items.at(-1)?.id,
+    timeline?.hasMoreNewer,
+    timeline?.loaded,
+    timeline?.readThroughSeq,
+    readActive,
+  ]);
 
   function onScroll() {
     const el = scroller.current;
     if (!el) return;
     pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    if (pinnedToBottom.current && document.hasFocus() && !timeline?.hasMoreNewer) {
-      client.markRead(channelId);
-    }
+    readVisibleTail();
 
     // Page forward only when the user actively scrolls down to the bottom of
     // an anchored view — otherwise a window shorter than the viewport would
@@ -224,6 +256,17 @@ export const MessageTimeline = memo(function MessageTimeline({
             ref={msg.id === highlightMessageId ? highlightRef : undefined}
           >
             {newDay && <DayDivider ts={msg.createdAt} />}
+            {i === firstUnread && (
+              <div
+                role="separator"
+                aria-label="New messages"
+                className="my-3 flex items-center gap-3 px-5 text-xs font-medium text-copper"
+              >
+                <span className="h-px flex-1 bg-copper/40" />
+                New messages
+                <span className="h-px flex-1 bg-copper/40" />
+              </div>
+            )}
             <MessageItem
               message={msg}
               compact={compact}
