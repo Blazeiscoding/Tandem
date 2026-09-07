@@ -15,6 +15,10 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     items: [
       ["Enter", "Send"],
       ["Shift Enter", "New line"],
+      ["Ctrl B", "Bold selected text"],
+      ["Ctrl I", "Italic selected text"],
+      ["Ctrl E", "Inline code"],
+      ["Ctrl Enter", "Send without choosing a mention"],
       ["@", "Mention someone"],
       ["Ctrl V", "Paste an image straight in"],
     ],

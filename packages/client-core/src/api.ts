@@ -313,15 +313,24 @@ export class Api {
 
     // XHR rather than fetch: it reports upload progress, which large files need.
     return new Promise((resolve, reject) => {
+      if (opts.signal?.aborted) {
+        reject(new ApiError(0, "aborted"));
+        return;
+      }
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${this.baseUrl}/api/channels/${channelId}/files`);
+      xhr.timeout = 300_000;
       if (this.token) xhr.setRequestHeader("authorization", `Bearer ${this.token}`);
       xhr.upload.addEventListener("progress", (e) => {
         if (e.lengthComputable) opts.onProgress?.(e.loaded / e.total);
       });
       xhr.addEventListener("load", () => {
         if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(JSON.parse(xhr.responseText) as { file: FileMeta });
+          try {
+            resolve(JSON.parse(xhr.responseText) as { file: FileMeta });
+          } catch {
+            reject(new ApiError(0, "invalid_response"));
+          }
         } else {
           let code = "upload_failed";
           try {
@@ -334,7 +343,10 @@ export class Api {
       });
       xhr.addEventListener("error", () => reject(new ApiError(0, "network_error")));
       xhr.addEventListener("abort", () => reject(new ApiError(0, "aborted")));
-      opts.signal?.addEventListener("abort", () => xhr.abort());
+      xhr.addEventListener("timeout", () => reject(new ApiError(0, "upload_timeout")));
+      const abort = () => xhr.abort();
+      opts.signal?.addEventListener("abort", abort, { once: true });
+      xhr.addEventListener("loadend", () => opts.signal?.removeEventListener("abort", abort));
       xhr.send(form);
     });
   }
@@ -352,7 +364,9 @@ export class Api {
     channelId: ID,
     body: ScheduleMessageBody,
   ): Promise<{ scheduled: ScheduledMessage }> {
-    return this.request("POST", `/api/channels/${channelId}/scheduled`, body);
+    return this.request("POST", `/api/channels/${channelId}/scheduled`, body, {
+      timeoutMs: 15_000,
+    });
   }
 
   listScheduled(): Promise<{ scheduled: ScheduledMessage[] }> {

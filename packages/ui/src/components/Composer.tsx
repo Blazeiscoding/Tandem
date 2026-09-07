@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ID, User } from "@slackoss/protocol";
+import { ApiError } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
 import { formatScheduleTime, schedulePresets } from "../lib/schedule.js";
 import { Icon } from "./Icon.js";
+import { Mrkdwn } from "./Mrkdwn.js";
 
 interface Props {
   channelId: ID;
@@ -23,10 +25,27 @@ const BROADCASTS = [
   { token: "here" as const, description: "Everyone who is around now" },
 ];
 
+const EMOJI = [
+  ["😀", "Smile"],
+  ["😂", "Laugh"],
+  ["❤️", "Heart"],
+  ["👍", "Thumbs up"],
+  ["✅", "Done"],
+  ["👀", "Eyes"],
+  ["🎉", "Celebrate"],
+  ["🙏", "Thanks"],
+  ["🚀", "Rocket"],
+  ["💡", "Idea"],
+  ["🤔", "Thinking"],
+  ["🙌", "Raised hands"],
+] as const;
+const MESSAGE_LIMIT = 12_000;
+
 /** Enter sends, Shift+Enter breaks the line, @ opens mention autocomplete. */
 export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Props) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
+  const channels = useWorkspace((s) => s.channels);
   const commands = useWorkspace((s) => s.commands);
   const selfId = useWorkspace((s) => s.self?.id);
   const channelType = useWorkspace((s) => s.channels[channelId]?.type);
@@ -42,6 +61,17 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const [dragging, setDragging] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleNote, setScheduleNote] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const scheduleLock = useRef(false);
+  const scheduleContext = useRef<object>({});
+  const uploadController = useRef<AbortController | null>(null);
+  const scheduleUploads = useRef(new WeakMap<File, ID>());
+  const [preview, setPreview] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [attachmentNote, setAttachmentNote] = useState<string | null>(null);
+  const autocompleteId = useId();
+  const emojiButton = useRef<HTMLButtonElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
@@ -55,6 +85,20 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setText(client.state.drafts[draftKey] ?? "");
     setAttached([]);
     setMentionQuery(null);
+    setEmojiOpen(false);
+    setPreview(false);
+    setAttachmentNote(null);
+    setScheduleOpen(false);
+    setScheduleNote(null);
+    setScheduleError(null);
+    setScheduling(false);
+    scheduleLock.current = false;
+    scheduleUploads.current = new WeakMap();
+    scheduleContext.current = {};
+    return () => {
+      scheduleContext.current = {};
+      uploadController.current?.abort();
+    };
   }, [client, draftKey]);
 
   // Drafts load from disk asynchronously, so they can arrive after this mounts.
@@ -86,9 +130,81 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }, [client, draftKey]);
 
   function addFiles(files: FileList | File[] | null) {
-    if (!files) return;
+    if (!files || scheduleLock.current) return;
     const incoming = [...files];
-    if (incoming.length > 0) setAttached((prev) => [...prev, ...incoming].slice(0, 10));
+    if (incoming.length > 0) {
+      setAttachmentNote(
+        attached.length + incoming.length > 10
+          ? "A message can have up to 10 files. The extra files were not attached."
+          : null,
+      );
+      setAttached((prev) => [...prev, ...incoming].slice(0, 10));
+    }
+  }
+
+  useLayoutEffect(() => {
+    if (!box.current) return;
+    box.current.style.height = "auto";
+    box.current.style.height = `${Math.min(box.current.scrollHeight, 220)}px`;
+  }, [text]);
+
+  function replaceSelection(
+    replacement: string,
+    start: number,
+    end: number,
+    selectionStart: number,
+    selectionEnd = selectionStart,
+  ) {
+    if (scheduleLock.current) return;
+    setText(text.slice(0, start) + replacement + text.slice(end));
+    edited.current = true;
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      box.current?.focus();
+      box.current?.setSelectionRange(selectionStart, selectionEnd);
+    });
+  }
+
+  function format(marker: string, placeholderText: string, block = false) {
+    const field = box.current;
+    if (!field) return;
+    const start = field.selectionStart;
+    const end = field.selectionEnd;
+    const selected = text.slice(start, end) || placeholderText;
+    const prefix = block
+      ? `${start > 0 && text[start - 1] !== "\n" ? "\n" : ""}${marker}\n`
+      : marker;
+    const suffix = block
+      ? `\n${marker}${end < text.length && text[end] !== "\n" ? "\n" : ""}`
+      : marker;
+    if (
+      !block &&
+      start >= marker.length &&
+      text.slice(start - marker.length, start) === marker &&
+      text.slice(end, end + marker.length) === marker
+    ) {
+      replaceSelection(
+        selected,
+        start - marker.length,
+        end + marker.length,
+        start - marker.length,
+        start - marker.length + selected.length,
+      );
+    } else
+      replaceSelection(
+        prefix + selected + suffix,
+        start,
+        end,
+        start + prefix.length,
+        start + prefix.length + selected.length,
+      );
+  }
+
+  function insertEmoji(emoji: string) {
+    const start = box.current?.selectionStart ?? text.length;
+    const end = box.current?.selectionEnd ?? start;
+    replaceSelection(emoji, start, end, start + emoji.length);
+    setEmojiOpen(false);
   }
 
   useEffect(() => {
@@ -121,6 +237,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }, [text, commands]);
 
   function insertCommand(command: string) {
+    if (scheduleLock.current) return;
     const next = `/${command} `;
     setText(next);
     edited.current = true;
@@ -142,6 +259,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }
 
   function insertMention(candidate: Candidate) {
+    if (scheduleLock.current) return;
     if (!mentionQuery || !box.current) return;
     const token = candidate.kind === "user" ? `<@${candidate.user.id}>` : `<!${candidate.token}>`;
     const caret = box.current.selectionStart;
@@ -159,12 +277,15 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   useEffect(() => setCommandIndex(0), [commandCandidates.length]);
 
   function send() {
+    if (scheduleLock.current) return;
     const trimmed = text.trim();
-    if (!trimmed && attached.length === 0) return;
+    if ((!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT) return;
     client.send(channelId, trimmed, { threadRootId, files: attached });
     setText("");
     setAttached([]);
     setMentionQuery(null);
+    setEmojiOpen(false);
+    setAttachmentNote(null);
     edited.current = false;
     client.setDraft(draftKey, "");
     if (box.current) box.current.style.height = "auto";
@@ -173,33 +294,84 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   /** Queues the current draft for later instead of sending it now. */
   async function schedule(at: Date) {
     const trimmed = text.trim();
-    if (!trimmed && attached.length === 0) return;
+    if (scheduleLock.current || (!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT)
+      return;
+    scheduleLock.current = true;
+    setScheduling(true);
     setScheduleOpen(false);
-
-    // Attachments must exist on the server before they can be queued.
-    const fileIds: string[] = [];
-    for (const file of attached) {
-      const { file: uploaded } = await client.api.uploadFile(channelId, file, file.name);
-      fileIds.push(uploaded.id);
+    setScheduleError(null);
+    const context = scheduleContext.current;
+    const controller = new AbortController();
+    uploadController.current = controller;
+    const current = () => scheduleContext.current === context;
+    let submitted = false;
+    // Keep the draft if the user leaves while the request is in flight.
+    client.setDraft(draftKey, text);
+    try {
+      const fileIds: ID[] = [];
+      for (const file of attached) {
+        let id = scheduleUploads.current.get(file);
+        if (!id) {
+          const { file: uploaded } = await client.api.uploadFile(channelId, file, file.name, {
+            signal: controller.signal,
+          });
+          if (!current()) return;
+          id = uploaded.id;
+          scheduleUploads.current.set(file, id);
+        }
+        fileIds.push(id);
+      }
+      if (!current()) return;
+      submitted = true;
+      await client.api.scheduleMessage(channelId, {
+        text: trimmed,
+        sendAt: at.getTime(),
+        ...(threadRootId ? { threadRootId } : {}),
+        ...(fileIds.length > 0 ? { fileIds } : {}),
+      });
+      if (!current()) return;
+      setText("");
+      setAttached([]);
+      edited.current = false;
+      client.setDraft(draftKey, "");
+      scheduleUploads.current = new WeakMap();
+      setScheduleNote(`Scheduled for ${formatScheduleTime(at.getTime())}`);
+    } catch (error) {
+      if (!current()) return;
+      if (error instanceof ApiError && error.code === "invalid_attachments")
+        scheduleUploads.current = new WeakMap();
+      setScheduleError(
+        submitted
+          ? "Could not confirm scheduling. Your draft is kept. Check Scheduled before trying again."
+          : error instanceof ApiError && error.code === "file_too_large"
+            ? "One of these files exceeds the workspace upload limit. Remove it and try again."
+            : "Could not upload the attachments. Your draft is kept; try again when connected.",
+      );
+    } finally {
+      if (current()) {
+        scheduleLock.current = false;
+        setScheduling(false);
+        uploadController.current = null;
+      }
     }
-    await client.api.scheduleMessage(channelId, {
-      text: trimmed,
-      sendAt: at.getTime(),
-      ...(threadRootId ? { threadRootId } : {}),
-      ...(fileIds.length > 0 ? { fileIds } : {}),
-    });
-
-    setText("");
-    setAttached([]);
-    edited.current = false;
-    client.setDraft(draftKey, "");
-    setScheduleNote(`Scheduled for ${formatScheduleTime(at.getTime())}`);
-    setTimeout(() => setScheduleNote(null), 4000);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Enter confirms an IME candidate; it must not send an unfinished message.
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const marker = { b: "*", i: "_", e: "`" }[e.key.toLowerCase()];
+      if (marker) {
+        e.preventDefault();
+        format(marker, "text");
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        send();
+        return;
+      }
+    }
     if (commandCandidates.length > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -232,6 +404,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         return;
       }
       if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
         setMentionQuery(null);
         return;
       }
@@ -265,15 +439,25 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         addFiles(e.dataTransfer.files);
       }}
     >
-      {commandCandidates.length > 0 && (
-        <ul className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
+      {!scheduling && commandCandidates.length > 0 && (
+        <ul
+          id={autocompleteId}
+          role="listbox"
+          aria-label="Commands"
+          className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl"
+        >
           {commandCandidates.map((c, i) => (
-            <li key={c.command}>
+            <li
+              key={c.command}
+              id={`${autocompleteId}-${i}`}
+              role="option"
+              aria-selected={i === commandIndex}
+            >
               <button
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  insertCommand(c.command);
                 }}
+                onClick={() => insertCommand(c.command)}
                 onMouseEnter={() => setCommandIndex(i)}
                 className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
                   i === commandIndex ? "bg-copper/15" : ""
@@ -291,15 +475,25 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           ))}
         </ul>
       )}
-      {mentionQuery && candidates.length > 0 && (
-        <ul className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
+      {!scheduling && mentionQuery && candidates.length > 0 && (
+        <ul
+          id={autocompleteId}
+          role="listbox"
+          aria-label="Mentions"
+          className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl"
+        >
           {candidates.map((c, i) => (
-            <li key={c.kind === "user" ? c.user.id : c.token}>
+            <li
+              key={c.kind === "user" ? c.user.id : c.token}
+              id={`${autocompleteId}-${i}`}
+              role="option"
+              aria-selected={i === mentionIndex}
+            >
               <button
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  insertMention(c);
                 }}
+                onClick={() => insertMention(c)}
                 onMouseEnter={() => setMentionIndex(i)}
                 className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${
                   i === mentionIndex ? "bg-copper/15" : ""
@@ -326,11 +520,120 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           ))}
         </ul>
       )}
-      <div
-        className={`rounded-xl border bg-raised shadow-[0_4px_20px_#0002] transition-colors ${
+      {scheduleError && (
+        <p role="alert" className="mb-2 text-sm text-ink-dim">
+          {scheduleError}
+        </p>
+      )}
+      {scheduling && (
+        <p role="status" className="mb-2 text-sm text-ink-faint">
+          Scheduling your message…
+        </p>
+      )}
+      {scheduleNote && (
+        <p role="status" className="mb-2 text-sm text-ink-dim">
+          {scheduleNote}
+        </p>
+      )}
+      <fieldset
+        disabled={scheduling}
+        className={`min-w-0 rounded-xl border bg-raised shadow-[0_4px_20px_#0002] transition-colors ${
           dragging ? "border-copper bg-copper/5" : "border-edge focus-within:border-copper/60"
         }`}
       >
+        <div
+          role="group"
+          aria-label="Message formatting"
+          className="flex flex-wrap items-center gap-0.5 border-b border-edge px-2 py-1 text-sm text-ink-dim"
+        >
+          {[
+            { label: "Bold", symbol: "B", marker: "*", style: "font-bold" },
+            { label: "Italic", symbol: "I", marker: "_", style: "italic" },
+            { label: "Strikethrough", symbol: "S", marker: "~", style: "line-through" },
+            { label: "Inline code", symbol: "</>", marker: "`", style: "font-mono text-xs" },
+          ].map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              aria-label={item.label}
+              title={item.label}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => format(item.marker, "text")}
+              className={`rounded px-2 py-1 hover:bg-lifted ${item.style}`}
+            >
+              {item.symbol}
+            </button>
+          ))}
+          <button
+            type="button"
+            title="Code block"
+            aria-label="Code block"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => format("```", "code", true)}
+            className="rounded px-2 py-1 font-mono text-xs hover:bg-lifted"
+          >
+            {"{ }"}
+          </button>
+          <button
+            ref={emojiButton}
+            type="button"
+            aria-label="Insert emoji"
+            aria-expanded={emojiOpen}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setEmojiOpen((v) => !v)}
+            className="rounded px-2 py-1 hover:bg-lifted"
+          >
+            ☺
+          </button>
+          <button
+            type="button"
+            aria-pressed={preview}
+            onClick={() => setPreview((v) => !v)}
+            className="ml-auto rounded px-2 py-1 text-xs hover:bg-lifted"
+          >
+            Preview
+          </button>
+        </div>
+        {emojiOpen && (
+          <div
+            role="group"
+            aria-label="Choose an emoji"
+            className="grid grid-cols-6 gap-1 border-b border-edge p-2"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                setEmojiOpen(false);
+                emojiButton.current?.focus();
+              }
+            }}
+          >
+            {EMOJI.map(([emoji, label]) => (
+              <button
+                type="button"
+                key={label}
+                aria-label={label}
+                title={label}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => insertEmoji(emoji)}
+                className="rounded p-1 text-xl hover:bg-lifted"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+        {preview && (
+          <div
+            aria-label="Message preview"
+            className="max-h-36 overflow-y-auto border-b border-edge px-4 py-3 text-sm"
+          >
+            {text.trim() ? (
+              <Mrkdwn text={text} users={users} channels={channels} selfId={selfId} />
+            ) : (
+              <span className="text-ink-faint">Your formatted message will appear here.</span>
+            )}
+          </div>
+        )}
         {attached.length > 0 && (
           <ul className="flex flex-wrap gap-2 border-b border-edge p-2.5">
             {attached.map((f, i) => (
@@ -357,6 +660,19 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           rows={1}
           placeholder={dragging ? "Drop files to attach" : placeholder}
           aria-label={placeholder}
+          aria-autocomplete="list"
+          aria-controls={
+            (mentionQuery && candidates.length) || commandCandidates.length
+              ? autocompleteId
+              : undefined
+          }
+          aria-activedescendant={
+            mentionQuery && candidates.length
+              ? `${autocompleteId}-${mentionIndex}`
+              : commandCandidates.length
+                ? `${autocompleteId}-${commandIndex}`
+                : undefined
+          }
           onPaste={(e) => {
             const files = [...e.clipboardData.files];
             if (files.length > 0) {
@@ -368,8 +684,6 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             edited.current = true;
             setText(e.target.value);
             refreshMentionState(e.target.value, e.target.selectionStart);
-            e.target.style.height = "auto";
-            e.target.style.height = `${Math.min(e.target.scrollHeight, 220)}px`;
             const now = Date.now();
             if (now - lastTypingSent.current > 3000 && e.target.value.trim()) {
               lastTypingSent.current = now;
@@ -380,6 +694,20 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           onBlur={() => setMentionQuery(null)}
           className="block max-h-[220px] w-full resize-none bg-transparent px-4 py-3 text-[15px] outline-none placeholder:text-ink-faint"
         />
+        {attachmentNote && (
+          <p role="alert" className="px-4 pb-2 text-xs text-ink-dim">
+            {attachmentNote}
+          </p>
+        )}
+        {text.length > MESSAGE_LIMIT - 1000 && (
+          <p
+            aria-live="polite"
+            className={`px-4 pb-2 text-right text-xs ${text.length > MESSAGE_LIMIT ? "text-alert" : "text-ink-faint"}`}
+          >
+            {text.length.toLocaleString()} / {MESSAGE_LIMIT.toLocaleString()} characters
+            {text.length > MESSAGE_LIMIT ? " · Shorten your message to send it." : ""}
+          </p>
+        )}
         <div className="relative flex items-center justify-between px-2.5 pb-2">
           <span className="flex items-center gap-1">
             <button
@@ -414,7 +742,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
               send();
               box.current?.focus();
             }}
-            disabled={!text.trim() && attached.length === 0}
+            disabled={(!text.trim() && attached.length === 0) || text.length > MESSAGE_LIMIT}
             aria-label="Send message"
             title="Send message (Enter)"
             className="flex items-center gap-2 rounded-lg bg-copper px-3 py-1.5 text-ground hover:bg-copper-deep disabled:bg-lifted disabled:text-ink-faint"
@@ -452,7 +780,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             e.target.value = "";
           }}
         />
-      </div>
+      </fieldset>
     </div>
   );
 }
