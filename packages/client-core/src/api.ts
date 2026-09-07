@@ -283,7 +283,7 @@ export class Api {
   }
 
   editMessage(id: ID, text: string): Promise<{ message: Message }> {
-    return this.request("PATCH", `/api/messages/${id}`, { text });
+    return this.request("PATCH", `/api/messages/${id}`, { text }, { timeoutMs: 10_000 });
   }
 
   deleteMessage(id: ID): Promise<{ ok: true }> {

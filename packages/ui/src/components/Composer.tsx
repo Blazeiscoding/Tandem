@@ -7,6 +7,12 @@ import { formatBytes } from "../lib/format.js";
 import { formatScheduleTime, schedulePresets } from "../lib/schedule.js";
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import {
+  FormattingToolbar,
+  formatText,
+  formattingShortcut,
+  MESSAGE_LIMIT,
+} from "./FormattingToolbar.js";
 
 interface Props {
   channelId: ID;
@@ -24,22 +30,6 @@ const BROADCASTS = [
   { token: "channel" as const, description: "Everyone in this channel" },
   { token: "here" as const, description: "Everyone who is around now" },
 ];
-
-const EMOJI = [
-  ["😀", "Smile"],
-  ["😂", "Laugh"],
-  ["❤️", "Heart"],
-  ["👍", "Thumbs up"],
-  ["✅", "Done"],
-  ["👀", "Eyes"],
-  ["🎉", "Celebrate"],
-  ["🙏", "Thanks"],
-  ["🚀", "Rocket"],
-  ["💡", "Idea"],
-  ["🤔", "Thinking"],
-  ["🙌", "Raised hands"],
-] as const;
-const MESSAGE_LIMIT = 12_000;
 
 /** Enter sends, Shift+Enter breaks the line, @ opens mention autocomplete. */
 export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Props) {
@@ -68,10 +58,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const uploadController = useRef<AbortController | null>(null);
   const scheduleUploads = useRef(new WeakMap<File, ID>());
   const [preview, setPreview] = useState(false);
-  const [emojiOpen, setEmojiOpen] = useState(false);
   const [attachmentNote, setAttachmentNote] = useState<string | null>(null);
   const autocompleteId = useId();
-  const emojiButton = useRef<HTMLButtonElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
@@ -85,7 +73,6 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setText(client.state.drafts[draftKey] ?? "");
     setAttached([]);
     setMentionQuery(null);
-    setEmojiOpen(false);
     setPreview(false);
     setAttachmentNote(null);
     setScheduleOpen(false);
@@ -168,43 +155,21 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   function format(marker: string, placeholderText: string, block = false) {
     const field = box.current;
     if (!field) return;
-    const start = field.selectionStart;
-    const end = field.selectionEnd;
-    const selected = text.slice(start, end) || placeholderText;
-    const prefix = block
-      ? `${start > 0 && text[start - 1] !== "\n" ? "\n" : ""}${marker}\n`
-      : marker;
-    const suffix = block
-      ? `\n${marker}${end < text.length && text[end] !== "\n" ? "\n" : ""}`
-      : marker;
-    if (
-      !block &&
-      start >= marker.length &&
-      text.slice(start - marker.length, start) === marker &&
-      text.slice(end, end + marker.length) === marker
-    ) {
-      replaceSelection(
-        selected,
-        start - marker.length,
-        end + marker.length,
-        start - marker.length,
-        start - marker.length + selected.length,
-      );
-    } else
-      replaceSelection(
-        prefix + selected + suffix,
-        start,
-        end,
-        start + prefix.length,
-        start + prefix.length + selected.length,
-      );
+    const next = formatText(
+      text,
+      field.selectionStart,
+      field.selectionEnd,
+      marker,
+      placeholderText,
+      block,
+    );
+    replaceSelection(next.text, 0, text.length, next.selectionStart, next.selectionEnd);
   }
 
   function insertEmoji(emoji: string) {
     const start = box.current?.selectionStart ?? text.length;
     const end = box.current?.selectionEnd ?? start;
     replaceSelection(emoji, start, end, start + emoji.length);
-    setEmojiOpen(false);
   }
 
   useEffect(() => {
@@ -284,7 +249,6 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setText("");
     setAttached([]);
     setMentionQuery(null);
-    setEmojiOpen(false);
     setAttachmentNote(null);
     edited.current = false;
     client.setDraft(draftKey, "");
@@ -360,7 +324,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     // Enter confirms an IME candidate; it must not send an unfinished message.
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-      const marker = { b: "*", i: "_", e: "`" }[e.key.toLowerCase()];
+      const marker = formattingShortcut(e.key);
       if (marker) {
         e.preventDefault();
         format(marker, "text");
@@ -541,87 +505,13 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           dragging ? "border-copper bg-copper/5" : "border-edge focus-within:border-copper/60"
         }`}
       >
-        <div
-          role="group"
-          aria-label="Message formatting"
-          className="flex flex-wrap items-center gap-0.5 border-b border-edge px-2 py-1 text-sm text-ink-dim"
-        >
-          {[
-            { label: "Bold", symbol: "B", marker: "*", style: "font-bold" },
-            { label: "Italic", symbol: "I", marker: "_", style: "italic" },
-            { label: "Strikethrough", symbol: "S", marker: "~", style: "line-through" },
-            { label: "Inline code", symbol: "</>", marker: "`", style: "font-mono text-xs" },
-          ].map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              aria-label={item.label}
-              title={item.label}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => format(item.marker, "text")}
-              className={`rounded px-2 py-1 hover:bg-lifted ${item.style}`}
-            >
-              {item.symbol}
-            </button>
-          ))}
-          <button
-            type="button"
-            title="Code block"
-            aria-label="Code block"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => format("```", "code", true)}
-            className="rounded px-2 py-1 font-mono text-xs hover:bg-lifted"
-          >
-            {"{ }"}
-          </button>
-          <button
-            ref={emojiButton}
-            type="button"
-            aria-label="Insert emoji"
-            aria-expanded={emojiOpen}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setEmojiOpen((v) => !v)}
-            className="rounded px-2 py-1 hover:bg-lifted"
-          >
-            ☺
-          </button>
-          <button
-            type="button"
-            aria-pressed={preview}
-            onClick={() => setPreview((v) => !v)}
-            className="ml-auto rounded px-2 py-1 text-xs hover:bg-lifted"
-          >
-            Preview
-          </button>
-        </div>
-        {emojiOpen && (
-          <div
-            role="group"
-            aria-label="Choose an emoji"
-            className="grid grid-cols-6 gap-1 border-b border-edge p-2"
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                setEmojiOpen(false);
-                emojiButton.current?.focus();
-              }
-            }}
-          >
-            {EMOJI.map(([emoji, label]) => (
-              <button
-                type="button"
-                key={label}
-                aria-label={label}
-                title={label}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => insertEmoji(emoji)}
-                className="rounded p-1 text-xl hover:bg-lifted"
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        )}
+        <FormattingToolbar
+          key={draftKey}
+          onFormat={format}
+          onInsert={insertEmoji}
+          preview={preview}
+          onTogglePreview={() => setPreview((v) => !v)}
+        />
         {preview && (
           <div
             aria-label="Message preview"

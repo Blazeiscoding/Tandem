@@ -1,0 +1,213 @@
+import { useRef, useState } from "react";
+
+export const MESSAGE_LIMIT = 12_000;
+export const formattingShortcut = (key: string) => ({ b: "*", i: "_", e: "`" })[key.toLowerCase()];
+
+/** Keep composer and editor selection behavior identical. */
+export function formatText(
+  text: string,
+  start: number,
+  end: number,
+  marker: string,
+  placeholder = "text",
+  block = false,
+) {
+  const selected = text.slice(start, end) || placeholder;
+  const unwrap =
+    !block &&
+    start >= marker.length &&
+    text.slice(start - marker.length, start) === marker &&
+    text.slice(end, end + marker.length) === marker;
+  const prefix = unwrap
+    ? ""
+    : block
+      ? `${start > 0 && text[start - 1] !== "\n" ? "\n" : ""}${marker}\n`
+      : marker;
+  const suffix = unwrap
+    ? ""
+    : block
+      ? `\n${marker}${end < text.length && text[end] !== "\n" ? "\n" : ""}`
+      : marker;
+  const from = unwrap ? start - marker.length : start;
+  const to = unwrap ? end + marker.length : end;
+  return {
+    text: text.slice(0, from) + prefix + selected + suffix + text.slice(to),
+    selectionStart: from + prefix.length,
+    selectionEnd: from + prefix.length + selected.length,
+  };
+}
+
+const EMOJI = [
+  ["😀", "Smile happy"],
+  ["😂", "Laugh tears joy"],
+  ["❤️", "Heart love"],
+  ["👍", "Thumbs up yes"],
+  ["✅", "Done check complete"],
+  ["👀", "Eyes looking"],
+  ["🎉", "Celebrate party"],
+  ["🙏", "Thanks please"],
+  ["🚀", "Rocket launch"],
+  ["💡", "Idea light bulb"],
+  ["🤔", "Thinking question"],
+  ["🙌", "Raised hands hooray"],
+  ["😊", "Smile blush"],
+  ["😅", "Sweat relieved"],
+  ["😎", "Cool sunglasses"],
+  ["🤩", "Star struck excited"],
+  ["😢", "Sad cry"],
+  ["😭", "Sobbing crying"],
+  ["😴", "Sleep tired"],
+  ["🤯", "Mind blown amazed"],
+  ["🤝", "Handshake agreement"],
+  ["👏", "Clap applause"],
+  ["👋", "Wave hello goodbye"],
+  ["💪", "Strong muscle"],
+  ["🔥", "Fire hot"],
+  ["⭐", "Star favorite"],
+  ["💯", "Hundred perfect"],
+  ["⚠️", "Warning attention"],
+  ["❌", "No cross cancel"],
+  ["❓", "Question help"],
+  ["📌", "Pin reminder"],
+  ["📝", "Notes writing"],
+  ["📅", "Calendar date"],
+  ["⏰", "Alarm clock time"],
+  ["☕", "Coffee break"],
+  ["🍕", "Pizza food"],
+  ["🎂", "Cake birthday"],
+  ["🎁", "Gift present"],
+  ["🌱", "Seedling growth"],
+  ["🌈", "Rainbow"],
+  ["🐛", "Bug insect"],
+  ["🛠️", "Tools fix repair"],
+  ["🔒", "Lock private secure"],
+  ["🔗", "Link connection"],
+  ["📊", "Chart data"],
+  ["💻", "Computer laptop code"],
+  ["🏠", "Home house"],
+  ["🌍", "Earth world"],
+] as const;
+
+interface Props {
+  onFormat: (marker: string, placeholder: string, block?: boolean) => void;
+  onInsert: (text: string) => void;
+  preview: boolean;
+  onTogglePreview: () => void;
+}
+
+export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview }: Props) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const trigger = useRef<HTMLButtonElement>(null);
+  const matches = EMOJI.filter(
+    ([emoji, label]) =>
+      label.toLowerCase().includes(query.toLowerCase().trim()) || emoji === query.trim(),
+  );
+  return (
+    <>
+      <div
+        role="group"
+        aria-label="Message formatting"
+        className="flex flex-wrap items-center gap-0.5 border-b border-edge px-2 py-1 text-sm text-ink-dim"
+      >
+        {[
+          { label: "Bold", symbol: "B", marker: "*", style: "font-bold" },
+          { label: "Italic", symbol: "I", marker: "_", style: "italic" },
+          { label: "Strikethrough", symbol: "S", marker: "~", style: "line-through" },
+          { label: "Inline code", symbol: "</>", marker: "`", style: "font-mono text-xs" },
+        ].map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            aria-label={item.label}
+            title={item.label}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onFormat(item.marker, "text")}
+            className={`rounded px-2 py-1 hover:bg-lifted ${item.style}`}
+          >
+            {item.symbol}
+          </button>
+        ))}
+        <button
+          type="button"
+          aria-label="Code block"
+          title="Code block"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onFormat("```", "code", true)}
+          className="rounded px-2 py-1 font-mono text-xs hover:bg-lifted"
+        >
+          {"{ }"}
+        </button>
+        <button
+          ref={trigger}
+          type="button"
+          aria-label="Insert emoji"
+          aria-expanded={open}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            setOpen((v) => !v);
+            setQuery("");
+          }}
+          className="rounded px-2 py-1 hover:bg-lifted"
+        >
+          ☺
+        </button>
+        <button
+          type="button"
+          aria-pressed={preview}
+          onClick={onTogglePreview}
+          className="ml-auto rounded px-2 py-1 text-xs hover:bg-lifted"
+        >
+          Preview
+        </button>
+      </div>
+      {open && (
+        <div
+          role="group"
+          aria-label="Choose an emoji"
+          className="border-b border-edge p-2"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
+              trigger.current?.focus();
+            }
+          }}
+        >
+          <input
+            autoFocus
+            aria-label="Search emoji"
+            placeholder="Search emoji"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="mb-2 w-full rounded border border-edge bg-ground px-2 py-1 text-sm outline-none focus:border-copper"
+          />
+          <div className="grid max-h-36 grid-cols-6 gap-1 overflow-y-auto">
+            {matches.map(([emoji, label]) => (
+              <button
+                type="button"
+                key={label}
+                aria-label={label}
+                title={label}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onInsert(emoji);
+                  setOpen(false);
+                }}
+                className="rounded p-1 text-xl hover:bg-lifted"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+          {!matches.length && (
+            <p role="status" className="py-2 text-sm text-ink-faint">
+              No emoji matched. Try another word.
+            </p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}

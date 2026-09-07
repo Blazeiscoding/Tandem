@@ -6,6 +6,7 @@ import { formatTime } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
 import { MessageAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { MessageEditor } from "./MessageEditor.js";
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
 
@@ -36,19 +37,12 @@ export const MessageItem = memo(function MessageItem({
   const channels = useWorkspace((s) => s.channels);
   const self = useWorkspace((s) => s.self);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
   const { copy, copied } = useCopy(1200);
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
   const mine = message.userId === self?.id;
   const canDelete = mine || self?.role === "owner" || self?.role === "admin";
   const mentionsMe = self ? message.text.includes(`<@${self.id}>`) : false;
-
-  function saveEdit() {
-    const t = draft.trim();
-    if (t && t !== message.text) void client.api.editMessage(message.id, t);
-    setEditing(false);
-  }
 
   return (
     <div
@@ -104,23 +98,7 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {editing ? (
-            <div className="mt-1">
-              <textarea
-                value={draft}
-                autoFocus
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    saveEdit();
-                  }
-                  if (e.key === "Escape") setEditing(false);
-                }}
-                className="block w-full resize-none rounded-lg border border-copper/60 bg-ground px-3 py-2 text-[15px] outline-none"
-                rows={Math.min(6, draft.split("\n").length)}
-              />
-              <p className="mt-1 text-xs text-ink-faint">Enter to save · Esc to cancel</p>
-            </div>
+            <MessageEditor message={message} onClose={() => setEditing(false)} />
           ) : (
             <>
               {message.text && (
@@ -218,7 +196,6 @@ export const MessageItem = memo(function MessageItem({
               label="✎"
               title="Edit message"
               onClick={() => {
-                setDraft(message.text);
                 setEditing(true);
               }}
             />
