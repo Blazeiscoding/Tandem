@@ -496,6 +496,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       userCount,
       requiresInvite: userCount > 0 && inviteOnly(),
       requiresClaim: userCount === 0 && !!claimCode() && !isLocalRequest(req),
+      schedulingIdempotency: true,
     };
   });
 
@@ -2071,31 +2072,58 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.post<{ Params: { id: string } }>("/api/channels/:id/scheduled", async (req, reply) => {
     const me = requireUser(req);
     const channel = requireChannelAccess(req.params.id, me);
-    if (channel.archived) throw new HttpError(400, "channel_archived");
     const body = scheduleMessageBody.parse(req.body);
-    if (body.sendAt <= Date.now()) {
-      throw new HttpError(400, "send_at_in_past", "pick a time in the future");
-    }
-    // Queuing validates what sending validates, so a message cannot sit in the
-    // queue for hours only to be rejected when it comes due.
-    if (body.threadRootId) {
-      const root = store.getMessage(body.threadRootId);
-      if (!root || root.channelId !== channel.id || root.threadRootId) {
-        throw new HttpError(400, "bad_thread_root");
+    const requestHash = hashToken(
+      JSON.stringify([
+        channel.id,
+        body.text,
+        body.threadRootId ?? null,
+        [...(body.fileIds ?? [])].sort(),
+        body.sendAt,
+      ]),
+    );
+    const result = store.transaction(() => {
+      if (body.nonce) {
+        const previous = store.scheduledRequest(me.id, body.nonce);
+        if (previous) {
+          if (previous.requestHash !== requestHash) throw new HttpError(409, "nonce_conflict");
+          const scheduled = store.getScheduled(previous.scheduledId);
+          if (!scheduled)
+            throw new HttpError(
+              410,
+              "scheduled_removed",
+              "This scheduling request was already accepted, but its queue record has been removed. It will not be recreated.",
+            );
+          return { scheduled, replayed: true };
+        }
       }
-    }
-    if (!store.unattachedFiles(body.fileIds ?? [], channel.id, me.id)) {
-      throw new HttpError(400, "invalid_attachments");
-    }
-    const scheduled = store.scheduleMessage({
-      channelId: channel.id,
-      userId: me.id,
-      text: body.text,
-      threadRootId: body.threadRootId ?? null,
-      fileIds: body.fileIds ?? [],
-      sendAt: body.sendAt,
+      if (channel.archived) throw new HttpError(400, "channel_archived");
+      if (body.sendAt <= Date.now()) {
+        throw new HttpError(400, "send_at_in_past", "pick a time in the future");
+      }
+      // Queuing validates what sending validates, so a message cannot sit in the
+      // queue for hours only to be rejected when it comes due.
+      if (body.threadRootId) {
+        const root = store.getMessage(body.threadRootId);
+        if (!root || root.channelId !== channel.id || root.threadRootId) {
+          throw new HttpError(400, "bad_thread_root");
+        }
+      }
+      if (!store.unattachedFiles(body.fileIds ?? [], channel.id, me.id)) {
+        throw new HttpError(400, "invalid_attachments");
+      }
+      const scheduled = store.scheduleMessage({
+        channelId: channel.id,
+        userId: me.id,
+        text: body.text,
+        threadRootId: body.threadRootId ?? null,
+        fileIds: body.fileIds ?? [],
+        sendAt: body.sendAt,
+      });
+      if (body.nonce) store.recordScheduledRequest(me.id, body.nonce, scheduled.id, requestHash);
+      return { scheduled, replayed: false };
     });
-    return reply.status(201).send({ scheduled });
+    return reply.status(result.replayed ? 200 : 201).send({ scheduled: result.scheduled });
   });
 
   app.get("/api/scheduled", async (req) => {

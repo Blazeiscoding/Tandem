@@ -1134,6 +1134,24 @@ export class Store {
 
   // ---------- scheduled messages ----------
 
+  scheduledRequest(userId: ID, nonce: string): { scheduledId: ID; requestHash: string } | null {
+    return (
+      (this.db
+        .prepare(
+          "SELECT scheduled_id AS scheduledId, request_hash AS requestHash FROM scheduled_requests WHERE user_id = ? AND nonce = ?",
+        )
+        .get(userId, nonce) as { scheduledId: ID; requestHash: string } | undefined) ?? null
+    );
+  }
+
+  recordScheduledRequest(userId: ID, nonce: string, scheduledId: ID, requestHash: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO scheduled_requests (user_id, nonce, scheduled_id, request_hash) VALUES (?, ?, ?, ?)",
+      )
+      .run(userId, nonce, scheduledId, requestHash);
+  }
+
   scheduleMessage(input: {
     channelId: ID;
     userId: ID;

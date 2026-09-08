@@ -276,6 +276,16 @@ const MIGRATIONS: string[] = [
     file_id TEXT PRIMARY KEY
   );
   `,
+  // v14 — retain scheduling request identities even after cancellation/pruning.
+  `
+  CREATE TABLE scheduled_requests (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    nonce TEXT NOT NULL,
+    scheduled_id TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    PRIMARY KEY (user_id, nonce)
+  );
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */
