@@ -64,6 +64,7 @@ export const MessageTimeline = memo(function MessageTimeline({
   const scroller = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const historyRequest = useRef<object | null>(null);
+  const historyAnchor = useRef<{ ticket: object; anchor: Anchor } | null>(null);
   const [loadingHistory, setLoadingHistory] = useState<"initial" | "older" | "newer" | null>(null);
   const [historyError, setHistoryError] = useState<"initial" | "older" | "newer" | null>(null);
   const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
@@ -74,6 +75,7 @@ export const MessageTimeline = memo(function MessageTimeline({
 
   useEffect(() => {
     historyRequest.current = null;
+    historyAnchor.current = null;
     setHistoryError(null);
     setLoadingHistory(null);
     // A jump anchors the view; only a plain channel open tails the newest.
@@ -100,6 +102,7 @@ export const MessageTimeline = memo(function MessageTimeline({
     setHistoryError(null);
     const container = scroller.current;
     const anchor = kind === "older" && container ? topAnchor(container) : null;
+    historyAnchor.current = anchor ? { ticket, anchor } : null;
     try {
       if (kind === "newer") await client.loadNewer(channelId);
       else await client.loadTimeline(channelId, { older: kind === "older" });
@@ -107,10 +110,7 @@ export const MessageTimeline = memo(function MessageTimeline({
       if (historyRequest.current === ticket) setHistoryError(kind);
     } finally {
       requestAnimationFrame(() => {
-        if (historyRequest.current !== ticket) return;
-        if (container && anchor) restoreAnchor(container, anchor);
-        historyRequest.current = null;
-        setLoadingHistory(null);
+        if (historyRequest.current === ticket) setLoadingHistory(null);
       });
     }
   }
@@ -178,6 +178,18 @@ export const MessageTimeline = memo(function MessageTimeline({
     lastFirstId.current = firstId;
     lastChannel.current = channelId;
     lastScrollHeight.current = el.scrollHeight;
+  });
+
+  // Restore after React commits both the rows and the loading indicator. Doing
+  // this before removing the indicator shifts the reader by its height.
+  useLayoutEffect(() => {
+    const saved = historyAnchor.current;
+    if (saved && saved.ticket === historyRequest.current && scroller.current)
+      restoreAnchor(scroller.current, saved.anchor);
+    if (loadingHistory === null) {
+      historyAnchor.current = null;
+      historyRequest.current = null;
+    }
   });
 
   // The scroller is reused across channels, so its position carries over.

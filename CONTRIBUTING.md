@@ -1,5 +1,19 @@
 # Contributing
 
+Develop each improvement on a branch and open a pull request against `master`.
+Describe the user-visible change, validation performed, and any remaining limits.
+Review the complete diff, resolve known issues within the PR's scope, and wait for
+the applicable GitHub checks before merging. Keep unrelated follow-up work in
+separate PRs rather than expanding a finished change indefinitely. After merging,
+start the next branch from the updated `master`.
+
+CI runs on pull requests and on updates to `master`; feature-branch pushes do not
+create duplicate runs. A newer run for the same PR supersedes an older one. A
+manual workflow dispatch is available when a branch needs checking before a PR.
+If new tests are explicitly deferred for a development phase, record that limit
+in the PR. Keep existing CI checks enabled and distinguish passing existing tests
+from coverage of the new behavior.
+
 Use Node 24+ and pnpm 10.23.0 (`corepack enable`). Install with
 `pnpm install --frozen-lockfile`, then run `pnpm format`, `pnpm build`,
 `pnpm typecheck`, and `pnpm test` before submitting a pull request. CI checks
