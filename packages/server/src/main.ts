@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_PORT } from "@slackoss/protocol";
 import { createWorkspaceServer, SERVER_VERSION } from "./server.js";
 import { backupWorkspace, restoreWorkspace, verifyBackup } from "./backup.js";
+import { listAccounts, recoverAccount } from "./recover.js";
 import { parseIceServers } from "./rtc.js";
 
 const { values, positionals } = parseArgs({
@@ -22,6 +23,8 @@ const { values, positionals } = parseArgs({
     web: { type: "string" },
     "public-url": { type: "string" },
     "allow-private-hooks": { type: "boolean", default: false },
+    handle: { type: "string" },
+    "make-owner": { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -33,6 +36,7 @@ Usage: slackoss-server [options]
        slackoss-server backup  --data <dir> --out <dir>
        slackoss-server restore --from <dir> --data <dir>
        slackoss-server verify-backup --from <dir>
+       slackoss-server recover --data <dir> [--handle <handle>] [--make-owner]
 
   --data <dir>      Data directory (default ./data)
   --port <port>     Port to listen on (default ${DEFAULT_PORT})
@@ -61,6 +65,17 @@ Backups
   restore         Replace --data with a backup, after verifying it. The old
                   directory is renamed rather than deleted. Stop the server
                   before restoring.
+
+Recovery
+
+  recover         Get back into a workspace nobody can sign in to. Run it on
+                  this machine, with the server stopped. Without --handle it
+                  lists the accounts; with one it issues a temporary password
+                  for that account, ends its sessions, and requires a new
+                  password at next sign-in. --make-owner also hands the
+                  workspace to that account, which is the way back from an
+                  owner who has left. This needs the workspace file, so it
+                  gives away nothing that reading the file did not already.
 `);
   process.exit(0);
 }
@@ -110,6 +125,52 @@ if (command === "verify-backup" || command === "restore") {
       if (supersededDir) console.log(`  The previous data directory is kept at ${supersededDir}`);
       console.log("");
     }
+  } catch (err) {
+    console.error(`
+  ${err instanceof Error ? err.message : String(err)}
+`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+if (command === "recover") {
+  try {
+    if (!values.handle) {
+      const accounts = listAccounts(resolve(values.data));
+      if (accounts.length === 0) {
+        console.log("\n  This workspace has no accounts yet.\n");
+        process.exit(0);
+      }
+      console.log("\n  Accounts in this workspace\n");
+      for (const account of accounts) {
+        const notes = [
+          account.role,
+          account.deactivated ? "deactivated" : null,
+          account.mustChangePassword ? "must choose a new password" : null,
+        ].filter(Boolean);
+        console.log(`  ${account.handle.padEnd(20)} ${account.displayName} (${notes.join(", ")})`);
+      }
+      console.log(`
+  Run again with --handle <handle> to issue a temporary password.
+`);
+      process.exit(0);
+    }
+    const result = await recoverAccount({
+      dataDir: resolve(values.data),
+      handle: values.handle,
+      makeOwner: values["make-owner"],
+    });
+    console.log(`
+  Temporary password for "${values.handle}" (${result.role}):
+
+      ${result.temporaryPassword}
+
+  ${result.revokedSessions} existing ${result.revokedSessions === 1 ? "session was" : "sessions were"} ended.
+  Signing in with this password leads straight to choosing a new one; nothing
+  else in the workspace is reachable until then. It is not stored anywhere, so
+  copy it now.
+`);
   } catch (err) {
     console.error(`
   ${err instanceof Error ? err.message : String(err)}
