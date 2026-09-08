@@ -7,6 +7,18 @@ import { formatScheduleTime, localDateTime } from "../lib/schedule.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { MESSAGE_LIMIT } from "./FormattingToolbar.js";
 
+function draftText(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && "text" in parsed && typeof parsed.text === "string")
+      return parsed.text;
+  } catch {
+    // Ignore malformed local data rather than replacing the queued text with it.
+  }
+  return undefined;
+}
+
 /** Messages queued to go out later, with the option to call them back. */
 export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId: ID) => void }) {
   const client = useClient();
@@ -27,7 +39,7 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
   const [editError, setEditError] = useState<string | null>(null);
   const edited = useRef(false);
   const editKey = editing ? `${editing.channelId}:scheduled-edit:${editing.id}` : null;
-  const savedEdit = useWorkspace((s) => (editKey ? s.drafts[editKey] : undefined));
+  const savedEdit = useWorkspace((s) => draftText(editKey ? s.drafts[editKey] : undefined));
   const currentEdit = items?.find((item) => item.id === editing?.id);
   useEffect(() => {
     if (!edited.current && savedEdit !== undefined) setEditText(savedEdit);
@@ -48,7 +60,7 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
         text: editText,
         expectedText: editing.text,
       });
-      if (client.state.drafts[editKey] === editText) client.setDraft(editKey, "");
+      if (draftText(client.state.drafts[editKey]) === editText) client.setDraft(editKey, "");
       if (alive.current) {
         setItems(
           (previous) =>
@@ -196,7 +208,10 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                 onChange={(event) => {
                   edited.current = true;
                   setEditText(event.target.value);
-                  if (editKey) client.setDraft(editKey, event.target.value);
+                  // A serialized value preserves an intentionally empty edit;
+                  // ordinary empty composer drafts are removed by setDraft.
+                  if (editKey)
+                    client.setDraft(editKey, JSON.stringify({ text: event.target.value }));
                 }}
                 className="mt-2 min-h-28 w-full rounded-lg border border-edge bg-ground p-2 font-normal"
               />
@@ -231,7 +246,8 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                     setEditing(currentEdit);
                     setEditText(currentEdit.text);
                     edited.current = true;
-                    if (editKey) client.setDraft(editKey, currentEdit.text);
+                    if (editKey)
+                      client.setDraft(editKey, JSON.stringify({ text: currentEdit.text }));
                     setEditError(null);
                   }}
                 >
@@ -318,7 +334,8 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                       setEditing(s);
                       edited.current = false;
                       setEditText(
-                        client.state.drafts[`${s.channelId}:scheduled-edit:${s.id}`] ?? s.text,
+                        draftText(client.state.drafts[`${s.channelId}:scheduled-edit:${s.id}`]) ??
+                          s.text,
                       );
                       setEditError(null);
                       setConfirmation(null);
