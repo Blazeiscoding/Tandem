@@ -303,6 +303,10 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE messages ADD COLUMN broadcast INTEGER NOT NULL DEFAULT 0;
   `,
+  // v17 — a password someone else chose, which its owner must replace.
+  `
+  ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

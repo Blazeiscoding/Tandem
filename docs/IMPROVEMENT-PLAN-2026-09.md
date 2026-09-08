@@ -247,7 +247,25 @@ The current schema is version 13: v10 adds `message_requests`, v11 adds the sche
 - **Owner setup (A02/U03):** forwarded requests require the startup claim code. The browser now displays that field, submits it, and preserves registration input when a code is rejected. The full browser journey exercises wrong-code correction and successful setup behind forwarded headers. A proxy that strips every forwarding header must set the server's public URL to disable the local bypass.
 - **LAN browser sending (R02/U03):** send keys use `crypto.getRandomValues`, which is available on plain HTTP LAN origins. A regression removes the secure-context `randomUUID` API and verifies that a real send still settles.
 
-Account settings now provides password changes, signed-in device lists, individual/all-other session revocation and explicit workspace sign-out. People provides confirmed administrator password resets and typed-confirmation ownership transfer. Temporary passwords are displayed only in the current dialog, with reveal/copy controls; they are not persisted locally. Admin-issued temporary passwords are still not forced to change at next login, and local emergency recovery remains unfinished.
+A password someone else chose now has to be replaced before the workspace opens (A02).
+Schema v17 marks such a password, an admin reset sets the mark, and until its owner chooses
+their own the account can reach only the password change and sign-out — enforced centrally in
+`requireUser` so a route added later is covered, and on the socket handshake too, since
+otherwise a temporary password still handed over the whole workspace. Login says so rather
+than letting the client discover it by being refused, and the sign-in card asks for a new
+password instead of going in.
+
+Local emergency recovery is now a host command (A02). `slackoss-server recover --data <dir>`
+lists the accounts; with `--handle` it issues a one-time password, ends that account's
+sessions and requires a new password at next sign-in; `--make-owner` also hands the workspace
+over, which is the way back from an owner who has left, with the previous owner stepping down
+to admin rather than out. It works against the workspace file with the server stopped, so it
+grants nothing that reading the file did not already, and it covers the case the API
+deliberately refuses: the owner, whom no admin may reset. A deactivated account is revived
+rather than recovered into a locked door. `packages/server/test/recovery.test.ts` adds seven
+regressions, and the flow was exercised against the packaged server binary end to end.
+
+Account settings now provides password changes, signed-in device lists, individual/all-other session revocation and explicit workspace sign-out. People provides confirmed administrator password resets and typed-confirmation ownership transfer. Temporary passwords are displayed only in the current dialog, with reveal/copy controls; they are not persisted locally. Second-factor authentication and recovery codes (A07) remain, deliberately after recovery rather than before it.
 
 The September 7 UI phases use focused typechecking/build validation. Automated interaction tests for these new screens are deferred at the user's request; the test totals above describe the last completed reliability test run.
 

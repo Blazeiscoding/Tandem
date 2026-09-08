@@ -499,6 +499,14 @@ function AuthCard(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const firstField = useRef<HTMLInputElement>(null);
+  /**
+   * Set when the password just used was issued by someone else — an admin
+   * reset, or host recovery. The workspace is closed to this account until it
+   * chooses its own, so the card asks for one instead of going in.
+   */
+  const [mustReplace, setMustReplace] = useState<{ token: string; current: string } | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => firstField.current?.focus(), [mode]);
 
@@ -518,6 +526,11 @@ function AuthCard(props: {
               ...(inviteCode.trim() ? { inviteCode: inviteCode.trim() } : {}),
               ...(claimCode.trim() ? { claimCode: claimCode.trim() } : {}),
             });
+      if ("mustChangePassword" in result && result.mustChangePassword) {
+        setMustReplace({ token: result.token, current: password });
+        setBusy(false);
+        return;
+      }
       props.onConnected({
         url: props.url,
         token: result.token,
@@ -528,6 +541,39 @@ function AuthCard(props: {
     } catch (err) {
       if (err instanceof ApiError && err.code === "claim_required") setRequiresClaim(true);
       setError(errorMessage(err, mode));
+      setBusy(false);
+    }
+  }
+
+  async function replacePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mustReplace) return;
+    setError(null);
+    if (newPassword.length < 8) {
+      setError("Use at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Those two do not match.");
+      return;
+    }
+    if (newPassword === mustReplace.current) {
+      setError("Choose something other than the password you were given.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const api = new Api(props.url, mustReplace.token);
+      await api.changePassword(mustReplace.current, newPassword);
+      props.onConnected({
+        url: props.url,
+        token: mustReplace.token,
+        workspaceName: props.info.workspaceName,
+        handle: handle.trim().toLowerCase(),
+        lastUsedAt: Date.now(),
+      });
+    } catch (err) {
+      setError(errorMessage(err, "login"));
       setBusy(false);
     }
   }
@@ -549,102 +595,147 @@ function AuthCard(props: {
         {props.info.userCount === 1 ? "member" : "members"}
       </p>
 
-      {isFirstUser && (
-        <p className="mb-4 rounded-lg bg-mention px-3 py-2.5 text-sm text-copper">
-          This workspace is brand new — the first account becomes its owner.
-        </p>
-      )}
-
-      {hasUsers && (
-        <div className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
-          {(["login", "register"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                mode === m ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
-              }`}
-            >
-              {m === "login" ? "Sign in" : "Create account"}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <form onSubmit={submit} className="space-y-3">
-        <input
-          ref={firstField}
-          value={handle}
-          onChange={(e) => setHandle(e.target.value)}
-          placeholder="username"
-          aria-label="Username"
-          autoComplete="username"
-          spellCheck={false}
-          autoCapitalize="none"
-          className={inputCls}
-        />
-        {mode === "register" && (
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Display name"
-            aria-label="Display name"
-            autoComplete="nickname"
-            className={inputCls}
-          />
-        )}
-        <input
-          type="password"
-          aria-label="Password"
-          autoComplete={mode === "register" ? "new-password" : "current-password"}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder={mode === "register" ? "Password (8+ characters)" : "Password"}
-          className={inputCls}
-        />
-        {mode === "register" && !isFirstUser && props.info.requiresInvite && (
-          <input
-            value={inviteCode}
-            onChange={(e) => setInviteCode(e.target.value)}
-            placeholder="Invite code"
-            spellCheck={false}
-            className={`${inputCls} font-mono`}
-          />
-        )}
-        {mode === "register" && requiresClaim && (
-          <div>
-            <label className="mb-1 block text-sm" htmlFor="workspace-claim-code">
-              Workspace claim code
-            </label>
-            <input
-              id="workspace-claim-code"
-              type="password"
-              autoComplete="off"
-              value={claimCode}
-              onChange={(e) => setClaimCode(e.target.value)}
-              placeholder="Claim code from the host"
-              aria-describedby="workspace-claim-help"
-              spellCheck={false}
-              className={`${inputCls} font-mono`}
-            />
-            <p id="workspace-claim-help" className="mt-1 text-xs text-ink-dim">
-              Enter the code shown when the host started this workspace to create its owner account.
-            </p>
-          </div>
-        )}
-        {error && (
-          <p role="alert" className="text-sm text-alert">
-            {error}
+      {mustReplace ? (
+        <>
+          <p className="mb-4 rounded-lg bg-mention px-3 py-2.5 text-sm text-copper">
+            That password was issued to you by someone else. Choose your own to finish signing in —
+            the workspace stays closed until you do.
           </p>
-        )}
-        <button
-          type="submit"
-          disabled={busy || !handle.trim() || !password}
-          className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
-        >
-          {busy ? "Connecting…" : mode === "login" ? "Sign in" : "Join workspace"}
-        </button>
-      </form>
+          <form onSubmit={replacePassword} className="space-y-3">
+            <input
+              autoFocus
+              type="password"
+              aria-label="New password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="New password (8+ characters)"
+              className={inputCls}
+            />
+            <input
+              type="password"
+              aria-label="Confirm new password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="New password again"
+              className={inputCls}
+            />
+            {error && (
+              <p role="alert" className="text-sm text-alert">
+                {error}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full rounded-lg bg-copper py-2.5 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-60"
+            >
+              {busy ? "Saving…" : "Set password and continue"}
+            </button>
+          </form>
+        </>
+      ) : (
+        <>
+          {isFirstUser && (
+            <p className="mb-4 rounded-lg bg-mention px-3 py-2.5 text-sm text-copper">
+              This workspace is brand new — the first account becomes its owner.
+            </p>
+          )}
+
+          {hasUsers && (
+            <div className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
+              {(["login", "register"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    mode === m ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
+                  }`}
+                >
+                  {m === "login" ? "Sign in" : "Create account"}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <form onSubmit={submit} className="space-y-3">
+            <input
+              ref={firstField}
+              value={handle}
+              onChange={(e) => setHandle(e.target.value)}
+              placeholder="username"
+              aria-label="Username"
+              autoComplete="username"
+              spellCheck={false}
+              autoCapitalize="none"
+              className={inputCls}
+            />
+            {mode === "register" && (
+              <input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Display name"
+                aria-label="Display name"
+                autoComplete="nickname"
+                className={inputCls}
+              />
+            )}
+            <input
+              type="password"
+              aria-label="Password"
+              autoComplete={mode === "register" ? "new-password" : "current-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={mode === "register" ? "Password (8+ characters)" : "Password"}
+              className={inputCls}
+            />
+            {mode === "register" && !isFirstUser && props.info.requiresInvite && (
+              <input
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                placeholder="Invite code"
+                spellCheck={false}
+                className={`${inputCls} font-mono`}
+              />
+            )}
+            {mode === "register" && requiresClaim && (
+              <div>
+                <label className="mb-1 block text-sm" htmlFor="workspace-claim-code">
+                  Workspace claim code
+                </label>
+                <input
+                  id="workspace-claim-code"
+                  type="password"
+                  autoComplete="off"
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value)}
+                  placeholder="Claim code from the host"
+                  aria-describedby="workspace-claim-help"
+                  spellCheck={false}
+                  className={`${inputCls} font-mono`}
+                />
+                <p id="workspace-claim-help" className="mt-1 text-xs text-ink-dim">
+                  Enter the code shown when the host started this workspace to create its owner
+                  account.
+                </p>
+              </div>
+            )}
+            {error && (
+              <p role="alert" className="text-sm text-alert">
+                {error}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={busy || !handle.trim() || !password}
+              className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+            >
+              {busy ? "Connecting…" : mode === "login" ? "Sign in" : "Join workspace"}
+            </button>
+          </form>
+        </>
+      )}
     </div>
   );
 }

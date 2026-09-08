@@ -120,7 +120,11 @@ export type ServerToClient =
   | { type: "ephemeral"; event: EphemeralEvent }
   /** lastSeq was pruned from the log — client must drop caches and re-sync. */
   | { type: "resync" }
-  | { type: "error"; code: "auth_failed" | "protocol_mismatch"; message: string }
+  | {
+      type: "error";
+      code: "auth_failed" | "protocol_mismatch" | "password_change_required";
+      message: string;
+    }
   | { type: "pong" };
 
 export type ClientToServer =

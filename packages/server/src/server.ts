@@ -512,10 +512,27 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return host ? `${proto}://${host}` : `http://localhost:${opts.port ?? 8543}`;
   };
 
+  /**
+   * Routes an account may reach while it still holds a password someone else
+   * chose: replacing that password, and getting out.
+   */
+  const ALLOWED_WHILE_LOCKED = new Set(["/api/auth/password", "/api/auth/logout"]);
+
   const requireUser = (req: FastifyRequest): User => {
     const token = bearerToken(req);
     const user = token ? store.getSessionUser(hashToken(token)) : null;
     if (!user) throw new HttpError(401, "unauthorized");
+    // Checked here rather than per route, so a route added later is covered.
+    if (
+      !ALLOWED_WHILE_LOCKED.has(req.routeOptions.url ?? "") &&
+      store.mustChangePassword(user.id)
+    ) {
+      throw new HttpError(
+        403,
+        "password_change_required",
+        "Choose a new password before using this workspace.",
+      );
+    }
     return user;
   };
 
@@ -660,7 +677,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const { token, tokenHash } = newSessionToken();
     store.createSession(tokenHash, auth.id, deviceName(req));
     const { passwordHash: _p, salt: _s, ...user } = latest;
-    return { token, user };
+    return { token, user, mustChangePassword: store.mustChangePassword(auth.id) };
   });
 
   app.post("/api/auth/logout", async (req) => {
@@ -1753,7 +1770,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
     const target = authorize();
     const revokedSessions = store.transaction(() => {
-      store.setPassword(target.id, credentials.hash, credentials.salt);
+      store.setPassword(target.id, credentials.hash, credentials.salt, true);
       return store.revokeSessions(target.id);
     });
     for (const tokenHash of revokedSessions) {
