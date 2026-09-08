@@ -157,6 +157,10 @@ export function SearchDialog(props: {
   const [after, setAfter] = useState("");
   const [before, setBefore] = useState("");
   const [submitted, setSubmitted] = useState<{ query: string; channelId?: ID } | null>(null);
+  const highlightTerms = useMemo(
+    () => parseSearchQuery(submitted?.query ?? "").terms,
+    [submitted?.query],
+  );
   const [cursors, setCursors] = useState<(ID | undefined)[]>([undefined]);
   const [page, setPage] = useState(0);
   const request = useRef<AbortController | null>(null);
@@ -377,7 +381,12 @@ export function SearchDialog(props: {
                       </time>
                     </div>
                     <div className="text-sm">
-                      <Mrkdwn text={m.text} users={users} channels={channels} />
+                      <Mrkdwn
+                        text={m.text}
+                        users={users}
+                        channels={channels}
+                        highlightTerms={highlightTerms}
+                      />
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-2 text-xs text-ink-faint">
                       <span>
