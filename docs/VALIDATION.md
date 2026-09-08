@@ -39,8 +39,9 @@ The September 7–8 feature phases were checked with typechecking and production
 as requested by the user. Account controls, thread/search pagination, composer/editor changes,
 scheduling controls, unread synchronization, Activity and history-loading changes have not yet
 had their automated interaction/regression suites run. The test totals above remain the
-September 6 baseline. The latest build completed with existing Zod annotation warnings and
-a main browser/desktop renderer chunk just over 500 kB before compression.
+September 6 baseline. The latest build completed with existing Zod annotation warnings.
+Splitting account/administration views reduced the main browser/desktop renderer from
+roughly 502 kB to 477 kB before compression, removing the 500 kB chunk warning.
 
 The last two rows were not re-run for the reliability work recorded in
 `IMPROVEMENT-PLAN-2026-09.md`; their dates are the last run that did happen.

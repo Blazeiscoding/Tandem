@@ -12,7 +12,7 @@ interface State {
  * and a reload would throw them away to fix a problem that is usually in the
  * rendering alone.
  */
-export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
+export class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, State> {
   state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
@@ -26,6 +26,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   render() {
     const { error } = this.state;
     if (!error) return this.props.children;
+    if (this.props.fallback) return this.props.fallback;
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-[440px] rounded-2xl border border-edge bg-raised p-6 text-center">

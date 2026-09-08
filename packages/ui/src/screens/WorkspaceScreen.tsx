@@ -21,9 +21,8 @@ import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js
 import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
-import { AppsDialog } from "../components/AppsDialog.js";
-import { PeopleDialog } from "../components/PeopleDialog.js";
-import { AccountDialog } from "../components/AccountDialog.js";
+import { Dialog } from "../components/Dialog.js";
+import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
@@ -31,6 +30,15 @@ import { DraftPersistence } from "../components/DraftPersistence.js";
 
 const ActivityPanel = lazy(() =>
   import("../components/ActivityPanel.js").then((module) => ({ default: module.ActivityPanel })),
+);
+const AppsDialog = lazy(() =>
+  import("../components/AppsDialog.js").then((module) => ({ default: module.AppsDialog })),
+);
+const PeopleDialog = lazy(() =>
+  import("../components/PeopleDialog.js").then((module) => ({ default: module.PeopleDialog })),
+);
+const AccountDialog = lazy(() =>
+  import("../components/AccountDialog.js").then((module) => ({ default: module.AccountDialog })),
 );
 
 interface Props {
@@ -500,18 +508,38 @@ function WorkspaceInner({
         <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
       )}
       {panel.kind === "activity" && (
-        <Suspense
+        <ErrorBoundary
           fallback={
             <aside
-              role="status"
-              className="w-[420px] max-w-full border-l border-edge bg-ground p-5 text-sm text-ink-faint"
+              aria-label="Activity unavailable"
+              className="w-[420px] max-w-full border-l border-edge bg-ground p-5 text-sm"
             >
-              Loading activity…
+              <p role="alert">
+                Activity could not load. Close it to keep chatting, or reload the app to try again.
+              </p>
+              <div className="mt-3 flex gap-4 text-copper">
+                <button onClick={() => setPanel({ kind: "none" })}>Close activity</button>
+                <button onClick={() => window.location.reload()}>Reload app</button>
+              </div>
             </aside>
           }
         >
-          <ActivityPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
-        </Suspense>
+          <Suspense
+            fallback={
+              <aside
+                role="status"
+                className="w-[420px] max-w-full border-l border-edge bg-ground p-5 text-sm text-ink-faint"
+              >
+                Loading activity…
+                <button className="ml-3 text-copper" onClick={() => setPanel({ kind: "none" })}>
+                  Close
+                </button>
+              </aside>
+            }
+          >
+            <ActivityPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+          </Suspense>
+        </ErrorBoundary>
       )}
       {panel.kind === "scheduled" && (
         <ScheduledPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />
@@ -530,10 +558,36 @@ function WorkspaceInner({
         <SearchDialog channelId={activeChannelId} onClose={closeDialog} onJump={jumpToMessage} />
       )}
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
-      {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
-      {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}
-      {dialog.kind === "account" && (
-        <AccountDialog onClose={closeDialog} onSignedOut={onSignedOut} />
+      {(dialog.kind === "apps" || dialog.kind === "people" || dialog.kind === "account") && (
+        <ErrorBoundary
+          key={dialog.kind}
+          fallback={
+            <Dialog title="This view could not load" onClose={closeDialog}>
+              <p className="text-sm text-ink-dim">
+                Close this view to keep chatting, or reload the app to try again.
+              </p>
+              <button className="mt-3 text-sm text-copper" onClick={() => window.location.reload()}>
+                Reload app
+              </button>
+            </Dialog>
+          }
+        >
+          <Suspense
+            fallback={
+              <Dialog title="Loading settings" onClose={closeDialog}>
+                <p role="status" className="text-sm text-ink-faint">
+                  Opening this view…
+                </p>
+              </Dialog>
+            }
+          >
+            {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
+            {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}
+            {dialog.kind === "account" && (
+              <AccountDialog onClose={closeDialog} onSignedOut={onSignedOut} />
+            )}
+          </Suspense>
+        </ErrorBoundary>
       )}
       {/* Not one of the workspace's own dialogs: an app asked for this one, so
           it shows itself whenever one arrives. */}

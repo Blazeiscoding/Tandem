@@ -267,6 +267,8 @@ Activity now provides paginated Unread and Mentions views across joined conversa
 
 History loading now has finite request timeouts, visible errors/retry controls and explicit older/newer buttons (R08/U04). A conversation accepts only its latest requested history window, so a slow page cannot overwrite a newer jump. Paging retains a visible anchor and suppresses repeated automatic retries after failure. Jump-to-latest keeps the old window until its replacement succeeds and clears the navigation highlight when requested. Broader cancellation and reconciliation of mutations during timeline requests remain; tests remain deferred.
 
+Account, People and Apps settings now load separately from the main renderer, alongside the existing Activity chunk. Their loading and error states can be closed without unmounting the workspace; Activity failures are isolated too. This reduces the main renderer from roughly 502 kB to 477 kB before compression and removes the 500 kB chunk warning. All ten typecheck/build tasks passed. First opening an unloaded feature still needs its chunk to be available; offline asset caching remains separate work.
+
 ### Core transaction phases
 
 Registration now rolls back invitation consumption, the owner claim, default-channel creation, membership, session creation and events as one unit. Named and direct channels, channel metadata/membership, profile updates, deactivation and ownership transfer use the same mutation boundary. Failed writes cannot publish partial events or apply live access changes. Unknown founding members are rejected before creating a private channel. Eleven regression cases in `packages/server/test/transactions.test.ts` exercise rollback and concurrent use of a final invitation.
