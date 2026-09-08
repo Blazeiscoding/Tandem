@@ -8,14 +8,44 @@ interface Props {
   channels: Record<ID, Channel>;
   selfId?: ID;
   onChannelClick?: (id: ID) => void;
+  highlightTerms?: readonly string[];
 }
 
 /**
  * Renders Slack-mrkdwn-compatible message text:
  * ```blocks```, `code`, *bold*, _italic_, ~strike~, <@USER>, <#CHANNEL>, URLs.
  */
-export function Mrkdwn({ text, users, channels, selfId, onChannelClick }: Props) {
+export function Mrkdwn({
+  text,
+  users,
+  channels,
+  selfId,
+  onChannelClick,
+  highlightTerms = [],
+}: Props) {
   const blocks = text.split(/```/);
+  const terms = [...new Set(highlightTerms.filter((term) => term.trim().length > 0))].sort(
+    (a, b) => b.length - a.length,
+  );
+  const pattern = terms.length
+    ? new RegExp(terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "giu")
+    : null;
+  const highlight = (value: string): ReactNode => {
+    if (!pattern) return value;
+    const parts: ReactNode[] = [];
+    let previous = 0;
+    for (const match of value.matchAll(pattern)) {
+      if (match.index > previous) parts.push(value.slice(previous, match.index));
+      parts.push(
+        <mark key={match.index} className="rounded-sm bg-copper/25 text-ink">
+          {match[0]}
+        </mark>,
+      );
+      previous = match.index + match[0].length;
+    }
+    if (previous < value.length) parts.push(value.slice(previous));
+    return parts;
+  };
   return (
     <span className="whitespace-pre-wrap break-words leading-[1.45]">
       {blocks.map((block, i) =>
@@ -24,11 +54,11 @@ export function Mrkdwn({ text, users, channels, selfId, onChannelClick }: Props)
             key={i}
             className="my-1 block overflow-x-auto rounded-md border border-edge bg-ground px-3 py-2 font-mono text-[13px]"
           >
-            {block.replace(/^\n/, "")}
+            {highlight(block.replace(/^\n/, ""))}
           </code>
         ) : (
           <Fragment key={i}>
-            {renderInline(block, { users, channels, selfId, onChannelClick })}
+            {renderInline(block, { users, channels, selfId, onChannelClick, highlight })}
           </Fragment>
         ),
       )}
@@ -44,24 +74,26 @@ const INLINE_RE =
 
 function renderInline(
   text: string,
-  ctx: Pick<Props, "users" | "channels" | "selfId" | "onChannelClick">,
+  ctx: Pick<Props, "users" | "channels" | "selfId" | "onChannelClick"> & {
+    highlight: (value: string) => ReactNode;
+  },
 ): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   let key = 0;
   for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) out.push(ctx.highlight(text.slice(last, m.index)));
     const tok = m[0];
     if (m[1]) {
       // An escaped formatting character is simply that character.
-      out.push(tok.slice(1));
+      out.push(ctx.highlight(tok.slice(1)));
     } else if (m[2]) {
       out.push(
         <code
           key={key++}
           className="rounded bg-lifted px-1 py-px font-mono text-[13px] text-copper"
         >
-          {tok.slice(1, -1)}
+          {ctx.highlight(tok.slice(1, -1))}
         </code>,
       );
     } else if (m[3]) {
@@ -119,12 +151,12 @@ function renderInline(
           rel="noreferrer"
           className="text-copper underline decoration-copper/40 hover:decoration-copper"
         >
-          {tok}
+          {ctx.highlight(tok)}
         </a>,
       );
     }
     last = m.index + tok.length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(ctx.highlight(text.slice(last)));
   return out;
 }
