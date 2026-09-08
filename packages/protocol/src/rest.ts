@@ -48,6 +48,16 @@ export const savedMessagesQuery = z.object({
 });
 
 export const pinnedMessagesQuery = savedMessagesQuery;
+export const followedThreadsQuery = savedMessagesQuery.extend({
+  unreadOnly: z.enum(["true", "false"]).default("false"),
+});
+export const threadFollowBody = z.object({ following: z.boolean() });
+export const threadReadBody = z.object({ seq: z.number().int().nonnegative() });
+/**
+ * The message to leave unread. Everything from it onwards becomes unread, so
+ * seq 0 has no meaning here — there is nothing before it to stay read.
+ */
+export const markUnreadBody = z.object({ seq: z.number().int().positive() });
 
 export const createChannelBody = z.discriminatedUnion("type", [
   z.object({
@@ -87,6 +97,8 @@ export const sendMessageBody = z
     nonce: z.string().max(64).optional(),
     /** Ids from POST /api/channels/:id/files, attached to this message. */
     fileIds: z.array(z.string()).max(10).optional(),
+    /** For a reply: show it in the channel's own timeline as well. */
+    alsoSendToChannel: z.boolean().optional(),
   })
   // A message needs words, attachments, or both.
   .refine((b) => b.text.trim().length > 0 || (b.fileIds?.length ?? 0) > 0, {

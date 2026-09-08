@@ -161,6 +161,8 @@ export class Gateway {
           channelLastSeq: this.store.channelLastSeqMap(user.id),
           presence: this.presenceMap(),
           savedMessageIds: this.store.savedMessageIds(user.id),
+          threadFollows: this.store.threadFollows(user.id),
+          mentionCounts: this.store.unreadMentionCounts(user.id),
           huddles: this.huddlesVisibleTo(user.id),
           workspaceName: this.workspaceName(),
           friends: this.store.listFriends(user.id),
