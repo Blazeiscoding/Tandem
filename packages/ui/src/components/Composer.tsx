@@ -1,7 +1,12 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ID, User } from "@slackoss/protocol";
+import {
+  scheduleMessageBody,
+  type ID,
+  type User,
+  type ScheduleMessageBody,
+} from "@slackoss/protocol";
 import { ApiError } from "@slackoss/client-core";
-import { useClient, useWorkspace } from "../context.js";
+import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
@@ -35,6 +40,7 @@ const BROADCASTS = [
 /** Enter follows the device preference; @ opens mention autocomplete. */
 export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Props) {
   const client = useClient();
+  const platform = usePlatform();
   const { enterSends } = useComposerPreferences();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
@@ -44,6 +50,14 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const isRoom = channelType === "public" || channelType === "private";
   // Threads keep their own draft slot so a channel draft isn't clobbered.
   const draftKey = threadRootId ? `${channelId}:${threadRootId}` : channelId;
+  const scheduleStorageKey = selfId
+    ? `schedule-request:${client.baseUrl}:${selfId}:${draftKey}`
+    : null;
+  const [scheduleLoadedKey, setScheduleLoadedKey] = useState<string | null>(null);
+  const [pendingSchedule, setPendingSchedule] = useState<ScheduleMessageBody | null>(null);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const scheduleReady = scheduleStorageKey !== null && scheduleLoadedKey === scheduleStorageKey;
+  const recoveryBlocksSend = !scheduleReady || pendingSchedule !== null;
   const savedDraft = useWorkspace((s) => s.drafts[draftKey] ?? "");
   const [text, setText] = useState(savedDraft);
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
@@ -92,6 +106,46 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     };
   }, [client, draftKey]);
 
+  useEffect(() => {
+    let active = true;
+    setPendingSchedule(null);
+    setScheduleLoadedKey(null);
+    if (!scheduleStorageKey) return;
+    void platform.storage
+      .get<unknown>(scheduleStorageKey)
+      .then((value) => {
+        if (!active) return;
+        const parsed = value == null ? null : scheduleMessageBody.safeParse(value);
+        if (
+          parsed &&
+          (!parsed.success ||
+            !parsed.data.nonce ||
+            (parsed.data.threadRootId ?? null) !== (threadRootId ?? null))
+        ) {
+          setScheduleError(
+            "Could not read the saved scheduling request. Your draft is kept; check Scheduled before sending it again.",
+          );
+          return;
+        }
+        const body = parsed?.success ? parsed.data : null;
+        setPendingSchedule(body);
+        setScheduleLoadedKey(scheduleStorageKey);
+        if (body && !client.state.drafts[draftKey]) {
+          setText(body.text);
+          client.setDraft(draftKey, body.text);
+        }
+      })
+      .catch(() => {
+        if (active)
+          setScheduleError(
+            "Could not restore scheduling recovery. Retry before sending this draft.",
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, platform, scheduleStorageKey, draftKey, threadRootId, restoreAttempt]);
+
   // Drafts load from disk asynchronously, so they can arrive after this mounts.
   // Adopt them only while the composer is untouched, never over live typing.
   useEffect(() => {
@@ -121,7 +175,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }, [client, draftKey]);
 
   function addFiles(files: FileList | File[] | null) {
-    if (!files || scheduleLock.current) return;
+    if (!files || scheduleLock.current || recoveryBlocksSend) return;
     const incoming = [...files];
     if (incoming.length > 0) {
       setAttachmentNote(
@@ -146,7 +200,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     selectionStart: number,
     selectionEnd = selectionStart,
   ) {
-    if (scheduleLock.current) return;
+    if (scheduleLock.current || recoveryBlocksSend) return;
     setText(text.slice(0, start) + replacement + text.slice(end));
     edited.current = true;
     setMentionQuery(null);
@@ -206,7 +260,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }, [text, commands]);
 
   function insertCommand(command: string) {
-    if (scheduleLock.current) return;
+    if (scheduleLock.current || recoveryBlocksSend) return;
     const next = `/${command} `;
     setText(next);
     edited.current = true;
@@ -228,7 +282,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }
 
   function insertMention(candidate: Candidate) {
-    if (scheduleLock.current) return;
+    if (scheduleLock.current || recoveryBlocksSend) return;
     if (!mentionQuery || !box.current) return;
     const token = candidate.kind === "user" ? `<@${candidate.user.id}>` : `<!${candidate.token}>`;
     const caret = box.current.selectionStart;
@@ -246,7 +300,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   useEffect(() => setCommandIndex(0), [commandCandidates.length]);
 
   function send() {
-    if (scheduleLock.current) return;
+    if (scheduleLock.current || recoveryBlocksSend) return;
     const trimmed = text.trim();
     if ((!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT) return;
     client.send(channelId, trimmed, { threadRootId, files: attached });
@@ -266,7 +320,13 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       return;
     }
     const trimmed = text.trim();
-    if (scheduleLock.current || (!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT)
+    if (
+      scheduleLock.current ||
+      recoveryBlocksSend ||
+      !scheduleStorageKey ||
+      (!trimmed && attached.length === 0) ||
+      text.length > MESSAGE_LIMIT
+    )
       return;
     scheduleLock.current = true;
     setScheduling(true);
@@ -294,36 +354,95 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         fileIds.push(id);
       }
       if (!current()) return;
-      submitted = true;
-      await client.api.scheduleMessage(channelId, {
+      const body: ScheduleMessageBody = {
+        nonce: crypto.randomUUID(),
         text: trimmed,
         sendAt: at.getTime(),
         ...(threadRootId ? { threadRootId } : {}),
         ...(fileIds.length > 0 ? { fileIds } : {}),
-      });
+      };
+      // Persist the exact payload before it can reach the server, including
+      // uploaded IDs and the original time. A retry never creates a new key.
+      await platform.storage.set(scheduleStorageKey, body);
       if (!current()) return;
-      setText("");
-      setAttached([]);
-      edited.current = false;
-      client.setDraft(draftKey, "");
-      scheduleUploads.current = new WeakMap();
-      setScheduleNote(`Scheduled for ${formatScheduleTime(at.getTime())}`);
+      setPendingSchedule(body);
+      submitted = true;
+      await confirmSchedule(body, scheduleStorageKey, context);
     } catch (error) {
       if (!current()) return;
       if (error instanceof ApiError && error.code === "invalid_attachments")
         scheduleUploads.current = new WeakMap();
       setScheduleError(
-        submitted
-          ? "Could not confirm scheduling. Your draft is kept. Check Scheduled before trying again."
-          : error instanceof ApiError && error.code === "file_too_large"
-            ? "One of these files exceeds the workspace upload limit. Remove it and try again."
-            : "Could not upload the attachments. Your draft is kept; try again when connected.",
+        error instanceof ApiError && error.code === "scheduling_upgrade_required"
+          ? "Update this workspace server to support safe scheduling retries. Your draft is kept."
+          : submitted
+            ? "Could not confirm scheduling. Retry confirmation to check the same request safely."
+            : error instanceof ApiError && error.code === "file_too_large"
+              ? "One of these files exceeds the workspace upload limit. Remove it and try again."
+              : "Could not upload the attachments. Your draft is kept; try again when connected.",
       );
     } finally {
       if (current()) {
         scheduleLock.current = false;
         setScheduling(false);
         uploadController.current = null;
+      }
+    }
+  }
+
+  async function confirmSchedule(body: ScheduleMessageBody, storageKey: string, context: object) {
+    const { scheduled } = await client.api.scheduleMessage(channelId, body);
+    if (scheduleContext.current !== context) return;
+    // If clearing recovery fails, leave the same request available for retry.
+    await platform.storage.set(storageKey, null);
+    if (scheduleContext.current !== context) return;
+    setPendingSchedule(null);
+    if (typed.current.text.trim() === body.text) {
+      setText("");
+      edited.current = false;
+      client.setDraft(draftKey, "");
+    }
+    setAttached([]);
+    scheduleUploads.current = new WeakMap();
+    setScheduleError(null);
+    setScheduleNote(
+      scheduled.status === "sent"
+        ? "This scheduling request was already delivered."
+        : `Confirmed in Scheduled for ${formatScheduleTime(scheduled.sendAt)}`,
+    );
+  }
+
+  async function recoverSchedule(dismiss = false) {
+    if (!scheduleStorageKey || scheduleLock.current) return;
+    const context = scheduleContext.current;
+    scheduleLock.current = true;
+    setScheduling(true);
+    setScheduleError(null);
+    try {
+      if (dismiss) {
+        await platform.storage.set(scheduleStorageKey, null);
+        if (scheduleContext.current === context) {
+          setPendingSchedule(null);
+          setScheduleLoadedKey(scheduleStorageKey);
+        }
+      } else if (pendingSchedule) {
+        await confirmSchedule(pendingSchedule, scheduleStorageKey, context);
+      }
+    } catch (error) {
+      if (scheduleContext.current === context)
+        setScheduleError(
+          error instanceof ApiError && error.code === "scheduling_upgrade_required"
+            ? "Update this workspace server to support safe scheduling retries. Your draft is kept."
+            : error instanceof ApiError && error.code === "scheduled_removed"
+              ? "This request was already accepted, but its queue record has been removed. It was not recreated."
+              : error instanceof ApiError && error.code === "send_at_in_past"
+                ? "The original time has passed and this request was not queued. Keep the draft to choose a new time."
+                : "Could not confirm recovery. Your original request is kept; retry when connected.",
+        );
+    } finally {
+      if (scheduleContext.current === context) {
+        scheduleLock.current = false;
+        setScheduling(false);
       }
     }
   }
@@ -496,6 +615,60 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           {scheduleError}
         </p>
       )}
+      {pendingSchedule && (
+        <div className="mb-2 space-y-2 rounded-lg border border-edge p-3 text-sm text-ink-dim">
+          <p>
+            A scheduling request needs confirmation. Retrying uses its original text,{" "}
+            {pendingSchedule.fileIds?.length ?? 0} attachments and time; it cannot queue a second
+            copy.
+          </p>
+          <button
+            disabled={scheduling}
+            className="mr-3 text-copper underline"
+            onClick={() => void recoverSchedule()}
+          >
+            Retry confirmation
+          </button>
+          <details>
+            <summary>Keep this draft instead</summary>
+            <p className="my-2">
+              Check Scheduled first. Keeping this draft does not cancel any message already queued;
+              sending it again could create a duplicate.
+            </p>
+            <button
+              disabled={scheduling}
+              className="text-copper underline"
+              onClick={() => void recoverSchedule(true)}
+            >
+              Keep draft and dismiss recovery
+            </button>
+          </details>
+        </div>
+      )}
+      {!scheduleReady && scheduleError && (
+        <div className="mb-2 text-sm">
+          <button
+            className="mr-3 text-copper underline"
+            onClick={() => setRestoreAttempt((attempt) => attempt + 1)}
+          >
+            Retry restoring request
+          </button>
+          <details>
+            <summary>Discard unreadable recovery record</summary>
+            <p>
+              Check Scheduled before sending this draft again. Discarding recovery does not cancel a
+              queued message.
+            </p>
+            <button
+              disabled={scheduling}
+              className="text-copper underline"
+              onClick={() => void recoverSchedule(true)}
+            >
+              Keep draft and discard recovery
+            </button>
+          </details>
+        </div>
+      )}
       {scheduling && (
         <p role="status" className="mb-2 text-sm text-ink-faint">
           Scheduling your message…
@@ -507,7 +680,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         </p>
       )}
       <fieldset
-        disabled={scheduling}
+        disabled={scheduling || recoveryBlocksSend}
         className={`min-w-0 rounded-xl border bg-raised shadow-[0_4px_20px_#0002] transition-colors ${
           dragging ? "border-copper bg-copper/5" : "border-edge focus-within:border-copper/60"
         }`}

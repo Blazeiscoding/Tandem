@@ -1,6 +1,6 @@
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell } from "electron";
 import { join } from "node:path";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { pathToFileURL } from "node:url";
 import { Bonjour, type Service } from "bonjour-service";
@@ -83,27 +83,44 @@ ipcMain.handle("deeplink:consume", () => {
 
 const settingsPath = () => join(app.getPath("userData"), "settings.json");
 let settingsCache: Record<string, unknown> | null = null;
+let settingsRead: Promise<Record<string, unknown>> | null = null;
+let settingsWrite: Promise<void> = Promise.resolve();
 
 async function readSettings(): Promise<Record<string, unknown>> {
   if (settingsCache) return settingsCache;
-  try {
-    settingsCache = JSON.parse(await readFile(settingsPath(), "utf8")) as Record<string, unknown>;
-  } catch {
-    settingsCache = {};
-  }
-  return settingsCache;
+  if (settingsRead) return settingsRead;
+  settingsRead = (async () => {
+    try {
+      settingsCache = JSON.parse(await readFile(settingsPath(), "utf8")) as Record<string, unknown>;
+    } catch {
+      settingsCache = {};
+    }
+    return settingsCache;
+  })();
+  return settingsRead;
 }
 
 ipcMain.handle("storage:get", async (_e, key: string) => {
+  await settingsWrite.catch(() => {});
   const s = await readSettings();
   return s[key] ?? null;
 });
 
-ipcMain.handle("storage:set", async (_e, key: string, value: unknown) => {
-  const s = await readSettings();
-  s[key] = value;
-  await mkdir(app.getPath("userData"), { recursive: true });
-  await writeFile(settingsPath(), JSON.stringify(s, null, 2));
+ipcMain.handle("storage:set", (_e, key: string, value: unknown) => {
+  // Serialize independent draft/settings writes. Publish the new cache only
+  // after replacing the file, so a failed save cannot look persisted to readers.
+  settingsWrite = settingsWrite
+    .catch(() => {})
+    .then(async () => {
+      const s = await readSettings();
+      const next = { ...s, [key]: value };
+      await mkdir(app.getPath("userData"), { recursive: true });
+      const temporary = `${settingsPath()}.tmp`;
+      await writeFile(temporary, JSON.stringify(next, null, 2));
+      await rename(temporary, settingsPath());
+      settingsCache = next;
+    });
+  return settingsWrite;
 });
 
 // ---------- LAN discovery (mDNS browse) ----------

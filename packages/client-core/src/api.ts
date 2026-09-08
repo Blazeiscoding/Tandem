@@ -370,10 +370,17 @@ export class Api {
     return res.blob();
   }
 
-  scheduleMessage(
+  async scheduleMessage(
     channelId: ID,
     body: ScheduleMessageBody,
   ): Promise<{ scheduled: ScheduledMessage }> {
+    if (body.nonce && !(await this.serverInfo()).schedulingIdempotency) {
+      throw new ApiError(
+        409,
+        "scheduling_upgrade_required",
+        "Update this workspace server before using recoverable scheduling.",
+      );
+    }
     return this.request("POST", `/api/channels/${channelId}/scheduled`, body, {
       timeoutMs: 15_000,
     });

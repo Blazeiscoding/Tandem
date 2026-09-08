@@ -85,6 +85,8 @@ export const sendMessageBody = z
 export const scheduleMessageBody = z
   .object({
     text: z.string().max(12000),
+    /** Stable identity for retrying this exact scheduling request. */
+    nonce: z.string().min(1).max(64).optional(),
     /** Epoch ms; must be in the future. */
     sendAt: z.number().int().positive(),
     threadRootId: z.string().optional(),

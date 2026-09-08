@@ -140,6 +140,8 @@ export interface ServerInfo {
    * startup. Whoever is at the keyboard does not need one.
    */
   requiresClaim: boolean;
+  /** Scheduling retries are deduplicated by an account-scoped request key. */
+  schedulingIdempotency?: boolean;
 }
 
 /** One signed-in device or browser, as its owner sees it. */
