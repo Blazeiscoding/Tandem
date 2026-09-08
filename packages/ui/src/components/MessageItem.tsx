@@ -144,6 +144,16 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
 
+          {!inThread && message.threadRootId && (
+            <button
+              onClick={() => onOpenThread?.(message.threadRootId!)}
+              className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] text-ink-faint transition-colors hover:border-edge hover:bg-raised hover:text-ink"
+            >
+              Also sent to the channel from a thread
+              <span className="text-copper">View thread →</span>
+            </button>
+          )}
+
           {!inThread && message.replyCount > 0 && (
             <button
               onClick={() => onOpenThread?.(message.id)}
@@ -184,6 +194,17 @@ export const MessageItem = memo(function MessageItem({
             title={isSaved ? "Remove from Later" : "Save for later"}
             active={isSaved}
             onClick={() => client.toggleSaved(message.id)}
+          />
+          <ToolbarButton
+            label="◍"
+            title={inThread ? "Mark unread from this reply" : "Mark unread from this message"}
+            onClick={() =>
+              // Inside a thread this is the thread's own unread state, and the
+              // root shown at the top of the panel is itself the thread.
+              inThread
+                ? client.markThreadUnread(message.threadRootId ?? message.id, message.seq)
+                : client.markUnread(message.channelId, message.seq)
+            }
           />
           <ToolbarButton
             label="📌"
