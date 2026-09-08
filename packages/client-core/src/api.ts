@@ -415,8 +415,14 @@ export class Api {
     return this.request("DELETE", `/api/messages/${id}/pin`);
   }
 
-  listPins(channelId: ID, signal?: AbortSignal): Promise<{ messages: Message[] }> {
-    return this.request("GET", `/api/channels/${channelId}/pins`, undefined, {
+  listPins(
+    channelId: ID,
+    signal?: AbortSignal,
+    cursor?: string,
+  ): Promise<{ messages: Message[]; nextCursor: string | null }> {
+    const query = new URLSearchParams({ limit: "30" });
+    if (cursor) query.set("cursor", cursor);
+    return this.request("GET", `/api/channels/${channelId}/pins?${query}`, undefined, {
       signal,
       timeoutMs: 10_000,
     });

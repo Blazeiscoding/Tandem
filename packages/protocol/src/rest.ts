@@ -47,6 +47,8 @@ export const savedMessagesQuery = z.object({
     .optional(),
 });
 
+export const pinnedMessagesQuery = savedMessagesQuery;
+
 export const createChannelBody = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("public"),

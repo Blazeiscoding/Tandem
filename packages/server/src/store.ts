@@ -1078,15 +1078,37 @@ export class Store {
   }
 
   /** Pinned messages in a channel, newest pin first. */
-  listPins(channelId: ID): Message[] {
+  listPins(
+    channelId: ID,
+    limit = 30,
+    cursor?: string,
+  ): { messages: Message[]; nextCursor: string | null } {
+    const [beforeTime, beforeId] = cursor?.split(":") ?? [];
+    const timestamp = beforeTime ? Number(beforeTime) : null;
     const rows = this.db
       .prepare(
-        `SELECT m.* FROM pins p JOIN messages m ON m.id = p.message_id
+        `SELECT m.*, p.created_at AS pinned_at FROM pins p JOIN messages m ON m.id = p.message_id
          WHERE p.channel_id = ? AND m.deleted_at IS NULL
-         ORDER BY p.created_at DESC`,
+         AND (m.thread_root_id IS NULL OR EXISTS (
+           SELECT 1 FROM messages root WHERE root.id = m.thread_root_id AND root.deleted_at IS NULL
+         ))
+         AND (? IS NULL OR p.created_at < ? OR (p.created_at = ? AND p.message_id < ?))
+         ORDER BY p.created_at DESC, p.message_id DESC LIMIT ?`,
       )
-      .all(channelId) as unknown as MessageRow[];
-    return this.hydrateMessages(rows);
+      .all(
+        channelId,
+        timestamp,
+        timestamp,
+        timestamp,
+        beforeId ?? null,
+        limit + 1,
+      ) as unknown as (MessageRow & { pinned_at: number })[];
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      messages: this.hydrateMessages(page),
+      nextCursor: rows.length > limit && last ? `${last.pinned_at}:${last.id}` : null,
+    };
   }
 
   addSaved(userId: ID, messageId: ID): boolean {
