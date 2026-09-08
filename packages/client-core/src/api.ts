@@ -16,6 +16,8 @@ import type {
   ServerInfo,
   SessionInfo,
   SlashCommand,
+  ThreadFollow,
+  FollowedThread,
   EventSubscription,
   EditScheduledBody,
   UpdateChannelBody,
@@ -443,6 +445,35 @@ export class Api {
     const query = new URLSearchParams({ limit: "30" });
     if (cursor) query.set("cursor", cursor);
     return this.request("GET", `/api/saved?${query}`, undefined, { signal, timeoutMs: 10_000 });
+  }
+
+  markUnread(channelId: ID, seq: number): Promise<{ ok: true; seq: number }> {
+    return this.request("POST", `/api/channels/${channelId}/unread`, { seq });
+  }
+
+  markThreadUnread(rootId: ID, seq: number): Promise<{ state: ThreadFollow }> {
+    return this.request("POST", `/api/messages/${rootId}/thread/unread`, { seq });
+  }
+
+  setThreadFollow(rootId: ID, following: boolean): Promise<{ state: ThreadFollow }> {
+    return this.request("PUT", `/api/messages/${rootId}/follow`, { following });
+  }
+
+  markThreadRead(rootId: ID, seq: number): Promise<{ state: ThreadFollow }> {
+    return this.request("POST", `/api/messages/${rootId}/thread/read`, { seq });
+  }
+
+  listFollowedThreads(
+    opts: { cursor?: string; unreadOnly?: boolean } = {},
+    signal?: AbortSignal,
+  ): Promise<{ threads: FollowedThread[]; nextCursor: string | null }> {
+    const query = new URLSearchParams({ limit: "30" });
+    if (opts.cursor) query.set("cursor", opts.cursor);
+    if (opts.unreadOnly) query.set("unreadOnly", "true");
+    return this.request("GET", `/api/threads/followed?${query}`, undefined, {
+      signal,
+      timeoutMs: 10_000,
+    });
   }
 
   // ---------- apps and integrations (admin only) ----------

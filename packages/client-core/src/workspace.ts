@@ -13,6 +13,7 @@ import {
   type ReadySnapshot,
   type SendMessageBody,
   type ServerToClient,
+  type ThreadFollow,
   type User,
 } from "@slackoss/protocol";
 import { Api, ApiError, type CommandHint } from "./api.js";
@@ -35,6 +36,8 @@ export interface PendingMessage {
   nonce: string;
   channelId: ID;
   threadRootId: ID | null;
+  /** A reply the author also chose to show in the channel. */
+  broadcast?: boolean;
   text: string;
   userId: ID;
   createdAt: number;
@@ -54,6 +57,7 @@ export interface StoredPending {
   nonce: string;
   channelId: ID;
   threadRootId: ID | null;
+  broadcast?: boolean;
   text: string;
   userId: ID;
   createdAt: number;
@@ -204,6 +208,10 @@ export interface WorkspaceState {
   pending: PendingMessage[];
   /** Message ids this user saved for later. */
   saved: Record<ID, true>;
+  /** channelId -> unread messages there that name this user. */
+  mentionCounts: Record<ID, number>;
+  /** threadRootId -> this account's follow state and read cursor for it. */
+  threadFollows: Record<ID, ThreadFollow>;
   /** channelId -> unsent composer text, restored when you come back. */
   drafts: Record<ID, string>;
   /** channelId -> who is in that channel's huddle right now. */
@@ -236,6 +244,8 @@ const initialState: WorkspaceState = {
   threadPages: {},
   pending: [],
   saved: {},
+  threadFollows: {},
+  mentionCounts: {},
   drafts: {},
   huddles: {},
   huddle: null,
@@ -243,6 +253,12 @@ const initialState: WorkspaceState = {
   modal: null,
   commands: [],
 };
+
+/** Followed threads with replies this account has not read. */
+export function unreadThreadCount(threadFollows: Record<ID, ThreadFollow>): number {
+  return Object.values(threadFollows).filter((f) => f.following && f.lastSeq > f.lastReadSeq)
+    .length;
+}
 
 function sortedInsert(items: Message[], msg: Message): Message[] {
   // Messages almost always arrive in order — fast path append.
@@ -312,6 +328,13 @@ export class WorkspaceClient {
   private activeConversation: ID | null = null;
   private activeThread: ID | null = null;
   private pendingReads = new Map<ID, number>();
+  /**
+   * Conversations deliberately left unread. Automatic acknowledgement skips
+   * them, or looking at what you just marked unread would immediately read it
+   * again. Leaving the conversation lifts the hold, so coming back reads it.
+   */
+  private readHold = new Set<ID>();
+  private threadReadHold = new Set<ID>();
   private readRequests = new Map<ID, AbortController>();
   private readRetryTimer: ReturnType<typeof setInterval> | null = null;
   private acknowledgedMessages = new Set<ID>();
@@ -467,6 +490,10 @@ export class WorkspaceClient {
     }
     const saved: Record<ID, true> = {};
     for (const id of snap.savedMessageIds) saved[id] = true;
+    // A server older than v15 does not know about following. Keeping what we
+    // already had would show follow state it can no longer honour, so drop it.
+    const threadFollows: Record<ID, ThreadFollow> = {};
+    for (const follow of snap.threadFollows ?? []) threadFollows[follow.rootId] = follow;
 
     this.store.setState((prev) => ({
       status: snap.replayFrom === undefined ? "online" : "connecting",
@@ -478,6 +505,8 @@ export class WorkspaceClient {
       prefs,
       channelLastSeq: snap.channelLastSeq,
       presence: snap.presence,
+      threadFollows,
+      mentionCounts: snap.mentionCounts ?? {},
       saved,
       huddles: snap.huddles,
       friends: snap.friends ?? [],
@@ -621,6 +650,22 @@ export class WorkspaceClient {
           this.uploadedFiles.delete(settled.nonce);
           patch.pending = s.pending.filter((p) => p.nonce !== message.nonce);
         }
+        const appendToTimeline = (from: WorkspaceState["timelines"]) => {
+          const tl = from[message.channelId];
+          // Appending to an anchored view would fake adjacency across a gap.
+          if (!tl?.loaded || tl.hasMoreNewer) return undefined;
+          return {
+            ...from,
+            [message.channelId]: windowTimeline(
+              {
+                ...tl,
+                items: sortedInsert(tl.items, message),
+                readThroughSeq: Math.max(tl.readThroughSeq ?? 0, seq),
+              },
+              "oldest",
+            ),
+          };
+        };
         if (message.threadRootId) {
           const replies = s.threads[message.threadRootId];
           if (replies) {
@@ -646,22 +691,14 @@ export class WorkspaceClient {
               },
             };
           }
-        } else {
-          const tl = s.timelines[message.channelId];
-          // Appending to an anchored view would fake adjacency across a gap.
-          if (tl?.loaded && !tl.hasMoreNewer) {
-            patch.timelines = {
-              ...s.timelines,
-              [message.channelId]: windowTimeline(
-                {
-                  ...tl,
-                  items: sortedInsert(tl.items, message),
-                  readThroughSeq: Math.max(tl.readThroughSeq ?? 0, seq),
-                },
-                "oldest",
-              ),
-            };
+          // Sent to the channel as well, so it also belongs in the timeline.
+          if (message.broadcast) {
+            const appended = appendToTimeline(patch.timelines ?? s.timelines);
+            if (appended) patch.timelines = appended;
           }
+        } else {
+          const appended = appendToTimeline(s.timelines);
+          if (appended) patch.timelines = appended;
         }
         if (message.userId !== s.self?.id) {
           this.onIncomingMessage?.(message, { live: seq > this.connectedAtSeq });
@@ -891,6 +928,9 @@ export class WorkspaceClient {
       }
     } else if (event.type === "channel.read") {
       if (!(event.channelId in s.memberships)) return;
+      // While a conversation is deliberately unread, an acknowledgement still
+      // in flight when it was marked must not raise the cursor back.
+      if (this.readHold.has(event.channelId)) return;
       const pending = this.pendingReads.get(event.channelId) ?? 0;
       if (pending <= event.seq) this.pendingReads.delete(event.channelId);
       this.store.setState({
@@ -906,6 +946,15 @@ export class WorkspaceClient {
       if (event.saved) saved[event.messageId] = true;
       else delete saved[event.messageId];
       this.store.setState({ saved });
+    } else if (event.type === "mentions") {
+      this.store.setState({ mentionCounts: event.counts });
+    } else if (event.type === "channel.unread") {
+      this.pendingReads.delete(event.channelId);
+      this.store.setState({
+        memberships: { ...s.memberships, [event.channelId]: event.seq },
+      });
+    } else if (event.type === "thread.follow") {
+      this.applyThreadFollow(event.state);
     } else if (event.type === "ephemeral.message") {
       this.addEphemeral({
         id: event.id,
@@ -964,11 +1013,13 @@ export class WorkspaceClient {
 
   /** Visible history is protected while inactive caches are evicted by recency. */
   focusConversation(channelId: ID | null): void {
+    for (const held of this.readHold) if (held !== channelId) this.readHold.delete(held);
     this.activeConversation = channelId;
     if (channelId) this.touchHistory("timeline", channelId);
   }
 
   focusThread(rootId: ID | null): void {
+    for (const held of this.threadReadHold) if (held !== rootId) this.threadReadHold.delete(held);
     this.activeThread = rootId;
     if (rootId) this.touchHistory("thread", rootId);
   }
@@ -1300,7 +1351,11 @@ export class WorkspaceClient {
    * Optimistic send: the message (and local image previews) appear instantly,
    * then attachments upload and the server event reconciles it by nonce.
    */
-  send(channelId: ID, text: string, opts: { threadRootId?: ID; files?: File[] } = {}): void {
+  send(
+    channelId: ID,
+    text: string,
+    opts: { threadRootId?: ID; files?: File[]; alsoSendToChannel?: boolean } = {},
+  ): void {
     const self = this.state.self;
     if (!self) return;
     const files = opts.files ?? [];
@@ -1328,6 +1383,7 @@ export class WorkspaceClient {
       nonce,
       channelId,
       threadRootId: opts.threadRootId ?? null,
+      broadcast: !!opts.threadRootId && !!opts.alsoSendToChannel,
       text,
       userId: self.id,
       createdAt: Date.now(),
@@ -1339,7 +1395,7 @@ export class WorkspaceClient {
     this.store.setState((s) => ({ pending: [...s.pending, pendingMsg] }));
     if (files.length > 0) this.retryFiles.set(nonce, files);
 
-    void this.deliver(channelId, text, files, nonce, opts.threadRootId);
+    void this.deliver(channelId, text, files, nonce, opts.threadRootId, opts.alsoSendToChannel);
   }
 
   private async deliver(
@@ -1348,6 +1404,7 @@ export class WorkspaceClient {
     files: File[],
     nonce: string,
     threadRootId?: ID,
+    alsoSendToChannel?: boolean,
   ): Promise<void> {
     const setProgress = (fraction: number) =>
       this.store.setState((s) => ({
@@ -1372,6 +1429,7 @@ export class WorkspaceClient {
         text,
         nonce,
         ...(threadRootId ? { threadRootId } : {}),
+        ...(threadRootId && alsoSendToChannel ? { alsoSendToChannel: true } : {}),
         ...(fileIds.length > 0 ? { fileIds } : {}),
       };
       const { message } = await this.api.sendMessage(channelId, body);
@@ -1405,7 +1463,7 @@ export class WorkspaceClient {
         item.nonce === nonce ? { ...item, failed: false, failureReason: null } : item,
       ),
     }));
-    void this.deliver(p.channelId, p.text, files, nonce, p.threadRootId ?? undefined);
+    void this.deliver(p.channelId, p.text, files, nonce, p.threadRootId ?? undefined, p.broadcast);
   }
 
   /** The outbox in a form that survives a restart. Preview URLs are not kept. */
@@ -1515,6 +1573,90 @@ export class WorkspaceClient {
         });
       },
     );
+  }
+
+  /**
+   * Follow updates can arrive from this device and another at once. The
+   * revision decides, so a stale echo cannot undo a newer choice.
+   */
+  private applyThreadFollow(state: ThreadFollow): void {
+    this.store.setState((s) => {
+      const known = s.threadFollows[state.rootId];
+      if (known && known.revision > state.revision) return {};
+      return { threadFollows: { ...s.threadFollows, [state.rootId]: state } };
+    });
+  }
+
+  /** Optimistic follow toggle for a thread; other devices get the echo. */
+  setThreadFollow(rootId: ID, following: boolean): void {
+    const before = this.state.threadFollows[rootId];
+    if (before?.following === following) return;
+    const channelId = before?.channelId ?? this.threadRoot(rootId)?.channelId;
+    if (!channelId) return;
+    const tail = this.threadTailSeq(rootId);
+    this.applyThreadFollow({
+      rootId,
+      channelId,
+      following,
+      // Following from here means caught up to whatever is loaded.
+      lastReadSeq: following ? Math.max(before?.lastReadSeq ?? 0, tail) : 0,
+      lastSeq: Math.max(before?.lastSeq ?? 0, tail),
+      revision: (before?.revision ?? 0) + 1,
+    });
+    void this.api
+      .setThreadFollow(rootId, following)
+      .then(({ state }) => this.applyThreadFollow(state))
+      .catch(() => {
+        // Put back exactly what was there, including "no row at all".
+        this.store.setState((s) => {
+          const threadFollows = { ...s.threadFollows };
+          if (before) threadFollows[rootId] = before;
+          else delete threadFollows[rootId];
+          return { threadFollows };
+        });
+      });
+  }
+
+  /**
+   * Marks a followed thread read up to its loaded tail. Only followed threads
+   * carry a cursor, so reading one you do not follow is deliberately nothing.
+   */
+  markThreadRead(rootId: ID, opts: { explicit?: boolean } = {}): void {
+    if (opts.explicit) this.threadReadHold.delete(rootId);
+    else if (this.threadReadHold.has(rootId)) return;
+    const before = this.state.threadFollows[rootId];
+    if (!before?.following) return;
+    const seq = this.threadTailSeq(rootId);
+    if (seq <= before.lastReadSeq) return;
+    this.applyThreadFollow({ ...before, lastReadSeq: seq, revision: before.revision + 1 });
+    void this.api
+      .markThreadRead(rootId, seq)
+      .then(({ state }) => this.applyThreadFollow(state))
+      .catch(() => {
+        this.store.setState((s) => ({
+          threadFollows: { ...s.threadFollows, [rootId]: before },
+        }));
+      });
+  }
+
+  /** The root message of a thread, from its open panel or a loaded timeline. */
+  private threadRoot(rootId: ID): Message | undefined {
+    const page = this.state.threadPages[rootId];
+    if (page?.root) return page.root;
+    for (const timeline of Object.values(this.state.timelines)) {
+      const found = timeline.items.find((m) => m.id === rootId);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  /** The newest seq this client has loaded for a thread, root included. */
+  private threadTailSeq(rootId: ID): number {
+    const replies = this.state.threads[rootId] ?? [];
+    const root = this.threadRoot(rootId);
+    let seq = root?.seq ?? 0;
+    for (const reply of replies) if (reply.seq > seq) seq = reply.seq;
+    return seq;
   }
 
   /** Optimistic notification-preference change for one channel. */
@@ -1635,7 +1777,19 @@ export class WorkspaceClient {
     this.store.setState({ drafts });
   }
 
-  markRead(channelId: ID, seq = this.state.channelLastSeq[channelId] ?? 0): void {
+  /**
+   * `explicit` marks someone actually asking for this, rather than the visible
+   * timeline acknowledging itself. Only the former overrides a deliberate
+   * unread, so looking at a conversation cannot undo one but choosing to read
+   * it can.
+   */
+  markRead(
+    channelId: ID,
+    seq = this.state.channelLastSeq[channelId] ?? 0,
+    opts: { explicit?: boolean } = {},
+  ): void {
+    if (opts.explicit) this.readHold.delete(channelId);
+    else if (this.readHold.has(channelId)) return;
     if (!(channelId in this.state.memberships) || !Number.isSafeInteger(seq) || seq < 0) return;
     const current = this.state.memberships[channelId] ?? 0;
     if (seq <= current) return;
@@ -1644,10 +1798,60 @@ export class WorkspaceClient {
     this.flushReads();
   }
 
+  /**
+   * Leaves a message and everything after it unread. Any acknowledgement
+   * already on its way is abandoned first, so it cannot land afterwards and
+   * undo this.
+   */
+  markUnread(channelId: ID, seq: number): void {
+    if (!(channelId in this.state.memberships) || !Number.isSafeInteger(seq) || seq < 1) return;
+    this.readRequests.get(channelId)?.abort();
+    this.readRequests.delete(channelId);
+    this.pendingReads.delete(channelId);
+    this.readHold.add(channelId);
+    const before = this.state.memberships[channelId] ?? 0;
+    this.store.setState((s) => ({ memberships: { ...s.memberships, [channelId]: seq - 1 } }));
+    void this.api.markUnread(channelId, seq).catch(() => {
+      this.readHold.delete(channelId);
+      this.store.setState((s) => ({ memberships: { ...s.memberships, [channelId]: before } }));
+    });
+  }
+
+  /** The same for one thread, which also follows it. */
+  markThreadUnread(rootId: ID, seq: number): void {
+    if (!Number.isSafeInteger(seq) || seq < 1) return;
+    const before = this.state.threadFollows[rootId];
+    const channelId = before?.channelId ?? this.threadRoot(rootId)?.channelId;
+    if (!channelId) return;
+    this.threadReadHold.add(rootId);
+    this.applyThreadFollow({
+      rootId,
+      channelId,
+      following: true,
+      lastReadSeq: seq - 1,
+      lastSeq: Math.max(before?.lastSeq ?? 0, this.threadTailSeq(rootId)),
+      revision: (before?.revision ?? 0) + 1,
+    });
+    void this.api
+      .markThreadUnread(rootId, seq)
+      .then(({ state }) => this.applyThreadFollow(state))
+      .catch(() => {
+        this.threadReadHold.delete(rootId);
+        this.store.setState((s) => {
+          const threadFollows = { ...s.threadFollows };
+          if (before) threadFollows[rootId] = before;
+          else delete threadFollows[rootId];
+          return { threadFollows };
+        });
+      });
+  }
+
   private clearReadRequests(): void {
     for (const controller of this.readRequests.values()) controller.abort();
     this.readRequests.clear();
     this.pendingReads.clear();
+    // Holds deliberately survive a resync: a reconnect long enough to discard
+    // history must not quietly read what someone marked unread.
   }
 
   private flushReads(): void {
