@@ -1,13 +1,13 @@
 # Contributing
 
-Develop each improvement on a branch and open a pull request against `master`.
+Develop each improvement on a branch and open a pull request against `main`.
 Describe the user-visible change, validation performed, and any remaining limits.
 Review the complete diff, resolve known issues within the PR's scope, and wait for
 the applicable GitHub checks before merging. Keep unrelated follow-up work in
 separate PRs rather than expanding a finished change indefinitely. After merging,
-start the next branch from the updated `master`.
+start the next branch from the updated `main`.
 
-CI runs on pull requests and on updates to `master`; feature-branch pushes do not
+CI runs on pull requests and on updates to `main`; feature-branch pushes do not
 create duplicate runs. A newer run for the same PR supersedes an older one. A
 manual workflow dispatch is available when a branch needs checking before a PR.
 If new tests are explicitly deferred for a development phase, record that limit
