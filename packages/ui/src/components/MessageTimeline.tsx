@@ -63,19 +63,27 @@ export const MessageTimeline = memo(function MessageTimeline({
     readBoundary.current = { channelId, seq: client.state.memberships[channelId] ?? 0 };
   const scroller = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
-  const loadingOlder = useRef(false);
+  const historyRequest = useRef<object | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState<"initial" | "older" | "newer" | null>(null);
+  const [historyError, setHistoryError] = useState<"initial" | "older" | "newer" | null>(null);
   const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
-  const loadingNewer = useRef(false);
   const highlightRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
   /** Suppresses paging while a jump's programmatic scroll settles. */
   const settlingJump = useRef(false);
 
   useEffect(() => {
+    historyRequest.current = null;
+    setHistoryError(null);
+    setLoadingHistory(null);
     // A jump anchors the view; only a plain channel open tails the newest.
-    if (highlightMessageId) return;
-    pinnedToBottom.current = true;
-    void client.loadTimeline(channelId);
+    if (!highlightMessageId) {
+      pinnedToBottom.current = true;
+      void requestHistory("initial");
+    }
+    return () => {
+      historyRequest.current = null;
+    };
   }, [client, channelId, highlightMessageId]);
 
   const items = timeline?.items ?? [];
@@ -83,6 +91,29 @@ export const MessageTimeline = memo(function MessageTimeline({
     (message) => message.seq > readBoundary.current.seq && message.userId !== selfId,
   );
   const channelPending = pending.filter((p) => p.channelId === channelId && !p.threadRootId);
+
+  async function requestHistory(kind: "initial" | "older" | "newer") {
+    if (historyRequest.current) return;
+    const ticket = {};
+    historyRequest.current = ticket;
+    setLoadingHistory(kind);
+    setHistoryError(null);
+    const container = scroller.current;
+    const anchor = kind === "older" && container ? topAnchor(container) : null;
+    try {
+      if (kind === "newer") await client.loadNewer(channelId);
+      else await client.loadTimeline(channelId, { older: kind === "older" });
+    } catch {
+      if (historyRequest.current === ticket) setHistoryError(kind);
+    } finally {
+      requestAnimationFrame(() => {
+        if (historyRequest.current !== ticket) return;
+        if (container && anchor) restoreAnchor(container, anchor);
+        historyRequest.current = null;
+        setLoadingHistory(null);
+      });
+    }
+  }
   // Bring the jumped-to message into view once it has rendered.
   useEffect(() => {
     if (!highlightMessageId) return;
@@ -141,7 +172,7 @@ export const MessageTimeline = memo(function MessageTimeline({
       lastFirstId.current !== null &&
       firstId !== null &&
       firstId > lastFirstId.current;
-    if (trimmedTop && !pinnedToBottom.current && !loadingOlder.current) {
+    if (trimmedTop && !pinnedToBottom.current && loadingHistory !== "older") {
       el.scrollTop -= lastScrollHeight.current - el.scrollHeight;
     }
     lastFirstId.current = firstId;
@@ -204,26 +235,14 @@ export const MessageTimeline = memo(function MessageTimeline({
       atBottom &&
       !settlingJump.current &&
       timeline?.hasMoreNewer &&
-      !loadingNewer.current
+      !historyRequest.current &&
+      !historyError
     ) {
-      loadingNewer.current = true;
-      void client.loadNewer(channelId).finally(() => {
-        loadingNewer.current = false;
-      });
+      void requestHistory("newer");
     }
 
-    if (el.scrollTop < 400 && timeline?.hasMore && !loadingOlder.current) {
-      loadingOlder.current = true;
-      // A height delta cannot hold the position here: the page both prepends
-      // above the viewport and may drop trimmed messages far below it, and only
-      // the part above should move the scroll. Hold one message still instead.
-      const anchor = topAnchor(el);
-      void client.loadTimeline(channelId, { older: true }).finally(() => {
-        requestAnimationFrame(() => {
-          restoreAnchor(el, anchor);
-          loadingOlder.current = false;
-        });
-      });
+    if (el.scrollTop < 400 && timeline?.hasMore && !historyRequest.current && !historyError) {
+      void requestHistory("older");
     }
   }
 
@@ -233,11 +252,39 @@ export const MessageTimeline = memo(function MessageTimeline({
       onScroll={onScroll}
       aria-label="Message history"
       className="timeline-scroll min-h-0 flex-1 overflow-y-auto pb-3"
+      aria-busy={loadingHistory !== null}
     >
-      {!timeline?.loaded && (
+      {historyError && (
+        <div role="alert" className="px-6 py-4 text-sm text-ink-dim">
+          Could not load{" "}
+          {historyError === "initial" ? "this conversation" : `${historyError} messages`}.{" "}
+          <button
+            className="text-copper underline"
+            disabled={loadingHistory !== null}
+            onClick={() => void requestHistory(historyError)}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      {loadingHistory && loadingHistory !== "initial" && (
+        <p role="status" className="px-6 py-2 text-sm text-ink-faint">
+          Loading {loadingHistory} messages…
+        </p>
+      )}
+      {!timeline?.loaded && !historyError && (
         <div role="status" className="px-6 py-8 text-sm text-ink-faint">
           Loading conversation…
         </div>
+      )}
+      {timeline?.hasMore && (
+        <button
+          className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"
+          disabled={loadingHistory !== null}
+          onClick={() => void requestHistory("older")}
+        >
+          Load older messages
+        </button>
       )}
       {!timeline?.hasMore && timeline?.loaded && <ChannelIntro channelId={channelId} />}
       {items.map((msg, i) => {
@@ -279,6 +326,15 @@ export const MessageTimeline = memo(function MessageTimeline({
           </div>
         );
       })}
+      {timeline?.hasMoreNewer && (
+        <button
+          className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"
+          disabled={loadingHistory !== null}
+          onClick={() => void requestHistory("newer")}
+        >
+          Load newer messages
+        </button>
+      )}
       {channelPending.map((p) => (
         <PendingRow key={p.nonce} pending={p} />
       ))}
@@ -329,17 +385,56 @@ function EphemeralRow({ message, channelId }: { message: EphemeralMessage; chann
 }
 
 /** Shown while the view is parked mid-history after a jump. */
-export function JumpToLatestBar({ channelId }: { channelId: ID }) {
+export function JumpToLatestBar({ channelId, onJump }: { channelId: ID; onJump?: () => void }) {
   const client = useClient();
   const anchored = useWorkspace((s) => s.timelines[channelId]?.hasMoreNewer ?? false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const request = useRef<object | null>(null);
+  useEffect(() => {
+    request.current = null;
+    setBusy(false);
+    setError(false);
+    return () => {
+      request.current = null;
+    };
+  }, [channelId]);
+  async function jump() {
+    if (request.current) return;
+    const ticket = {};
+    request.current = ticket;
+    setBusy(true);
+    setError(false);
+    onJump?.();
+    try {
+      await client.jumpToLatest(channelId);
+    } catch {
+      if (request.current === ticket) setError(true);
+    } finally {
+      if (request.current === ticket) {
+        request.current = null;
+        setBusy(false);
+      }
+    }
+  }
   if (!anchored) return null;
   return (
-    <div className="flex justify-center px-5 pb-1">
+    <div className="flex flex-col items-center gap-1 px-5 pb-1">
+      {error && (
+        <p role="alert" className="text-xs text-ink-dim">
+          Could not load the latest messages. Your current history is kept.
+        </p>
+      )}
       <button
-        onClick={() => void client.jumpToLatest(channelId)}
+        disabled={busy}
+        onClick={() => void jump()}
         className="rounded-full border border-copper/50 bg-copper/15 px-3 py-1 text-[12px] font-medium text-copper transition-colors hover:bg-copper/25"
       >
-        You're viewing older messages · Jump to latest ↓
+        {busy
+          ? "Loading latest messages…"
+          : error
+            ? "Retry jump to latest ↓"
+            : "You're viewing older messages · Jump to latest ↓"}
       </button>
     </div>
   );

@@ -305,6 +305,7 @@ export class WorkspaceClient {
   private reloadThreads = new Map<ID, ID>();
   private threadLoads = new Map<ID, { events: EventEnvelope[]; overflow: boolean }>();
   private messageJump = 0;
+  private timelineRequests = new Map<ID, object>();
   private pendingReads = new Map<ID, number>();
   private readRequests = new Map<ID, AbortController>();
   private readRetryTimer: ReturnType<typeof setInterval> | null = null;
@@ -496,6 +497,7 @@ export class WorkspaceClient {
 
   private resetHistory(): void {
     this.historyEpoch++;
+    this.timelineRequests.clear();
     this.clearReadRequests();
     for (const [id, timeline] of Object.entries(this.state.timelines)) {
       if (timeline.loaded) this.reloadChannels.add(id);
@@ -522,6 +524,7 @@ export class WorkspaceClient {
   }
 
   private removeChannel(channelId: ID): void {
+    this.timelineRequests.delete(channelId);
     this.pendingReads.delete(channelId);
     this.readRequests.get(channelId)?.abort();
     this.readRequests.delete(channelId);
@@ -948,26 +951,42 @@ export class WorkspaceClient {
     return result;
   }
 
-  /** Load the initial page (or older pages) of a channel's timeline. */
-  async loadTimeline(channelId: ID, opts: { older?: boolean } = {}): Promise<void> {
+  /** Each conversation accepts only its most recently requested history window. */
+  private beginTimelineRequest(channelId: ID): object {
+    const ticket = {};
+    this.timelineRequests.set(channelId, ticket);
+    return ticket;
+  }
+
+  async loadTimeline(
+    channelId: ID,
+    opts: { older?: boolean; latest?: boolean } = {},
+  ): Promise<void> {
     const epoch = this.historyEpoch;
     const tl = this.state.timelines[channelId];
-    if (tl?.loaded && !opts.older) return;
+    if (tl?.loaded && !opts.older && !opts.latest) return;
     if (opts.older && (!tl?.hasMore || tl.items.length === 0)) return;
+    const ticket = this.beginTimelineRequest(channelId);
 
     const before = opts.older ? tl!.items[0]!.id : undefined;
     const { messages, readThroughSeq } = await this.api.listMessages(channelId, {
       before,
       limit: 50,
     });
-    if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
+    if (
+      this.stopped ||
+      epoch !== this.historyEpoch ||
+      this.timelineRequests.get(channelId) !== ticket ||
+      !this.state.channels[channelId]
+    )
+      return;
     const page = [...messages].reverse(); // API returns newest-first
 
     this.store.setState((s) => {
       const existing = s.timelines[channelId];
       const items = opts.older
         ? [...page, ...(existing?.items ?? [])]
-        : page.reduce(sortedInsert, existing?.items ?? []);
+        : page.reduce(sortedInsert, opts.latest ? [] : (existing?.items ?? []));
       return {
         timelines: {
           ...s.timelines,
@@ -997,6 +1016,7 @@ export class WorkspaceClient {
    */
   async jumpToMessage(channelId: ID, messageId: ID): Promise<ID | null | undefined> {
     const ticket = ++this.messageJump;
+    const timelineTicket = this.beginTimelineRequest(channelId);
     const epoch = this.historyEpoch;
     const existing = this.state.timelines[channelId];
     // Already on screen in a tail view — nothing to reload.
@@ -1013,6 +1033,7 @@ export class WorkspaceClient {
       this.stopped ||
       epoch !== this.historyEpoch ||
       ticket !== this.messageJump ||
+      this.timelineRequests.get(channelId) !== timelineTicket ||
       !this.state.channels[channelId]
     )
       return;
@@ -1039,9 +1060,16 @@ export class WorkspaceClient {
     const epoch = this.historyEpoch;
     const tl = this.state.timelines[channelId];
     if (!tl?.loaded || !tl.hasMoreNewer || tl.items.length === 0) return;
+    const ticket = this.beginTimelineRequest(channelId);
     const newest = tl.items[tl.items.length - 1]!;
     const { messages } = await this.api.listMessagesAfter(channelId, newest.id, 50);
-    if (this.stopped || epoch !== this.historyEpoch || !this.state.channels[channelId]) return;
+    if (
+      this.stopped ||
+      epoch !== this.historyEpoch ||
+      this.timelineRequests.get(channelId) !== ticket ||
+      !this.state.channels[channelId]
+    )
+      return;
     this.store.setState((s) => {
       const current = s.timelines[channelId];
       if (!current) return {};
@@ -1061,13 +1089,10 @@ export class WorkspaceClient {
     });
   }
 
-  /** Drops an anchored view and returns to the live tail. */
+  /** Keeps the current window visible until the live tail has loaded successfully. */
   async jumpToLatest(channelId: ID): Promise<void> {
-    this.store.setState((s) => {
-      const { [channelId]: _dropped, ...rest } = s.timelines;
-      return { timelines: rest };
-    });
-    await this.loadTimeline(channelId);
+    this.cancelMessageJump();
+    await this.loadTimeline(channelId, { latest: true });
   }
 
   async loadThread(

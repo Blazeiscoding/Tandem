@@ -232,7 +232,9 @@ export class Api {
     if (opts.limit) params.set("limit", String(opts.limit));
     if (opts.threadRootId) params.set("threadRootId", opts.threadRootId);
     const qs = params.size > 0 ? `?${params}` : "";
-    return this.request("GET", `/api/channels/${channelId}/messages${qs}`);
+    return this.request("GET", `/api/channels/${channelId}/messages${qs}`, undefined, {
+      timeoutMs: 10_000,
+    });
   }
 
   /** A window of messages centred on one, for jumping to it. */
@@ -258,6 +260,8 @@ export class Api {
     return this.request(
       "GET",
       `/api/channels/${channelId}/messages/after/${afterId}?limit=${limit}`,
+      undefined,
+      { timeoutMs: 10_000 },
     );
   }
 

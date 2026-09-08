@@ -24,16 +24,23 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 
 ## Automated suites
 
-| Suite                | Command                       | Result                                                    | Last run   |
-| -------------------- | ----------------------------- | --------------------------------------------------------- | ---------- |
-| Types                | `pnpm typecheck`              | 7 packages, clean                                         | 2026-09-06 |
-| Unit and integration | `pnpm test`                   | 223 tests: server 143, client-core 52, ui 16, protocol 12 | 2026-09-06 |
-| Browser end to end   | `pnpm test:e2e`               | 7 scenarios, passed                                       | 2026-09-06 |
-| Packaged Windows app | `pnpm test:desktop`           | 1 scenario, passed                                        | 2026-09-05 |
-| Container            | `node tests/docker-smoke.mjs` | passed                                                    | 2026-09-05 |
+| Suite                | Command                                   | Result                                                      | Last run   |
+| -------------------- | ----------------------------------------- | ----------------------------------------------------------- | ---------- |
+| Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed | 2026-09-08 |
+| Unit and integration | `pnpm test`                               | 223 tests: server 143, client-core 52, ui 16, protocol 12   | 2026-09-06 |
+| Browser end to end   | `pnpm test:e2e`                           | 7 scenarios, passed                                         | 2026-09-06 |
+| Packaged Windows app | `pnpm test:desktop`                       | 1 scenario, passed                                          | 2026-09-05 |
+| Container            | `node tests/docker-smoke.mjs`             | passed                                                      | 2026-09-05 |
 
-The latest combined verification used `pnpm exec turbo test typecheck build --force`:
+The last combined verification including tests used `pnpm exec turbo test typecheck build --force`:
 all 14 tasks passed without cached results, including the web, desktop and server CLI builds.
+
+The September 7–8 feature phases were checked with typechecking and production builds only,
+as requested by the user. Account controls, thread/search pagination, composer/editor changes,
+scheduling controls, unread synchronization, Activity and history-loading changes have not yet
+had their automated interaction/regression suites run. The test totals above remain the
+September 6 baseline. The latest build completed with existing Zod annotation warnings and
+a main browser/desktop renderer chunk just over 500 kB before compression.
 
 The last two rows were not re-run for the reliability work recorded in
 `IMPROVEMENT-PLAN-2026-09.md`; their dates are the last run that did happen.

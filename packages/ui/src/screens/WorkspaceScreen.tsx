@@ -461,7 +461,10 @@ function WorkspaceInner({
             />
             <HuddleStage />
             <HuddleBar />
-            <JumpToLatestBar channelId={activeChannelId} />
+            <JumpToLatestBar
+              channelId={activeChannelId}
+              onJump={() => setHighlightMessageId(null)}
+            />
             <Composer
               channelId={activeChannelId}
               placeholder={isRoom ? `Message #${title}` : `Message ${title}`}
