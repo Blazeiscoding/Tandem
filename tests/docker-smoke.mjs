@@ -59,10 +59,15 @@ try {
   assert.notEqual(docker("exec", name, "id", "-u"), "0");
   assert.match(await (await fetch(base)).text(), /<div id="root">/);
   const idle = docker("stats", "--no-stream", "--format", "{{.MemUsage}}", name);
+  // Published ports reach the server through Docker's bridge, so claim the
+  // workspace with the same startup secret a remote administrator needs.
+  const claimCode = docker("logs", name).match(/Claim code: (\S+)/)?.[1];
+  assert(claimCode, "server printed its initial workspace claim code");
   const owner = await api("/api/auth/register", null, {
     handle: "owner",
     displayName: "Owner",
     password: "test-password",
+    claimCode,
   });
   const invite = await api("/api/invites", owner.token, { maxUses: 1 });
   const guest = await api("/api/auth/register", null, {
