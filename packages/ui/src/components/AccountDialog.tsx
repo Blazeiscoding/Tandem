@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionInfo } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { accountError, deviceLabel } from "../lib/account.js";
+import { useComposerPreferences } from "../lib/composerPreferences.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 
 const button =
@@ -18,6 +19,7 @@ export function AccountDialog({
 }) {
   const client = useClient();
   const self = useWorkspace((s) => s.self);
+  const composer = useComposerPreferences();
   const alive = useRef(true);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,6 +142,37 @@ export function AccountDialog({
           {notice}
         </p>
       )}
+      <section aria-labelledby="account-composer-title" className="mb-6">
+        <h3 id="account-composer-title" className="font-semibold">
+          Writing messages
+        </h3>
+        <label className="mt-3 block text-sm">
+          When I press Enter
+          <select
+            className={`${inputCls} mt-1`}
+            value={composer.enterSends ? "send" : "newline"}
+            disabled={!composer.loaded || composer.saving}
+            onChange={(event) => void composer.setEnterSends(event.target.value === "send")}
+          >
+            <option value="send">Send the message</option>
+            <option value="newline">Start a new line</option>
+          </select>
+        </label>
+        <p className="mt-2 text-sm text-ink-dim">
+          Applies to channels and threads across workspaces on this device. Ctrl+Enter or Cmd+Enter
+          always sends; Shift+Enter adds a new line.
+        </p>
+        {composer.saving && (
+          <p role="status" className="mt-2 text-sm text-ink-dim">
+            Saving preference…
+          </p>
+        )}
+        {composer.error && (
+          <p role="alert" className="mt-2 text-sm text-alert">
+            {composer.error}
+          </p>
+        )}
+      </section>
       <section aria-labelledby="account-password-title">
         <h3 id="account-password-title" className="font-semibold">
           Change password

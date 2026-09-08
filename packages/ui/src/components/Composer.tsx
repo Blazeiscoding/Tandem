@@ -4,6 +4,7 @@ import { ApiError } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
+import { useComposerPreferences } from "../lib/composerPreferences.js";
 import { formatScheduleTime, localDateTime, schedulePresets } from "../lib/schedule.js";
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
@@ -31,9 +32,10 @@ const BROADCASTS = [
   { token: "here" as const, description: "Everyone who is around now" },
 ];
 
-/** Enter sends, Shift+Enter breaks the line, @ opens mention autocomplete. */
+/** Enter follows the device preference; @ opens mention autocomplete. */
 export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Props) {
   const client = useClient();
+  const { enterSends } = useComposerPreferences();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   const commands = useWorkspace((s) => s.commands);
@@ -357,8 +359,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         insertCommand(commandCandidates[commandIndex]!.command);
         return;
       }
-      // Enter still sends: typing the whole name and hitting Enter should run
-      // it, not pick something else off the list.
+      // Enter follows the send preference, rather than choosing a command.
     }
     if (mentionQuery && candidates.length > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -380,7 +381,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey && enterSends) {
       e.preventDefault();
       send();
     }
@@ -630,7 +631,9 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           <span className="composer-hint ml-auto mr-3 text-[11px] text-ink-faint">
             {scheduleNote ??
               (text.trim() || attached.length > 0
-                ? "Enter to send · Shift+Enter for a new line"
+                ? enterSends
+                  ? "Enter to send · Shift+Enter for a new line"
+                  : "Ctrl/Cmd+Enter to send · Enter for a new line"
                 : "")}
           </span>
           <button
@@ -640,7 +643,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             }}
             disabled={(!text.trim() && attached.length === 0) || text.length > MESSAGE_LIMIT}
             aria-label="Send message"
-            title="Send message (Enter)"
+            title={enterSends ? "Send message (Enter)" : "Send message (Ctrl/Cmd+Enter)"}
             className="flex items-center gap-2 rounded-lg bg-copper px-3 py-1.5 text-ground hover:bg-copper-deep disabled:bg-lifted disabled:text-ink-faint"
           >
             <Icon name="send" size={16} />
