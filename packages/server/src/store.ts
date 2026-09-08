@@ -1116,20 +1116,42 @@ export class Store {
   }
 
   /** Saved messages the user can still reach, newest save first. */
-  listSaved(userId: ID): Message[] {
+  listSaved(
+    userId: ID,
+    limit = 30,
+    cursor?: string,
+  ): { messages: Message[]; nextCursor: string | null } {
+    const [beforeTime, beforeId] = cursor?.split(":") ?? [];
     const rows = this.db
       .prepare(
-        `SELECT m.* FROM saved_items s
+        `SELECT m.*, s.created_at AS saved_at FROM saved_items s
          JOIN messages m ON m.id = s.message_id
          JOIN channels c ON c.id = m.channel_id
-         WHERE s.user_id = ? AND m.deleted_at IS NULL AND (
+         WHERE s.user_id = ? AND m.deleted_at IS NULL
+         AND (m.thread_root_id IS NULL OR EXISTS (
+           SELECT 1 FROM messages root WHERE root.id = m.thread_root_id AND root.deleted_at IS NULL
+         )) AND (
            c.type = 'public'
            OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
          )
-         ORDER BY s.created_at DESC`,
+         AND (? IS NULL OR s.created_at < ? OR (s.created_at = ? AND s.message_id < ?))
+         ORDER BY s.created_at DESC, s.message_id DESC LIMIT ?`,
       )
-      .all(userId, userId) as unknown as MessageRow[];
-    return this.hydrateMessages(rows);
+      .all(
+        userId,
+        userId,
+        beforeTime ? Number(beforeTime) : null,
+        beforeTime ? Number(beforeTime) : null,
+        beforeTime ? Number(beforeTime) : null,
+        beforeId ?? null,
+        limit + 1,
+      ) as unknown as (MessageRow & { saved_at: number })[];
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      messages: this.hydrateMessages(page),
+      nextCursor: rows.length > limit && last ? `${last.saved_at}:${last.id}` : null,
+    };
   }
 
   // ---------- scheduled messages ----------

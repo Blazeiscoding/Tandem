@@ -415,8 +415,11 @@ export class Api {
     return this.request("DELETE", `/api/messages/${id}/pin`);
   }
 
-  listPins(channelId: ID): Promise<{ messages: Message[] }> {
-    return this.request("GET", `/api/channels/${channelId}/pins`);
+  listPins(channelId: ID, signal?: AbortSignal): Promise<{ messages: Message[] }> {
+    return this.request("GET", `/api/channels/${channelId}/pins`, undefined, {
+      signal,
+      timeoutMs: 10_000,
+    });
   }
 
   saveMessage(id: ID): Promise<{ ok: true }> {
@@ -427,8 +430,13 @@ export class Api {
     return this.request("DELETE", `/api/messages/${id}/save`);
   }
 
-  listSaved(): Promise<{ messages: Message[] }> {
-    return this.request("GET", "/api/saved");
+  listSaved(
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<{ messages: Message[]; nextCursor: string | null }> {
+    const query = new URLSearchParams({ limit: "30" });
+    if (cursor) query.set("cursor", cursor);
+    return this.request("GET", `/api/saved?${query}`, undefined, { signal, timeoutMs: 10_000 });
   }
 
   // ---------- apps and integrations (admin only) ----------
