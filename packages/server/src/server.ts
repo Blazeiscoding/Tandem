@@ -24,6 +24,7 @@ import {
   createInviteBody,
   scheduleMessageBody,
   rescheduleBody,
+  editScheduledBody,
   changePasswordBody,
   editMessageBody,
   loginBody,
@@ -2121,6 +2122,27 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const body = rescheduleBody.parse(req.body);
     requireChannelAccess(scheduled.channelId, me);
     store.rescheduleMessage(scheduled.id, body.sendAt);
+    return { scheduled: store.getScheduled(scheduled.id)! };
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/scheduled/:id/text", async (req) => {
+    const me = requireUser(req);
+    const scheduled = store.getScheduled(req.params.id);
+    if (!scheduled || scheduled.userId !== me.id || scheduled.status === "sent") {
+      throw new HttpError(404, "not_found");
+    }
+    requireChannelAccess(scheduled.channelId, me);
+    const body = editScheduledBody.parse(req.body);
+    if (!body.text.trim() && scheduled.fileIds.length === 0) {
+      throw new HttpError(400, "empty_message", "A message needs text or attachments.");
+    }
+    if (!store.editScheduledText(scheduled.id, body.text, body.expectedText)) {
+      throw new HttpError(
+        409,
+        "scheduled_changed",
+        "This scheduled message has changed. Refresh before editing again.",
+      );
+    }
     return { scheduled: store.getScheduled(scheduled.id)! };
   });
 

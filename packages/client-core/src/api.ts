@@ -17,6 +17,7 @@ import type {
   SessionInfo,
   SlashCommand,
   EventSubscription,
+  EditScheduledBody,
   UpdateChannelBody,
   UpdateMeBody,
   User,
@@ -389,6 +390,10 @@ export class Api {
   /** Requeues a held or failed message. A past time sends it on the next flush. */
   rescheduleMessage(id: ID, sendAt: number): Promise<{ scheduled: ScheduledMessage }> {
     return this.request("PATCH", `/api/scheduled/${id}`, { sendAt }, { timeoutMs: 10_000 });
+  }
+
+  editScheduledMessage(id: ID, body: EditScheduledBody): Promise<{ scheduled: ScheduledMessage }> {
+    return this.request("PATCH", `/api/scheduled/${id}/text`, body, { timeoutMs: 10_000 });
   }
 
   setChannelPrefs(channelId: ID, body: ChannelPrefsBody): Promise<{ prefs: ChannelPrefs }> {

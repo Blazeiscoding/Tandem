@@ -99,6 +99,12 @@ export const rescheduleBody = z.object({
   sendAt: z.number().int().positive(),
 });
 
+export const editScheduledBody = z.object({
+  text: z.string().max(12000),
+  /** The text the author started editing; prevents overwriting another edit. */
+  expectedText: z.string().max(12000),
+});
+
 export const createAppBody = z.object({
   name: z.string().min(1).max(60),
 });
@@ -244,6 +250,7 @@ export type CreateInviteBody = z.infer<typeof createInviteBody>;
 export type ChannelPrefsBody = z.infer<typeof channelPrefsBody>;
 export type ScheduleMessageBody = z.infer<typeof scheduleMessageBody>;
 export type RescheduleBody = z.infer<typeof rescheduleBody>;
+export type EditScheduledBody = z.infer<typeof editScheduledBody>;
 export type ChangePasswordBody = z.infer<typeof changePasswordBody>;
 export type CreateAppBody = z.infer<typeof createAppBody>;
 export type CreateWebhookBody = z.infer<typeof createWebhookBody>;
