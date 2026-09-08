@@ -337,6 +337,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     uploadController.current = controller;
     const current = () => scheduleContext.current === context;
     let submitted = false;
+    let savingRecovery = false;
     // Keep the draft if the user leaves while the request is in flight.
     client.setDraft(draftKey, text);
     try {
@@ -355,7 +356,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       }
       if (!current()) return;
       const body: ScheduleMessageBody = {
-        nonce: crypto.randomUUID(),
+        // getRandomValues remains available on plain HTTP LAN origins.
+        nonce: Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join(""),
         text: trimmed,
         sendAt: at.getTime(),
         ...(threadRootId ? { threadRootId } : {}),
@@ -363,7 +367,9 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       };
       // Persist the exact payload before it can reach the server, including
       // uploaded IDs and the original time. A retry never creates a new key.
+      savingRecovery = true;
       await platform.storage.set(scheduleStorageKey, body);
+      savingRecovery = false;
       if (!current()) return;
       setPendingSchedule(body);
       submitted = true;
@@ -373,13 +379,15 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       if (error instanceof ApiError && error.code === "invalid_attachments")
         scheduleUploads.current = new WeakMap();
       setScheduleError(
-        error instanceof ApiError && error.code === "scheduling_upgrade_required"
-          ? "Update this workspace server to support safe scheduling retries. Your draft is kept."
-          : submitted
-            ? "Could not confirm scheduling. Retry confirmation to check the same request safely."
-            : error instanceof ApiError && error.code === "file_too_large"
-              ? "One of these files exceeds the workspace upload limit. Remove it and try again."
-              : "Could not upload the attachments. Your draft is kept; try again when connected.",
+        savingRecovery
+          ? "Could not save scheduling recovery on this device. Nothing was submitted; your draft is kept."
+          : error instanceof ApiError && error.code === "scheduling_upgrade_required"
+            ? "Update this workspace server to support safe scheduling retries. Your draft is kept."
+            : submitted
+              ? "Could not confirm scheduling. Retry confirmation to check the same request safely."
+              : error instanceof ApiError && error.code === "file_too_large"
+                ? "One of these files exceeds the workspace upload limit. Remove it and try again."
+                : "Could not upload the attachments. Your draft is kept; try again when connected.",
       );
     } finally {
       if (current()) {
