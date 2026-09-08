@@ -221,7 +221,7 @@ export function PinsPanel(props: {
     <MessageListPanel
       title="Pinned"
       emptyHint="Nothing pinned here yet. Pin a message to keep it handy for everyone in the channel."
-      load={(_cursor, signal) => client.api.listPins(props.channelId, signal)}
+      load={(cursor, signal) => client.api.listPins(props.channelId, signal, cursor)}
       reloadKey={`${props.channelId}:${pinSignature}`}
       onClose={props.onClose}
       onJump={props.onJump}

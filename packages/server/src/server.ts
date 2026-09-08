@@ -13,6 +13,7 @@ import {
   createChannelBody,
   channelPrefsBody,
   savedMessagesQuery,
+  pinnedMessagesQuery,
   adminUserBody,
   createAppBody,
   createCommandBody,
@@ -2217,7 +2218,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.get<{ Params: { id: string } }>("/api/channels/:id/pins", async (req) => {
     const me = requireUser(req);
     requireChannelAccess(req.params.id, me);
-    return { messages: store.listPins(req.params.id) };
+    const query = pinnedMessagesQuery.parse(req.query);
+    return store.listPins(req.params.id, query.limit, query.cursor);
   });
 
   app.put<{ Params: { id: string } }>("/api/messages/:id/save", async (req) => {
