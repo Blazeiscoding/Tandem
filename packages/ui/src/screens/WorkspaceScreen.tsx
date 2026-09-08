@@ -15,7 +15,7 @@ import {
   NewDmDialog,
 } from "../components/dialogs.js";
 import { QuickSwitcher, SearchDialog } from "../components/QuickSwitcher.js";
-import { LaterPanel, PinsPanel } from "../components/MessageListPanel.js";
+import { LaterPanel, PinsPanel, ThreadsPanel } from "../components/MessageListPanel.js";
 import { ScheduledPanel } from "../components/ScheduledPanel.js";
 import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
 import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
@@ -73,6 +73,7 @@ type SidePanel =
   | { kind: "thread"; rootId: ID; targetId?: ID }
   | { kind: "pins" }
   | { kind: "later" }
+  | { kind: "threads" }
   | { kind: "scheduled" }
   | { kind: "activity" };
 
@@ -278,6 +279,20 @@ function WorkspaceInner({
   const openThread = useCallback((rootId: ID) => setPanel({ kind: "thread", rootId }), []);
   const openProfile = useCallback((userId: ID) => setDialog({ kind: "profile", userId }), []);
 
+  /**
+   * Opens a thread from the Threads list. The row already names its root, so
+   * unlike a jump there is nothing to resolve before showing it.
+   */
+  function openThreadInChannel(channelId: ID, rootId: ID) {
+    navigation.current++;
+    setNavigationError(null);
+    setNavigating(false);
+    setDialog({ kind: "none" });
+    setActiveChannelId(channelId);
+    setHighlightMessageId(rootId);
+    setPanel({ kind: "thread", rootId });
+  }
+
   /** Opens a channel scrolled to one message, from search, pins or Later. */
   function jumpToMessage(channelId: ID, messageId: ID) {
     const ticket = ++navigation.current;
@@ -343,6 +358,10 @@ function WorkspaceInner({
         onFriends={() => setDialog({ kind: "friends" })}
         onActivity={() => {
           setPanel({ kind: "activity" });
+          setSidebarOpen(false);
+        }}
+        onThreads={() => {
+          setPanel({ kind: "threads" });
           setSidebarOpen(false);
         }}
         activeChannelId={activeChannelId}
@@ -511,6 +530,9 @@ function WorkspaceInner({
       )}
       {panel.kind === "later" && (
         <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+      )}
+      {panel.kind === "threads" && (
+        <ThreadsPanel onClose={() => setPanel({ kind: "none" })} onJump={openThreadInChannel} />
       )}
       {panel.kind === "activity" && (
         <ErrorBoundary

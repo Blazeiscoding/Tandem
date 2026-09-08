@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
+import { unreadThreadCount } from "@slackoss/client-core";
 import { channelTitle } from "../lib/format.js";
 import { Avatar, PresenceDot } from "./Avatar.js";
 import { BrandMark, Icon } from "./Icon.js";
@@ -16,6 +17,7 @@ interface Props {
   onSaved: () => void;
   onScheduled: () => void;
   onActivity: () => void;
+  onThreads: () => void;
   onInvite: () => void;
   onSwitchWorkspace: () => void;
   onEditProfile: () => void;
@@ -28,6 +30,7 @@ interface Props {
 
 export function Sidebar(props: Props) {
   const client = useClient();
+  const unreadThreads = useWorkspace((s) => unreadThreadCount(s.threadFollows));
   const friendRequests = useWorkspace(
     (s) => s.friends.filter((f) => f.status === "incoming").length,
   );
@@ -41,6 +44,7 @@ export function Sidebar(props: Props) {
   const drafts = useWorkspace((s) => s.drafts);
   const prefs = useWorkspace((s) => s.prefs);
   const huddles = useWorkspace((s) => s.huddles);
+  const mentionCounts = useWorkspace((s) => s.mentionCounts);
   const dndUntil = useWorkspace((s) => s.self?.dndUntil ?? null);
   const snoozed = dndUntil !== null && dndUntil > Date.now();
   const baseHost = client.baseUrl.replace(/^https?:\/\//, "");
@@ -66,6 +70,8 @@ export function Sidebar(props: Props) {
   // Muted channels still show unread state, just quietly.
   const isMuted = (id: ID) => prefs[id]?.muted ?? false;
   const huddleCount = (id: ID) => huddles[id]?.length ?? 0;
+  const mentions = (id: ID) => mentionCounts[id] ?? 0;
+  const totalMentions = Object.values(mentionCounts).reduce((sum, n) => sum + n, 0);
 
   return (
     <nav
@@ -109,12 +115,38 @@ export function Sidebar(props: Props) {
             <Icon name="activity" size={17} />
             Activity
           </span>
-          {Object.keys(memberships).some((id) => isUnread(id)) && (
+          {totalMentions > 0 ? (
             <span
-              aria-label="Unread conversations"
+              aria-label="Unread mentions"
+              className="rounded-full bg-copper px-2 text-xs font-semibold text-ground"
+            >
+              {totalMentions}
+            </span>
+          ) : (
+            Object.keys(memberships).some((id) => isUnread(id)) && (
+              <span
+                aria-label="Unread conversations"
+                className="rounded-full bg-copper/15 px-2 text-xs text-copper"
+              >
+                {Object.keys(memberships).filter((id) => isUnread(id)).length}
+              </span>
+            )
+          )}
+        </button>
+        <button
+          onClick={props.onThreads}
+          className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink"
+        >
+          <span className="flex items-center gap-2">
+            <Icon name="thread" size={17} />
+            Threads
+          </span>
+          {unreadThreads > 0 && (
+            <span
+              aria-label="Threads with unread replies"
               className="rounded-full bg-copper/15 px-2 text-xs text-copper"
             >
-              {Object.keys(memberships).filter((id) => isUnread(id)).length}
+              {unreadThreads}
             </span>
           )}
         </button>
@@ -164,6 +196,7 @@ export function Sidebar(props: Props) {
               muted={isMuted(ch.id)}
               draft={hasDraft(ch.id)}
               huddle={huddleCount(ch.id)}
+              mentions={mentions(ch.id)}
               onClick={() => props.onSelect(ch.id)}
               icon={ch.type === "private" ? "🔒" : "#"}
               label={ch.name}
@@ -187,6 +220,7 @@ export function Sidebar(props: Props) {
                 muted={isMuted(ch.id)}
                 draft={hasDraft(ch.id)}
                 huddle={huddleCount(ch.id)}
+                mentions={mentions(ch.id)}
                 onClick={() => props.onSelect(ch.id)}
                 icon={<PresenceDot online={online} />}
                 label={channelTitle(ch, users, self?.id)}
@@ -351,6 +385,8 @@ function ChannelRow(props: {
   draft: boolean;
   /** How many people are in this channel’s huddle; 0 for none. */
   huddle: number;
+  /** Unread messages here that name this user; 0 for none. */
+  mentions: number;
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
@@ -374,6 +410,16 @@ function ChannelRow(props: {
           {props.icon}
         </span>
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
+        {props.mentions > 0 && (
+          <span
+            aria-label={`${props.mentions} unread ${
+              props.mentions === 1 ? "mention" : "mentions"
+            } in ${props.label}`}
+            className="shrink-0 rounded-full bg-copper px-1.5 text-[10px] font-semibold text-ground"
+          >
+            {props.mentions}
+          </span>
+        )}
         {props.huddle > 0 && (
           <span className="shrink-0 text-[10px] text-online" title="Huddle in progress">
             🎧

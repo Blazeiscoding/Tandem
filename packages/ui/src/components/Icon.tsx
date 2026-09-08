@@ -15,6 +15,7 @@ const paths = {
   send: "m22 2-7 20-4-9-9-4zM22 2 11 13",
   headphones: "M3 14v-3a9 9 0 0 1 18 0v3M3 13h4v8H3zM17 13h4v8h-4z",
   arrow: "M4 12h16m-6-6 6 6-6 6",
+  thread: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 8h8M8 12h5",
 } as const;
 
 /** Small inline vectors: no icon font, network request, or runtime dependency. */

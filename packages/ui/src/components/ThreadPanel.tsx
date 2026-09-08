@@ -32,6 +32,7 @@ export function ThreadPanel({
       : (s.timelines[channelId]?.items.find((m) => m.id === rootId) ?? null),
   );
   const replies = useWorkspace((s) => s.threads[rootId]);
+  const follows = useWorkspace((s) => s.threadFollows[rootId]?.following ?? false);
   const pending = useWorkspace((s) => s.pending).filter((p) => p.threadRootId === rootId);
   const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -57,6 +58,7 @@ export function ThreadPanel({
       channelId,
       Math.max(root?.seq ?? 0, ...(replies ?? []).map((message) => message.seq)),
     );
+    client.markThreadRead(rootId);
   }
 
   useEffect(() => {
@@ -130,6 +132,24 @@ export function ThreadPanel({
     >
       <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
         <h2 className="font-bold">Thread</h2>
+        {root && (
+          <button
+            onClick={() => client.setThreadFollow(rootId, !follows)}
+            aria-pressed={follows}
+            title={
+              follows
+                ? "Stop following: new replies stop appearing in Threads"
+                : "Follow: new replies appear in Threads"
+            }
+            className={`ml-auto mr-2 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+              follows
+                ? "border-copper text-copper"
+                : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+            }`}
+          >
+            {follows ? "Following" : "Follow"}
+          </button>
+        )}
         <button
           onClick={onClose}
           aria-label="Close thread"

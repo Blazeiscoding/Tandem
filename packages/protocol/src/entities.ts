@@ -82,6 +82,11 @@ export interface Message {
   text: string;
   threadRootId: ID | null;
   /**
+   * A reply whose author chose to show it in the channel's own timeline too.
+   * It stays a reply: it belongs to its thread and counts toward its replies.
+   */
+  broadcast: boolean;
+  /**
    * Event-log seq of this message's message.created event; used for unread math.
    * Note: inside a live `message.created` event payload this can be 0 — clients
    * must set it from the envelope's seq when applying the event.
@@ -154,6 +159,26 @@ export interface SessionInfo {
   userAgent: string;
   /** The session making this request. */
   current: boolean;
+}
+
+export interface ThreadFollow {
+  rootId: ID;
+  channelId: ID;
+  following: boolean;
+  lastReadSeq: number;
+  /**
+   * Newest seq in the thread, root included. Carried here so a client can tell
+   * a thread has unread replies without having loaded any of them.
+   */
+  lastSeq: number;
+  /** Increases on every change, so a late echo cannot undo a newer one. */
+  revision: number;
+}
+
+export interface FollowedThread {
+  root: Message;
+  lastSeq: number;
+  unreadCount: number;
 }
 
 export const PROTOCOL_VERSION = 1;

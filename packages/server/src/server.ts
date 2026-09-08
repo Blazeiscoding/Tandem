@@ -14,6 +14,9 @@ import {
   channelPrefsBody,
   savedMessagesQuery,
   pinnedMessagesQuery,
+  followedThreadsQuery,
+  threadFollowBody,
+  threadReadBody,
   adminUserBody,
   createAppBody,
   createCommandBody,
@@ -31,6 +34,7 @@ import {
   editMessageBody,
   loginBody,
   markReadBody,
+  markUnreadBody,
   messageHistoryQuery,
   threadHistoryQuery,
   registerBody,
@@ -181,12 +185,65 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (event.type === "message.created") {
       store.stampMessageSeq(event.message.id, event.message.channelId, envelope.seq);
       event.message.seq = envelope.seq;
+      // Every way a reply can be written arrives here, so following belongs
+      // here too rather than in each of the routes that can create one.
+      if (event.message.threadRootId) {
+        store.autoFollowThread(event.message.threadRootId, event.message.userId, envelope.seq);
+      }
     }
     return envelope;
   };
+  /**
+   * A reply follows its thread for its author and the root's author. Their
+   * other devices only learn that from the handshake unless we say so, so tell
+   * them here — after the commit that created the follow row.
+   */
+  const publishThreadFollows = (envelope: EventEnvelope): void => {
+    const event = envelope.event;
+    if (event.type !== "message.created" || !event.message.threadRootId) return;
+    const root = store.getMessage(event.message.threadRootId);
+    // Everyone following it needs the new watermark, not just the two accounts
+    // this reply may have signed up.
+    const recipients = new Set([
+      ...store.threadFollowers(event.message.threadRootId),
+      event.message.userId,
+      ...(root ? [root.userId] : []),
+    ]);
+    for (const userId of recipients) {
+      const state = store.threadFollow(userId, event.message.threadRootId);
+      if (state) gateway.sendToUser(userId, { type: "thread.follow", state });
+    }
+  };
+  /**
+   * Recomputes and sends unread mention counts. Only the people whose counts
+   * can have changed are told, so an ordinary message costs nothing.
+   */
+  const pushMentionCounts = (userIds: Iterable<ID>): void => {
+    for (const userId of new Set(userIds)) {
+      gateway.sendToUser(userId, { type: "mentions", counts: store.unreadMentionCounts(userId) });
+    }
+  };
+
+  /**
+   * A message arriving or leaving changes the counts of whoever it names.
+   * Deletion is read from the event's own copy, since the row is already gone.
+   */
+  const publishMentionChanges = (envelope: EventEnvelope): void => {
+    const event = envelope.event;
+    if (event.type === "message.created") {
+      pushMentionCounts(
+        store.mentionedMemberIds(event.message.channelId, event.message.text, event.message.userId),
+      );
+    } else if (event.type === "message.deleted" && event.channelId) {
+      pushMentionCounts(store.memberIds(event.channelId));
+    }
+  };
+
   const publish = (envelope: EventEnvelope, channelId: ID | null) => {
     gateway.publish(envelope, channelId);
     dispatchToSubscribers(envelope, channelId);
+    publishThreadFollows(envelope);
+    publishMentionChanges(envelope);
   };
   /** Commit synchronous state and its event log before exposing any side effects. */
   const mutate = <T>(
@@ -267,6 +324,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     nonce: string | null;
     fileIds: ID[];
     actions?: MessageAction[];
+    /** For a reply: show it in the channel's own timeline as well. */
+    broadcast?: boolean;
     /** Marks this queue row delivered in the same transaction as the message. */
     scheduledId?: ID;
   }) => {
@@ -281,6 +340,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           input.channelId,
           input.text,
           input.threadRootId,
+          input.broadcast ?? false,
           [...input.fileIds].sort(),
         ]),
       );
@@ -869,7 +929,19 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       channelId: req.params.id,
       seq: acknowledged,
     });
+    pushMentionCounts([me.id]);
     return { ok: true, seq: acknowledged };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/channels/:id/unread", async (req) => {
+    const me = requireUser(req);
+    requireChannelAccess(req.params.id, me);
+    const { seq } = markUnreadBody.parse(req.body);
+    if (!store.isMember(req.params.id, me.id)) throw new HttpError(404, "channel_not_found");
+    const seqNow = store.markUnread(req.params.id, me.id, seq);
+    gateway.sendToUser(me.id, { type: "channel.unread", channelId: req.params.id, seq: seqNow });
+    pushMentionCounts([me.id]);
+    return { ok: true, seq: seqNow };
   });
 
   // ---------- messages ----------
@@ -951,6 +1023,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       threadRootId: body.threadRootId ?? null,
       nonce: body.nonce ?? null,
       fileIds: body.fileIds ?? [],
+      broadcast: body.alsoSendToChannel ?? false,
     });
     return reply.status(201).send({ message });
   });
@@ -2249,6 +2322,45 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     // Preferences are personal: only this user's own devices need to know.
     gateway.sendToUser(me.id, { type: "prefs", channelId: req.params.id, prefs });
     return { prefs };
+  });
+
+  app.put<{ Params: { id: string } }>("/api/messages/:id/follow", async (req) => {
+    const me = requireUser(req);
+    const message = requireVisibleMessage(req.params.id, me);
+    if (message.threadRootId) throw new HttpError(400, "not_a_thread_root");
+    const body = threadFollowBody.parse(req.body ?? {});
+    const state = store.setThreadFollow(me.id, message.id, body.following);
+    if (!state) throw new HttpError(404, "message_not_found");
+    gateway.sendToUser(me.id, { type: "thread.follow", state });
+    return { state };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/messages/:id/thread/read", async (req) => {
+    const me = requireUser(req);
+    const message = requireVisibleMessage(req.params.id, me);
+    if (message.threadRootId) throw new HttpError(400, "not_a_thread_root");
+    const body = threadReadBody.parse(req.body ?? {});
+    const state = store.markThreadRead(me.id, message.id, body.seq);
+    if (!state) throw new HttpError(404, "message_not_found");
+    gateway.sendToUser(me.id, { type: "thread.follow", state });
+    return { state };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/messages/:id/thread/unread", async (req) => {
+    const me = requireUser(req);
+    const message = requireVisibleMessage(req.params.id, me);
+    if (message.threadRootId) throw new HttpError(400, "not_a_thread_root");
+    const { seq } = markUnreadBody.parse(req.body);
+    const state = store.markThreadUnread(me.id, message.id, seq);
+    if (!state) throw new HttpError(404, "message_not_found");
+    gateway.sendToUser(me.id, { type: "thread.follow", state });
+    return { state };
+  });
+
+  app.get("/api/threads/followed", async (req) => {
+    const me = requireUser(req);
+    const query = followedThreadsQuery.parse(req.query);
+    return store.followedThreads(me.id, query.limit, query.cursor, query.unreadOnly === "true");
   });
 
   app.get("/api/saved", async (req) => {

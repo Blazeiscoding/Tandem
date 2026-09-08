@@ -286,6 +286,23 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (user_id, nonce)
   );
   `,
+  // v15 — account-scoped thread following and independent read cursors.
+  `
+  CREATE TABLE thread_follows (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    root_id TEXT NOT NULL REFERENCES messages(id),
+    following INTEGER NOT NULL DEFAULT 1,
+    last_read_seq INTEGER NOT NULL DEFAULT 0,
+    revision INTEGER NOT NULL,
+    PRIMARY KEY (user_id, root_id)
+  );
+  CREATE INDEX idx_thread_follows_user ON thread_follows(user_id, following);
+  CREATE INDEX idx_thread_follows_root ON thread_follows(root_id);
+  `,
+  // v16 — replies their author chose to send to the channel as well.
+  `
+  ALTER TABLE messages ADD COLUMN broadcast INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

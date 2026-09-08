@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle, formatDay, formatTime } from "../lib/format.js";
@@ -14,6 +14,14 @@ interface Props {
   ) => Promise<{ messages: Message[]; nextCursor?: string | null }>;
   /** Re-runs `load` whenever this changes (channel switch, save toggled). */
   reloadKey: string;
+  /** A control for the header, left of Refresh — a filter, usually. */
+  headerExtra?: ReactNode;
+  /** Extra detail beside a row's channel, such as an unread count. */
+  itemBadge?: (message: Message) => ReactNode;
+  /** Overrides the row's action wording when "Open message" is wrong. */
+  jumpLabel?: (message: Message) => string;
+  /** Wording for the row count, singular and plural. Defaults to messages. */
+  countNoun?: [string, string];
   onClose: () => void;
   onJump: (channelId: ID, messageId: ID) => void;
 }
@@ -82,6 +90,7 @@ export function MessageListPanel(props: Props) {
     >
       <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
         <h2 className="font-bold">{props.title}</h2>
+        {props.headerExtra}
         <button
           disabled={busy}
           className="ml-auto mr-3 text-xs text-copper disabled:opacity-40"
@@ -134,6 +143,7 @@ export function MessageListPanel(props: Props) {
                             : channelTitle(channel, users, selfId)
                           : "unknown"}
                       </span>
+                      {props.itemBadge?.(m)}
                       <span className="ml-auto font-mono">
                         {formatDay(m.createdAt)} · {formatTime(m.createdAt)}
                       </span>
@@ -164,7 +174,7 @@ export function MessageListPanel(props: Props) {
                       className="mt-2 text-xs text-copper underline"
                       onClick={() => props.onJump(m.channelId, m.id)}
                     >
-                      {m.threadRootId ? "Open reply" : "Open message"}
+                      {props.jumpLabel?.(m) ?? (m.threadRootId ? "Open reply" : "Open message")}
                     </button>
                   </div>
                 </li>
@@ -174,8 +184,11 @@ export function MessageListPanel(props: Props) {
       </div>
       <footer className="border-t border-edge px-4 py-2 text-[11px] text-ink-faint">
         <div role="status">
-          {messages?.length ?? 0} {messages?.length === 1 ? "message" : "messages"} · Page{" "}
-          {page + 1}
+          {messages?.length ?? 0}{" "}
+          {messages?.length === 1
+            ? (props.countNoun?.[0] ?? "message")
+            : (props.countNoun?.[1] ?? "messages")}{" "}
+          · Page {page + 1}
         </div>
         {(page > 0 || nextCursor) && (
           <div className="mt-2 flex justify-between text-xs">
@@ -242,6 +255,68 @@ export function LaterPanel(props: {
       emptyHint="Save a message with the 🔖 button and it shows up here."
       load={(cursor, signal) => client.api.listSaved(cursor, signal)}
       reloadKey={`saved:${savedSignature}`}
+      onClose={props.onClose}
+      onJump={props.onJump}
+    />
+  );
+}
+
+/**
+ * Threads this account follows, most recently active first. Unlike Later and
+ * Pinned, a row stands for a conversation rather than a single message, so it
+ * carries its own unread count and opens the thread instead of the message.
+ */
+export function ThreadsPanel(props: {
+  onClose: () => void;
+  onJump: (channelId: ID, messageId: ID) => void;
+}) {
+  const client = useClient();
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [unread, setUnread] = useState<Record<ID, number>>({});
+  // Following, unfollowing and reading all change what belongs in this list.
+  const followSignature = useWorkspace((s) =>
+    Object.values(s.threadFollows)
+      .filter((f) => f.following)
+      .map((f) => `${f.rootId}:${f.lastReadSeq}`)
+      .sort()
+      .join(","),
+  );
+  return (
+    <MessageListPanel
+      title="Threads"
+      countNoun={["thread", "threads"]}
+      emptyHint={
+        unreadOnly
+          ? "No unread replies. Threads you follow show up here when someone answers."
+          : "Reply to a message, or follow a thread, and it shows up here."
+      }
+      headerExtra={
+        <button
+          onClick={() => setUnreadOnly((on) => !on)}
+          aria-pressed={unreadOnly}
+          className={`ml-3 rounded-lg border px-2 py-0.5 text-[11px] transition-colors ${
+            unreadOnly
+              ? "border-copper text-copper"
+              : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+          }`}
+        >
+          Unread only
+        </button>
+      }
+      load={async (cursor, signal) => {
+        const result = await client.api.listFollowedThreads({ cursor, unreadOnly }, signal);
+        setUnread(Object.fromEntries(result.threads.map((t) => [t.root.id, t.unreadCount])));
+        return { messages: result.threads.map((t) => t.root), nextCursor: result.nextCursor };
+      }}
+      reloadKey={`threads:${unreadOnly}:${followSignature}`}
+      itemBadge={(m) =>
+        unread[m.id] ? (
+          <span className="rounded-full bg-copper/15 px-2 text-copper">
+            {unread[m.id]} new {unread[m.id] === 1 ? "reply" : "replies"}
+          </span>
+        ) : null
+      }
+      jumpLabel={() => "Open thread"}
       onClose={props.onClose}
       onJump={props.onJump}
     />

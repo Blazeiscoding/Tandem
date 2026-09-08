@@ -75,6 +75,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const uploadController = useRef<AbortController | null>(null);
   const scheduleUploads = useRef(new WeakMap<File, ID>());
   const [preview, setPreview] = useState(false);
+  /** Replies only: also show this one in the channel's own timeline. */
+  const [alsoToChannel, setAlsoToChannel] = useState(false);
   const [attachmentNote, setAttachmentNote] = useState<string | null>(null);
   const autocompleteId = useId();
   const box = useRef<HTMLTextAreaElement>(null);
@@ -303,8 +305,14 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     if (scheduleLock.current || recoveryBlocksSend) return;
     const trimmed = text.trim();
     if ((!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT) return;
-    client.send(channelId, trimmed, { threadRootId, files: attached });
+    client.send(channelId, trimmed, {
+      threadRootId,
+      files: attached,
+      alsoSendToChannel: alsoToChannel,
+    });
     setText("");
+    // A deliberate choice per reply, not a mode to get stuck in.
+    setAlsoToChannel(false);
     setAttached([]);
     setMentionQuery(null);
     setAttachmentNote(null);
@@ -809,6 +817,16 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
               </button>
             )}
           </span>
+          {threadRootId && (
+            <label className="ml-3 flex items-center gap-1.5 text-[11px] text-ink-faint">
+              <input
+                type="checkbox"
+                checked={alsoToChannel}
+                onChange={(e) => setAlsoToChannel(e.target.checked)}
+              />
+              Also send to channel
+            </label>
+          )}
           <span className="composer-hint ml-auto mr-3 text-[11px] text-ink-faint">
             {scheduleNote ??
               (text.trim() || attached.length > 0

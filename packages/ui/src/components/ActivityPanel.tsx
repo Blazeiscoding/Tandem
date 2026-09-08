@@ -169,7 +169,9 @@ export function ActivityPanel({
                   {unread && (
                     <button
                       title="Mark this conversation read through this message"
-                      onClick={() => client.markRead(message.channelId, message.seq)}
+                      onClick={() =>
+                        client.markRead(message.channelId, message.seq, { explicit: true })
+                      }
                     >
                       Read through here
                     </button>
