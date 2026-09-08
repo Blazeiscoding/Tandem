@@ -131,7 +131,10 @@ export class Api {
     return this.request("POST", "/api/auth/register", body);
   }
 
-  login(body: { handle: string; password: string }): Promise<{ token: string; user: User }> {
+  login(body: {
+    handle: string;
+    password: string;
+  }): Promise<{ token: string; user: User; mustChangePassword?: boolean }> {
     return this.request("POST", "/api/auth/login", body);
   }
 
