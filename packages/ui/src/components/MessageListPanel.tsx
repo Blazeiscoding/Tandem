@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle, formatDay, formatTime } from "../lib/format.js";
@@ -8,7 +8,10 @@ import { Mrkdwn } from "./Mrkdwn.js";
 interface Props {
   title: string;
   emptyHint: string;
-  load: () => Promise<{ messages: Message[] }>;
+  load: (
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => Promise<{ messages: Message[]; nextCursor?: string | null }>;
   /** Re-runs `load` whenever this changes (channel switch, save toggled). */
   reloadKey: string;
   onClose: () => void;
@@ -25,28 +28,67 @@ export function MessageListPanel(props: Props) {
   const channels = useWorkspace((s) => s.channels);
   const selfId = useWorkspace((s) => s.self?.id);
   const [messages, setMessages] = useState<Message[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const [page, setPage] = useState(0);
+  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const retry = useRef<(() => void) | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  async function loadPage(
+    cursor: string | undefined,
+    targetPage: number,
+    targetCursors: (string | undefined)[],
+  ) {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    retry.current = () => void loadPage(cursor, targetPage, targetCursors);
+    setBusy(true);
+    setError(false);
+    try {
+      const result = await props.load(cursor, controller.signal);
+      if (controller.signal.aborted) return;
+      setMessages(result.messages);
+      setPage(targetPage);
+      setCursors(targetCursors);
+      setNextCursor(result.nextCursor ?? null);
+      scroller.current?.scrollTo({ top: 0 });
+    } catch {
+      if (!controller.signal.aborted) setError(true);
+    } finally {
+      if (request.current === controller && !controller.signal.aborted) setBusy(false);
+    }
+  }
 
   useEffect(() => {
-    let active = true;
     setMessages(null);
-    props
-      .load()
-      .then((r) => {
-        if (active) setMessages(r.messages);
-      })
-      .catch(() => {
-        if (active) setMessages([]);
-      });
+    setNextCursor(null);
+    setPage(0);
+    setCursors([undefined]);
+    void loadPage(undefined, 0, [undefined]);
     return () => {
-      active = false;
+      request.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.reloadKey]);
+  }, [client, props.reloadKey]);
 
   return (
-    <aside className="flex w-[380px] shrink-0 flex-col border-l border-edge bg-ground">
+    <aside
+      aria-label={props.title}
+      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
+    >
       <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
         <h2 className="font-bold">{props.title}</h2>
+        <button
+          disabled={busy}
+          className="ml-auto mr-3 text-xs text-copper disabled:opacity-40"
+          onClick={() => void loadPage(undefined, 0, [undefined])}
+        >
+          Refresh
+        </button>
         <button
           onClick={props.onClose}
           aria-label={`Close ${props.title}`}
@@ -55,59 +97,107 @@ export function MessageListPanel(props: Props) {
           ✕
         </button>
       </header>
-      <div className="flex-1 overflow-y-auto p-3">
-        {messages === null && (
-          <p className="py-6 text-center font-mono text-xs text-ink-faint">loading…</p>
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={busy}>
+        {error && (
+          <p role="alert" className="mb-3 text-sm text-ink-dim">
+            Could not load {props.title.toLowerCase()}. The last loaded page is kept.{" "}
+            <button
+              disabled={busy}
+              className="text-copper underline"
+              onClick={() => retry.current?.()}
+            >
+              Retry
+            </button>
+          </p>
+        )}
+        {busy && (
+          <p role="status" className="py-3 text-center font-mono text-xs text-ink-faint">
+            Loading messages…
+          </p>
         )}
         {messages?.length === 0 && (
           <p className="px-2 py-6 text-center text-sm text-ink-faint">{props.emptyHint}</p>
         )}
         <ul className="space-y-2">
-          {(messages ?? []).map((m) => {
-            const channel = channels[m.channelId];
-            return (
-              <li key={m.id}>
-                <button
-                  onClick={() => props.onJump(m.channelId, m.id)}
-                  className="w-full rounded-xl border border-edge bg-raised p-3 text-left transition-colors hover:border-copper/50"
-                >
-                  <div className="mb-1.5 flex items-center gap-2 text-[11px] text-ink-faint">
-                    <span className="font-medium text-copper">
-                      {channel
-                        ? channel.name
-                          ? `#${channel.name}`
-                          : channelTitle(channel, users, selfId)
-                        : "unknown"}
-                    </span>
-                    <span className="ml-auto font-mono">
-                      {formatDay(m.createdAt)} · {formatTime(m.createdAt)}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    <Avatar user={users[m.userId]} size={24} />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-semibold">
-                        {users[m.userId]?.displayName ?? "unknown"}
-                      </div>
-                      <div className="line-clamp-4 text-sm text-ink-dim">
-                        {m.text ? (
-                          <Mrkdwn text={m.text} users={users} channels={channels} selfId={selfId} />
-                        ) : (
-                          <span className="italic">
-                            {m.files.length} {m.files.length === 1 ? "file" : "files"}
-                          </span>
-                        )}
+          {(messages ?? [])
+            .filter((message) => channels[message.channelId])
+            .map((m) => {
+              const channel = channels[m.channelId];
+              return (
+                <li key={m.id}>
+                  <div className="w-full rounded-xl border border-edge bg-raised p-3 text-left">
+                    <div className="mb-1.5 flex items-center gap-2 text-[11px] text-ink-faint">
+                      <span className="font-medium text-copper">
+                        {channel
+                          ? channel.name
+                            ? `#${channel.name}`
+                            : channelTitle(channel, users, selfId)
+                          : "unknown"}
+                      </span>
+                      <span className="ml-auto font-mono">
+                        {formatDay(m.createdAt)} · {formatTime(m.createdAt)}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Avatar user={users[m.userId]} size={24} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-semibold">
+                          {users[m.userId]?.displayName ?? "unknown"}
+                        </div>
+                        <div className="line-clamp-4 text-sm text-ink-dim">
+                          {m.text ? (
+                            <Mrkdwn
+                              text={m.text}
+                              users={users}
+                              channels={channels}
+                              selfId={selfId}
+                            />
+                          ) : (
+                            <span className="italic">
+                              {m.files.length} {m.files.length === 1 ? "file" : "files"}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
+                    <button
+                      className="mt-2 text-xs text-copper underline"
+                      onClick={() => props.onJump(m.channelId, m.id)}
+                    >
+                      {m.threadRootId ? "Open reply" : "Open message"}
+                    </button>
                   </div>
-                </button>
-              </li>
-            );
-          })}
+                </li>
+              );
+            })}
         </ul>
       </div>
       <footer className="border-t border-edge px-4 py-2 text-[11px] text-ink-faint">
-        {messages?.length ?? 0} {messages?.length === 1 ? "message" : "messages"}
+        <div role="status">
+          {messages?.length ?? 0} {messages?.length === 1 ? "message" : "messages"} · Page{" "}
+          {page + 1}
+        </div>
+        {(page > 0 || nextCursor) && (
+          <div className="mt-2 flex justify-between text-xs">
+            <button
+              disabled={busy || page === 0}
+              className="text-copper disabled:opacity-40"
+              onClick={() => void loadPage(cursors[page - 1], page - 1, cursors)}
+            >
+              Previous page
+            </button>
+            <button
+              disabled={busy || !nextCursor}
+              className="text-copper disabled:opacity-40"
+              onClick={() => {
+                if (nextCursor)
+                  void loadPage(nextCursor, page + 1, [...cursors.slice(0, page + 1), nextCursor]);
+              }}
+            >
+              Next page
+            </button>
+          </div>
+        )}
       </footer>
     </aside>
   );
@@ -131,7 +221,7 @@ export function PinsPanel(props: {
     <MessageListPanel
       title="Pinned"
       emptyHint="Nothing pinned here yet. Pin a message to keep it handy for everyone in the channel."
-      load={() => client.api.listPins(props.channelId)}
+      load={(_cursor, signal) => client.api.listPins(props.channelId, signal)}
       reloadKey={`${props.channelId}:${pinSignature}`}
       onClose={props.onClose}
       onJump={props.onJump}
@@ -145,13 +235,13 @@ export function LaterPanel(props: {
   onJump: (channelId: ID, messageId: ID) => void;
 }) {
   const client = useClient();
-  const savedCount = useWorkspace((s) => Object.keys(s.saved).length);
+  const savedSignature = useWorkspace((s) => Object.keys(s.saved).sort().join(","));
   return (
     <MessageListPanel
       title="Later"
       emptyHint="Save a message with the 🔖 button and it shows up here."
-      load={() => client.api.listSaved()}
-      reloadKey={`saved:${savedCount}`}
+      load={(cursor, signal) => client.api.listSaved(cursor, signal)}
+      reloadKey={`saved:${savedSignature}`}
       onClose={props.onClose}
       onJump={props.onJump}
     />

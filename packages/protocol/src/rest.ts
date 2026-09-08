@@ -38,6 +38,15 @@ export const channelPrefsBody = z.object({
   muted: z.boolean().optional(),
 });
 
+export const savedMessagesQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+  // Save time plus message ID makes equal-timestamp saves deterministic.
+  cursor: z
+    .string()
+    .regex(/^\d{1,15}:[0-9A-HJKMNP-TV-Z]{26}$/)
+    .optional(),
+});
+
 export const createChannelBody = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("public"),

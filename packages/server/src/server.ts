@@ -12,6 +12,7 @@ import {
   PROTOCOL_VERSION,
   createChannelBody,
   channelPrefsBody,
+  savedMessagesQuery,
   adminUserBody,
   createAppBody,
   createCommandBody,
@@ -2250,7 +2251,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   app.get("/api/saved", async (req) => {
     const me = requireUser(req);
-    return { messages: store.listSaved(me.id) };
+    const query = savedMessagesQuery.parse(req.query);
+    return store.listSaved(me.id, query.limit, query.cursor);
   });
 
   // ---------- invites & search ----------
