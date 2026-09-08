@@ -285,6 +285,55 @@ Saved messages now use bounded cursor pages ordered by save time and message ID,
 
 Pinned messages now use the shared previous/next paging flow with 30 results by default and a maximum request size of 100. Pin time plus message ID provides deterministic cursor ordering, every page retains the channel authorization check, and deleted messages/orphaned replies are excluded. A disposable browser/API review covered tied timestamps, page boundaries, malformed queries and retry after a failed next-page request. New permanent tests remain deferred.
 
+Threads can now be followed, and followed threads carry their own unread state (C03/C04).
+Replying follows a thread for its author, and the root's author is signed up by the first
+reply, starting from their own message so that reply reads as unread; an explicit unfollow
+survives other people's replies but not your own next reply. Following an old thread starts
+caught up rather than presenting its history as unread. Each account has a per-thread read
+cursor separate from the channel's, clamped to what exists so a stale client cannot park it
+in the future or move it backwards. `GET /api/threads/followed` pages newest activity first
+on a seq-plus-root-id cursor, rechecks channel visibility on every page, excludes deleted
+roots, and offers an unread-only filter. Follow state travels in the handshake snapshot and
+as a `thread.follow` ephemeral event to every follower's devices, ordered by a revision so a
+late echo cannot undo a newer choice. The thread panel has a Follow control and marks its
+visible tail read; a Threads panel and a sidebar count show what is waiting. Schema v15 adds
+`thread_follows`. Per-thread mute, mark-unread and a mentions-in-threads split remain
+separate work. `packages/server/test/threads.test.ts` adds sixteen regressions; the browser
+journey was checked with a disposable Playwright review.
+
+Messages and replies can now be marked unread (C04). The chosen message and everything after
+it becomes unread, in a channel or in one thread independently; marking a thread unread
+follows it, since it is a statement of intent to come back. The hazard is that the timeline
+acknowledges its own visible tail, which would read the message again a moment later, so a
+marked conversation is held: automatic acknowledgement skips it, an acknowledgement already in
+flight is abandoned and its echo ignored, and the hold survives a resync that discards loaded
+history. Leaving the conversation lifts the hold, so returning reads it; Activity's "read
+through here" is an explicit request and lifts it too. Read echoes now distinguish a cursor
+advancing from one deliberately moved back, because the former is only ever applied as a
+maximum. Thread unread counts no longer exclude your own replies — the cursor already records
+that you have seen your own writing, and excluding them made marking one of them unread show a
+badge with nothing behind it. `packages/client-core/test/unread.test.ts` adds six regressions
+covering the hold, and the server suite covers the routes; the browser behaviour was checked
+with a disposable Playwright review.
+
+A reply can now be sent to the channel as well (C03). It stays a reply — it belongs to its
+thread, counts toward its reply total, and opens there — but it also appears in the channel's
+own timeline, marked as having come from a thread with a way through to it. What a channel
+timeline contains is now defined once in the store and shared by paging, jumping and the live
+tail, so those three cannot drift apart on it. The choice is per reply rather than a mode, it
+is part of the send request's identity so a retry that changes it conflicts rather than
+silently posting somewhere else, and it survives the outbox across a restart. Schema v16 adds
+the flag. Asking for it on a message that is not a reply is ignored rather than refused.
+
+Conversations now carry unread mention counts (C04). A direct mention counts anywhere; a
+room-wide one only in a room, since `@here` in a direct message is just words. The condition
+is shared with the Activity list, so a badge cannot disagree with what it opens. Counts travel
+in the handshake snapshot and are recomputed and pushed only to the accounts a message names,
+or to the one account whose own reading or mark-unread changed them. The sidebar shows a count
+beside each conversation, and Activity shows the workspace total, taking precedence over the
+plain unread-conversation count. Per-thread mute and mention counts scoped to a single thread
+remain.
+
 ### Core transaction phases
 
 Registration now rolls back invitation consumption, the owner claim, default-channel creation, membership, session creation and events as one unit. Named and direct channels, channel metadata/membership, profile updates, deactivation and ownership transfer use the same mutation boundary. Failed writes cannot publish partial events or apply live access changes. Unknown founding members are rejected before creating a private channel. Eleven regression cases in `packages/server/test/transactions.test.ts` exercise rollback and concurrent use of a final invitation.
