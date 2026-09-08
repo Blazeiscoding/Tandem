@@ -148,6 +148,17 @@ export class Gateway {
           ws.close(4003);
           return;
         }
+        // The REST side refuses a locked account; the socket has to as well, or
+        // a temporary password would still hand over the whole workspace.
+        if (this.store.mustChangePassword(user.id)) {
+          this.send(ws, {
+            type: "error",
+            code: "password_change_required",
+            message: "Choose a new password before using this workspace.",
+          });
+          ws.close(4004);
+          return;
+        }
         client = { ws, userId: user.id, tokenHash, alive: true };
         this.register(client);
 

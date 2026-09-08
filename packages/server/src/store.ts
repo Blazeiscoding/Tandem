@@ -416,10 +416,24 @@ export class Store {
   }
 
   /** Replaces someone's password. Their sessions are the caller's to revoke. */
-  setPassword(userId: ID, passwordHash: string, salt: string): void {
+  /**
+   * `mustChange` marks a password someone else chose. Until its owner replaces
+   * it, the account can do nothing else, so a temporary password read out over
+   * the phone cannot quietly become a permanent one.
+   */
+  setPassword(userId: ID, passwordHash: string, salt: string, mustChange = false): void {
     this.db
-      .prepare("UPDATE users SET password_hash = ?, salt = ? WHERE id = ?")
-      .run(passwordHash, salt, userId);
+      .prepare(
+        "UPDATE users SET password_hash = ?, salt = ?, must_change_password = ? WHERE id = ?",
+      )
+      .run(passwordHash, salt, mustChange ? 1 : 0, userId);
+  }
+
+  mustChangePassword(userId: ID): boolean {
+    const row = this.db
+      .prepare("SELECT must_change_password FROM users WHERE id = ?")
+      .get(userId) as { must_change_password: number } | undefined;
+    return row?.must_change_password === 1;
   }
 
   /** When each account was last seen, for the admin list. */
