@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ID, ScheduledMessage } from "@slackoss/protocol";
+import { ApiError } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
 import { formatScheduleTime, localDateTime } from "../lib/schedule.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { MESSAGE_LIMIT } from "./FormattingToolbar.js";
+
+function draftText(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && "text" in parsed && typeof parsed.text === "string")
+      return parsed.text;
+  } catch {
+    // Ignore malformed local data rather than replacing the queued text with it.
+  }
+  return undefined;
+}
 
 /** Messages queued to go out later, with the option to call them back. */
 export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId: ID) => void }) {
@@ -20,9 +34,52 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
   );
   const [changing, setChanging] = useState<ID | null>(null);
   const [when, setWhen] = useState("");
+  const [editing, setEditing] = useState<ScheduledMessage | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const edited = useRef(false);
+  const editKey = editing ? `${editing.channelId}:scheduled-edit:${editing.id}` : null;
+  const savedEdit = useWorkspace((s) => draftText(editKey ? s.drafts[editKey] : undefined));
+  const currentEdit = items?.find((item) => item.id === editing?.id);
+  useEffect(() => {
+    if (!edited.current && savedEdit !== undefined) setEditText(savedEdit);
+  }, [savedEdit]);
   const request = useRef<AbortController | null>(null);
   const alive = useRef(true);
   const mutating = useRef(false);
+
+  async function saveText() {
+    if (!editing || !editKey || mutating.current) return;
+    mutating.current = true;
+    request.current?.abort();
+    setLoading(false);
+    setBusy(editing.id);
+    setEditError(null);
+    try {
+      const result = await client.api.editScheduledMessage(editing.id, {
+        text: editText,
+        expectedText: editing.text,
+      });
+      if (draftText(client.state.drafts[editKey]) === editText) client.setDraft(editKey, "");
+      if (alive.current) {
+        setItems(
+          (previous) =>
+            previous?.map((item) => (item.id === editing.id ? result.scheduled : item)) ?? null,
+        );
+        setEditing(null);
+      }
+    } catch (err) {
+      if (alive.current)
+        setEditError(
+          err instanceof ApiError && err.code === "scheduled_changed"
+            ? "The text changed on another device. Refresh and load the current text before saving again. Your draft is kept."
+            : "Could not confirm the edit. Your draft is kept. Refresh to check whether this message has already sent or changed.",
+        );
+    } finally {
+      mutating.current = false;
+      if (alive.current) setBusy(null);
+    }
+  }
 
   const load = useCallback(async () => {
     if (mutating.current) return;
@@ -134,6 +191,101 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
             Nothing queued. Write a message and pick 🕘 to send it later.
           </p>
         )}
+        {editing && (
+          <form
+            className="mb-3 space-y-2 rounded-xl border border-copper/40 p-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveText();
+            }}
+          >
+            <label className="block text-sm font-medium">
+              Edit scheduled text
+              <textarea
+                autoFocus
+                value={editText}
+                disabled={busy !== null}
+                onChange={(event) => {
+                  edited.current = true;
+                  setEditText(event.target.value);
+                  // A serialized value preserves an intentionally empty edit;
+                  // ordinary empty composer drafts are removed by setDraft.
+                  if (editKey)
+                    client.setDraft(editKey, JSON.stringify({ text: event.target.value }));
+                }}
+                className="mt-2 min-h-28 w-full rounded-lg border border-edge bg-ground p-2 font-normal"
+              />
+            </label>
+            <p
+              className={`text-xs ${editText.length > MESSAGE_LIMIT ? "text-alert" : "text-ink-faint"}`}
+            >
+              {editText.length.toLocaleString()} / {MESSAGE_LIMIT.toLocaleString()} characters ·{" "}
+              {editing.fileIds.length} attachments kept
+            </p>
+            <p className="text-xs text-ink-faint">
+              The delivery time stays the same. Editing does not pause delivery.
+            </p>
+            {editError && (
+              <p role="alert" className="text-sm text-alert">
+                {editError}
+              </p>
+            )}
+            {!currentEdit && (
+              <p role="status" className="text-sm text-ink-dim">
+                This message is no longer in the queue. You can copy your draft before closing it.
+              </p>
+            )}
+            {currentEdit && currentEdit.text !== editing.text && (
+              <div className="text-sm text-ink-dim">
+                The queued text has changed. Your draft is kept.
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  className="ml-1 text-copper underline"
+                  onClick={() => {
+                    setEditing(currentEdit);
+                    setEditText(currentEdit.text);
+                    edited.current = true;
+                    if (editKey)
+                      client.setDraft(editKey, JSON.stringify({ text: currentEdit.text }));
+                    setEditError(null);
+                  }}
+                >
+                  Replace draft with current text
+                </button>
+              </div>
+            )}
+            <details className="text-sm text-ink-dim">
+              <summary>Preview</summary>
+              <Mrkdwn text={editText} users={users} channels={channels} selfId={selfId} />
+            </details>
+            <div className="flex gap-3 text-sm">
+              <button
+                type="submit"
+                className="text-copper"
+                disabled={
+                  busy !== null ||
+                  !currentEdit ||
+                  editText.length > MESSAGE_LIMIT ||
+                  (!editText.trim() && editing.fileIds.length === 0)
+                }
+              >
+                {busy === editing.id ? "Saving…" : "Save text"}
+              </button>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => {
+                  if (editKey) client.setDraft(editKey, "");
+                  setEditing(null);
+                  setEditError(null);
+                }}
+              >
+                Discard edit
+              </button>
+            </div>
+          </form>
+        )}
         <ul className="space-y-2">
           {(items ?? []).map((s) => {
             const channel = channels[s.channelId];
@@ -175,6 +327,23 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                   )}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    disabled={busy !== null || editing !== null}
+                    className="rounded-lg border border-edge px-2.5 py-1 text-xs text-ink-dim hover:border-copper"
+                    onClick={() => {
+                      setEditing(s);
+                      edited.current = false;
+                      setEditText(
+                        draftText(client.state.drafts[`${s.channelId}:scheduled-edit:${s.id}`]) ??
+                          s.text,
+                      );
+                      setEditError(null);
+                      setConfirmation(null);
+                      setChanging(null);
+                    }}
+                  >
+                    Edit text
+                  </button>
                   <button
                     disabled={busy !== null}
                     onClick={() => {

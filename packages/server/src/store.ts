@@ -1279,6 +1279,18 @@ export class Store {
       .run(sendAt, id);
   }
 
+  /** Compare-and-set text without requeuing or changing delivery metadata. */
+  editScheduledText(id: ID, text: string, expectedText: string): boolean {
+    return (
+      this.db
+        .prepare(
+          `UPDATE scheduled_messages SET text = ?
+       WHERE id = ? AND status != 'sent' AND (text = ? OR text = ?)`,
+        )
+        .run(text, id, expectedText, text).changes === 1
+    );
+  }
+
   /** Delivered rows are kept as proof of completion, then aged out. */
   pruneScheduled(before: number): void {
     this.db
