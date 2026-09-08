@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { parseSearchQuery } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
+import { useRecentSearches, type RecentSearch } from "../lib/recentSearches.js";
 import { channelTitle } from "../lib/format.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
@@ -143,6 +144,7 @@ export function SearchDialog(props: {
   channelId?: ID | null;
 }) {
   const client = useClient();
+  const recent = useRecentSearches();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   const [q, setQ] = useState("");
@@ -203,6 +205,7 @@ export function SearchDialog(props: {
       setSubmitted(criteria);
       setPage(nextPage);
       setCursors(nextCursors);
+      if (nextPage === 0) recent.remember(criteria);
       list.current?.closest('[role="dialog"]')?.scrollTo({ top: 0 });
     } catch {
       if (!controller.signal.aborted)
@@ -216,6 +219,16 @@ export function SearchDialog(props: {
     e.preventDefault();
     if ((!query && !scope) || query.length > 200) return;
     void search({ query, channelId: scope || undefined }, undefined, 0, [undefined]);
+  }
+
+  function repeat(entry: RecentSearch) {
+    setQ(entry.query);
+    setScope(entry.channelId ?? "");
+    setAuthor("");
+    setHas("");
+    setAfter("");
+    setBefore("");
+    void search(entry, undefined, 0, [undefined]);
   }
 
   return (
@@ -319,6 +332,59 @@ export function SearchDialog(props: {
           </p>
         )}
       </form>
+      {(recent.items.length > 0 || recent.error) && (
+        <details open={!results} className="mb-3 rounded-lg border border-edge p-3">
+          <summary className="cursor-pointer text-sm font-medium">Recent searches</summary>
+          <div className="mb-2 mt-2 flex items-center justify-between gap-2 text-xs text-ink-faint">
+            <span>Saved on this device for this account and workspace.</span>
+            <button
+              disabled={busy || recent.busy}
+              className="shrink-0 text-copper underline disabled:opacity-40"
+              onClick={recent.clear}
+            >
+              Clear recent searches
+            </button>
+          </div>
+          {recent.error && (
+            <p role="status" className="mb-2 text-xs text-ink-dim">
+              {recent.error}
+            </p>
+          )}
+          <ul aria-label="Recent searches" className="space-y-1">
+            {recent.items.map((entry) => {
+              const channel = entry.channelId ? channels[entry.channelId] : undefined;
+              const scopeLabel = entry.channelId
+                ? channel
+                  ? channelTitle(channel, users, client.state.self?.id ?? "")
+                  : "Unavailable conversation"
+                : "All conversations";
+              return (
+                <li
+                  key={JSON.stringify([entry.query, entry.channelId])}
+                  className="flex items-center gap-2"
+                >
+                  <button
+                    disabled={busy || (!!entry.channelId && !channel)}
+                    className="min-w-0 flex-1 rounded px-2 py-1 text-left text-sm hover:bg-lifted disabled:opacity-40"
+                    onClick={() => repeat(entry)}
+                  >
+                    <span className="block truncate">{entry.query || "All messages"}</span>
+                    <span className="block truncate text-xs text-ink-faint">{scopeLabel}</span>
+                  </button>
+                  <button
+                    disabled={recent.busy}
+                    aria-label={`Remove recent search: ${entry.query || "All messages"} (${scopeLabel})`}
+                    className="rounded px-2 py-1 text-ink-faint hover:bg-lifted disabled:opacity-40"
+                    onClick={() => recent.remove(entry)}
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
       <SearchHints query={query} />
       {error && (
         <p role="alert" className="py-3 text-sm text-ink-dim">
