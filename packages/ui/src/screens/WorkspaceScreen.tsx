@@ -208,6 +208,11 @@ function WorkspaceInner({
     }
   }, [channels, activeChannelId, status]);
 
+  useEffect(() => {
+    clientFromCtx.focusConversation(activeChannelId);
+    return () => clientFromCtx.focusConversation(null);
+  }, [clientFromCtx, activeChannelId]);
+
   // Desktop notifications for incoming messages, gated by channel preferences,
   // mute and Do Not Disturb (the rules live in client-core so they're testable).
   useEffect(() => {

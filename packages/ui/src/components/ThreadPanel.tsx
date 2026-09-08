@@ -87,10 +87,12 @@ export function ThreadPanel({
 
   useEffect(() => {
     follow.current = !targetId;
+    client.focusThread(rootId);
     readContext.current = contextKey;
     targetPositioned.current = false;
     anchor.current = null;
     void client.loadThread(rootId, channelId, "latest", targetId);
+    return () => client.focusThread(null);
   }, [client, rootId, channelId, targetId]);
 
   useLayoutEffect(() => {

@@ -260,6 +260,7 @@ function sortedInsert(items: Message[], msg: Message): Message[] {
  * until every keystroke restyles thousands of nodes.
  */
 const MAX_TIMELINE_ITEMS = 300;
+const HISTORY_CACHE_LIMIT = 20;
 
 /**
  * Trims a timeline back to the cap from one end, and marks that end pageable
@@ -306,6 +307,10 @@ export class WorkspaceClient {
   private threadLoads = new Map<ID, { events: EventEnvelope[]; overflow: boolean }>();
   private messageJump = 0;
   private timelineRequests = new Map<ID, object>();
+  private timelineRecency = new Map<ID, true>();
+  private threadRecency = new Map<ID, true>();
+  private activeConversation: ID | null = null;
+  private activeThread: ID | null = null;
   private pendingReads = new Map<ID, number>();
   private readRequests = new Map<ID, AbortController>();
   private readRetryTimer: ReturnType<typeof setInterval> | null = null;
@@ -498,6 +503,8 @@ export class WorkspaceClient {
   private resetHistory(): void {
     this.historyEpoch++;
     this.timelineRequests.clear();
+    this.timelineRecency.clear();
+    this.threadRecency.clear();
     this.clearReadRequests();
     for (const [id, timeline] of Object.entries(this.state.timelines)) {
       if (timeline.loaded) this.reloadChannels.add(id);
@@ -525,6 +532,7 @@ export class WorkspaceClient {
 
   private removeChannel(channelId: ID): void {
     this.timelineRequests.delete(channelId);
+    this.timelineRecency.delete(channelId);
     this.pendingReads.delete(channelId);
     this.readRequests.get(channelId)?.abort();
     this.readRequests.delete(channelId);
@@ -534,7 +542,10 @@ export class WorkspaceClient {
     const roots = new Set(state.timelines[channelId]?.items.map((m) => m.id) ?? []);
     for (const [id, page] of Object.entries(state.threadPages))
       if (page.channelId === channelId) roots.add(id);
-    for (const id of roots) this.threadLoads.delete(id);
+    for (const id of roots) {
+      this.threadLoads.delete(id);
+      this.threadRecency.delete(id);
+    }
     for (const [id, replies] of Object.entries(state.threads)) {
       if (replies.some((m) => m.channelId === channelId)) roots.add(id);
     }
@@ -951,6 +962,61 @@ export class WorkspaceClient {
     return result;
   }
 
+  /** Visible history is protected while inactive caches are evicted by recency. */
+  focusConversation(channelId: ID | null): void {
+    this.activeConversation = channelId;
+    if (channelId) this.touchHistory("timeline", channelId);
+  }
+
+  focusThread(rootId: ID | null): void {
+    this.activeThread = rootId;
+    if (rootId) this.touchHistory("thread", rootId);
+  }
+
+  private touchHistory(kind: "timeline" | "thread", id: ID): void {
+    const recency = kind === "timeline" ? this.timelineRecency : this.threadRecency;
+    recency.delete(id);
+    recency.set(id, true);
+    const state = this.state;
+    const victims = (ids: ID[], order: Map<ID, true>, protectedIds: (ID | null)[]) => {
+      const present = new Set(ids);
+      for (const key of order.keys())
+        if (!present.has(key) && !protectedIds.includes(key)) order.delete(key);
+      const candidates = [...ids.filter((key) => !order.has(key)), ...order.keys()].filter(
+        (key) => ids.includes(key) && !protectedIds.includes(key),
+      );
+      return candidates.slice(0, Math.max(0, ids.length - HISTORY_CACHE_LIMIT));
+    };
+    const timelineVictims = victims(Object.keys(state.timelines), this.timelineRecency, [
+      this.activeConversation,
+      kind === "timeline" ? id : null,
+    ]);
+    const threadVictims = victims(
+      [...new Set([...Object.keys(state.threads), ...Object.keys(state.threadPages)])],
+      this.threadRecency,
+      [this.activeThread, kind === "thread" ? id : null],
+    );
+    if (!timelineVictims.length && !threadVictims.length) return;
+    const timelines = { ...state.timelines };
+    const threads = { ...state.threads };
+    const threadPages = { ...state.threadPages };
+    for (const victim of timelineVictims) {
+      delete timelines[victim];
+      this.timelineRecency.delete(victim);
+      this.timelineRequests.delete(victim);
+      this.reloadChannels.delete(victim);
+    }
+    for (const victim of threadVictims) {
+      delete threads[victim];
+      delete threadPages[victim];
+      this.threadRecency.delete(victim);
+      this.threadLoads.delete(victim);
+      this.reloadThreads.delete(victim);
+    }
+    // Drafts, pending sends and retained attachment previews are independent of history.
+    this.store.setState({ timelines, threads, threadPages });
+  }
+
   /** Each conversation accepts only its most recently requested history window. */
   private beginTimelineRequest(channelId: ID): object {
     const ticket = {};
@@ -964,6 +1030,7 @@ export class WorkspaceClient {
   ): Promise<void> {
     const epoch = this.historyEpoch;
     const tl = this.state.timelines[channelId];
+    if (tl?.loaded) this.touchHistory("timeline", channelId);
     if (tl?.loaded && !opts.older && !opts.latest) return;
     if (opts.older && (!tl?.hasMore || tl.items.length === 0)) return;
     const ticket = this.beginTimelineRequest(channelId);
@@ -1008,6 +1075,7 @@ export class WorkspaceClient {
         },
       };
     });
+    this.touchHistory("timeline", channelId);
   }
 
   /**
@@ -1019,6 +1087,7 @@ export class WorkspaceClient {
     const timelineTicket = this.beginTimelineRequest(channelId);
     const epoch = this.historyEpoch;
     const existing = this.state.timelines[channelId];
+    if (existing) this.touchHistory("timeline", channelId);
     // Already on screen in a tail view — nothing to reload.
     if (
       existing?.loaded &&
@@ -1048,6 +1117,7 @@ export class WorkspaceClient {
         },
       },
     }));
+    this.touchHistory("timeline", channelId);
     return threadRootId ?? null;
   }
 
@@ -1087,6 +1157,7 @@ export class WorkspaceClient {
         },
       };
     });
+    this.touchHistory("timeline", channelId);
   }
 
   /** Keeps the current window visible until the live tail has loaded successfully. */
@@ -1136,6 +1207,7 @@ export class WorkspaceClient {
       epoch === this.historyEpoch &&
       !!this.state.channels[channelId] &&
       this.threadLoads.get(threadRootId) === request;
+    this.touchHistory("thread", threadRootId);
     try {
       const response = await this.api.threadHistory(channelId, threadRootId, {
         ...(direction === "older"
