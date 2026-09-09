@@ -84,6 +84,8 @@ function sendFailureReason(error: unknown): string {
       return "The message this replies to is gone.";
     case "invalid_attachments":
       return "The attached files are no longer available.";
+    case "storage_quota_exceeded":
+      return "Workspace attachment storage is full. Ask the host to free space or raise the limit, then retry.";
     case "nonce_conflict":
     case "message_deleted":
       return "This was already sent once. Discard it to clear it.";

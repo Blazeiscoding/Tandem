@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SessionInfo } from "@slackoss/protocol";
+import type { SessionInfo, StorageUsage } from "@slackoss/protocol";
+import { ApiError } from "@slackoss/client-core";
+import { formatBytes } from "../lib/format.js";
 import { useClient, useWorkspace } from "../context.js";
 import { accountError, deviceLabel } from "../lib/account.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
@@ -355,6 +357,77 @@ export function AccountDialog({
           </div>
         </section>
       )}
+      <WorkspaceStorage />
     </Dialog>
+  );
+}
+
+function WorkspaceStorage() {
+  const client = useClient();
+  const [usage, setUsage] = useState<StorageUsage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    void client.api
+      .storageUsage(controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted) setUsage(value);
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted)
+          setError(
+            err instanceof ApiError && err.status === 404
+              ? "This server does not report storage usage yet."
+              : "Could not load workspace storage. Try again.",
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [client, attempt]);
+  return (
+    <section
+      className="mt-4 rounded-xl border border-edge p-4"
+      aria-label="Workspace attachment storage"
+    >
+      <h3 className="font-semibold">Workspace attachment storage</h3>
+      <p className="mt-2 text-sm text-ink-dim">
+        Shared by everyone, including unfinished uploads. The host controls the limit.
+      </p>
+      {usage && (
+        <div className="my-3 text-sm">
+          <p>
+            {formatBytes(usage.usedBytes)} used ·{" "}
+            {usage.limitBytes === null
+              ? "No workspace limit"
+              : `${formatBytes(usage.limitBytes)} limit`}
+          </p>
+          {usage.availableBytes !== null && <p>{formatBytes(usage.availableBytes)} available</p>}
+          <p>{formatBytes(usage.maxFileBytes)} maximum per file</p>
+          {usage.availableBytes === 0 && (
+            <p role="status" className="mt-2 text-alert">
+              Storage is full. New uploads need space to be freed or a higher limit.
+            </p>
+          )}
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="my-2 text-sm text-alert">
+          {error}
+        </p>
+      )}
+      <button
+        className={`${button} mt-2`}
+        disabled={loading}
+        onClick={() => setAttempt((n) => n + 1)}
+      >
+        {loading ? "Loading storage…" : error ? "Retry storage" : "Refresh storage"}
+      </button>
+    </section>
   );
 }
