@@ -5,3 +5,4 @@ export * from "./discovery.js";
 export * from "./search.js";
 export * from "./format.js";
 export * from "./huddle.js";
+export * from "./permissions.js";

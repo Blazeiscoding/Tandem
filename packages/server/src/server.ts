@@ -10,6 +10,7 @@ import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 import {
   PROTOCOL_VERSION,
+  channelPermissions,
   createChannelBody,
   channelPrefsBody,
   savedMessagesQuery,
@@ -876,6 +877,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       throw new HttpError(400, "cannot_edit_dm");
     }
     const body = updateChannelBody.parse(req.body);
+    if (!channelPermissions(me, existing, store.isMember(existing.id, me.id)).manage) {
+      throw new HttpError(403, "channel_management_required");
+    }
     if (body.name && body.name !== existing.name && store.getChannelByName(body.name)) {
       throw new HttpError(409, "name_taken");
     }
@@ -919,6 +923,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       throw new HttpError(400, "unknown_user");
     if (channel.type === "dm" || channel.type === "group_dm") {
       throw new HttpError(400, "cannot_invite_to_dm");
+    }
+    if (!channelPermissions(me, channel, store.isMember(channel.id, me.id)).invite) {
+      throw new HttpError(403, "channel_invite_forbidden");
     }
     mutate((emit, afterCommit) => {
       if (store.addMember(channel.id, userId)) {
