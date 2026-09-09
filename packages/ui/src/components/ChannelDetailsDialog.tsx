@@ -26,6 +26,7 @@ export function ChannelDetailsDialog(props: {
   onClose: () => void;
   onLeft: () => void;
   onOpenProfile: (userId: ID) => void;
+  onChangeParticipants: (memberIds: ID[]) => void;
 }) {
   const client = useClient();
   const channel = useWorkspace((s) => s.channels[props.channelId]);
@@ -47,6 +48,7 @@ export function ChannelDetailsDialog(props: {
   const [membersAttempt, setMembersAttempt] = useState(0);
   const [removingId, setRemovingId] = useState<ID | null>(null);
   const [membersLoading, setMembersLoading] = useState(true);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [managerChange, setManagerChange] = useState<{ userId: ID; manager: boolean } | null>(null);
 
   useEffect(() => {
@@ -323,6 +325,65 @@ export function ChannelDetailsDialog(props: {
         )
       ) : tab === "members" ? (
         <div>
+          {!isRoom && membership && (
+            <div className="mb-3 text-sm">
+              <p className="mb-2 text-ink-dim">
+                Changing participants opens a conversation for the selected people. This
+                conversation's history stays here.
+              </p>
+              <button
+                disabled={busy || membersLoading || membersError}
+                className={primaryBtnCls}
+                onClick={() => props.onChangeParticipants(memberIds)}
+              >
+                Change participants
+              </button>
+            </div>
+          )}
+          {channel.type === "group_dm" && membership && (
+            <div className="mb-3 text-sm">
+              {confirmLeave ? (
+                <>
+                  <p className="mb-2 text-ink-dim">
+                    Leave this group conversation? You will lose access to its history and call.
+                    Other participants keep their history. Starting again with these people will not
+                    restore access to this history.
+                  </p>
+                  <button
+                    disabled={busy}
+                    className="text-alert underline"
+                    onClick={async () => {
+                      setBusy(true);
+                      setError(null);
+                      try {
+                        await client.api.leaveChannel(props.channelId);
+                        props.onLeft();
+                      } catch (err) {
+                        setError(
+                          err instanceof Error ? err.message : "Could not leave conversation.",
+                        );
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Confirm leave
+                  </button>
+                  <button disabled={busy} className="ml-3" onClick={() => setConfirmLeave(false)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="text-alert underline"
+                  disabled={busy}
+                  onClick={() => setConfirmLeave(true)}
+                >
+                  Leave group conversation
+                </button>
+              )}
+            </div>
+          )}
           <button
             disabled={membersLoading || busy}
             onClick={() => setMembersAttempt((n) => n + 1)}

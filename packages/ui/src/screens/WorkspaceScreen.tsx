@@ -55,7 +55,7 @@ type DialogKind =
   | { kind: "friends" }
   | { kind: "new-channel" }
   | { kind: "browse" }
-  | { kind: "new-dm" }
+  | { kind: "new-dm"; initialMemberIds?: ID[] }
   | { kind: "invite" }
   | { kind: "switcher" }
   | { kind: "search" }
@@ -578,7 +578,13 @@ function WorkspaceInner({
       {dialog.kind === "browse" && (
         <BrowseChannelsDialog onClose={closeDialog} onOpen={openChannel} />
       )}
-      {dialog.kind === "new-dm" && <NewDmDialog onClose={closeDialog} onOpen={openChannel} />}
+      {dialog.kind === "new-dm" && (
+        <NewDmDialog
+          initialMemberIds={dialog.initialMemberIds}
+          onClose={closeDialog}
+          onOpen={openChannel}
+        />
+      )}
       {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
       {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
       {dialog.kind === "search" && (
@@ -632,6 +638,9 @@ function WorkspaceInner({
       {dialog.kind === "channel-details" && activeChannelId && (
         <ChannelDetailsDialog
           channelId={activeChannelId}
+          onChangeParticipants={(memberIds) =>
+            setDialog({ kind: "new-dm", initialMemberIds: memberIds })
+          }
           onClose={closeDialog}
           onLeft={() => {
             closeDialog();

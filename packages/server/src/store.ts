@@ -522,6 +522,12 @@ export class Store {
     return r ? this.toChannel(r) : null;
   }
 
+  retireDmKey(channelId: ID): void {
+    this.db
+      .prepare("UPDATE channels SET dm_key = NULL WHERE id = ? AND type = 'group_dm'")
+      .run(channelId);
+  }
+
   updateChannel(
     id: ID,
     patch: { name?: string; topic?: string; description?: string; archived?: boolean },
@@ -588,6 +594,7 @@ export class Store {
     const res = this.db
       .prepare("DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?")
       .run(channelId, userId);
+    if (res.changes > 0) this.retireDmKey(channelId);
     return res.changes > 0;
   }
 

@@ -197,7 +197,7 @@ export class Api {
   }
 
   createChannel(body: CreateChannelBody): Promise<{ channel: Channel }> {
-    return this.request("POST", "/api/channels", body);
+    return this.request("POST", "/api/channels", body, { timeoutMs: 10_000 });
   }
 
   updateChannel(id: ID, body: UpdateChannelBody): Promise<{ channel: Channel }> {
@@ -209,7 +209,7 @@ export class Api {
   }
 
   leaveChannel(id: ID): Promise<{ ok: true }> {
-    return this.request("POST", `/api/channels/${id}/leave`);
+    return this.request("POST", `/api/channels/${id}/leave`, undefined, { timeoutMs: 10_000 });
   }
 
   inviteMember(channelId: ID, userId: ID): Promise<{ ok: true }> {

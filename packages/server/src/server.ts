@@ -869,7 +869,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       }
       const dmKey = memberIds.join(":");
       const existing = store.findDmByKey(dmKey);
-      if (existing) return { channel: existing };
+      if (existing) {
+        if ([...(existing.memberIds ?? [])].sort().join(":") === dmKey)
+          return { channel: existing };
+        // Legacy groups may still have the original key after someone left.
+        // Never restore that person's access to the group's intervening history.
+        store.retireDmKey(existing.id);
+      }
 
       const channel = store.createChannel({
         type: memberIds.length === 2 ? "dm" : "group_dm",
@@ -924,6 +930,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       if (store.removeMember(channel.id, me.id)) {
         afterCommit(() => gateway.updateChannelAccess(channel.id, me.id));
         emit({ type: "member.left", channelId: channel.id, userId: me.id }, channel.id);
+        if (channel.type === "group_dm")
+          emit({ type: "channel.updated", channel: store.getChannel(channel.id)! }, channel.id);
         if (channel.managerIds?.includes(me.id))
           emit({ type: "channel.updated", channel: store.getChannel(channel.id)! }, channel.id);
       }
