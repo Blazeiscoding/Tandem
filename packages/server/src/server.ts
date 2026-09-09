@@ -11,6 +11,7 @@ import { ZodError } from "zod";
 import {
   PROTOCOL_VERSION,
   channelPermissions,
+  canRemoveChannelMember,
   createChannelBody,
   channelPrefsBody,
   savedMessagesQuery,
@@ -946,6 +947,30 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     });
     return { ok: true };
   });
+
+  app.delete<{ Params: { id: string; userId: string } }>(
+    "/api/channels/:id/members/:userId",
+    async (req) => {
+      const me = requireUser(req);
+      const channel = requireChannelAccess(req.params.id, me);
+      const target = store.getUser(req.params.userId);
+      if (
+        !canRemoveChannelMember(me, target ?? undefined, channel, store.isMember(channel.id, me.id))
+      ) {
+        throw new HttpError(403, "channel_removal_forbidden");
+      }
+      mutate((emit, afterCommit) => {
+        if (store.removeMember(channel.id, req.params.userId)) {
+          afterCommit(() => gateway.updateChannelAccess(channel.id, req.params.userId));
+          emit(
+            { type: "member.left", channelId: channel.id, userId: req.params.userId },
+            channel.id,
+          );
+        }
+      });
+      return { ok: true };
+    },
+  );
 
   app.get<{ Params: { id: string } }>("/api/channels/:id/members", async (req) => {
     const me = requireUser(req);

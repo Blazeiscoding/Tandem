@@ -11,3 +11,16 @@ export function channelPermissions(user: User | undefined, channel: Channel, isM
     invite: active && room && !channel.archived && (isMember || administrator),
   };
 }
+
+/** Removing a membership is not a ban: public rooms remain readable and joinable. */
+export function canRemoveChannelMember(
+  actor: User | undefined,
+  target: User | undefined,
+  channel: Channel,
+  actorIsMember: boolean,
+): boolean {
+  if (!actor || !target || actor.id === target.id || target.role === "owner") return false;
+  if (!channelPermissions(actor, channel, actorIsMember).manage) return false;
+  if (target.role === "admin" && actor.role !== "owner") return false;
+  return true;
+}

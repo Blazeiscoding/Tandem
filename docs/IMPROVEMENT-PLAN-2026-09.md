@@ -403,3 +403,11 @@ Channel managers can rename rooms, confirm archival, and reopen them from channe
 The default room is now identified by persisted metadata, initialized from general for existing workspaces and recorded atomically during owner setup. Renaming it no longer breaks automatic membership for new accounts. If it is archived, registration uses another active public room when available; initial navigation also skips archived rooms. Historical workspaces that already renamed general before this change cannot have their original default inferred automatically.
 
 Workspace typechecks, web/server builds and all 174 existing server tests passed. A disposable browser/API review verified rename, archive confirmation, archived browsing, disabled composer and draft retention, reopening, API denials, blank-name rejection, and default-room membership after a server restart. Delegated managers, member removal, group-DM changes and broader permission centralization remain; new permanent interaction tests remain deferred.
+
+### Channel member removal (C06/A05)
+
+Channel creators who remain members and workspace administrators can remove eligible room members from channel details. The shared policy protects the owner, requires the owner to remove an administrator, and directs self-departure through Leave. Direct conversations cannot use this operation. Removal commits membership and its durable event together, then updates all affected devices and evicts private-room call participation. Repeated removal of an absent eligible member succeeds without creating another event.
+
+The UI confirms the person and room, explains that public rooms stay readable/rejoinable while private access is revoked, and retains confirmation after failure for retry. Members can be refreshed, reads and removals have timeouts, and loading/failure states suppress actions based on an incomplete list. Messages are retained; removal is not a workspace suspension or channel ban. Delegated managers and group-DM membership remain separate work.
+
+Workspace typechecks, web/server builds and all 174 existing server tests passed. A disposable browser/API/socket review covered owner/admin/creator/member protections, DM denial, cancel, failed removal retry, duplicate removal and immediate private HTTP/socket/call revocation. New permanent tests remain deferred.

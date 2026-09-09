@@ -217,7 +217,13 @@ export class Api {
   }
 
   channelMembers(id: ID): Promise<{ memberIds: ID[] }> {
-    return this.request("GET", `/api/channels/${id}/members`);
+    return this.request("GET", `/api/channels/${id}/members`, undefined, { timeoutMs: 10_000 });
+  }
+
+  removeChannelMember(channelId: ID, userId: ID): Promise<{ ok: true }> {
+    return this.request("DELETE", `/api/channels/${channelId}/members/${userId}`, undefined, {
+      timeoutMs: 10_000,
+    });
   }
 
   markRead(channelId: ID, seq: number, signal?: AbortSignal): Promise<{ ok: true; seq?: number }> {
