@@ -63,18 +63,27 @@ export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: 
   const channels = useWorkspace((s) => s.channels);
   const memberships = useWorkspace((s) => s.memberships);
   const [q, setQ] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
 
   const rooms = useMemo(
     () =>
       Object.values(channels)
-        .filter((c) => c.type === "public" && !c.archived)
+        .filter((c) => (c.type === "public" || c.type === "private") && c.archived === showArchived)
         .filter((c) => c.name.includes(q.toLowerCase()))
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [channels, q],
+    [channels, q, showArchived],
   );
 
   return (
     <Dialog title="All channels" onClose={props.onClose} width={480}>
+      <label className="mb-3 flex gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={showArchived}
+          onChange={(e) => setShowArchived(e.target.checked)}
+        />
+        Show archived channels
+      </label>
       <input
         autoFocus
         value={q}
@@ -96,7 +105,7 @@ export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: 
                   <div className="truncate text-xs text-ink-faint">{ch.description}</div>
                 )}
               </div>
-              {joined ? (
+              {joined || ch.archived ? (
                 <button
                   onClick={() => props.onOpen(ch.id)}
                   className="rounded-lg border border-edge px-3 py-1 text-sm text-ink-dim hover:text-ink"

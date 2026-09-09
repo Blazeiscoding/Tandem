@@ -62,13 +62,13 @@ export const markUnreadBody = z.object({ seq: z.number().int().positive() });
 export const createChannelBody = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("public"),
-    name: z.string().min(1).max(80),
+    name: z.string().trim().min(1).max(80),
     topic: z.string().max(250).optional(),
     description: z.string().max(500).optional(),
   }),
   z.object({
     type: z.literal("private"),
-    name: z.string().min(1).max(80),
+    name: z.string().trim().min(1).max(80),
     topic: z.string().max(250).optional(),
     description: z.string().max(500).optional(),
     memberIds: z.array(z.string()).optional(),
@@ -84,7 +84,7 @@ export const createChannelBody = z.discriminatedUnion("type", [
 ]);
 
 export const updateChannelBody = z.object({
-  name: z.string().min(1).max(80).optional(),
+  name: z.string().trim().min(1).max(80).optional(),
   topic: z.string().max(250).optional(),
   description: z.string().max(500).optional(),
   archived: z.boolean().optional(),

@@ -47,6 +47,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const commands = useWorkspace((s) => s.commands);
   const selfId = useWorkspace((s) => s.self?.id);
   const channelType = useWorkspace((s) => s.channels[channelId]?.type);
+  const archived = useWorkspace((s) => s.channels[channelId]?.archived ?? false);
   const isRoom = channelType === "public" || channelType === "private";
   // Threads keep their own draft slot so a channel draft isn't clobbered.
   const draftKey = threadRootId ? `${channelId}:${threadRootId}` : channelId;
@@ -302,7 +303,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   useEffect(() => setCommandIndex(0), [commandCandidates.length]);
 
   function send() {
-    if (scheduleLock.current || recoveryBlocksSend) return;
+    if (archived || scheduleLock.current || recoveryBlocksSend) return;
     const trimmed = text.trim();
     if ((!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT) return;
     client.send(channelId, trimmed, {
@@ -323,6 +324,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   /** Queues the current draft for later instead of sending it now. */
   async function schedule(at: Date) {
+    if (archived) return;
     if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
       setScheduleError("Choose a date and time in the future.");
       return;
@@ -542,9 +544,15 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         e.preventDefault();
         dragDepth.current = 0;
         setDragging(false);
-        addFiles(e.dataTransfer.files);
+        if (!archived) addFiles(e.dataTransfer.files);
       }}
     >
+      {archived && (
+        <p role="status" className="mb-3 rounded-lg border border-edge p-3 text-sm text-ink-dim">
+          This channel is archived. New posts and replies are paused; your draft is kept. A channel
+          manager can reopen it in channel details.
+        </p>
+      )}
       {!scheduling && commandCandidates.length > 0 && (
         <ul
           id={autocompleteId}
@@ -696,7 +704,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         </p>
       )}
       <fieldset
-        disabled={scheduling || recoveryBlocksSend}
+        disabled={archived || scheduling || recoveryBlocksSend}
         className={`min-w-0 rounded-xl border bg-raised shadow-[0_4px_20px_#0002] transition-colors ${
           dragging ? "border-copper bg-copper/5" : "border-edge focus-within:border-copper/60"
         }`}
