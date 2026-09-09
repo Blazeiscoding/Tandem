@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { channelPermissions, type ID, type NotifyLevel } from "@slackoss/protocol";
+import {
+  channelPermissions,
+  canRemoveChannelMember,
+  type ID,
+  type NotifyLevel,
+} from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
@@ -39,10 +44,13 @@ export function ChannelDetailsDialog(props: {
   const [error, setError] = useState<string | null>(null);
   const [membersError, setMembersError] = useState(false);
   const [membersAttempt, setMembersAttempt] = useState(0);
+  const [removingId, setRemovingId] = useState<ID | null>(null);
+  const [membersLoading, setMembersLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     setMembersError(false);
+    setMembersLoading(true);
     void client.api
       .channelMembers(props.channelId)
       .then((r) => {
@@ -50,6 +58,9 @@ export function ChannelDetailsDialog(props: {
       })
       .catch(() => {
         if (active) setMembersError(true);
+      })
+      .finally(() => {
+        if (active) setMembersLoading(false);
       });
     return () => {
       active = false;
@@ -99,6 +110,21 @@ export function ChannelDetailsDialog(props: {
       setConfirmArchive(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change archive status.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeMember(userId: ID) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.api.removeChannelMember(props.channelId, userId);
+      setMemberIds((ids) => ids.filter((id) => id !== userId));
+      setRemovingId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove this person.");
     } finally {
       setBusy(false);
     }
@@ -280,6 +306,13 @@ export function ChannelDetailsDialog(props: {
         )
       ) : tab === "members" ? (
         <div>
+          <button
+            disabled={membersLoading || busy}
+            onClick={() => setMembersAttempt((n) => n + 1)}
+            className="mb-3 text-sm underline"
+          >
+            {membersLoading ? "Loading members…" : "Refresh members"}
+          </button>
           {membersError && (
             <p role="alert" className="mb-3 text-sm text-alert">
               Could not load members.{" "}
@@ -309,11 +342,46 @@ export function ChannelDetailsDialog(props: {
                       }`}
                     />
                   </button>
+                  {canRemoveChannelMember(self ?? undefined, u, channel, !!membership) &&
+                    (removingId === id ? (
+                      <div className="mb-2 rounded-lg border border-edge p-3 text-sm">
+                        <p className="mb-2">
+                          Remove {u?.displayName} from #{channel.name}?{" "}
+                          {channel.type === "public"
+                            ? "This public channel remains readable, and they can rejoin."
+                            : "They will lose access to this private channel and its call until invited back."}{" "}
+                          Their messages remain.
+                        </p>
+                        <button
+                          disabled={busy || membersLoading || membersError}
+                          onClick={() => void removeMember(id)}
+                          className="text-alert underline"
+                        >
+                          Confirm removal
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() => setRemovingId(null)}
+                          className="ml-3"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        disabled={busy || membersLoading || membersError}
+                        aria-label={`Remove ${u?.displayName}`}
+                        onClick={() => setRemovingId(id)}
+                        className="mb-2 ml-2 text-xs text-alert underline"
+                      >
+                        Remove
+                      </button>
+                    ))}
                 </li>
               );
             })}
           </ul>
-          {permissions.invite && !membersError && notMembers.length > 0 && (
+          {permissions.invite && !membersLoading && !membersError && notMembers.length > 0 && (
             <div>
               <div className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
                 Add someone
