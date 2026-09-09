@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCopy } from "../lib/useCopy.js";
 import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
@@ -134,16 +134,31 @@ export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: 
   );
 }
 
-export function NewDmDialog(props: { onClose: () => void; onOpen: (id: ID) => void }) {
+export function NewDmDialog(props: {
+  onClose: () => void;
+  onOpen: (id: ID) => void;
+  initialMemberIds?: ID[];
+}) {
   const client = useClient();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
   const presence = useWorkspace((s) => s.presence);
   const [q, setQ] = useState("");
-  const [picked, setPicked] = useState<ID[]>([]);
+  const [picked, setPicked] = useState<ID[]>(() =>
+    [...new Set(props.initialMemberIds ?? [])].filter((id) => id !== selfId),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const candidates = Object.values(users)
-    .filter((u) => u.id !== selfId && !u.deactivated && !u.isBot)
+    .filter((u) => u.id !== selfId && ((!u.deactivated && !u.isBot) || picked.includes(u.id)))
     .filter(
       (u) =>
         u.handle.includes(q.toLowerCase()) || u.displayName.toLowerCase().includes(q.toLowerCase()),
@@ -151,12 +166,37 @@ export function NewDmDialog(props: { onClose: () => void; onOpen: (id: ID) => vo
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   async function start() {
-    const channel = await client.openDm(picked);
-    props.onOpen(channel.id);
+    if (busy || picked.length < 1 || picked.length > 8) return;
+    if (picked.some((id) => !users[id] || users[id]?.deactivated || users[id]?.isBot)) {
+      setError("Remove unavailable accounts from the selection before continuing.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const channel = await client.openDm(picked);
+      if (mounted.current) props.onOpen(channel.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open the conversation.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <Dialog title="New message" onClose={props.onClose}>
+      {props.initialMemberIds && (
+        <p className="mb-3 text-sm text-ink-dim">
+          History stays in the current conversation. A conversation originally started for the
+          selected people may reopen; otherwise a new one starts.
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="mb-3 text-sm text-alert">
+          {error}
+        </p>
+      )}
+      <p className="mb-2 text-xs text-ink-faint">{picked.length} of 8 people selected, plus you</p>
       <input
         autoFocus
         value={q}
@@ -171,13 +211,17 @@ export function NewDmDialog(props: { onClose: () => void; onOpen: (id: ID) => vo
               <input
                 type="checkbox"
                 checked={picked.includes(u.id)}
+                disabled={busy || (!picked.includes(u.id) && picked.length >= 8)}
                 onChange={(e) =>
                   setPicked((p) => (e.target.checked ? [...p, u.id] : p.filter((x) => x !== u.id)))
                 }
                 className="accent-copper"
               />
               <Avatar user={u} size={26} />
-              <span className="min-w-0 flex-1 truncate">{u.displayName}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {u.displayName}
+                {u.deactivated && " (unavailable)"}
+              </span>
               <span
                 className={`size-2 rounded-full ${presence[u.id] === "online" ? "bg-online" : "bg-edge"}`}
               />
@@ -192,8 +236,12 @@ export function NewDmDialog(props: { onClose: () => void; onOpen: (id: ID) => vo
           </p>
         )}
       </ul>
-      <button onClick={start} disabled={picked.length === 0} className={`${primaryBtnCls} w-full`}>
-        Start conversation
+      <button
+        onClick={start}
+        disabled={busy || picked.length === 0 || picked.length > 8}
+        className={`${primaryBtnCls} w-full`}
+      >
+        {busy ? "Opening…" : "Start conversation"}
       </button>
     </Dialog>
   );
