@@ -60,6 +60,7 @@ import {
 } from "@slackoss/protocol";
 import { openDb } from "./db.js";
 import { Store } from "./store.js";
+import { StorageBudget } from "./storageBudget.js";
 import { Gateway } from "./gateway.js";
 import { hashPassword, hashToken, newSessionToken, verifyPassword } from "./auth.js";
 import { advertise, type MdnsHandle } from "./mdns.js";
@@ -93,6 +94,8 @@ export interface ServerOptions {
   webDistPath?: string;
   /** Max upload size in bytes. Default 100 MB. */
   maxFileSize?: number;
+  /** Attachment storage cap in bytes, including pending uploads. Zero/omitted is unlimited. */
+  maxStorageBytes?: number;
   /**
    * The address others reach this server on, e.g. "https://chat.team.dev".
    * Used to build the `response_url` handed to slash commands. Set it when a
@@ -138,6 +141,12 @@ class HttpError extends Error {
 }
 
 export async function createWorkspaceServer(opts: ServerOptions): Promise<WorkspaceServer> {
+  if (
+    opts.maxStorageBytes !== undefined &&
+    (!Number.isSafeInteger(opts.maxStorageBytes) || opts.maxStorageBytes < 0)
+  ) {
+    throw new Error("maxStorageBytes must be a non-negative safe integer");
+  }
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
   const db = openDb(dbPath);
   const store = new Store(db);
@@ -401,6 +410,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   if (filesDir) mkdirSync(filesDir, { recursive: true });
   const maxFileSize = opts.maxFileSize ?? 100 * 1024 * 1024;
   const blobPath = (fileId: string) => join(filesDir!, fileId);
+  const storage = new StorageBudget(filesDir, opts.maxStorageBytes || null);
 
   let fileCleanup: Promise<void> | null = null;
   const flushFileDeletions = (): Promise<void> => {
@@ -420,6 +430,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           }
         }
         store.completeFileDeletion(id);
+        storage.release(id);
       }
     })()
       .catch((err) => {
@@ -1162,6 +1173,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   // ---------- files ----------
 
+  app.get("/api/storage", async (req) => {
+    requireUser(req);
+    return {
+      usedBytes: storage.usedBytes,
+      limitBytes: storage.limitBytes,
+      maxFileBytes: maxFileSize,
+      availableBytes:
+        storage.limitBytes === null ? null : Math.max(0, storage.limitBytes - storage.usedBytes),
+    };
+  });
+
   app.post<{ Params: { id: string } }>("/api/channels/:id/files", async (req, reply) => {
     const me = requireUser(req);
     const channel = requireChannelAccess(req.params.id, me);
@@ -1176,6 +1198,16 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const header: Buffer[] = [];
     const meter = new Transform({
       transform(chunk: Buffer, _encoding, done) {
+        if (!storage.reserve(id, chunk.length)) {
+          done(
+            new HttpError(
+              507,
+              "storage_quota_exceeded",
+              "Workspace attachment storage is full. Ask the host to free space or raise the limit.",
+            ),
+          );
+          return;
+        }
         size += chunk.length;
         if (headerSize < 64 * 1024) {
           const part = Buffer.from(chunk.subarray(0, 64 * 1024 - headerSize));
@@ -1205,7 +1237,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       });
       return reply.status(201).send({ file });
     } catch (err) {
-      await unlink(blobPath(id)).catch(() => {});
+      try {
+        await unlink(blobPath(id));
+        storage.release(id);
+      } catch (cleanupError) {
+        if ((cleanupError as NodeJS.ErrnoException).code === "ENOENT") storage.release(id);
+        else store.queueFileDeletions([id]);
+      }
       throw err;
     }
   });

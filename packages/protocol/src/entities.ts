@@ -151,6 +151,13 @@ export interface ServerInfo {
   schedulingIdempotency?: boolean;
 }
 
+export interface StorageUsage {
+  usedBytes: number;
+  limitBytes: number | null;
+  availableBytes: number | null;
+  maxFileBytes: number;
+}
+
 /** One signed-in device or browser, as its owner sees it. */
 export interface SessionInfo {
   id: ID;
