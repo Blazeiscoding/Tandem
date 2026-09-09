@@ -38,6 +38,8 @@ export interface Channel {
   createdAt: number;
   /** Present on dm/group_dm so clients can render the counterpart(s). */
   memberIds?: ID[];
+  /** Delegated room managers; authority ends when their membership ends. */
+  managerIds?: ID[];
 }
 
 /** How loudly one channel should notify this user. */

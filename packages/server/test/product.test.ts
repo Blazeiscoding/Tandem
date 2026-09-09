@@ -250,6 +250,7 @@ describe("self-hosted product", () => {
     const historical = openDbAtVersion(":memory:", 8);
     try {
       db.exec("ALTER TABLE users DROP COLUMN must_change_password");
+      db.exec("ALTER TABLE channel_members DROP COLUMN is_manager");
       db.exec("ALTER TABLE messages DROP COLUMN broadcast");
       db.exec("DROP TABLE thread_follows");
       db.exec("DROP TABLE scheduled_requests");

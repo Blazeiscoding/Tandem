@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   channelPermissions,
   canRemoveChannelMember,
+  canSetChannelManager,
   type ID,
   type NotifyLevel,
 } from "@slackoss/protocol";
@@ -32,7 +33,7 @@ export function ChannelDetailsDialog(props: {
   const presence = useWorkspace((s) => s.presence);
   const self = useWorkspace((s) => s.self);
   const selfId = self?.id;
-  const membership = useWorkspace((s) => s.memberships[props.channelId]);
+  const membership = useWorkspace((s) => props.channelId in s.memberships);
   const [tab, setTab] = useState<Tab>("about");
   const [memberIds, setMemberIds] = useState<ID[]>([]);
   const [topic, setTopic] = useState(channel?.topic ?? "");
@@ -46,6 +47,7 @@ export function ChannelDetailsDialog(props: {
   const [membersAttempt, setMembersAttempt] = useState(0);
   const [removingId, setRemovingId] = useState<ID | null>(null);
   const [membersLoading, setMembersLoading] = useState(true);
+  const [managerChange, setManagerChange] = useState<{ userId: ID; manager: boolean } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -130,6 +132,20 @@ export function ChannelDetailsDialog(props: {
     }
   }
 
+  async function changeManager(userId: ID, manager: boolean) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.api.setChannelManager(props.channelId, userId, manager);
+      setManagerChange(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change channel manager.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const notMembers = Object.values(users).filter(
     (u) => !memberIds.includes(u.id) && !u.deactivated && !u.isBot,
   );
@@ -185,7 +201,8 @@ export function ChannelDetailsDialog(props: {
             </label>
             {!permissions.manage && (
               <p className="text-sm text-ink-faint">
-                Channel details are managed by its creator and workspace administrators.
+                Channel details are managed by its creator, channel managers and workspace
+                administrators.
               </p>
             )}
             <div>
@@ -334,6 +351,12 @@ export function ChannelDetailsDialog(props: {
                     <span className="min-w-0 flex-1 truncate text-sm">
                       {u?.displayName ?? "unknown"}
                       {id === selfId && <span className="text-ink-faint"> (you)</span>}
+                      {id === channel.creatorId && (
+                        <span className="ml-2 text-xs text-ink-faint">Creator</span>
+                      )}
+                      {channel.managerIds?.includes(id) && (
+                        <span className="ml-2 text-xs text-copper">Channel manager</span>
+                      )}
                     </span>
                     {u?.statusEmoji && <span>{u.statusEmoji}</span>}
                     <span
@@ -342,6 +365,54 @@ export function ChannelDetailsDialog(props: {
                       }`}
                     />
                   </button>
+                  {channel.managerIds !== undefined &&
+                    canSetChannelManager(
+                      self ?? undefined,
+                      u,
+                      channel,
+                      !!membership,
+                      !channel.managerIds.includes(id),
+                    ) &&
+                    (managerChange?.userId === id ? (
+                      <div className="mb-2 rounded-lg border border-edge p-3 text-sm">
+                        <p className="mb-2">
+                          {managerChange.manager
+                            ? `Make ${u?.displayName} a manager of #${channel.name}? They can edit, rename and archive this room and remove ordinary members. They cannot appoint other managers.`
+                            : `Remove ${u?.displayName}'s manager role? They remain a member of this channel.`}
+                        </p>
+                        <button
+                          disabled={busy || membersLoading || membersError}
+                          className="text-copper underline"
+                          onClick={() => void changeManager(id, managerChange.manager)}
+                        >
+                          Confirm role change
+                        </button>
+                        <button
+                          disabled={busy}
+                          className="ml-3"
+                          onClick={() => setManagerChange(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        disabled={busy || membersLoading || membersError}
+                        className="mb-2 ml-2 text-xs text-copper underline"
+                        aria-label={`${channel.managerIds.includes(id) ? "Remove manager role from" : "Make channel manager:"} ${u?.displayName}`}
+                        onClick={() => {
+                          setRemovingId(null);
+                          setManagerChange({
+                            userId: id,
+                            manager: !channel.managerIds?.includes(id),
+                          });
+                        }}
+                      >
+                        {channel.managerIds.includes(id)
+                          ? "Remove manager role"
+                          : "Make channel manager"}
+                      </button>
+                    ))}
                   {canRemoveChannelMember(self ?? undefined, u, channel, !!membership) &&
                     (removingId === id ? (
                       <div className="mb-2 rounded-lg border border-edge p-3 text-sm">
@@ -371,7 +442,10 @@ export function ChannelDetailsDialog(props: {
                       <button
                         disabled={busy || membersLoading || membersError}
                         aria-label={`Remove ${u?.displayName}`}
-                        onClick={() => setRemovingId(id)}
+                        onClick={() => {
+                          setManagerChange(null);
+                          setRemovingId(id);
+                        }}
                         className="mb-2 ml-2 text-xs text-alert underline"
                       >
                         Remove

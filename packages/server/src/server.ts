@@ -12,6 +12,8 @@ import {
   PROTOCOL_VERSION,
   channelPermissions,
   canRemoveChannelMember,
+  canSetChannelManager,
+  channelManagerBody,
   createChannelBody,
   channelPrefsBody,
   savedMessagesQuery,
@@ -922,6 +924,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       if (store.removeMember(channel.id, me.id)) {
         afterCommit(() => gateway.updateChannelAccess(channel.id, me.id));
         emit({ type: "member.left", channelId: channel.id, userId: me.id }, channel.id);
+        if (channel.managerIds?.includes(me.id))
+          emit({ type: "channel.updated", channel: store.getChannel(channel.id)! }, channel.id);
       }
     });
     return { ok: true };
@@ -962,6 +966,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       mutate((emit, afterCommit) => {
         if (store.removeMember(channel.id, req.params.userId)) {
           afterCommit(() => gateway.updateChannelAccess(channel.id, req.params.userId));
+          if (channel.managerIds?.includes(req.params.userId))
+            emit({ type: "channel.updated", channel: store.getChannel(channel.id)! }, channel.id);
           emit(
             { type: "member.left", channelId: channel.id, userId: req.params.userId },
             channel.id,
@@ -969,6 +975,35 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         }
       });
       return { ok: true };
+    },
+  );
+
+  app.patch<{ Params: { id: string; userId: string } }>(
+    "/api/channels/:id/managers/:userId",
+    async (req) => {
+      const me = requireUser(req);
+      const channel = requireChannelAccess(req.params.id, me);
+      const target = store.getUser(req.params.userId);
+      const { manager } = channelManagerBody.parse(req.body);
+      if (
+        !canSetChannelManager(
+          me,
+          target ?? undefined,
+          channel,
+          store.isMember(channel.id, me.id),
+          manager,
+        )
+      ) {
+        throw new HttpError(403, "channel_manager_assignment_forbidden");
+      }
+      if (!store.isMember(channel.id, req.params.userId))
+        throw new HttpError(409, "channel_membership_required");
+      return mutate((emit) => {
+        const changed = store.setChannelManager(channel.id, req.params.userId, manager);
+        const updated = store.getChannel(channel.id)!;
+        if (changed) emit({ type: "channel.updated", channel: updated }, channel.id);
+        return { channel: updated };
+      });
     },
   );
 

@@ -90,6 +90,8 @@ export const updateChannelBody = z.object({
   archived: z.boolean().optional(),
 });
 
+export const channelManagerBody = z.object({ manager: z.boolean() });
+
 export const sendMessageBody = z
   .object({
     text: z.string().max(12000),
