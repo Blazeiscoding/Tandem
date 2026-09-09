@@ -145,7 +145,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   if (!store.getMeta("workspace_id")) store.setMeta("workspace_id", ulid());
   if (!store.getMeta("default_channel_id")) {
     const general = store.getChannelByName("general");
-    if (general) store.setMeta("default_channel_id", general.id);
+    if (general?.type === "public") store.setMeta("default_channel_id", general.id);
   }
   if (opts.inviteOnly !== undefined) store.setMeta("invite_only", opts.inviteOnly ? "1" : "0");
   const workspaceName = () => store.getMeta("workspace_name")!;
@@ -646,7 +646,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         const defaultId = store.getMeta("default_channel_id");
         const preferred = defaultId ? store.getChannel(defaultId) : null;
         const general =
-          preferred && !preferred.archived
+          preferred?.type === "public" && !preferred.archived
             ? preferred
             : store.listChannelsVisibleTo(user.id).find((c) => c.type === "public" && !c.archived);
         if (general && store.addMember(general.id, user.id)) {
