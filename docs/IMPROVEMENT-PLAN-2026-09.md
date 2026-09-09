@@ -435,3 +435,15 @@ Image previews now show recoverable download errors instead of an endless loadin
 Authenticated file fetches now time out after five minutes, including body transfer. Cache invalidation and workspace disposal abort their in-flight requests while preserving shared-request deduplication and stale-result guards. Download URLs remain retained while their file cards are mounted. Large files still become full browser blobs; streaming/hand-off downloads, quotas, abandoned-upload expiry, and total active-image budgets remain separate phases.
 
 Workspace typechecks, web/server builds and all 58 existing client-core tests passed. Disposable checks verified cache deduplication/abort/retry/disposal and browser image failure/retry, corrupt-image saving, missing-file retry, tiny-image visibility, viewer focus containment/restoration and absence of unhandled errors. New permanent interaction tests remain deferred.
+
+### Workspace attachment quota (C07/F15)
+
+Attachments now have a workspace-wide cap alongside the existing per-file one, closing the storage half of F15. The host sets it with `--storage-limit-mb` or `SLACKOSS_STORAGE_LIMIT_MB`; unset means unlimited, which stays the default. The budget counts what is already on disk at startup, so a restart neither forgets nor double-counts, and it reserves space as bytes arrive rather than after a file lands — otherwise simultaneous uploads would each be measured against the same free space and cross the line together.
+
+An upload that would not fit is refused with `507 storage_quota_exceeded` and leaves neither a blob nor a reservation behind, so what still fits still fits. The same release runs when a file is cut off for exceeding the per-file limit, when access is revoked mid-upload, and when the blob cannot be removed — in that last case the id is queued for the existing cleanup worker, which releases it once the file is really gone. Deleting a message returns its attachments' space through that same worker.
+
+Reserving per chunk means two uploads reaching the wall together can each hold part of the remaining space and both be refused, where either alone would have fitted. That is a deliberate trade against reserving the maximum file size up front, which would cap concurrent uploads at limit/maxFileSize however small they really are. Refusing is recoverable, so the property kept is that the limit is never exceeded.
+
+`GET /api/storage` reports used, limit, available and per-file maximum. Account settings shows it to any member with retry on failure, and says plainly when the workspace is full; the composer and the outbox explain a quota refusal separately from an oversized file, keeping the draft either way. A cap lowered below what is already stored deletes nothing and reports no room rather than negative room.
+
+`packages/server/test/storage.test.ts` adds nine regressions, and the flow was exercised against the packaged server binary. Abandoned-upload expiry, per-account quotas and streaming large downloads remain separate work.

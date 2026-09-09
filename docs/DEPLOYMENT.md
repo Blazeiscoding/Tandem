@@ -63,6 +63,30 @@ machines; larger meetings need an SFU. Cameras use a 360p/20fps target with a
 720p/24fps ceiling; screen sharing targets 10fps, capped at 15fps. These defaults
 reduce processing and bandwidth but do not guarantee a fixed RAM budget.
 
+## Attachment storage
+
+Attachments are unlimited unless you say otherwise, which on a small disk means
+one enthusiastic upload can fill it. Cap the workspace with `--storage-limit-mb`,
+or `SLACKOSS_STORAGE_LIMIT_MB` for Compose:
+
+```sh
+slackoss-server --data ./data --storage-limit-mb 20000
+```
+
+The cap covers every stored attachment plus uploads still arriving, so
+simultaneous uploads cannot cross it between them. An upload that would not fit
+is refused with `507` and leaves nothing behind; the author is told the workspace
+is full and keeps their draft. Deleting a message frees its attachments back
+once the cleanup worker runs.
+
+Members can see usage under Account settings, including how much is left and the
+per-file maximum. `0` means unlimited, which is the default.
+
+Size the cap below the free space on the volume rather than at it: the database,
+its write-ahead log, and any backups written locally share that disk. Lowering a
+cap below what is already stored is allowed — nothing is deleted, and uploads are
+refused until the workspace is back under the line.
+
 ## Backups, restore, updates
 
 Use the built-in commands rather than copying files by hand:
