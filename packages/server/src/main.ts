@@ -20,6 +20,7 @@ const { values, positionals } = parseArgs({
     name: { type: "string" },
     "invite-only": { type: "boolean" },
     "no-mdns": { type: "boolean", default: false },
+    "storage-limit-mb": { type: "string" },
     web: { type: "string" },
     "public-url": { type: "string" },
     "allow-private-hooks": { type: "boolean", default: false },
@@ -44,6 +45,9 @@ Usage: slackoss-server [options]
   --name <name>     Workspace name (persisted on first run)
   --invite-only     Require an invite code to register
   --no-mdns         Do not advertise on the local network
+  --storage-limit-mb <n>
+                    Attachment storage cap in MiB; 0 is unlimited (default).
+                    Also settable with SLACKOSS_STORAGE_LIMIT_MB.
   --web <dir>       Serve the browser client from this directory
   --public-url <u>  How others reach this server, e.g. https://chat.team.dev
                     (set it behind a reverse proxy; used in URLs given to apps)
@@ -206,6 +210,8 @@ const webDistPath = values.web
 
 const server = await createWorkspaceServer({
   dataDir: resolve(values.data),
+  maxStorageBytes:
+    Number(values["storage-limit-mb"] ?? process.env.SLACKOSS_STORAGE_LIMIT_MB ?? 0) * 1024 * 1024,
   port: Number(values.port),
   host: values.host,
   workspaceName: values.name,

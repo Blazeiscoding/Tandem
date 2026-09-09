@@ -14,6 +14,7 @@ import type {
   ScheduledMessage,
   ScheduleMessageBody,
   ServerInfo,
+  StorageUsage,
   SessionInfo,
   SlashCommand,
   ThreadFollow,
@@ -101,6 +102,10 @@ export class Api {
 
   serverInfo(timeoutMs = 4000): Promise<ServerInfo> {
     return this.request<ServerInfo>("GET", "/api/server-info", undefined, { timeoutMs });
+  }
+
+  storageUsage(signal?: AbortSignal): Promise<StorageUsage> {
+    return this.request("GET", "/api/storage", undefined, { timeoutMs: 10_000, signal });
   }
 
   rtcConfig(): Promise<RTCConfiguration> {

@@ -395,9 +395,11 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             ? "Update this workspace server to support safe scheduling retries. Your draft is kept."
             : submitted
               ? "Could not confirm scheduling. Retry confirmation to check the same request safely."
-              : error instanceof ApiError && error.code === "file_too_large"
-                ? "One of these files exceeds the workspace upload limit. Remove it and try again."
-                : "Could not upload the attachments. Your draft is kept; try again when connected.",
+              : error instanceof ApiError && error.code === "storage_quota_exceeded"
+                ? "Workspace attachment storage is full. Your draft is kept. Ask the host to free space or raise the limit, then retry."
+                : error instanceof ApiError && error.code === "file_too_large"
+                  ? "One of these files exceeds the workspace upload limit. Remove it and try again."
+                  : "Could not upload the attachments. Your draft is kept; try again when connected.",
       );
     } finally {
       if (current()) {
