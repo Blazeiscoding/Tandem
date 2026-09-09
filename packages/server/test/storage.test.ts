@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StorageUsage } from "@slackoss/protocol";
@@ -13,7 +13,7 @@ let channelId: string;
 
 const MAX_FILE = 1024 * 1024;
 
-async function start(maxStorageBytes?: number) {
+async function start(maxStorageBytes?: number, abandonedUploadTtlMs?: number) {
   server = await createWorkspaceServer({
     dataDir,
     host: "127.0.0.1",
@@ -21,6 +21,7 @@ async function start(maxStorageBytes?: number) {
     mdns: false,
     maxFileSize: MAX_FILE,
     maxStorageBytes,
+    abandonedUploadTtlMs,
   });
   base = `http://127.0.0.1:${server.port}`;
 }
@@ -229,5 +230,145 @@ describe("workspace storage quota", () => {
         maxStorageBytes: 1.5,
       }),
     ).rejects.toThrow(/safe integer/);
+  });
+});
+
+describe("abandoned uploads", () => {
+  /** Ages an upload past the sweep line without waiting for real time. */
+  function backdate(fileId: string, msAgo: number) {
+    server!.store.transaction(() => {
+      (
+        server!.store as unknown as {
+          db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } };
+        }
+      ).db
+        .prepare("UPDATE files SET created_at = ? WHERE id = ?")
+        .run(Date.now() - msAgo, fileId);
+    });
+  }
+
+  it("frees an upload nobody ever sent, and its space with it", async () => {
+    await start(400 * 1024, 3600_000);
+    await signIn();
+    const uploaded = await upload(150 * 1024);
+    expect(uploaded.status).toBe(201);
+    const id = uploaded.body.file.id as string;
+
+    // Still fresh: someone may be about to send it.
+    expect(server!.expireAbandonedUploads()).toBe(0);
+    expect((await usage()).usedBytes).toBe(150 * 1024);
+
+    backdate(id, 2 * 3600_000);
+    expect(server!.expireAbandonedUploads()).toBe(1);
+    await server!.flushFileDeletions();
+
+    expect(blobsOnDisk()).toHaveLength(0);
+    expect((await usage()).usedBytes).toBe(0);
+    expect(server!.store.getFile(id)).toBeNull();
+  });
+
+  it("leaves an upload that was actually sent alone", async () => {
+    await start(400 * 1024, 3600_000);
+    await signIn();
+    const uploaded = await upload(100 * 1024);
+    const id = uploaded.body.file.id as string;
+    const posted = await fetch(`${base}/api/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ text: "sent", nonce: "n1", fileIds: [id] }),
+    });
+    expect(posted.status).toBe(201);
+
+    backdate(id, 90 * 24 * 3600_000);
+    expect(server!.expireAbandonedUploads()).toBe(0);
+    await server!.flushFileDeletions();
+    expect(blobsOnDisk()).toEqual([id]);
+  });
+
+  it("keeps attachments a scheduled message is still waiting to send", async () => {
+    await start(400 * 1024, 3600_000);
+    await signIn();
+    const uploaded = await upload(100 * 1024);
+    const id = uploaded.body.file.id as string;
+
+    // Scheduled well beyond the sweep line: its files are old by the time it sends.
+    const scheduled = await fetch(`${base}/api/channels/${channelId}/scheduled`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        text: "later",
+        sendAt: Date.now() + 7 * 24 * 3600_000,
+        fileIds: [id],
+        nonce: "later-1",
+      }),
+    });
+    expect(scheduled.status).toBe(201);
+
+    backdate(id, 30 * 24 * 3600_000);
+    expect(server!.expireAbandonedUploads()).toBe(0);
+    await server!.flushFileDeletions();
+    expect(blobsOnDisk()).toEqual([id]);
+    expect((await usage()).usedBytes).toBe(100 * 1024);
+  });
+
+  it("does nothing at all when the scheduled queue cannot be read", async () => {
+    await start(400 * 1024, 3600_000);
+    await signIn();
+    const uploaded = await upload(100 * 1024);
+    const id = uploaded.body.file.id as string;
+    backdate(id, 30 * 24 * 3600_000);
+
+    const db = (
+      server!.store as unknown as {
+        db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } };
+      }
+    ).db;
+    db.prepare(
+      `INSERT INTO scheduled_messages (id, channel_id, user_id, text, thread_root_id, file_ids, send_at, created_at)
+       VALUES ('01BROKENBROKENBROKENBROKEN', ?, ?, 'x', NULL, 'not json', ?, ?)`,
+    ).run(
+      channelId,
+      server!.store.getUserAuthByHandle("owner")!.id,
+      Date.now() + 60_000,
+      Date.now(),
+    );
+
+    // An unreadable row means some unknown files are spoken for. Guessing would
+    // delete someone's attachment, so the sweep declines to run.
+    expect(server!.expireAbandonedUploads()).toBe(0);
+    await server!.flushFileDeletions();
+    expect(blobsOnDisk()).toEqual([id]);
+  });
+
+  it("reclaims a blob left behind by a crash between writing and recording it", async () => {
+    await start(400 * 1024);
+    await signIn();
+    expect((await upload(50 * 1024)).status).toBe(201);
+    await stop();
+
+    // Exactly what a process killed mid-upload leaves: bytes on disk that no
+    // row accounts for, counting against the cap with nothing to delete them.
+    const stray = "01STRAYSTRAYSTRAYSTRAYSTRA";
+    writeFileSync(join(dataDir, "files", stray), new Uint8Array(120 * 1024));
+
+    await start(400 * 1024);
+    await signIn();
+    await server!.flushFileDeletions();
+    expect(blobsOnDisk()).toHaveLength(1);
+    expect(blobsOnDisk()).not.toContain(stray);
+    // Its bytes came back too, rather than being charged to the workspace forever.
+    expect((await usage()).usedBytes).toBe(50 * 1024);
+  });
+
+  it("refuses an expiry window that would sweep uploads as they land", async () => {
+    await expect(
+      createWorkspaceServer({
+        dataDir,
+        host: "127.0.0.1",
+        port: 0,
+        mdns: false,
+        abandonedUploadTtlMs: 0,
+      }),
+    ).rejects.toThrow(/positive/);
   });
 });
