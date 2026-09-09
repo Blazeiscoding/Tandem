@@ -143,6 +143,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   if (!store.getMeta("workspace_name")) store.setMeta("workspace_name", "My Workspace");
   // Slack payloads carry a team id; ours is generated once and never changes.
   if (!store.getMeta("workspace_id")) store.setMeta("workspace_id", ulid());
+  if (!store.getMeta("default_channel_id")) {
+    const general = store.getChannelByName("general");
+    if (general) store.setMeta("default_channel_id", general.id);
+  }
   if (opts.inviteOnly !== undefined) store.setMeta("invite_only", opts.inviteOnly ? "1" : "0");
   const workspaceName = () => store.getMeta("workspace_name")!;
   const inviteOnly = () => store.getMeta("invite_only") === "1";
@@ -634,11 +638,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           creatorId: user.id,
           memberIds: [user.id],
         });
+        store.setMeta("default_channel_id", general.id);
         emit({ type: "channel.created", channel: general }, general.id);
       } else {
         emit({ type: "user.joined", user }, null);
-        // Everyone lands in #general automatically.
-        const general = store.getChannelByName("general");
+        // Renaming the default room must not change who new accounts join.
+        const defaultId = store.getMeta("default_channel_id");
+        const preferred = defaultId ? store.getChannel(defaultId) : null;
+        const general =
+          preferred && !preferred.archived
+            ? preferred
+            : store.listChannelsVisibleTo(user.id).find((c) => c.type === "public" && !c.archived);
         if (general && store.addMember(general.id, user.id)) {
           emit({ type: "member.joined", channelId: general.id, userId: user.id }, general.id);
         }
@@ -894,6 +904,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const me = requireUser(req);
     const channel = store.getChannel(req.params.id);
     if (!channel || channel.type !== "public") throw new HttpError(404, "channel_not_found");
+    if (channel.archived) throw new HttpError(400, "channel_archived");
     mutate((emit) => {
       if (store.addMember(channel.id, me.id)) {
         emit({ type: "member.joined", channelId: channel.id, userId: me.id }, channel.id);

@@ -31,6 +31,8 @@ export function ChannelDetailsDialog(props: {
   const [tab, setTab] = useState<Tab>("about");
   const [memberIds, setMemberIds] = useState<ID[]>([]);
   const [topic, setTopic] = useState(channel?.topic ?? "");
+  const [name, setName] = useState(channel?.name ?? "");
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [description, setDescription] = useState(channel?.description ?? "");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -65,7 +67,7 @@ export function ChannelDetailsDialog(props: {
     setError(null);
     setSaved(false);
     try {
-      await client.api.updateChannel(props.channelId, { topic, description });
+      await client.api.updateChannel(props.channelId, { name: name.trim(), topic, description });
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save channel details.");
@@ -83,6 +85,20 @@ export function ChannelDetailsDialog(props: {
       setMemberIds((prev) => [...new Set([...prev, userId])]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add this person.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setArchived(archived: boolean) {
+    if (!permissions.manage || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.api.updateChannel(props.channelId, { archived });
+      setConfirmArchive(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change archive status.");
     } finally {
       setBusy(false);
     }
@@ -126,6 +142,21 @@ export function ChannelDetailsDialog(props: {
       ) : tab === "about" ? (
         isRoom ? (
           <form onSubmit={saveAbout} className="space-y-3">
+            <label className="block text-sm">
+              Channel name
+              <input
+                aria-label="Channel name"
+                className={inputCls}
+                value={name}
+                required
+                maxLength={80}
+                readOnly={!permissions.manage || busy}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setSaved(false);
+                }}
+              />
+            </label>
             {!permissions.manage && (
               <p className="text-sm text-ink-faint">
                 Channel details are managed by its creator and workspace administrators.
@@ -137,6 +168,7 @@ export function ChannelDetailsDialog(props: {
               </label>
               <input
                 aria-label="Channel topic"
+                maxLength={250}
                 value={topic}
                 readOnly={!permissions.manage || busy}
                 onChange={(e) => {
@@ -153,6 +185,7 @@ export function ChannelDetailsDialog(props: {
               </label>
               <textarea
                 aria-label="Channel description"
+                maxLength={500}
                 value={description}
                 readOnly={!permissions.manage || busy}
                 onChange={(e) => {
@@ -191,6 +224,53 @@ export function ChannelDetailsDialog(props: {
                   Leave channel
                 </button>
               )}
+            </div>
+            <div className="rounded-lg border border-edge p-3 text-sm">
+              <p className="mb-2 text-ink-dim">
+                {channel.archived
+                  ? "Archived. History remains available; new posts and replies are paused."
+                  : "Archiving keeps history and drafts. Scheduled messages wait until the channel is reopened."}
+              </p>
+              {permissions.manage &&
+                (channel.archived ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className={primaryBtnCls}
+                    onClick={() => void setArchived(false)}
+                  >
+                    Reopen channel
+                  </button>
+                ) : confirmArchive ? (
+                  <div>
+                    <p className="mb-2">Archive #{channel.name} for everyone?</p>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className={primaryBtnCls}
+                      onClick={() => void setArchived(true)}
+                    >
+                      Confirm archive
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="ml-3"
+                      onClick={() => setConfirmArchive(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="text-alert underline"
+                    onClick={() => setConfirmArchive(true)}
+                  >
+                    Archive channel
+                  </button>
+                ))}
             </div>
           </form>
         ) : (

@@ -201,7 +201,7 @@ export class Api {
   }
 
   updateChannel(id: ID, body: UpdateChannelBody): Promise<{ channel: Channel }> {
-    return this.request("PATCH", `/api/channels/${id}`, body);
+    return this.request("PATCH", `/api/channels/${id}`, body, { timeoutMs: 10_000 });
   }
 
   joinChannel(id: ID): Promise<{ ok: true }> {

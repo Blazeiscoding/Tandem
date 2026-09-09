@@ -203,7 +203,7 @@ function WorkspaceInner({
   // Pick #general (or the first channel) once the snapshot lands.
   useEffect(() => {
     if (!activeChannelId || (status === "online" && !channels[activeChannelId])) {
-      const list = Object.values(channels);
+      const list = Object.values(channels).filter((c) => !c.archived);
       const general = list.find((c) => c.name === "general") ?? list[0];
       if (general) setActiveChannelId(general.id);
     }
