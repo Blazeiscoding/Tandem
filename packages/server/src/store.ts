@@ -1080,6 +1080,56 @@ export class Store {
     return true;
   }
 
+  /**
+   * Uploads that were never attached to anything and are old enough to have
+   * been given up on. An upload sits unattached for the moment between choosing
+   * a file and sending it, so only age separates that from an abandoned draft.
+   *
+   * Returns null when the scheduled queue cannot be read, which means some
+   * unknown set of files is still spoken for. Sweeping on a guess would delete
+   * attachments a queued message still needs, so the caller does nothing.
+   */
+  abandonedFileIds(olderThan: number): ID[] | null {
+    const spokenFor = new Set<ID>();
+    const rows = this.db.prepare("SELECT file_ids FROM scheduled_messages").all() as {
+      file_ids: string;
+    }[];
+    for (const row of rows) {
+      let ids: unknown;
+      try {
+        ids = JSON.parse(row.file_ids);
+      } catch {
+        return null;
+      }
+      if (!Array.isArray(ids)) return null;
+      for (const id of ids) spokenFor.add(String(id));
+    }
+    const candidates = this.db
+      .prepare("SELECT id FROM files WHERE message_id IS NULL AND created_at < ?")
+      .all(olderThan) as { id: string }[];
+    return candidates.map((row) => row.id).filter((id) => !spokenFor.has(id));
+  }
+
+  /**
+   * Of the blob ids given, the ones no `files` row knows about. A crash between
+   * writing a blob and recording it leaves exactly this: bytes on disk that
+   * count against the workspace but that nothing will ever ask to delete.
+   */
+  unknownFileIds(blobIds: ID[]): ID[] {
+    if (blobIds.length === 0) return [];
+    const known = new Set<string>();
+    // Chunked: SQLite's variable limit is not large enough for a busy workspace.
+    for (let i = 0; i < blobIds.length; i += 500) {
+      const batch = blobIds.slice(i, i + 500);
+      const placeholders = batch.map(() => "?").join(",");
+      const rows = this.db
+        .prepare(`SELECT id FROM files WHERE id IN (${placeholders})`)
+        .all(...batch) as { id: string }[];
+      for (const row of rows) known.add(row.id);
+    }
+    return blobIds.filter((id) => !known.has(id));
+  }
+
   /** File ids belonging to a message — used to delete blobs when the message goes. */
   fileIdsForMessage(messageId: ID): ID[] {
     const rows = this.db.prepare("SELECT id FROM files WHERE message_id = ?").all(messageId) as {

@@ -447,3 +447,15 @@ Reserving per chunk means two uploads reaching the wall together can each hold p
 `GET /api/storage` reports used, limit, available and per-file maximum. Account settings shows it to any member with retry on failure, and says plainly when the workspace is full; the composer and the outbox explain a quota refusal separately from an oversized file, keeping the draft either way. A cap lowered below what is already stored deletes nothing and reports no room rather than negative room.
 
 `packages/server/test/storage.test.ts` adds nine regressions, and the flow was exercised against the packaged server binary. Abandoned-upload expiry, per-account quotas and streaming large downloads remain separate work.
+
+### Abandoned uploads and orphaned blobs (C07/F15)
+
+Uploads that were never sent are now freed, closing the other half of F15's file finding. An attachment chosen and then thought better of used to hold its bytes for the life of the workspace; with the storage cap in place that turned untidy into a workspace that slowly fills up. Unattached uploads older than 24 hours are swept on the same hourly cycle as the other retention work and once at startup, tunable with `--abandoned-upload-hours` or `SLACKOSS_ABANDONED_UPLOAD_HOURS`.
+
+Files a scheduled message is still waiting to send are never swept, however old they are — a message queued a week out has attachments older than the window by the time it sends. The sweep reads the queue to find out which those are, and if a queue row cannot be read it does nothing at all that round rather than guessing: some unknown set of files is spoken for, and deleting an attachment on a guess is worse than reclaiming its bytes late. The window is validated as positive, since zero would sweep uploads as they land.
+
+Blobs on disk that no `files` row accounts for are also reclaimed. A process killed between writing the bytes and recording them leaves exactly that: storage charged to the workspace that nothing would ever ask to delete. They are found once at startup — safe only there, since a blob being written right now has no row either — and go through the existing deletion queue so one that will not delete is retried rather than lost track of.
+
+Both paths release their space through the same cleanup worker as message deletion, so the accounting has one owner. `--storage-limit-mb` and `--abandoned-upload-hours` now report a bad value by naming the flag rather than surfacing an internal option name in a stack trace.
+
+`packages/server/test/storage.test.ts` grows to fifteen cases. The scheduled-message protection and the orphan reclamation were both checked by removing them and confirming their tests fail. Per-account quotas and streaming large downloads remain separate work.

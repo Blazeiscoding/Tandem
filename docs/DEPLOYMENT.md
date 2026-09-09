@@ -82,6 +82,18 @@ once the cleanup worker runs.
 Members can see usage under Account settings, including how much is left and the
 per-file maximum. `0` means unlimited, which is the default.
 
+An attachment chosen and then thought better of would otherwise hold its bytes
+forever. Uploads never attached to a message are freed after 24 hours, tunable
+with `--abandoned-upload-hours` or `SLACKOSS_ABANDONED_UPLOAD_HOURS`. Files a
+scheduled message is still waiting to send are never swept, however old they
+are. The window has to outlast the gap between choosing a file and sending it,
+including a client that goes offline in between: an outbox entry that has been
+waiting longer than the window loses its attachments and says so rather than
+sending the words alone.
+
+Blobs left behind by a process killed mid-upload — bytes on disk that no
+database row accounts for — are found and freed at startup.
+
 Size the cap below the free space on the volume rather than at it: the database,
 its write-ahead log, and any backups written locally share that disk. Lowering a
 cap below what is already stored is allowed — nothing is deleted, and uploads are
