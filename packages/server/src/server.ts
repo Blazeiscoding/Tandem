@@ -97,6 +97,12 @@ export interface ServerOptions {
   /** Attachment storage cap in bytes, including pending uploads. Zero/omitted is unlimited. */
   maxStorageBytes?: number;
   /**
+   * How long an upload may sit unattached before it counts as abandoned.
+   * Default 24 hours. Must outlast the gap between choosing a file and sending
+   * it, including a client that is offline in between.
+   */
+  abandonedUploadTtlMs?: number;
+  /**
    * The address others reach this server on, e.g. "https://chat.team.dev".
    * Used to build the `response_url` handed to slash commands. Set it when a
    * reverse proxy sits in front; otherwise the request's own Host is used.
@@ -127,6 +133,8 @@ export interface WorkspaceServer {
   flushScheduled: () => void;
   /** Retries a bounded batch of committed attachment deletions. */
   flushFileDeletions: () => Promise<void>;
+  /** Frees uploads nobody attached. Runs on a timer; exposed so tests need not wait. */
+  expireAbandonedUploads: () => number;
   stop: () => Promise<void>;
 }
 
@@ -146,6 +154,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     (!Number.isSafeInteger(opts.maxStorageBytes) || opts.maxStorageBytes < 0)
   ) {
     throw new Error("maxStorageBytes must be a non-negative safe integer");
+  }
+  // Zero would sweep uploads the moment they land, taking working ones with it.
+  if (
+    opts.abandonedUploadTtlMs !== undefined &&
+    (!Number.isSafeInteger(opts.abandonedUploadTtlMs) || opts.abandonedUploadTtlMs <= 0)
+  ) {
+    throw new Error("abandonedUploadTtlMs must be a positive safe integer");
   }
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
   const db = openDb(dbPath);
@@ -411,6 +426,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const maxFileSize = opts.maxFileSize ?? 100 * 1024 * 1024;
   const blobPath = (fileId: string) => join(filesDir!, fileId);
   const storage = new StorageBudget(filesDir, opts.maxStorageBytes || null);
+  const abandonedUploadTtlMs = opts.abandonedUploadTtlMs ?? 24 * 3600_000;
 
   let fileCleanup: Promise<void> | null = null;
   const flushFileDeletions = (): Promise<void> => {
@@ -440,6 +456,45 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         fileCleanup = null;
       });
     return fileCleanup;
+  };
+
+  /**
+   * Frees uploads nobody ever sent. Without this an attachment chosen and then
+   * thought better of holds its bytes for the life of the workspace, which the
+   * storage cap turns from untidy into a workspace that slowly fills up.
+   */
+  const expireAbandonedUploads = (): number => {
+    const ids = store.abandonedFileIds(Date.now() - abandonedUploadTtlMs);
+    if (ids === null) {
+      app.log.error("scheduled queue unreadable; abandoned uploads left alone this round");
+      return 0;
+    }
+    if (ids.length === 0) return 0;
+    store.transaction(() => {
+      store.deleteFiles(ids);
+      store.queueFileDeletions(ids);
+    });
+    app.log.info({ count: ids.length }, "expired abandoned uploads");
+    return ids.length;
+  };
+
+  /**
+   * Blobs on disk that no `files` row accounts for. A process killed between
+   * writing the bytes and recording them leaves one behind: it counts against
+   * the workspace cap, and without this nothing would ever ask to delete it.
+   *
+   * Safe only before uploads can start, since a blob being written right now
+   * has no row yet either. It runs once, at startup, for that reason.
+   */
+  const reconcileOrphanedBlobs = (): number => {
+    if (!filesDir) return 0;
+    const orphans = store.unknownFileIds(storage.storedIds());
+    if (orphans.length === 0) return 0;
+    // Through the usual queue, so a blob that will not delete is retried rather
+    // than lost track of, and its bytes are released when it really goes.
+    store.queueFileDeletions(orphans);
+    app.log.warn({ count: orphans.length }, "queued orphaned attachment blobs");
+    return orphans.length;
   };
 
   const removeMessage = (existing: Message) =>
@@ -2613,6 +2668,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
   };
   flushScheduled();
+  reconcileOrphanedBlobs();
+  expireAbandonedUploads();
   void flushFileDeletions();
   const scheduleTimer = setInterval(() => {
     flushScheduled();
@@ -2623,6 +2680,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     store.pruneEvents();
     store.pruneScheduled(Date.now() - SCHEDULED_RETENTION_MS);
     store.pruneSessions();
+    // After pruning the queue, so a scheduled message that has just gone stops
+    // holding its attachments in the same round rather than an hour later.
+    if (expireAbandonedUploads() > 0) void flushFileDeletions();
   }, 3600_000);
   let stopping: Promise<void> | null = null;
 
@@ -2634,6 +2694,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     claimCode: claimCode(),
     flushScheduled,
     flushFileDeletions,
+    expireAbandonedUploads,
     stop: () => {
       if (stopping) return stopping;
       clearInterval(scheduleTimer);

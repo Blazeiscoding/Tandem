@@ -38,6 +38,11 @@ export class StorageBudget {
     return true;
   }
 
+  /** Every blob the budget is counting, for reconciling against the database. */
+  storedIds(): string[] {
+    return [...this.files.keys()];
+  }
+
   release(id: string): void {
     this.usedBytes -= this.files.get(id) ?? 0;
     this.files.delete(id);
