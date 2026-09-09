@@ -21,6 +21,7 @@ const { values, positionals } = parseArgs({
     "invite-only": { type: "boolean" },
     "no-mdns": { type: "boolean", default: false },
     "storage-limit-mb": { type: "string" },
+    "abandoned-upload-hours": { type: "string" },
     web: { type: "string" },
     "public-url": { type: "string" },
     "allow-private-hooks": { type: "boolean", default: false },
@@ -48,6 +49,10 @@ Usage: slackoss-server [options]
   --storage-limit-mb <n>
                     Attachment storage cap in MiB; 0 is unlimited (default).
                     Also settable with SLACKOSS_STORAGE_LIMIT_MB.
+  --abandoned-upload-hours <n>
+                    How long an upload may sit unattached before it is freed
+                    (default 24). Attachments a scheduled message still needs
+                    are never swept, however old they are.
   --web <dir>       Serve the browser client from this directory
   --public-url <u>  How others reach this server, e.g. https://chat.team.dev
                     (set it behind a reverse proxy; used in URLs given to apps)
@@ -208,10 +213,43 @@ const webDistPath = values.web
     ? besideScript
     : undefined;
 
+/**
+ * Reads a numeric setting, naming the flag someone actually typed rather than
+ * letting a stray character surface as an internal option name in a stack trace.
+ */
+function numericOption(flag: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    console.error(`
+  ${flag} needs a non-negative number, not "${raw}"
+`);
+    process.exit(1);
+  }
+  return value;
+}
+
+const storageLimitMb = numericOption(
+  "--storage-limit-mb",
+  values["storage-limit-mb"] ?? process.env.SLACKOSS_STORAGE_LIMIT_MB,
+  0,
+);
+const abandonedUploadHours = numericOption(
+  "--abandoned-upload-hours",
+  values["abandoned-upload-hours"] ?? process.env.SLACKOSS_ABANDONED_UPLOAD_HOURS,
+  24,
+);
+if (abandonedUploadHours <= 0) {
+  console.error(`
+  --abandoned-upload-hours must be greater than zero
+`);
+  process.exit(1);
+}
+
 const server = await createWorkspaceServer({
   dataDir: resolve(values.data),
-  maxStorageBytes:
-    Number(values["storage-limit-mb"] ?? process.env.SLACKOSS_STORAGE_LIMIT_MB ?? 0) * 1024 * 1024,
+  maxStorageBytes: Math.round(storageLimitMb * 1024 * 1024),
+  abandonedUploadTtlMs: Math.round(abandonedUploadHours * 3600_000),
   port: Number(values.port),
   host: values.host,
   workspaceName: values.name,
