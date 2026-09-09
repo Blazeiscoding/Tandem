@@ -382,11 +382,18 @@ export class Api {
   }
 
   /** Raw bytes of an upload, fetched with the session token. */
-  async fetchFile(fileId: ID): Promise<Blob> {
+  async fetchFile(fileId: ID, signal?: AbortSignal): Promise<Blob> {
     const res = await fetch(`${this.baseUrl}/api/files/${fileId}`, {
       headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(300_000)])
+        : AbortSignal.timeout(300_000),
     });
-    if (!res.ok) throw new ApiError(res.status, "file_not_found");
+    if (!res.ok)
+      throw new ApiError(
+        res.status,
+        res.status === 404 ? "file_not_found" : "file_download_failed",
+      );
     return res.blob();
   }
 

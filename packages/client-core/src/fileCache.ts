@@ -9,6 +9,7 @@ import type { Api } from "./api.js";
 export class FileCache {
   private urls = new Map<ID, string>();
   private inflight = new Map<ID, Promise<string>>();
+  private controllers = new Map<ID, AbortController>();
   private sizes = new Map<ID, number>();
   private references = new Map<ID, number>();
   private disposed = false;
@@ -55,8 +56,10 @@ export class FileCache {
     const pending = this.inflight.get(fileId);
     if (pending) return pending;
 
+    const controller = new AbortController();
+    this.controllers.set(fileId, controller);
     const request = this.api
-      .fetchFile(fileId)
+      .fetchFile(fileId, controller.signal)
       .then((blob) => {
         if (this.disposed) throw new Error("File cache is closed");
         if (this.inflight.get(fileId) !== request) throw new Error("File access was invalidated");
@@ -65,10 +68,12 @@ export class FileCache {
         this.sizes.set(fileId, blob.size);
         this.trim(fileId);
         this.inflight.delete(fileId);
+        if (this.controllers.get(fileId) === controller) this.controllers.delete(fileId);
         return url;
       })
       .catch((err: unknown) => {
         if (this.inflight.get(fileId) === request) this.inflight.delete(fileId);
+        if (this.controllers.get(fileId) === controller) this.controllers.delete(fileId);
         throw err;
       });
     this.inflight.set(fileId, request);
@@ -81,6 +86,8 @@ export class FileCache {
   }
 
   invalidate(fileId: ID): void {
+    this.controllers.get(fileId)?.abort();
+    this.controllers.delete(fileId);
     this.inflight.delete(fileId);
     const url = this.urls.get(fileId);
     if (url) URL.revokeObjectURL(url);
@@ -91,6 +98,8 @@ export class FileCache {
 
   dispose(): void {
     this.disposed = true;
+    for (const controller of this.controllers.values()) controller.abort();
+    this.controllers.clear();
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
     this.inflight.clear();
