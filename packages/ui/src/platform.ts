@@ -34,6 +34,8 @@ export interface Platform {
     set: (key: string, value: unknown) => Promise<void>;
   };
   notify: (title: string, body: string) => void;
+  /** Hand a scoped download URL to the browser/OS; completion is managed there. */
+  downloadFile?: (url: string) => Promise<void>;
   /** Subscribe to LAN server discovery. Returns unsubscribe. Desktop only. */
   discoverLan?: (cb: (servers: DiscoveredServer[]) => void) => () => void;
   /** slackoss:// links. Desktop only — browsers have no protocol handler. */
@@ -55,6 +57,17 @@ export interface Platform {
 export function webPlatform(): Platform {
   return {
     kind: "web",
+    downloadFile: async (url) => {
+      // A failed redemption must not replace the workspace page. Downloads
+      // from an attachment response are handed to the browser's download UI.
+      const frame = document.createElement("iframe");
+      frame.hidden = true;
+      frame.title = "File download";
+      frame.referrerPolicy = "no-referrer";
+      frame.src = url;
+      document.body.append(frame);
+      setTimeout(() => frame.remove(), 300_000);
+    },
     storage: {
       get: async <T>(key: string) => {
         try {

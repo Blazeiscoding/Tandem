@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { FileMeta, ID } from "@slackoss/protocol";
 import { ApiError, type LocalAttachment } from "@slackoss/client-core";
-import { useClient } from "../context.js";
+import { useClient, usePlatform } from "../context.js";
 import { formatBytes } from "../lib/format.js";
 
 /** Largest an inline image is drawn at; the real file opens in the lightbox. */
 const MAX_W = 380;
 const MAX_H = 300;
+const NATIVE_DOWNLOAD_BYTES = 8 * 1024 * 1024;
 
 function fitted(width: number | null, height: number | null) {
   if (!width || !height) return { width: MAX_W, height: 220 };
@@ -28,7 +29,7 @@ export function MessageAttachments({
   return (
     <div className="mt-1.5 flex flex-wrap gap-2">
       {files.map((f) =>
-        f.mime.startsWith("image/") ? (
+        f.mime.startsWith("image/") && f.size < NATIVE_DOWNLOAD_BYTES ? (
           <ImageAttachment key={f.id} file={f} onOpen={() => onOpenImage(f)} />
         ) : (
           <FileCard key={f.id} file={f} />
@@ -91,6 +92,9 @@ function ImageAttachment({ file, onOpen }: { file: FileMeta; onOpen: () => void 
 
 function FileCard({ file }: { file: FileMeta }) {
   const client = useClient();
+  const platform = usePlatform();
+  const native = file.size >= NATIVE_DOWNLOAD_BYTES;
+  const [handedOff, setHandedOff] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lifetime = useRef<object | null>(null);
@@ -109,8 +113,17 @@ function FileCard({ file }: { file: FileMeta }) {
     if (saving) return;
     setSaving(true);
     setError(null);
+    setHandedOff(false);
     const current = lifetime.current;
     try {
+      if (native) {
+        const url = await client.api.downloadUrl(file.id);
+        if (!current || lifetime.current !== current) return;
+        if (!platform.downloadFile) throw new ApiError(409, "download_upgrade_required");
+        await platform.downloadFile(url);
+        if (lifetime.current === current) setHandedOff(true);
+        return;
+      }
       const url = await client.files.get(file.id);
       if (current && lifetime.current === current) saveUrl(url, file.name);
     } catch (err) {
@@ -134,13 +147,25 @@ function FileCard({ file }: { file: FileMeta }) {
         <span className="min-w-0">
           <span className="block max-w-[220px] truncate text-sm font-medium">{file.name}</span>
           <span className="block font-mono text-[11px] text-ink-faint">
-            {saving ? "Downloading…" : error ? "Retry download" : formatBytes(file.size)}
+            {saving
+              ? native
+                ? "Preparing download…"
+                : "Downloading…"
+              : error
+                ? "Retry download"
+                : formatBytes(file.size)}
           </span>
         </span>
       </button>
       {error && (
         <p role="alert" className="mt-1 max-w-[300px] text-sm text-alert">
           {error}
+        </p>
+      )}
+      {handedOff && (
+        <p role="status" className="mt-1 max-w-[300px] text-xs text-ink-dim">
+          Download handed to your browser or device. Check its downloads or save dialog; click again
+          if it did not start.
         </p>
       )}
     </div>
@@ -166,6 +191,8 @@ function saveUrl(url: string, name: string) {
 
 function fileError(err: unknown): string {
   if (err instanceof ApiError) {
+    if (err.code === "download_upgrade_required")
+      return "Update the workspace server and app to download large files.";
     if (err.status === 401) return "Sign in again to download this file.";
     if (err.status === 403 || err.status === 404)
       return "File unavailable or you no longer have access.";

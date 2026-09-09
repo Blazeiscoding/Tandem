@@ -1110,6 +1110,58 @@ export class Store {
     return candidates.map((row) => row.id).filter((id) => !spokenFor.has(id));
   }
 
+  // ---------- download tickets ----------
+
+  /**
+   * A one-shot ticket letting a browser fetch one file without a header it
+   * cannot set on a navigation. Only the hash is stored, as with session
+   * tokens, so the table is not a list of working credentials.
+   */
+  createDownloadToken(
+    tokenHash: string,
+    fileId: ID,
+    userId: ID,
+    sessionHash: string,
+    expiresAt: number,
+  ): void {
+    this.transaction(() => {
+      this.pruneDownloadTokens();
+      this.db
+        .prepare(
+          "DELETE FROM download_tokens WHERE token_hash IN (SELECT token_hash FROM download_tokens WHERE user_id = ? ORDER BY expires_at DESC, token_hash DESC LIMIT -1 OFFSET 63)",
+        )
+        .run(userId);
+      this.db
+        .prepare(
+          "INSERT INTO download_tokens (token_hash, file_id, user_id, session_hash, expires_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(tokenHash, fileId, userId, sessionHash, expiresAt);
+    });
+  }
+
+  /**
+   * Spends a ticket. Deleting and reading in one statement is what makes it
+   * single use: two requests arriving together cannot both be served.
+   */
+  consumeDownloadToken(
+    tokenHash: string,
+    now = Date.now(),
+  ): { fileId: ID; userId: ID; sessionHash: string } | null {
+    const row = this.db
+      .prepare(
+        "DELETE FROM download_tokens WHERE token_hash = ? RETURNING file_id, user_id, session_hash, expires_at",
+      )
+      .get(tokenHash) as
+      { file_id: string; user_id: string; session_hash: string; expires_at: number } | undefined;
+    if (!row || row.expires_at <= now) return null;
+    return { fileId: row.file_id, userId: row.user_id, sessionHash: row.session_hash };
+  }
+
+  /** Tickets nobody spent. They are short-lived, so this is just tidying. */
+  pruneDownloadTokens(now = Date.now()): void {
+    this.db.prepare("DELETE FROM download_tokens WHERE expires_at <= ?").run(now);
+  }
+
   /**
    * Of the blob ids given, the ones no `files` row knows about. A crash between
    * writing a blob and recording it leaves exactly this: bytes on disk that

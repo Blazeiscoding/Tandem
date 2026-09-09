@@ -149,6 +149,8 @@ export interface ServerInfo {
   requiresClaim: boolean;
   /** Scheduling retries are deduplicated by an account-scoped request key. */
   schedulingIdempotency?: boolean;
+  /** Single-use, session-bound tickets for native file downloads. */
+  downloadTickets?: boolean;
 }
 
 export interface StorageUsage {

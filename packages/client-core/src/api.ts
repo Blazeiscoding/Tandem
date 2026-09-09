@@ -108,6 +108,20 @@ export class Api {
     return this.request("GET", "/api/storage", undefined, { timeoutMs: 10_000, signal });
   }
 
+  async downloadUrl(fileId: ID): Promise<string> {
+    if (!(await this.serverInfo()).downloadTickets)
+      throw new ApiError(409, "download_upgrade_required");
+    const result = await this.request<{ token: string; expiresAt: number }>(
+      "POST",
+      `/api/files/${fileId}/download-token`,
+      undefined,
+      { timeoutMs: 10_000 },
+    );
+    if (typeof result.token !== "string" || !/^[a-f0-9]{64}$/.test(result.token))
+      throw new ApiError(502, "invalid_response");
+    return `${this.baseUrl}/api/files/${encodeURIComponent(fileId)}?download=${result.token}`;
+  }
+
   rtcConfig(): Promise<RTCConfiguration> {
     return this.request("GET", "/api/rtc-config", undefined, { timeoutMs: 5000 });
   }

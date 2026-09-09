@@ -1,6 +1,7 @@
 import type { DiscoveredServer, HostingStatus, Platform } from "@slackoss/ui";
 
 interface SlackossBridge {
+  downloadFile: (url: string) => Promise<void>;
   storageGet: (key: string) => Promise<unknown>;
   storageSet: (key: string, value: unknown) => Promise<void>;
   lanSnapshot: () => Promise<DiscoveredServer[]>;
@@ -22,6 +23,7 @@ export function electronPlatform(): Platform {
   const bridge = window.slackoss;
   return {
     kind: "desktop",
+    downloadFile: (url) => bridge.downloadFile(url),
     storage: {
       get: async <T>(key: string) => (await bridge.storageGet(key)) as T | null,
       set: (key, value) => bridge.storageSet(key, value),

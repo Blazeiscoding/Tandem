@@ -15,6 +15,22 @@ app.setName("Gatherline");
 app.setPath("userData", process.env.SLACKOSS_USER_DATA_DIR ?? legacyUserData);
 let mainWindow: BrowserWindow | null = null;
 
+ipcMain.handle("file:download", (event, value: unknown) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id || typeof value !== "string")
+    throw new Error("Invalid download request");
+  const url = new URL(value);
+  if (
+    !/^https?:$/.test(url.protocol) ||
+    url.username ||
+    url.password ||
+    !/\/api\/files\/[0-9A-HJKMNP-TV-Z]{26}$/.test(url.pathname) ||
+    !/^[a-f0-9]{64}$/.test(url.searchParams.get("download") ?? "") ||
+    [...url.searchParams.keys()].some((key) => key !== "download")
+  )
+    throw new Error("Invalid download URL");
+  mainWindow.webContents.downloadURL(url.toString());
+});
+
 if ((isDev || isTest) && process.env.SLACKOSS_TEST_MEDIA === "1") {
   app.commandLine.appendSwitch("remote-debugging-port", "9222");
   // Fake mic/camera so huddles can be exercised without real hardware.
