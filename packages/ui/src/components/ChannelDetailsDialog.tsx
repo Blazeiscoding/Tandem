@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ID, NotifyLevel } from "@slackoss/protocol";
+import { channelPermissions, type ID, type NotifyLevel } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
@@ -25,33 +25,67 @@ export function ChannelDetailsDialog(props: {
   const channel = useWorkspace((s) => s.channels[props.channelId]);
   const users = useWorkspace((s) => s.users);
   const presence = useWorkspace((s) => s.presence);
-  const selfId = useWorkspace((s) => s.self?.id);
+  const self = useWorkspace((s) => s.self);
+  const selfId = self?.id;
+  const membership = useWorkspace((s) => s.memberships[props.channelId]);
   const [tab, setTab] = useState<Tab>("about");
   const [memberIds, setMemberIds] = useState<ID[]>([]);
   const [topic, setTopic] = useState(channel?.topic ?? "");
   const [description, setDescription] = useState(channel?.description ?? "");
   const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [membersError, setMembersError] = useState(false);
+  const [membersAttempt, setMembersAttempt] = useState(0);
 
   useEffect(() => {
+    let active = true;
+    setMembersError(false);
     void client.api
       .channelMembers(props.channelId)
-      .then((r) => setMemberIds(r.memberIds))
-      .catch(() => setMemberIds([]));
-  }, [client, props.channelId]);
+      .then((r) => {
+        if (active) setMemberIds(r.memberIds);
+      })
+      .catch(() => {
+        if (active) setMembersError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, props.channelId, membersAttempt]);
 
   if (!channel) return null;
   const isRoom = channel.type === "public" || channel.type === "private";
+  const permissions = channelPermissions(self ?? undefined, channel, !!membership);
 
   async function saveAbout(e: React.FormEvent) {
     e.preventDefault();
-    await client.api.updateChannel(props.channelId, { topic, description });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    if (!permissions.manage || busy) return;
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await client.api.updateChannel(props.channelId, { topic, description });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save channel details.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function addMember(userId: ID) {
-    await client.api.inviteMember(props.channelId, userId);
-    setMemberIds((prev) => [...prev, userId]);
+    if (!permissions.invite || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.api.inviteMember(props.channelId, userId);
+      setMemberIds((prev) => [...new Set([...prev, userId])]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add this person.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const notMembers = Object.values(users).filter(
@@ -64,6 +98,11 @@ export function ChannelDetailsDialog(props: {
       onClose={props.onClose}
       width={480}
     >
+      {error && (
+        <p role="alert" className="mb-3 text-sm text-alert">
+          {error}
+        </p>
+      )}
       <div className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
         {(["about", "members", "notifications"] as const).map((t) => (
           <button
@@ -87,13 +126,23 @@ export function ChannelDetailsDialog(props: {
       ) : tab === "about" ? (
         isRoom ? (
           <form onSubmit={saveAbout} className="space-y-3">
+            {!permissions.manage && (
+              <p className="text-sm text-ink-faint">
+                Channel details are managed by its creator and workspace administrators.
+              </p>
+            )}
             <div>
               <label className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
                 Topic
               </label>
               <input
+                aria-label="Channel topic"
                 value={topic}
-                onChange={(e) => setTopic(e.target.value)}
+                readOnly={!permissions.manage || busy}
+                onChange={(e) => {
+                  setTopic(e.target.value);
+                  setSaved(false);
+                }}
                 placeholder="What's this channel about right now?"
                 className={inputCls}
               />
@@ -103,23 +152,39 @@ export function ChannelDetailsDialog(props: {
                 Description
               </label>
               <textarea
+                aria-label="Channel description"
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                readOnly={!permissions.manage || busy}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  setSaved(false);
+                }}
                 rows={3}
                 placeholder="The longer story, shown to anyone who opens the channel."
                 className={`${inputCls} resize-none`}
               />
             </div>
             <div className="flex items-center gap-3">
-              <button type="submit" className={primaryBtnCls}>
-                {saved ? "Saved" : "Save changes"}
-              </button>
-              {channel.name !== "general" && (
+              {permissions.manage && (
+                <button type="submit" disabled={busy} className={primaryBtnCls}>
+                  {busy ? "Saving…" : saved ? "Saved" : "Save changes"}
+                </button>
+              )}
+              {membership && channel.name !== "general" && (
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={async () => {
-                    await client.api.leaveChannel(props.channelId);
-                    props.onLeft();
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      await client.api.leaveChannel(props.channelId);
+                      props.onLeft();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Could not leave channel.");
+                    } finally {
+                      setBusy(false);
+                    }
                   }}
                   className="rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim transition-colors hover:border-alert hover:text-alert"
                 >
@@ -135,6 +200,14 @@ export function ChannelDetailsDialog(props: {
         )
       ) : tab === "members" ? (
         <div>
+          {membersError && (
+            <p role="alert" className="mb-3 text-sm text-alert">
+              Could not load members.{" "}
+              <button onClick={() => setMembersAttempt((n) => n + 1)} className="underline">
+                Retry
+              </button>
+            </p>
+          )}
           <ul className="mb-4 max-h-[260px] space-y-0.5 overflow-y-auto">
             {memberIds.map((id) => {
               const u = users[id];
@@ -160,7 +233,7 @@ export function ChannelDetailsDialog(props: {
               );
             })}
           </ul>
-          {isRoom && notMembers.length > 0 && (
+          {permissions.invite && !membersError && notMembers.length > 0 && (
             <div>
               <div className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
                 Add someone
@@ -170,6 +243,7 @@ export function ChannelDetailsDialog(props: {
                   <li key={u.id}>
                     <button
                       onClick={() => addMember(u.id)}
+                      disabled={busy}
                       className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-copper hover:text-ink"
                     >
                       + {u.displayName}

@@ -389,3 +389,9 @@ Independent reproduction steps:
 8. **F08:** In the first run, destroying the client and immediately stopping the server with huddle membership still being cleaned up threw `database is not open` from `Gateway.unregister` through its huddle cleanup. The final probe waits for socket unregistration before server stop so the remaining results can be collected cleanly; the product shutdown path still needs its own regression test.
 
 The planning pass itself fixed nothing. F01–F08 have since been repaired and hold as regression tests, except the parts of F09 (transactions beyond the message pipeline) noted under **Implementation progress**. F10–F16 are open.
+
+### Channel permission policy (A05)
+
+Channel metadata, renaming and archive state now require the channel creator (while still a member) or a workspace owner/admin. Joined room members and administrators may invite existing accounts to active rooms; public visibility alone no longer permits either action. Private-room access is checked before this policy, so administrators outside a private room gain no access. Direct-conversation membership remains fixed. The server and channel-details controls use one shared policy; denied edits preserve input, membership loading can be retried, and failed saves/invitations/leaves are shown in the dialog.
+
+Workspace typechecks and all 174 existing server tests passed. A disposable API review exercised readers, joined members, creators, former creators, owner management, archived invitations and private-room denial (404 to conceal the room). Broader workspace permission centralization, delegated channel managers, member removal and full archive/rename controls remain separate phases.
