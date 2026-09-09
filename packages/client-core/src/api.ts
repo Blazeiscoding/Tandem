@@ -220,6 +220,15 @@ export class Api {
     return this.request("GET", `/api/channels/${id}/members`, undefined, { timeoutMs: 10_000 });
   }
 
+  setChannelManager(channelId: ID, userId: ID, manager: boolean): Promise<{ channel: Channel }> {
+    return this.request(
+      "PATCH",
+      `/api/channels/${channelId}/managers/${userId}`,
+      { manager },
+      { timeoutMs: 10_000 },
+    );
+  }
+
   removeChannelMember(channelId: ID, userId: ID): Promise<{ ok: true }> {
     return this.request("DELETE", `/api/channels/${channelId}/members/${userId}`, undefined, {
       timeoutMs: 10_000,

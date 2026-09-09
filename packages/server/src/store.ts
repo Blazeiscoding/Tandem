@@ -459,6 +459,14 @@ export class Store {
     };
     if (ch.type === "dm" || ch.type === "group_dm") {
       ch.memberIds = this.memberIds(r.id);
+    } else {
+      ch.managerIds = (
+        this.db
+          .prepare(
+            "SELECT user_id FROM channel_members WHERE channel_id = ? AND is_manager = 1 ORDER BY user_id",
+          )
+          .all(r.id) as { user_id: ID }[]
+      ).map((m) => m.user_id);
     }
     return ch;
   }
@@ -587,6 +595,16 @@ export class Store {
     return !!this.db
       .prepare("SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?")
       .get(channelId, userId);
+  }
+
+  setChannelManager(channelId: ID, userId: ID, manager: boolean): boolean {
+    return (
+      this.db
+        .prepare(
+          "UPDATE channel_members SET is_manager = ? WHERE channel_id = ? AND user_id = ? AND is_manager != ?",
+        )
+        .run(manager ? 1 : 0, channelId, userId, manager ? 1 : 0).changes > 0
+    );
   }
 
   memberIds(channelId: ID): ID[] {

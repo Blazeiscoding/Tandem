@@ -5,9 +5,13 @@ export function channelPermissions(user: User | undefined, channel: Channel, isM
   const room = channel.type === "public" || channel.type === "private";
   const active = !!user && !user.deactivated && !user.isBot;
   const administrator = user?.role === "owner" || user?.role === "admin";
-  const manage = active && room && (administrator || (isMember && channel.creatorId === user.id));
+  const manageManagers =
+    active && room && (administrator || (isMember && channel.creatorId === user.id));
+  const manage =
+    manageManagers || (active && room && isMember && !!channel.managerIds?.includes(user.id));
   return {
     manage,
+    manageManagers,
     invite: active && room && !channel.archived && (isMember || administrator),
   };
 }
@@ -22,5 +26,28 @@ export function canRemoveChannelMember(
   if (!actor || !target || actor.id === target.id || target.role === "owner") return false;
   if (!channelPermissions(actor, channel, actorIsMember).manage) return false;
   if (target.role === "admin" && actor.role !== "owner") return false;
+  if (
+    (target.id === channel.creatorId || channel.managerIds?.includes(target.id)) &&
+    !channelPermissions(actor, channel, actorIsMember).manageManagers
+  )
+    return false;
   return true;
+}
+
+export function canSetChannelManager(
+  actor: User | undefined,
+  target: User | undefined,
+  channel: Channel,
+  actorIsMember: boolean,
+  manager = true,
+): boolean {
+  return (
+    channelPermissions(actor, channel, actorIsMember).manageManagers &&
+    !!target &&
+    !target.isBot &&
+    (manager
+      ? !target.deactivated && target.role === "member"
+      : target.role !== "owner" && (target.role !== "admin" || actor?.role === "owner")) &&
+    target.id !== channel.creatorId
+  );
 }

@@ -307,6 +307,10 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
   `,
+  // v18 — delegated authority belongs to membership, so leaving clears it.
+  `
+  ALTER TABLE channel_members ADD COLUMN is_manager INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */
