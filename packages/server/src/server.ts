@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
-import { open, unlink } from "node:fs/promises";
+import { open, stat, unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import Fastify, { type FastifyRequest } from "fastify";
@@ -650,6 +650,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       requiresInvite: userCount > 0 && inviteOnly(),
       requiresClaim: userCount === 0 && !!claimCode() && !isLocalRequest(req),
       schedulingIdempotency: true,
+      downloadTickets: true,
     };
   });
 
@@ -1303,28 +1304,111 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
   });
 
-  app.get<{ Params: { id: string } }>("/api/files/:id", async (req, reply) => {
+  /**
+   * A one-shot ticket for downloading one file.
+   *
+   * A browser saving a file to disk cannot send an Authorization header on the
+   * navigation that does it, so without this the only way to reach an
+   * auth-gated file is to fetch the whole thing into memory first. That turns
+   * every large download into a browser-sized blob. The ticket lets the
+   * download be an ordinary navigation the browser streams straight to disk.
+   *
+   * It is short-lived and spent on first use, so the copy that appears in a URL
+   * is worth little for long. Access is checked again when it is redeemed
+   * rather than trusted from when it was issued.
+   */
+  const DOWNLOAD_TOKEN_TTL_MS = 60_000;
+
+  app.post<{ Params: { id: string } }>("/api/files/:id/download-token", async (req, reply) => {
     const me = requireUser(req);
     const file = store.getFile(req.params.id);
     if (!file || !filesDir || !store.canAccess(file.channelId, me.id)) {
       throw new HttpError(404, "file_not_found");
     }
-    let body;
     try {
-      const handle = await open(blobPath(file.id), "r");
-      body = handle.createReadStream();
+      const stored = await stat(blobPath(file.id));
+      if (!stored.isFile() || stored.size !== file.size) throw new Error("file unavailable");
     } catch {
       throw new HttpError(404, "file_not_found");
     }
-    // Content is immutable once uploaded, so let clients cache it hard.
-    return reply
-      .header("content-type", file.mime)
-      .header("x-content-type-options", "nosniff")
-      .header("content-length", String(file.size))
-      .header("cache-control", "private, max-age=31536000, immutable")
-      .header("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`)
-      .send(body);
+    // Disk access yields; issue nothing if the session or file disappeared.
+    requireUser(req);
+    if (!store.getFile(file.id) || !store.canAccess(file.channelId, me.id)) {
+      throw new HttpError(404, "file_not_found");
+    }
+    const { token, tokenHash } = newSessionToken();
+    const expiresAt = Date.now() + DOWNLOAD_TOKEN_TTL_MS;
+    store.createDownloadToken(tokenHash, file.id, me.id, hashToken(bearerToken(req)!), expiresAt);
+    reply.header("cache-control", "no-store");
+    return { token, expiresAt };
   });
+
+  app.get<{ Params: { id: string }; Querystring: { download?: string } }>(
+    "/api/files/:id",
+    { logLevel: "silent" }, // Never put a redeemable ticket in request logs.
+    async (req, reply) => {
+      // A ticket stands in for the header a navigation cannot carry. Whoever
+      // spends it still has to pass the checks its issuer passed.
+      const ticket = req.query.download;
+      let viewerId: ID;
+      let sessionHash: string;
+      if (ticket !== undefined) {
+        if (req.method !== "GET" || typeof ticket !== "string" || !/^[a-f0-9]{64}$/.test(ticket))
+          throw new HttpError(404, "file_not_found");
+        reply.header("cache-control", "no-store").header("referrer-policy", "no-referrer");
+        const spent = store.consumeDownloadToken(hashToken(ticket));
+        if (!spent || spent.fileId !== req.params.id) throw new HttpError(404, "file_not_found");
+        const viewer = store.getSessionUser(spent.sessionHash);
+        if (!viewer || viewer.id !== spent.userId || store.mustChangePassword(viewer.id)) {
+          throw new HttpError(404, "file_not_found");
+        }
+        viewerId = viewer.id;
+        sessionHash = spent.sessionHash;
+      } else {
+        viewerId = requireUser(req).id;
+        sessionHash = hashToken(bearerToken(req)!);
+      }
+
+      const file = store.getFile(req.params.id);
+      if (!file || !filesDir || !store.canAccess(file.channelId, viewerId)) {
+        throw new HttpError(404, "file_not_found");
+      }
+      let body;
+      let handle;
+      try {
+        handle = await open(blobPath(file.id), "r");
+        const stored = await handle.stat();
+        if (!stored.isFile() || stored.size !== file.size) throw new Error("file unavailable");
+        // Disk access yields; sign-out, deletion or private-room departure may have happened.
+        const current = store.getSessionUser(sessionHash);
+        if (
+          !current ||
+          !store.getFile(file.id) ||
+          store.mustChangePassword(current.id) ||
+          !store.canAccess(file.channelId, current.id)
+        )
+          throw new Error("file access changed");
+        body = handle.createReadStream();
+      } catch {
+        await handle?.close();
+        throw new HttpError(404, "file_not_found");
+      }
+      const encodedName = encodeURIComponent(file.name);
+      // Content is immutable once uploaded, so let clients cache it hard.
+      return reply
+        .header("content-type", file.mime)
+        .header("x-content-type-options", "nosniff")
+        .header("content-length", String(file.size))
+        .header("cache-control", ticket ? "no-store" : "private, max-age=31536000, immutable")
+        .header("referrer-policy", "no-referrer")
+        .header("accept-ranges", "none")
+        .header(
+          "content-disposition",
+          `${ticket ? "attachment" : "inline"}; filename*=UTF-8''${encodedName}`,
+        )
+        .send(body);
+    },
+  );
 
   // ---------- reactions ----------
 
@@ -2680,6 +2764,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     store.pruneEvents();
     store.pruneScheduled(Date.now() - SCHEDULED_RETENTION_MS);
     store.pruneSessions();
+    store.pruneDownloadTokens();
     // After pruning the queue, so a scheduled message that has just gone stops
     // holding its attachments in the same round rather than an hour later.
     if (expireAbandonedUploads() > 0) void flushFileDeletions();

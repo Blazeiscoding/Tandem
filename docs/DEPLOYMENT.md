@@ -99,6 +99,23 @@ its write-ahead log, and any backups written locally share that disk. Lowering a
 cap below what is already stored is allowed — nothing is deleted, and uploads are
 refused until the workspace is back under the line.
 
+Files of 8 MiB or more use the browser or desktop download manager, which streams
+them to disk without first buffering a complete JavaScript blob. Large images
+show a download card; smaller files keep their existing preview/download path.
+Upgrade both the server and client to use this feature.
+
+The client requests a single-use link valid for 60 seconds and tied to its signed-in
+session. Access is checked again before streaming. The server omits file requests
+from its request logs; configure reverse-proxy access logs to omit query strings
+on `/api/files/` too, since `download` contains the temporary credential. Tickets
+are stored only as hashes and are invalidated by sign-out or file deletion.
+
+Transfer progress, cancellation and completion appear in the browser or device.
+A failed or cancelled download can be started again from the file card. Downloads
+do not support range resume, and retrying creates a new link and starts from the
+beginning. Revocation prevents new transfers; a transfer already streaming is not
+interrupted.
+
 ## Backups, restore, updates
 
 Use the built-in commands rather than copying files by hand:
