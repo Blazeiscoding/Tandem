@@ -40,7 +40,35 @@ export function MessageAttachments({
 }
 
 function ImageAttachment({ file, onOpen }: { file: FileMeta; onOpen: () => void }) {
-  const { url, error, retry } = useFileResource(file.id);
+  const container = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    const element = container.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setVisible(entry?.isIntersecting ?? false),
+      { rootMargin: "160px 0px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <div ref={container} className="flex">
+      <ImagePreview file={file} onOpen={onOpen} visible={visible} />
+    </div>
+  );
+}
+
+function ImagePreview({
+  file,
+  onOpen,
+  visible,
+}: {
+  file: FileMeta;
+  onOpen: () => void;
+  visible: boolean;
+}) {
+  const { url, error, retry } = useFileResource(file.id, visible);
   const [decodeFailed, setDecodeFailed] = useState(false);
   useEffect(() => setDecodeFailed(false), [url, file.id]);
   const box = fitted(file.width, file.height);
@@ -78,12 +106,13 @@ function ImageAttachment({ file, onOpen }: { file: FileMeta; onOpen: () => void 
         <img
           src={url}
           alt={file.name}
+          decoding="async"
           onError={() => setDecodeFailed(true)}
           className="size-full object-contain transition-transform duration-200 group-hover/img:scale-[1.02]"
         />
       ) : (
         <span className="flex size-full items-center justify-center font-mono text-[11px] text-ink-faint">
-          loading…
+          {visible ? "loading…" : "Image preview"}
         </span>
       )}
     </button>
@@ -205,7 +234,7 @@ function fileError(err: unknown): string {
 }
 
 /** An explicit recoverable state, scoped to the current workspace and file. */
-function useFileResource(fileId: ID) {
+function useFileResource(fileId: ID, enabled = true) {
   const client = useClient();
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState(() => ({
@@ -216,6 +245,7 @@ function useFileResource(fileId: ID) {
   }));
 
   useEffect(() => {
+    if (!enabled) return;
     client.files.retain(fileId);
     let active = true;
     setState({ client, fileId, url: client.files.peek(fileId) ?? null, error: null });
@@ -231,11 +261,12 @@ function useFileResource(fileId: ID) {
       active = false;
       client.files.release(fileId);
     };
-  }, [client, fileId, attempt]);
+  }, [client, fileId, attempt, enabled]);
 
-  const current = state.client === client && state.fileId === fileId;
+  const current = enabled && state.client === client && state.fileId === fileId;
   return {
-    url: current ? state.url : null,
+    // An idle URL may have been evicted while this preview was off screen.
+    url: current && state.url === client.files.peek(fileId) ? state.url : null,
     error: current ? state.error : null,
     retry: () => setAttempt((n) => n + 1),
   };

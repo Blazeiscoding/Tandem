@@ -4,12 +4,15 @@ import type { Api } from "./api.js";
 /**
  * Uploads are auth-gated, so an `<img src>` can't fetch them directly.
  * This fetches once with the session token and hands back a blob: URL,
- * deduping concurrent requests for the same file.
+ * deduping concurrent requests for the same file. At most four transfers run
+ * at once; releasing the last view cancels unfinished work for that file.
  */
 export class FileCache {
   private urls = new Map<ID, string>();
   private inflight = new Map<ID, Promise<string>>();
   private controllers = new Map<ID, AbortController>();
+  private queued = new Map<ID, () => void>();
+  private activeFetches = 0;
   private sizes = new Map<ID, number>();
   private references = new Map<ID, number>();
   private disposed = false;
@@ -26,8 +29,52 @@ export class FileCache {
   release(fileId: ID): void {
     const count = (this.references.get(fileId) ?? 0) - 1;
     if (count > 0) this.references.set(fileId, count);
-    else this.references.delete(fileId);
+    else {
+      this.references.delete(fileId);
+      this.cancelFetch(fileId);
+    }
     this.trim();
+  }
+
+  private cancelFetch(fileId: ID): void {
+    this.controllers.get(fileId)?.abort();
+    this.controllers.delete(fileId);
+    this.inflight.delete(fileId);
+  }
+
+  private drain(): void {
+    while (!this.disposed && this.activeFetches < 4 && this.queued.size > 0) {
+      const [id, start] = this.queued.entries().next().value!;
+      this.queued.delete(id);
+      start();
+    }
+  }
+
+  /** A slot covers the full body transfer, not just receipt of the headers. */
+  private fetch(fileId: ID, controller: AbortController): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        if (this.queued.get(fileId) !== start) return;
+        this.queued.delete(fileId);
+        reject(this.disposed ? new Error("File cache is closed") : controller.signal.reason);
+      };
+      const start = () => {
+        controller.signal.removeEventListener("abort", onAbort);
+        this.activeFetches++;
+        void (async () => {
+          try {
+            resolve(await this.api.fetchFile(fileId, controller.signal));
+          } catch (err) {
+            reject(err);
+          } finally {
+            this.activeFetches--;
+            this.drain();
+          }
+        })();
+      };
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+      this.queued.set(fileId, start);
+    });
   }
 
   private trim(except?: ID): void {
@@ -43,7 +90,7 @@ export class FileCache {
     }
   }
 
-  /** A blob URL for the file, cached for the life of the connection. */
+  /** A blob URL retained by active views, with an LRU budget for idle files. */
   get(fileId: ID): Promise<string> {
     if (this.disposed) return Promise.reject(new Error("File cache is closed"));
     const cached = this.urls.get(fileId);
@@ -58,8 +105,7 @@ export class FileCache {
 
     const controller = new AbortController();
     this.controllers.set(fileId, controller);
-    const request = this.api
-      .fetchFile(fileId, controller.signal)
+    const request = this.fetch(fileId, controller)
       .then((blob) => {
         if (this.disposed) throw new Error("File cache is closed");
         if (this.inflight.get(fileId) !== request) throw new Error("File access was invalidated");
@@ -77,6 +123,7 @@ export class FileCache {
         throw err;
       });
     this.inflight.set(fileId, request);
+    this.drain();
     return request;
   }
 
@@ -86,9 +133,7 @@ export class FileCache {
   }
 
   invalidate(fileId: ID): void {
-    this.controllers.get(fileId)?.abort();
-    this.controllers.delete(fileId);
-    this.inflight.delete(fileId);
+    this.cancelFetch(fileId);
     const url = this.urls.get(fileId);
     if (url) URL.revokeObjectURL(url);
     this.urls.delete(fileId);
@@ -100,6 +145,7 @@ export class FileCache {
     this.disposed = true;
     for (const controller of this.controllers.values()) controller.abort();
     this.controllers.clear();
+    this.queued.clear();
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
     this.inflight.clear();
