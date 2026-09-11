@@ -1,0 +1,314 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import WebSocket from "ws";
+import { PROTOCOL_VERSION, type ServerToClient } from "@slackoss/protocol";
+import { createWorkspaceServer, type WorkspaceServer } from "../src/index.js";
+import { DEFAULT_LIMITS, RateLimiter } from "../src/limits.js";
+
+let server: WorkspaceServer | undefined;
+let dataDir: string | undefined;
+let base = "";
+
+afterEach(async () => {
+  await server?.stop();
+  server = undefined;
+  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  dataDir = undefined;
+});
+
+async function start(rateLimits?: Parameters<typeof createWorkspaceServer>[0]["rateLimits"]) {
+  dataDir = mkdtempSync(join(tmpdir(), "slackoss-limits-"));
+  server = await createWorkspaceServer({
+    dataDir,
+    host: "127.0.0.1",
+    port: 0,
+    mdns: false,
+    logger: false,
+    rateLimits,
+  });
+  base = `http://127.0.0.1:${server.port}`;
+}
+
+async function call<T>(
+  path: string,
+  opts: { method?: string; token?: string; body?: unknown } = {},
+): Promise<{ status: number; retryAfter: string | null; data: T }> {
+  const res = await fetch(`${base}${path}`, {
+    method: opts.method ?? (opts.body !== undefined ? "POST" : "GET"),
+    headers: {
+      ...(opts.body !== undefined ? { "content-type": "application/json" } : {}),
+      ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+    },
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  });
+  return {
+    status: res.status,
+    retryAfter: res.headers.get("retry-after"),
+    data: (await res.json()) as T,
+  };
+}
+
+async function register(handle: string, password = "password123") {
+  const { data } = await call<{ token: string }>("/api/auth/register", {
+    body: { handle, displayName: handle, password },
+  });
+  return data.token;
+}
+
+describe("the token bucket", () => {
+  const rule = { burst: 3, perMinute: 60 };
+  const limits = { ...DEFAULT_LIMITS, post: rule };
+
+  it("allows a burst, then refills at the rate it was given", () => {
+    const limiter = new RateLimiter(limits);
+    const t0 = 1_000_000;
+    for (let i = 0; i < rule.burst; i++) expect(limiter.take("post", "a", t0).ok).toBe(true);
+
+    const refused = limiter.take("post", "a", t0);
+    expect(refused.ok).toBe(false);
+    // One token a second at sixty a minute, so it says about a second.
+    expect(refused.retryAfterMs).toBeGreaterThan(900);
+    expect(refused.retryAfterMs).toBeLessThanOrEqual(1000);
+
+    expect(limiter.take("post", "a", t0 + 1000).ok).toBe(true);
+    expect(limiter.take("post", "a", t0 + 1000).ok).toBe(false);
+  });
+
+  it("does not charge for a refusal, so being refused is not made worse", () => {
+    const limiter = new RateLimiter(limits);
+    const t0 = 2_000_000;
+    for (let i = 0; i < rule.burst; i++) limiter.take("post", "a", t0);
+    // Hammering while refused must not push recovery further out.
+    for (let i = 0; i < 50; i++) expect(limiter.take("post", "a", t0).ok).toBe(false);
+    expect(limiter.take("post", "a", t0 + 1000).ok).toBe(true);
+  });
+
+  it("keeps one caller's budget out of another's", () => {
+    const limiter = new RateLimiter(limits);
+    const t0 = 3_000_000;
+    for (let i = 0; i < rule.burst; i++) limiter.take("post", "a", t0);
+    expect(limiter.take("post", "a", t0).ok).toBe(false);
+    expect(limiter.take("post", "b", t0).ok).toBe(true);
+  });
+
+  it("forgets callers once they have refilled, rather than remembering everyone", () => {
+    const limiter = new RateLimiter(limits);
+    let now = 4_000_000;
+    for (let i = 0; i < 500; i++) limiter.take("post", `caller-${i}`, now);
+    expect(limiter.size).toBeGreaterThan(0);
+
+    // Long enough for every bucket to be full again. A full bucket says the
+    // same thing as no bucket, so holding one would only cost memory.
+    now += 60_000;
+    limiter.take("post", "someone", now);
+    expect(limiter.size).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("authentication limits", () => {
+  it("stops a run of guesses at one handle, and says when to come back", async () => {
+    await start({ authByHandle: { burst: 3, perMinute: 1 } });
+    await register("target");
+
+    for (let i = 0; i < 3; i++) {
+      const wrong = await call("/api/auth/login", {
+        body: { handle: "target", password: "not-the-password" },
+      });
+      expect(wrong.status).toBe(401);
+    }
+    const stopped = await call<{ error: string }>("/api/auth/login", {
+      body: { handle: "target", password: "not-the-password" },
+    });
+    expect(stopped.status).toBe(429);
+    expect(stopped.data.error).toBe("too_many_requests");
+    // Something to wait for, rather than leaving a client to guess.
+    expect(Number(stopped.retryAfter)).toBeGreaterThan(0);
+
+    // The right password is refused too: that is the point, or a guesser would
+    // simply keep going until it worked.
+    const evenIfRight = await call("/api/auth/login", {
+      body: { handle: "target", password: "password123" },
+    });
+    expect(evenIfRight.status).toBe(429);
+  });
+
+  it("never meets that limit when the password is right", async () => {
+    await start({ authByHandle: { burst: 3, perMinute: 1 } });
+    await register("regular");
+    // Far more sign-ins than the burst allows, all of them correct. Only wrong
+    // guesses are worth counting, so someone who knows their password is never
+    // rationed however often they sign in.
+    for (let i = 0; i < 10; i++) {
+      const ok = await call("/api/auth/login", {
+        body: { handle: "regular", password: "password123" },
+      });
+      expect(ok.status).toBe(200);
+    }
+  });
+
+  it("keeps one handle's guesses off another account", async () => {
+    await start({
+      authByHandle: { burst: 2, perMinute: 1 },
+      authByAddress: { burst: 500, perMinute: 500 },
+    });
+    await register("first");
+    await register("second");
+
+    for (let i = 0; i < 3; i++) {
+      await call("/api/auth/login", { body: { handle: "first", password: "wrong" } });
+    }
+    expect(
+      (await call("/api/auth/login", { body: { handle: "first", password: "wrong" } })).status,
+    ).toBe(429);
+    // A shared office address is one address for everybody in it, so one
+    // person being guessed at must not lock their colleagues out.
+    expect(
+      (await call("/api/auth/login", { body: { handle: "second", password: "password123" } }))
+        .status,
+    ).toBe(200);
+  });
+
+  it("still bounds one address trying a great many different handles", async () => {
+    await start({
+      authByAddress: { burst: 4, perMinute: 1 },
+      authByHandle: { burst: 100, perMinute: 100 },
+    });
+    await register("known");
+
+    let refused = 0;
+    for (let i = 0; i < 10; i++) {
+      const res = await call(`/api/auth/login`, {
+        body: { handle: `guess-${i}`, password: "wrong" },
+      });
+      if (res.status === 429) refused++;
+    }
+    // Spreading across handles evades the per-handle limit, which is what the
+    // per-address one is there to catch.
+    expect(refused).toBeGreaterThan(0);
+  });
+});
+
+describe("posting and upload limits", () => {
+  it("refuses a flood from one account without touching anyone else", async () => {
+    await start({ post: { burst: 3, perMinute: 1 } });
+    const noisy = await register("noisy");
+    const quiet = await register("quiet");
+    const channelId = server!.store.getChannelByName("general")!.id;
+
+    let refused = 0;
+    for (let i = 0; i < 6; i++) {
+      const res = await call(`/api/channels/${channelId}/messages`, {
+        token: noisy,
+        body: { text: `flood ${i}` },
+      });
+      if (res.status === 429) refused++;
+    }
+    expect(refused).toBeGreaterThan(0);
+
+    // Keyed on the account, so a whole office behind one address does not
+    // share one person's allowance.
+    const other = await call(`/api/channels/${channelId}/messages`, {
+      token: quiet,
+      body: { text: "unaffected" },
+    });
+    expect(other.status).toBe(201);
+  });
+
+  it("leaves reading alone when writing has been cut off", async () => {
+    await start({ post: { burst: 1, perMinute: 1 } });
+    const token = await register("reader");
+    const channelId = server!.store.getChannelByName("general")!.id;
+
+    await call(`/api/channels/${channelId}/messages`, { token, body: { text: "one" } });
+    expect(
+      (await call(`/api/channels/${channelId}/messages`, { token, body: { text: "two" } })).status,
+    ).toBe(429);
+    // Being told to slow down should not amount to being signed out.
+    expect((await call(`/api/channels/${channelId}/messages`, { token })).status).toBe(200);
+    expect((await call("/api/me", { token })).status).toBe(200);
+  });
+});
+
+describe("socket limits", () => {
+  function connect(): Promise<"open" | "refused"> {
+    return new Promise((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${server!.port}/ws`);
+      ws.on("open", () => {
+        ws.close();
+        resolve("open");
+      });
+      ws.on("error", () => resolve("refused"));
+      ws.on("close", () => resolve("refused"));
+    });
+  }
+
+  it("stops one address opening sockets without end", async () => {
+    await start({ socket: { burst: 3, perMinute: 1 } });
+    const outcomes: string[] = [];
+    for (let i = 0; i < 6; i++) outcomes.push(await connect());
+    expect(outcomes.slice(0, 3).every((o) => o === "open")).toBe(true);
+    expect(outcomes.includes("refused")).toBe(true);
+  });
+});
+
+describe("turning limits off", () => {
+  it("rations nothing when the host has said not to", async () => {
+    await start(false);
+    const token = await register("unlimited");
+    const channelId = server!.store.getChannelByName("general")!.id;
+    for (let i = 0; i < 80; i++) {
+      const res = await call(`/api/channels/${channelId}/messages`, {
+        token,
+        body: { text: `no limit ${i}` },
+      });
+      expect(res.status).toBe(201);
+    }
+  });
+});
+
+describe("typing notices", () => {
+  it("drops the excess quietly rather than closing the socket", async () => {
+    await start({ ephemeral: { burst: 2, perMinute: 1 } });
+    const token = await register("typist");
+    const channelId = server!.store.getChannelByName("general")!.id;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${server!.port}/ws`);
+    const seen: ServerToClient[] = [];
+    ws.on("message", (d) => seen.push(JSON.parse(String(d)) as ServerToClient));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+    ws.send(
+      JSON.stringify({ type: "hello", token, lastSeq: null, protocolVersion: PROTOCOL_VERSION }),
+    );
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("no ready frame")), 3000);
+      const check = () => {
+        if (seen.some((m) => m.type === "ready")) {
+          clearTimeout(timer);
+          resolve();
+        } else setTimeout(check, 20);
+      };
+      check();
+    });
+
+    for (let i = 0; i < 20; i++) ws.send(JSON.stringify({ type: "typing", channelId }));
+    // A dropped typing notice is not worth an error frame, and certainly not
+    // worth losing the connection the person is talking over.
+    const pongs = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("socket went quiet")), 3000);
+      const check = () => {
+        if (seen.some((m) => m.type === "pong")) {
+          clearTimeout(timer);
+          resolve();
+        } else setTimeout(check, 20);
+      };
+      check();
+    });
+    ws.send(JSON.stringify({ type: "ping" }));
+    await pongs;
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    expect(seen.some((m) => m.type === "error")).toBe(false);
+    ws.close();
+  });
+});

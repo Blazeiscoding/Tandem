@@ -26,6 +26,10 @@ beforeAll(async () => {
     workspaceName: "Test Workspace",
     mdns: false,
     logger: process.env.TEST_LOG === "1",
+    // One account drives this whole suite, at a rate no person types at.
+    // Rationing has its own file, where it is the subject rather than a
+    // background condition every other case has to work around.
+    rateLimits: false,
   });
   base = `http://127.0.0.1:${server.port}`;
 });
