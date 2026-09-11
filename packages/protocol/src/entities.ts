@@ -302,6 +302,8 @@ export interface EventSubscription {
   delivery?: {
     pending: number;
     failed: number;
+    /** Events never queued because the endpoint's backlog was already full. */
+    dropped: number;
     lastError: string | null;
     lastFailedAt: number | null;
   };

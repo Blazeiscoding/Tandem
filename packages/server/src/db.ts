@@ -353,6 +353,12 @@ const MIGRATIONS: string[] = [
     );
   END;
   `,
+  // v21 — an endpoint that stays down must not grow its queue without end.
+  `
+  ALTER TABLE event_subscriptions ADD COLUMN dropped_count INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX idx_event_deliveries_backlog
+    ON event_deliveries(subscription_id, failed_at);
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

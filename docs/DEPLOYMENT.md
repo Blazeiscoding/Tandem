@@ -172,6 +172,16 @@ when the server restarts. A successful receiver may see the same event again if 
 server exits after its HTTP response but before recording completion, so receivers
 must deduplicate by the stable `event_id`.
 
+One endpoint may hold at most 500 waiting events. Delivery is ordered, so a receiver
+that stops answering holds up everything behind it; without a ceiling its queue would
+grow for as long as the workspace stays busy. Past the ceiling events are counted as
+dropped rather than queued, and the count is shown beside the subscription. Once a
+delivery has used up its attempts, the rest of that endpoint's queue is given up on
+with it, so a dead receiver is not kept under load for days and an administrator
+repairing it does not face a backlog that drains one event every few hours. Retrying
+restores the whole queue in order. The dropped count clears once the endpoint is
+delivering again, or when an administrator retries.
+
 Apps and integrations shows pending and terminally failed deliveries. An admin can
 retry failed work after repairing the endpoint. Terminal records are retained for
 seven days; deleting the subscription or app deletes its queue immediately. A

@@ -9,6 +9,7 @@ import {
   PROTOCOL_VERSION,
   escapeMrkdwn,
   type Message,
+  type EventSubscription,
   type ServerToClient,
   type User,
 } from "@slackoss/protocol";
@@ -577,6 +578,342 @@ describe("outgoing event subscriptions", () => {
     });
     await new Promise((r) => setTimeout(r, 150));
     expect(stub.received.filter((r) => r.url === "/gone")).toHaveLength(0);
+  });
+});
+
+describe("durable event delivery", () => {
+  interface Row {
+    event_seq: number;
+    attempts: number;
+    failed_at: number | null;
+  }
+
+  /** The workspace database, for arranging queue state a test cannot wait for. */
+  function rawDb() {
+    return (
+      server.store as unknown as {
+        db: {
+          prepare: (sql: string) => {
+            run: (...a: unknown[]) => { changes: number };
+            all: (...a: unknown[]) => unknown[];
+          };
+        };
+      }
+    ).db;
+  }
+
+  /** Brings every waiting attempt forward, standing in for hours of delay. */
+  function makeDue(subscriptionId: string) {
+    rawDb()
+      .prepare("UPDATE event_deliveries SET next_attempt_at = 0 WHERE subscription_id = ?")
+      .run(subscriptionId);
+  }
+
+  function queued(subscriptionId: string): Row[] {
+    return rawDb()
+      .prepare(
+        `SELECT event_seq, attempts, failed_at FROM event_deliveries
+         WHERE subscription_id = ? ORDER BY event_seq`,
+      )
+      .all(subscriptionId) as Row[];
+  }
+
+  function bodiesAt(path: string): { text?: string }[] {
+    return stub.received
+      .filter((r) => r.url === path)
+      .map((r) => (JSON.parse(r.body) as { event: { text?: string } }).event);
+  }
+
+  /** An app subscribed to `path` whose bot is already in the channel. */
+  async function subscribed(name: string, path: string) {
+    const created = await newApp(name);
+    stub.handler = (req) => ({
+      body: JSON.stringify({
+        challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+      }),
+    });
+    const sub = await api<{ subscription: { id: string } }>(
+      `/api/apps/${created.id}/subscriptions`,
+      { token: aliceToken, body: { url: stub.url(path), eventTypes: ["message.created"] } },
+    );
+    expect(sub.status).toBe(201);
+    server.store.addMember(channelId, created.botUser.id);
+    return { ...created, subscriptionId: sub.data.subscription.id };
+  }
+
+  /** Fails only the endpoint under test, so other subscriptions stay healthy. */
+  function failOnly(path: string, status = 503) {
+    stub.handler = (req) => (req.url === path ? { status, body: "" } : { body: "" });
+  }
+
+  async function post(text: string) {
+    await api(`/api/channels/${channelId}/messages`, { token: aliceToken, body: { text } });
+  }
+
+  async function health(appId: string, subscriptionId: string) {
+    const { data } = await api<{
+      apps: {
+        id: string;
+        subscriptions: { id: string; delivery?: EventSubscription["delivery"] }[];
+      }[];
+    }>("/api/apps", { token: aliceToken });
+    const sub = data.apps
+      .find((a) => a.id === appId)!
+      .subscriptions.find((x) => x.id === subscriptionId)!;
+    return sub.delivery!;
+  }
+
+  it("retries a refused delivery without letting later events overtake it", async () => {
+    const bot = await subscribed("Flaky Bot", "/flaky");
+    failOnly("/flaky");
+    stub.received.length = 0;
+
+    await post("flaky one");
+    await post("flaky two");
+    await eventually(() => queued(bot.subscriptionId).length === 2);
+    await server.flushEventDeliveries();
+
+    // Only the oldest is ever in flight. The second waits behind it, so a
+    // receiver is never shown events out of the order they happened in.
+    const waiting = queued(bot.subscriptionId);
+    expect(waiting).toHaveLength(2);
+    expect(waiting[0]!.attempts).toBeGreaterThan(0);
+    expect(waiting[1]!.attempts).toBe(0);
+    expect(bodiesAt("/flaky").every((e) => e.text === "flaky one")).toBe(true);
+
+    // A second attempt, still refused, so there is a retry to inspect. It says
+    // it is one in the header Slack apps already look for.
+    makeDue(bot.subscriptionId);
+    await server.flushEventDeliveries();
+    const retried = stub.received.filter(
+      (r) => r.url === "/flaky" && r.headers["x-slack-retry-num"],
+    );
+    expect(retried.length).toBeGreaterThan(0);
+    expect(retried[0]!.headers["x-slack-retry-reason"]).toBe("http_error");
+
+    stub.handler = () => ({ body: "" });
+    for (let i = 0; i < 3 && queued(bot.subscriptionId).length > 0; i++) {
+      makeDue(bot.subscriptionId);
+      await server.flushEventDeliveries();
+    }
+    expect(queued(bot.subscriptionId)).toHaveLength(0);
+    const arrived = bodiesAt("/flaky").map((e) => e.text);
+    expect(arrived.indexOf("flaky two")).toBeGreaterThan(arrived.indexOf("flaky one"));
+    await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("signs every attempt afresh over a body that never changes", async () => {
+    const bot = await subscribed("Resigning Bot", "/resign");
+    failOnly("/resign");
+    stub.received.length = 0;
+    await post("sign me");
+    await eventually(() => stub.received.filter((r) => r.url === "/resign").length >= 1);
+    makeDue(bot.subscriptionId);
+    await server.flushEventDeliveries();
+    await eventually(() => stub.received.filter((r) => r.url === "/resign").length >= 2);
+
+    const attempts = stub.received.filter((r) => r.url === "/resign");
+    // One event, however many attempts it takes — which is what lets a receiver
+    // that already handled it recognise the repeat.
+    const ids = attempts.map((r) => (JSON.parse(r.body) as { event_id: string }).event_id);
+    expect(new Set(ids).size).toBe(1);
+    expect(new Set(attempts.map((r) => r.body)).size).toBe(1);
+    for (const attempt of attempts) {
+      const ts = attempt.headers["x-slackoss-request-timestamp"]!;
+      expect(attempt.headers["x-slackoss-signature"]).toBe(
+        `v0=${createHmac("sha256", bot.signingSecret).update(`v0:${ts}:${attempt.body}`).digest("hex")}`,
+      );
+    }
+    await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("gives up on an endpoint that never answers, and on its backlog with it", async () => {
+    const bot = await subscribed("Dead Bot", "/dead");
+    failOnly("/dead", 500);
+    stub.received.length = 0;
+
+    await post("dead one");
+    await post("dead two");
+    await post("dead three");
+    await eventually(() => queued(bot.subscriptionId).length === 3);
+
+    for (let i = 0; i < 20 && queued(bot.subscriptionId).some((r) => r.failed_at === null); i++) {
+      makeDue(bot.subscriptionId);
+      await server.flushEventDeliveries();
+    }
+
+    const abandoned = queued(bot.subscriptionId);
+    expect(abandoned).toHaveLength(3);
+    expect(abandoned.every((r) => r.failed_at !== null)).toBe(true);
+    // The two behind it were never tried. An endpoint that has used up a whole
+    // ladder of attempts is down, and repeating that ladder per event would
+    // keep a dead receiver under load for days while its queue only grew.
+    expect(abandoned[0]!.attempts).toBeGreaterThanOrEqual(8);
+    expect(abandoned[1]!.attempts).toBe(0);
+    expect(abandoned[2]!.attempts).toBe(0);
+
+    const stopped = await health(bot.id, bot.subscriptionId);
+    expect(stopped.pending).toBe(0);
+    expect(stopped.failed).toBe(3);
+    expect(stopped.lastError).toContain("500");
+
+    // Repairing the endpoint and retrying replays them, still in order.
+    stub.handler = () => ({ body: "" });
+    stub.received.length = 0;
+    const retry = await api<{ retried: number }>(`/api/subscriptions/${bot.subscriptionId}/retry`, {
+      method: "POST",
+      token: aliceToken,
+    });
+    expect(retry.data.retried).toBe(3);
+    await eventually(() => queued(bot.subscriptionId).length === 0, 5000);
+    expect(bodiesAt("/dead").map((e) => e.text)).toEqual(["dead one", "dead two", "dead three"]);
+    await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("keeps retrying to admins, and refuses a subscription that is gone", async () => {
+    const bot = await subscribed("Guarded Bot", "/guarded");
+    const refused = await api(`/api/subscriptions/${bot.subscriptionId}/retry`, {
+      method: "POST",
+      token: bobToken,
+    });
+    expect(refused.status).toBe(403);
+    const missing = await api("/api/subscriptions/01MISSINGMISSINGMISSINGMISS/retry", {
+      method: "POST",
+      token: aliceToken,
+    });
+    expect(missing.status).toBe(404);
+    await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("stops queueing for an endpoint too far behind, and reports what it dropped", async () => {
+    const bot = await subscribed("Backlogged Bot", "/backlog");
+    failOnly("/backlog", 500);
+
+    // Filling the queue directly: five hundred real messages would prove the
+    // same thing, only slower.
+    const cap = 500;
+    server.store.transaction(() => {
+      for (let i = 0; i < cap; i++) {
+        expect(
+          server.store.enqueueEventDelivery(bot.subscriptionId, channelId, 900_000 + i, "{}"),
+        ).toBe(true);
+      }
+    });
+    expect(server.store.enqueueEventDelivery(bot.subscriptionId, channelId, 999_999, "{}")).toBe(
+      false,
+    );
+    expect(queued(bot.subscriptionId)).toHaveLength(cap);
+    expect((await health(bot.id, bot.subscriptionId)).dropped).toBe(1);
+
+    // Once it is answering again the tally stops being current news, so an
+    // endpoint that recovers on its own does not carry a warning for ever.
+    rawDb()
+      .prepare("DELETE FROM event_deliveries WHERE subscription_id = ?")
+      .run(bot.subscriptionId);
+    stub.handler = () => ({ body: "" });
+    stub.received.length = 0;
+    await post("backlog cleared");
+    await eventually(() => queued(bot.subscriptionId).length === 0 && stub.received.length > 0);
+    expect((await health(bot.id, bot.subscriptionId)).dropped).toBe(0);
+    await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("discards queued events for a channel the bot has been removed from", async () => {
+    const bot = await subscribed("Evicted Bot", "/evicted");
+    failOnly("/evicted", 500);
+    stub.received.length = 0;
+    await post("said while a member");
+    // Waiting for the refusal to be recorded, not merely for the row to exist,
+    // so no attempt is still in flight when membership ends.
+    await eventually(() => queued(bot.subscriptionId).some((r) => r.attempts > 0));
+
+    server.store.removeMember(channelId, bot.botUser.id);
+    // Emptied when membership ends rather than paused, so being added back
+    // cannot replay what was said while the bot was out.
+    expect(queued(bot.subscriptionId)).toHaveLength(0);
+
+    // Refused attempts also land on the stub, so only what arrives from here on
+    // could be a replay.
+    stub.received.length = 0;
+    stub.handler = () => ({ body: "" });
+    server.store.addMember(channelId, bot.botUser.id);
+    await server.flushEventDeliveries();
+    expect(bodiesAt("/evicted")).toHaveLength(0);
+    await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("resumes an unfinished delivery after a restart", async () => {
+    const restartDir = mkdtempSync(join(tmpdir(), "slackoss-delivery-restart-"));
+    let current = await createWorkspaceServer({
+      dataDir: restartDir,
+      port: 0,
+      mdns: false,
+      allowPrivateHooks: true,
+      logger: false,
+    });
+    try {
+      const reg = await fetch(`http://127.0.0.1:${current.port}/api/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "root", displayName: "Root", password: "password123" }),
+      });
+      const admin = ((await reg.json()) as { token: string }).token;
+      const call = async <T>(path: string, body?: unknown): Promise<T> => {
+        const res = await fetch(`http://127.0.0.1:${current.port}${path}`, {
+          method: body === undefined ? "GET" : "POST",
+          headers: {
+            authorization: `Bearer ${admin}`,
+            ...(body === undefined ? {} : { "content-type": "application/json" }),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        return (await res.json()) as T;
+      };
+      const made = await call<{ app: { id: string }; botUser: User }>("/api/apps", {
+        name: "Restart Bot",
+      });
+      stub.handler = (req) => ({
+        body: JSON.stringify({
+          challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+        }),
+      });
+      await call(`/api/apps/${made.app.id}/subscriptions`, {
+        url: stub.url("/restart"),
+        eventTypes: ["message.created"],
+      });
+      const room = current.store.getChannelByName("general")!.id;
+      current.store.addMember(room, made.botUser.id);
+
+      failOnly("/restart", 500);
+      stub.received.length = 0;
+      await call(`/api/channels/${room}/messages`, { text: "survives a restart" });
+      await eventually(() => stub.received.some((r) => r.url === "/restart"), 5000);
+
+      await current.stop();
+      stub.handler = () => ({ body: "" });
+      stub.received.length = 0;
+      current = await createWorkspaceServer({
+        dataDir: restartDir,
+        port: 0,
+        mdns: false,
+        allowPrivateHooks: true,
+        logger: false,
+      });
+      // The queue is in the workspace file, so the event outlived the process
+      // that could not deliver it.
+      (current.store as unknown as { db: { prepare: (q: string) => { run: () => void } } }).db
+        .prepare("UPDATE event_deliveries SET next_attempt_at = 0")
+        .run();
+      await current.flushEventDeliveries();
+      await eventually(() => stub.received.some((r) => r.url === "/restart"), 5000);
+      const payload = JSON.parse(stub.received.find((r) => r.url === "/restart")!.body) as {
+        event: { text: string };
+      };
+      expect(payload.event.text).toBe("survives a restart");
+    } finally {
+      await current.stop();
+      rmSync(restartDir, { recursive: true, force: true });
+    }
   });
 });
 

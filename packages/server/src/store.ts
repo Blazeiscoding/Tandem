@@ -2058,6 +2058,7 @@ export class Store {
     url: string;
     event_types: string;
     created_at: number;
+    dropped_count?: number;
     pending_count?: number;
     failed_count?: number;
     last_error?: string | null;
@@ -2074,6 +2075,7 @@ export class Store {
             delivery: {
               pending: r.pending_count,
               failed: r.failed_count ?? 0,
+              dropped: r.dropped_count ?? 0,
               lastError: r.last_error ?? null,
               lastFailedAt: r.last_failed_at ?? null,
             },
@@ -2152,13 +2154,36 @@ export class Store {
 
   // ---------- durable outgoing event delivery ----------
 
+  /**
+   * The most events one endpoint may have waiting. Delivery is ordered, so a
+   * receiver that stops answering holds up everything behind it; without a
+   * ceiling its queue would grow for as long as the workspace stays busy, and
+   * every row carries a full event body. Past the ceiling the event is counted
+   * as dropped instead, which is visible to an administrator and bounded.
+   */
+  static readonly MAX_PENDING_DELIVERIES = 500;
+
+  /** True if the event was queued, false if the backlog was already full. */
   enqueueEventDelivery(
     subscriptionId: ID,
     channelId: ID | null,
     eventSeq: number,
     body: string,
     now = Date.now(),
-  ): void {
+  ): boolean {
+    // OFFSET stops the scan at the ceiling rather than counting a long backlog
+    // on every event.
+    const full = this.db
+      .prepare(
+        "SELECT 1 FROM event_deliveries WHERE subscription_id = ? AND failed_at IS NULL LIMIT 1 OFFSET ?",
+      )
+      .get(subscriptionId, Store.MAX_PENDING_DELIVERIES - 1);
+    if (full) {
+      this.db
+        .prepare("UPDATE event_subscriptions SET dropped_count = dropped_count + 1 WHERE id = ?")
+        .run(subscriptionId);
+      return false;
+    }
     this.db
       .prepare(
         `INSERT OR IGNORE INTO event_deliveries
@@ -2166,6 +2191,7 @@ export class Store {
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(ulid(), subscriptionId, channelId, eventSeq, body, now, now);
+    return true;
   }
 
   /**
@@ -2226,8 +2252,17 @@ export class Store {
     }));
   }
 
-  completeEventDelivery(id: ID): boolean {
-    return this.db.prepare("DELETE FROM event_deliveries WHERE id = ?").run(id).changes > 0;
+  completeEventDelivery(id: ID, subscriptionId: ID): boolean {
+    const done = this.db.prepare("DELETE FROM event_deliveries WHERE id = ?").run(id).changes > 0;
+    // Events lost to a full backlog stop being current news once the endpoint
+    // is answering again. The guard keeps this free on the usual path, where
+    // there is nothing to clear.
+    this.db
+      .prepare(
+        "UPDATE event_subscriptions SET dropped_count = 0 WHERE id = ? AND dropped_count != 0",
+      )
+      .run(subscriptionId);
+    return done;
   }
 
   failEventDelivery(
@@ -2253,12 +2288,32 @@ export class Store {
     return row ? { attempts: row.attempts, terminal: row.failed_at !== null } : null;
   }
 
+  /**
+   * Gives up on everything still queued for one endpoint.
+   *
+   * Called once a delivery has exhausted its attempts. Spending the full ladder
+   * on each event in turn would mean a dead endpoint is retried forever while
+   * its queue keeps growing, and would leave an administrator repairing it with
+   * a backlog that drains one event every few hours. Failing the rest together
+   * makes "retry failed" the single way back, and it restores them in order.
+   */
+  abandonEventBacklog(subscriptionId: ID, error: string, now = Date.now()): number {
+    return Number(
+      this.db
+        .prepare(
+          `UPDATE event_deliveries SET failed_at = ?, last_error = ?
+           WHERE subscription_id = ? AND failed_at IS NULL`,
+        )
+        .run(now, error.slice(0, 500), subscriptionId).changes,
+    );
+  }
+
   pruneEventDeliveries(failedBefore: number): void {
     this.db.prepare("DELETE FROM event_deliveries WHERE failed_at < ?").run(failedBefore);
   }
 
   retryFailedEventDeliveries(subscriptionId: ID, now = Date.now()): number {
-    return Number(
+    const retried = Number(
       this.db
         .prepare(
           `UPDATE event_deliveries SET attempts = 0, next_attempt_at = ?,
@@ -2267,6 +2322,12 @@ export class Store {
         )
         .run(now, subscriptionId).changes,
     );
+    // The tally is what an administrator was shown before deciding to retry, so
+    // clearing it here marks that report as read rather than losing it.
+    this.db
+      .prepare("UPDATE event_subscriptions SET dropped_count = 0 WHERE id = ?")
+      .run(subscriptionId);
+    return retried;
   }
 
   // ---------- invites ----------
