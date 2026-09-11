@@ -162,6 +162,23 @@ restart. Cleanup handles at most 100 queued files per pass; shutdown awaits the
 active pass before closing the database. A locked file can remain on disk until
 cleanup succeeds, but the download API no longer serves it after deletion commits.
 
+## Integration delivery
+
+Outgoing event subscriptions use a durable queue in `workspace.db`. Each matching
+delivery commits with its workspace event, then runs outside the user's request.
+Failures retry eight times with increasing delays, in event order for each
+subscription and in parallel across different subscriptions. Pending work resumes
+when the server restarts. A successful receiver may see the same event again if the
+server exits after its HTTP response but before recording completion, so receivers
+must deduplicate by the stable `event_id`.
+
+Apps and integrations shows pending and terminally failed deliveries. An admin can
+retry failed work after repairing the endpoint. Terminal records are retained for
+seven days; deleting the subscription or app deletes its queue immediately. A
+deactivated bot receives no new events and its prior pending deliveries pause.
+Removing a bot from a channel discards queued events for that channel, so restoring
+membership does not disclose events from the revoked interval.
+
 ## Current boundaries
 
 Friends and accounts do not federate across servers. Account settings offers password

@@ -568,6 +568,10 @@ export class Api {
     return this.request("DELETE", `/api/subscriptions/${id}`);
   }
 
+  retrySubscription(id: ID): Promise<{ ok: true; retried: number }> {
+    return this.request("POST", `/api/subscriptions/${id}/retry`);
+  }
+
   /** Every command that can be typed here, built-ins included. */
   listCommands(): Promise<{ commands: CommandHint[] }> {
     return this.request("GET", "/api/commands");

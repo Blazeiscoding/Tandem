@@ -68,6 +68,14 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
 
   useEffect(load, [load]);
 
+  const hasPendingDeliveries =
+    apps?.some((app) => app.subscriptions.some((sub) => (sub.delivery?.pending ?? 0) > 0)) ?? false;
+  useEffect(() => {
+    if (!hasPendingDeliveries) return;
+    const timer = setInterval(load, 5_000);
+    return () => clearInterval(timer);
+  }, [hasPendingDeliveries, load]);
+
   const rooms = Object.values(channels).filter(
     (c) => (c.type === "public" || c.type === "private") && !c.archived,
   );
@@ -295,6 +303,7 @@ function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () =>
   const [types, setTypes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [retrying, setRetrying] = useState<ID | null>(null);
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -316,22 +325,56 @@ function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () =>
     <>
       <ul className="space-y-1">
         {app.subscriptions.map((sub) => (
-          <li key={sub.id} className="flex items-baseline gap-2 text-[12px]">
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-faint">
-              {sub.url}
-            </span>
-            <span className="shrink-0 text-[11px] text-ink-dim">
-              {sub.eventTypes.length > 0 ? `${sub.eventTypes.length} types` : "everything"}
-            </span>
-            <button
-              onClick={async () => {
-                await client.api.deleteSubscription(sub.id);
-                onChanged();
-              }}
-              className="text-ink-faint hover:text-alert"
-            >
-              Remove
-            </button>
+          <li key={sub.id} className="text-[12px]">
+            <div className="flex items-baseline gap-2">
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-faint">
+                {sub.url}
+              </span>
+              <span className="shrink-0 text-[11px] text-ink-dim">
+                {sub.eventTypes.length > 0 ? `${sub.eventTypes.length} types` : "everything"}
+              </span>
+              {(sub.delivery?.failed ?? 0) > 0 && (
+                <button
+                  disabled={retrying === sub.id}
+                  onClick={async () => {
+                    setRetrying(sub.id);
+                    setError(null);
+                    try {
+                      await client.api.retrySubscription(sub.id);
+                      onChanged();
+                    } catch {
+                      setError("Could not retry those deliveries.");
+                    } finally {
+                      setRetrying(null);
+                    }
+                  }}
+                  className="text-copper hover:underline disabled:opacity-40"
+                >
+                  {retrying === sub.id ? "Retrying…" : "Retry failed"}
+                </button>
+              )}
+              <button
+                onClick={async () => {
+                  await client.api.deleteSubscription(sub.id);
+                  onChanged();
+                }}
+                className="text-ink-faint hover:text-alert"
+              >
+                Remove
+              </button>
+            </div>
+            {sub.delivery && (sub.delivery.pending > 0 || sub.delivery.failed > 0) && (
+              <p
+                role={sub.delivery.failed > 0 ? "alert" : "status"}
+                title={sub.delivery.lastError ?? undefined}
+                className={`truncate ${sub.delivery.failed > 0 ? "text-alert" : "text-ink-faint"}`}
+              >
+                {sub.delivery.pending > 0 && `${sub.delivery.pending} pending`}
+                {sub.delivery.pending > 0 && sub.delivery.failed > 0 && " · "}
+                {sub.delivery.failed > 0 &&
+                  `${sub.delivery.failed} failed${sub.delivery.lastError ? ` · ${sub.delivery.lastError}` : ""}`}
+              </p>
+            )}
           </li>
         ))}
       </ul>

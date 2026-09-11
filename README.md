@@ -184,7 +184,10 @@ Apps can also **answer** rather than only post:
   alongside Slack's shape. The URL has to echo an `url_verification`
   challenge before it is accepted, an app only receives events from channels
   its bot has been added to, and an app is never sent its own bot's actions —
-  which is the loop every chat integration otherwise causes.
+  which is the loop every chat integration otherwise causes. Delivery is queued
+  with the event, retried in order after failures or restarts, and reported in
+  Apps and integrations. Receivers should deduplicate by `event_id` because a
+  crash after their HTTP success can cause the same event to arrive again.
 
 - **Interactive buttons.** Give the app an interactivity request URL and its
   buttons become live. A press posts Slack's `block_actions` payload — the
