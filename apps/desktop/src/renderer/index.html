@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111820" />
+    <!-- The same policy the server sends, minus frame-ancestors, which a
+         meta element cannot express. Kept in step by a test rather than by
+         memory: packages/server/test/securityHeaders.test.ts reads this. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self' data:; connect-src * blob: data: ws: wss:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
     <title>Gatherline</title>
     <link rel="icon" type="image/svg+xml" href="./gatherline.svg" />
   </head>
