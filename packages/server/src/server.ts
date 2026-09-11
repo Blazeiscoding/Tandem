@@ -67,6 +67,7 @@ import { advertise, type MdnsHandle } from "./mdns.js";
 import { imageSize } from "./imageSize.js";
 import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
+import { DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
 import { secretToken, ulid } from "./ids.js";
@@ -131,6 +132,12 @@ export interface ServerOptions {
   logger?: boolean;
   /** Private deployments default to LAN-only media with no external ICE service. */
   iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
+  /**
+   * How much one caller may do. `false` turns rationing off, which is
+   * reasonable on a LAN where everyone is already trusted and unreasonable
+   * anywhere reachable from outside it.
+   */
+  rateLimits?: Partial<Limits> | false;
 }
 
 export interface WorkspaceServer {
@@ -158,6 +165,8 @@ class HttpError extends Error {
     public statusCode: number,
     public code: string,
     message?: string,
+    /** Seconds until the same call could succeed, for a refusal that will lift. */
+    public retryAfter?: number,
   ) {
     super(message ?? code);
   }
@@ -225,7 +234,44 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return ip === "127.0.0.1" || ip === "::1";
   };
 
-  const gateway = new Gateway(store, workspaceName);
+  /**
+   * Rationing. The cap on concurrent password hashing keeps one burst from
+   * exhausting this machine; this keeps a patient caller from grinding away at
+   * it all day, which that cap alone does nothing about.
+   */
+  const limiter =
+    opts.rateLimits === false
+      ? null
+      : new RateLimiter({ ...DEFAULT_LIMITS, ...(opts.rateLimits ?? {}) });
+
+  /** The address a request came from, as the limiter keys on it. */
+  const callerAddress = (req: FastifyRequest): string =>
+    (req.ip || "unknown").replace(/^::ffff:/, "");
+
+  /**
+   * Clears what a handle has spent on authentication. Called when a password
+   * turns out to be right: only wrong guesses are worth counting, so someone
+   * who knows their own password never meets this limit at all, however often
+   * they sign in or change it.
+   */
+  const authSucceeded = (handle: string): void => {
+    limiter?.forget("authByHandle", handle.toLowerCase());
+  };
+
+  const ration = (name: keyof Limits, key: string): void => {
+    if (!limiter) return;
+    const { ok, retryAfterMs } = limiter.take(name, key);
+    if (ok) return;
+    const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+    throw new HttpError(
+      429,
+      "too_many_requests",
+      "That is more than this workspace allows for now. Try again shortly.",
+      seconds,
+    );
+  };
+
+  const gateway = new Gateway(store, workspaceName, limiter);
 
   const recordEvent = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
     const envelope = store.appendEvent(event, channelId);
@@ -639,6 +685,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       return reply.status(400).send({ error: "invalid_request", details: err.issues });
     }
     if (err instanceof HttpError) {
+      if (err.retryAfter !== undefined) reply.header("retry-after", String(err.retryAfter));
       return reply.status(err.statusCode).send({ error: err.code, message: err.message });
     }
     const fastifyErr = err as { statusCode?: number; code?: string; message?: string };
@@ -742,6 +789,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   app.post("/api/auth/register", async (req, reply) => {
     const body = registerBody.parse(req.body);
+    ration("authByAddress", callerAddress(req));
+    ration("authByHandle", body.handle.toLowerCase());
     beginAuth();
     let credentials: Awaited<ReturnType<typeof hashPassword>>;
     try {
@@ -814,11 +863,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       store.createSession(tokenHash, user.id, deviceName(req));
       return { token, user };
     });
+    // A handle that is now yours was not a guess at someone else's, and a new
+    // account mistyping its own password twice should not then be locked out.
+    authSucceeded(body.handle);
     return reply.status(201).send({ token, user });
   });
 
   app.post("/api/auth/login", async (req) => {
     const body = loginBody.parse(req.body);
+    // Keyed on the handle as well as the address: an account is worth
+    // protecting from many machines, and an address from many accounts.
+    ration("authByAddress", callerAddress(req));
+    ration("authByHandle", body.handle.toLowerCase());
     const auth = store.getUserAuthByHandle(body.handle);
     beginAuth();
     let valid = false;
@@ -841,6 +897,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     ) {
       throw new HttpError(401, "invalid_credentials");
     }
+    authSucceeded(auth.handle);
     const { token, tokenHash } = newSessionToken();
     store.createSession(tokenHash, auth.id, deviceName(req));
     const { passwordHash: _p, salt: _s, ...user } = latest;
@@ -865,6 +922,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.post("/api/auth/password", async (req) => {
     const me = requireUser(req);
     const body = changePasswordBody.parse(req.body);
+    // The current password is guessable here too, by whoever has the session.
+    ration("authByHandle", me.handle.toLowerCase());
     const auth = store.getUserAuthByHandle(me.handle);
     if (!auth) throw new HttpError(404, "user_not_found");
     beginAuth();
@@ -876,6 +935,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
     if (!valid)
       throw new HttpError(403, "invalid_credentials", "that is not your current password");
+    authSucceeded(me.handle);
     beginAuth();
     let credentials: Awaited<ReturnType<typeof hashPassword>>;
     try {
@@ -1268,6 +1328,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   app.post<{ Params: { id: string } }>("/api/channels/:id/messages", async (req, reply) => {
     const me = requireUser(req);
+    // Keyed on the account, not the address: a whole office behind one address
+    // should not share one person's allowance.
+    ration("post", me.id);
     const channel = requireChannelAccess(req.params.id, me);
     if (channel.archived) throw new HttpError(400, "channel_archived");
     const body = sendMessageBody.parse(req.body);
@@ -1328,6 +1391,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   app.post<{ Params: { id: string } }>("/api/channels/:id/files", async (req, reply) => {
     const me = requireUser(req);
+    ration("upload", me.id);
     const channel = requireChannelAccess(req.params.id, me);
     if (!filesDir) throw new HttpError(501, "uploads_disabled");
 
@@ -1720,6 +1784,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const token = bearerToken(req);
     const owner = token ? store.appForToken(hashToken(token)) : null;
     if (!owner) return reply.status(401).send({ ok: false, error: "invalid_auth" });
+    // A bot stuck in a loop is the version of this that nobody is watching.
+    ration("post", owner.botUserId);
 
     const body = (req.body ?? {}) as {
       channel?: string;

@@ -189,6 +189,32 @@ deactivated bot receives no new events and its prior pending deliveries pause.
 Removing a bot from a channel discards queued events for that channel, so restoring
 membership does not disclose events from the revoked interval.
 
+## Request limits
+
+One caller is held to a fair share of sign-in attempts, messages, uploads,
+sockets and typing notices. Where there is an account to key on, the limit is
+keyed on the account rather than the address: an office reaches this server from
+a single NAT address, and everyone in it must not be sharing one person's
+allowance. Only the two limits that have no account yet — sign-in attempts and
+opening a socket — are keyed on the address, and both are deliberately loose.
+
+Sign-in is rationed per handle as well, and tightly, because that is the limit an
+attacker actually meets. Only wrong guesses count: a correct password clears what
+the handle has spent, so someone who knows their own password never meets this
+however often they sign in or change it. A refused request answers `429` with a
+`Retry-After` telling the client when to come back, and nothing is charged for a
+refusal, so a client that retries too eagerly does not push its own recovery out.
+
+The allowances are held in memory, so a restart grants one fresh burst. Buckets
+are dropped once they refill, which keeps the bookkeeping proportional to who is
+active rather than to everyone who has ever connected.
+
+`--no-rate-limits`, or `SLACKOSS_RATE_LIMITS=off`, turns all of this off. That is reasonable on a network where
+everyone is already trusted and unreasonable anywhere reachable from outside it.
+Bulk imports and seeding scripts are the usual reason to want it; prefer running
+those against a server started with the flag rather than raising the limits for
+everybody.
+
 ## Current boundaries
 
 Friends and accounts do not federate across servers. Account settings offers password

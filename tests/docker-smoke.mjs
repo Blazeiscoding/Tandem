@@ -53,6 +53,10 @@ try {
     "--name",
     "Docker Smoke",
     "--invite-only",
+    // This measures what the container does under load: 300 messages fanned
+    // out to 20 sockets. Deliberate load is indistinguishable from abuse to
+    // the limiter, which is the point of it.
+    "--no-rate-limits",
   );
   base = `http://${docker("port", name, "8543/tcp").split(/\r?\n/)[0]}`;
   await waitFor(async () => (await fetch(base + "/api/health")).ok, "healthy server");

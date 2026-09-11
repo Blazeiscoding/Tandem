@@ -25,6 +25,10 @@ test.beforeAll(async () => {
       "--name",
       "Product Test",
       "--allow-private-hooks",
+      // These scenarios seed history by posting hundreds of messages in a
+      // loop, which is the bulk import the limits are meant to refuse. What
+      // is under test here is the browser, and rationing has its own suite.
+      "--no-rate-limits",
     ],
     { windowsHide: true, stdio: "pipe" },
   );

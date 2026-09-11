@@ -43,6 +43,10 @@ beforeAll(async () => {
     port: 0,
     workspaceName: "Sync Test",
     mdns: false,
+    // These build long channels by posting hundreds of messages in a loop,
+    // which is exactly the flooding the limits exist to refuse. What is under
+    // test here is the client's paging, not the server's rationing.
+    rateLimits: false,
   });
   base = `http://127.0.0.1:${server.port}`;
 
