@@ -26,6 +26,7 @@ const { values, positionals } = parseArgs({
     "public-url": { type: "string" },
     "allow-private-hooks": { type: "boolean", default: false },
     "no-rate-limits": { type: "boolean", default: false },
+    "trust-proxy": { type: "boolean", default: false },
     handle: { type: "string" },
     "make-owner": { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
@@ -57,6 +58,12 @@ Usage: slackoss-server [options]
   --web <dir>       Serve the browser client from this directory
   --public-url <u>  How others reach this server, e.g. https://chat.team.dev
                     (set it behind a reverse proxy; used in URLs given to apps)
+  --trust-proxy     Believe the X-Forwarded-* headers. Only set this when a
+                    reverse proxy in front of this server writes them and
+                    nothing else can reach it directly; anyone can send those
+                    headers, and a forged one would decide where an app sends
+                    its reply. Setting --public-url is the better answer where
+                    the address is fixed, and does not require trusting anyone.
 
   --no-rate-limits  Do not ration requests. One caller is otherwise held to a
                     fair share of sign-in attempts, messages, uploads, sockets
@@ -267,6 +274,7 @@ const server = await createWorkspaceServer({
   webDistPath,
   publicUrl: values["public-url"],
   allowPrivateHooks: values["allow-private-hooks"],
+  trustProxy: values["trust-proxy"],
   rateLimits:
     values["no-rate-limits"] || process.env.SLACKOSS_RATE_LIMITS === "off" ? false : undefined,
   logger: true,

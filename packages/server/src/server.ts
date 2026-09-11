@@ -69,6 +69,7 @@ import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
 import { LOGGER_OPTIONS } from "./redact.js";
+import { firstHeaderValue, isLoopbackOrigin, originFromConnection } from "./netTrust.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
 import { secretToken, ulid } from "./ids.js";
@@ -123,6 +124,12 @@ export interface ServerOptions {
    * reverse proxy sits in front; otherwise the request's own Host is used.
    */
   publicUrl?: string;
+  /**
+   * Whether a reverse proxy in front of this server sets the `X-Forwarded-*`
+   * headers. Off by default: those headers are worth believing only when
+   * something trustworthy writes them, and worthless when anyone can.
+   */
+  trustProxy?: boolean;
   /**
    * Lets slash commands and event subscriptions call private addresses
    * (192.168.x, 10.x, localhost…). Off by default: the server can reach the
@@ -227,6 +234,15 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * hand the local bypass to the whole internet. So a request that shows any
    * sign of having been forwarded is never local, and neither is any request to
    * a server configured with a public URL.
+   *
+   * Arriving from loopback is not on its own proof that the person running this
+   * machine meant it. A web page they merely visited can have their browser
+   * post to localhost, and that request arrives from loopback like any other —
+   * which, while a workspace still has no owner, would let that page claim it
+   * without the claim code. A command line request carries no `Origin`; a
+   * browser always sends one on a write, and a page served from anywhere else
+   * names that somewhere else. So an `Origin` is required to be this same
+   * server, if it is there at all.
    */
   const isLocalRequest = (req: FastifyRequest) => {
     if (opts.publicUrl) return false;
@@ -236,6 +252,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       )
     )
       return false;
+    const origin = req.headers.origin;
+    if (typeof origin === "string" && origin && !isLoopbackOrigin(origin, req.socket.localPort)) {
+      return false;
+    }
     const ip = (req.ip || "").replace(/^::ffff:/, "");
     return ip === "127.0.0.1" || ip === "::1";
   };
@@ -719,17 +739,26 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return null;
   };
 
-  /** How this server is addressed from outside, for URLs we hand to apps. */
+  /**
+   * How this server is addressed from outside, for the URLs we hand to apps.
+   *
+   * These become a `response_url`, which carries a token and which an app posts
+   * its reply to. Building one from the `Host` header meant whoever sent the
+   * request chose where that reply went: a forged header pointed the app at
+   * somewhere else entirely, and sent the token with it. So the configured
+   * public URL is used when there is one, forwarded headers only when a proxy
+   * has been declared, and otherwise the address the connection actually
+   * arrived on, which no header can change.
+   */
   const requestOrigin = (req: FastifyRequest): string => {
     if (opts.publicUrl) return opts.publicUrl.replace(/\/$/, "");
-    const proto =
-      String(req.headers["x-forwarded-proto"] ?? "")
-        .split(",")[0]
-        ?.trim() || "http";
-    const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "")
-      .split(",")[0]
-      ?.trim();
-    return host ? `${proto}://${host}` : `http://localhost:${opts.port ?? 8543}`;
+    if (opts.trustProxy) {
+      const proto = firstHeaderValue(req.headers["x-forwarded-proto"]) || "http";
+      const host =
+        firstHeaderValue(req.headers["x-forwarded-host"]) || firstHeaderValue(req.headers.host);
+      if (host) return `${proto}://${host}`;
+    }
+    return originFromConnection(req.socket.localAddress, req.socket.localPort);
   };
 
   /**
