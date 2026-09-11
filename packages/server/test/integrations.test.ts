@@ -1156,6 +1156,268 @@ describe("a deactivated app", () => {
   });
 });
 
+describe("revoking an app while it is being used", () => {
+  /** An app with a slash command pointing at the stub, ready to be interrupted. */
+  async function commandApp(name: string, commandName: string, path: string) {
+    const created = await newApp(name);
+    const registered = await api(`/api/apps/${created.id}/commands`, {
+      token: aliceToken,
+      body: { command: `/${commandName}`, url: stub.url(path), description: "test" },
+    });
+    expect(registered.status).toBe(201);
+    return created;
+  }
+
+  async function run(commandName: string, room = channelId) {
+    return api<{ ok: boolean }>(`/api/channels/${room}/commands`, {
+      token: aliceToken,
+      body: { text: `/${commandName} go` },
+    });
+  }
+
+  function said(text: string, room = channelId) {
+    return server.store.listMessages({ channelId: room, limit: 50 }).some((m) => m.text === text);
+  }
+
+  /** Captures what the command handed the app, then answers with nothing. */
+  function capture(path: string, into: { url?: string; trigger?: string }) {
+    stub.handler = (req) => {
+      if (req.url === path) {
+        const form = new URLSearchParams(req.body);
+        into.url = form.get("response_url") ?? undefined;
+        into.trigger = form.get("trigger_id") ?? undefined;
+      }
+      return { body: "" };
+    };
+  }
+
+  /** The app answering later, on the url it was given. */
+  async function late(url: string, text: string) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ response_type: "in_channel", text }),
+    });
+    return { status: res.status, body: (await res.json()) as { error?: string } };
+  }
+
+  async function newRoom(name: string, type: "public" | "private") {
+    const { data } = await api<{ channel: { id: string } }>("/api/channels", {
+      token: aliceToken,
+      body: { type, name },
+    });
+    return data.channel.id;
+  }
+
+  it("does not post an answer from an app deleted while it was answering", async () => {
+    const created = await commandApp("Doomed Bot", "doomed", "/doomed");
+    // Deleting from inside the handler is the race itself: the reply is already
+    // on its way back at the moment the app stops existing.
+    stub.handler = (req) => {
+      if (req.url === "/doomed") {
+        server.store.transaction(() => server.store.deleteApp(created.id));
+        return { body: JSON.stringify({ response_type: "in_channel", text: "from a ghost" }) };
+      }
+      return { body: "" };
+    };
+    const out = await run("doomed");
+    // The person who typed it is told it worked, because for them it did. The
+    // app losing the right to answer is not their failure to see.
+    expect(out.status).toBe(200);
+    expect(out.data.ok).toBe(true);
+    expect(said("from a ghost")).toBe(false);
+  });
+
+  it("stays quiet for an app deactivated while it was answering", async () => {
+    const created = await commandApp("Muted Bot", "muted", "/muted");
+    let silence = true;
+    stub.handler = (req) => {
+      if (req.url === "/muted") {
+        if (silence) server.store.updateUser(created.botUser.id, { deactivated: true });
+        return { body: JSON.stringify({ response_type: "in_channel", text: "while muted" }) };
+      }
+      return { body: "" };
+    };
+    const out = await run("muted");
+    expect(out.data.ok).toBe(true);
+    expect(said("while muted")).toBe(false);
+
+    // Turning it back on is all it takes: deactivation silences the app, it
+    // does not break the command.
+    server.store.updateUser(created.botUser.id, { deactivated: false });
+    silence = false;
+    stub.handler = (req) =>
+      req.url === "/muted"
+        ? { body: JSON.stringify({ response_type: "in_channel", text: "and back on" }) }
+        : { body: "" };
+    await run("muted");
+    expect(said("and back on")).toBe(true);
+    await api(`/api/apps/${created.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("spends a response_url once its channel has been archived", async () => {
+    const room = await newRoom("late-archive", "public");
+    const created = await commandApp("Late Bot", "late-archive", "/late-archive");
+    const got: { url?: string } = {};
+    capture("/late-archive", got);
+
+    await run("late-archive", room);
+    expect(got.url).toBeDefined();
+    // Half an hour of posting rights is fine while the room is open.
+    expect((await late(got.url!, "in good time")).status).toBe(200);
+    await eventually(() => said("in good time", room));
+
+    await api(`/api/channels/${room}`, {
+      method: "PATCH",
+      token: aliceToken,
+      body: { archived: true },
+    });
+    const after = await late(got.url!, "after archiving");
+    // Refused as a spent url, rather than failing somewhere further in.
+    expect(after.status).toBe(404);
+    expect(after.body.error).toBe("expired_url");
+    expect(said("after archiving", room)).toBe(false);
+    await api(`/api/apps/${created.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("spends a response_url once its bot has been taken out of a private room", async () => {
+    const room = await newRoom("late-private", "private");
+    const created = await commandApp("Evicted Bot", "late-private", "/late-private");
+    const got: { url?: string } = {};
+    capture("/late-private", got);
+
+    // Running the command puts the bot in the room, which is how it can answer.
+    await run("late-private", room);
+    expect(got.url).toBeDefined();
+    expect((await late(got.url!, "while inside")).status).toBe(200);
+    await eventually(() => said("while inside", room));
+
+    server.store.removeMember(room, created.botUser.id);
+    const after = await late(got.url!, "after eviction");
+    expect(after.status).toBe(404);
+    expect(after.body.error).toBe("expired_url");
+    expect(said("after eviction", room)).toBe(false);
+    await api(`/api/apps/${created.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("spends a response_url once its app is gone", async () => {
+    const created = await commandApp("Departed Bot", "departed", "/departed");
+    const got: { url?: string } = {};
+    capture("/departed", got);
+    await run("departed");
+    expect(got.url).toBeDefined();
+
+    server.store.transaction(() => server.store.deleteApp(created.id));
+    const after = await late(got.url!, "once the app had gone");
+    expect(after.status).toBe(404);
+    expect(after.body.error).toBe("expired_url");
+    expect(said("once the app had gone")).toBe(false);
+  });
+
+  it("will not open a modal on a trigger whose room has since been archived", async () => {
+    const room = await newRoom("trigger-archive", "public");
+    const created = await commandApp("Modal Bot", "modal-archive", "/modal-archive");
+    const got: { trigger?: string } = {};
+    capture("/modal-archive", got);
+    await run("modal-archive", room);
+    expect(got.trigger).toBeDefined();
+
+    await api(`/api/channels/${room}`, {
+      method: "PATCH",
+      token: aliceToken,
+      body: { archived: true },
+    });
+
+    // The app is still installed and still authenticated, so its token is not
+    // what stops this: the trigger names a room nobody can be shown a form in.
+    const refused = await api<{ error: string }>("/api/views.open", {
+      token: created.token,
+      body: {
+        trigger_id: got.trigger,
+        view: {
+          type: "modal",
+          title: { type: "plain_text", text: "Too late" },
+          blocks: [
+            {
+              type: "input",
+              block_id: "b",
+              label: { type: "plain_text", text: "Name" },
+              element: { type: "plain_text_input", action_id: "a" },
+            },
+          ],
+        },
+      },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.data.error).toBe("expired_trigger_id");
+    await api(`/api/apps/${created.id}`, { token: aliceToken, method: "DELETE" });
+  });
+
+  it("will not take a form submitted after its room was archived", async () => {
+    const room = await newRoom("submit-archive", "public");
+    const created = await commandApp("Form Bot", "form-archive", "/form-archive");
+    const got: { trigger?: string } = {};
+    // Set before the handshake below, which the interactivity URL has to answer
+    // before it is accepted.
+    stub.handler = (req) => {
+      if (req.url === "/form-archive") {
+        got.trigger = new URLSearchParams(req.body).get("trigger_id") ?? undefined;
+        return { body: "" };
+      }
+      if (req.url === "/form-interact") {
+        const parsed = JSON.parse(req.body) as { challenge?: string };
+        return { body: parsed.challenge ? JSON.stringify({ challenge: parsed.challenge }) : "" };
+      }
+      return { body: "" };
+    };
+    const wired = await api(`/api/apps/${created.id}/interactivity`, {
+      method: "PUT",
+      token: aliceToken,
+      body: { url: stub.url("/form-interact") },
+    });
+    expect(wired.status).toBe(200);
+
+    await run("form-archive", room);
+    expect(got.trigger).toBeDefined();
+    const opened = await api<{ view: { id: string } }>("/api/views.open", {
+      token: created.token,
+      body: {
+        trigger_id: got.trigger,
+        view: {
+          type: "modal",
+          callback_id: "c",
+          title: { type: "plain_text", text: "Fill in" },
+          blocks: [
+            {
+              type: "input",
+              block_id: "b",
+              label: { type: "plain_text", text: "Name" },
+              element: { type: "plain_text_input", action_id: "a" },
+            },
+          ],
+        },
+      },
+    });
+    expect(opened.status).toBe(200);
+
+    // A form can sit open for half an hour, which is long enough for the room
+    // it belongs to to be closed behind it. The app is never called.
+    await api(`/api/channels/${room}`, {
+      method: "PATCH",
+      token: aliceToken,
+      body: { archived: true },
+    });
+    stub.received.length = 0;
+    const submitted = await api<{ error: string }>(`/api/views/${opened.data.view.id}/submit`, {
+      token: aliceToken,
+      body: { values: { b: { a: "anything" } } },
+    });
+    expect(submitted.status).toBe(404);
+    expect(stub.received.filter((r) => r.url === "/form-interact")).toHaveLength(0);
+    await api(`/api/apps/${created.id}`, { token: aliceToken, method: "DELETE" });
+  });
+});
+
 describe("modals", () => {
   /** An app with a verified interactivity URL, ready to be pressed. */
   async function interactiveApp(name: string) {
