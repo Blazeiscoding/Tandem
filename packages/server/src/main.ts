@@ -25,6 +25,7 @@ const { values, positionals } = parseArgs({
     web: { type: "string" },
     "public-url": { type: "string" },
     "allow-private-hooks": { type: "boolean", default: false },
+    "no-rate-limits": { type: "boolean", default: false },
     handle: { type: "string" },
     "make-owner": { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
@@ -56,6 +57,13 @@ Usage: slackoss-server [options]
   --web <dir>       Serve the browser client from this directory
   --public-url <u>  How others reach this server, e.g. https://chat.team.dev
                     (set it behind a reverse proxy; used in URLs given to apps)
+
+  --no-rate-limits  Do not ration requests. One caller is otherwise held to a
+                    fair share of sign-in attempts, messages, uploads, sockets
+                    and typing notices; limits are keyed on the account where
+                    there is one, so a whole office behind a single address
+                    does not share one person's allowance. Turn this off only
+                    on a network where everyone is already trusted.
 
   --allow-private-hooks
                     Let slash commands and event subscriptions call private
@@ -258,6 +266,7 @@ const server = await createWorkspaceServer({
   webDistPath,
   publicUrl: values["public-url"],
   allowPrivateHooks: values["allow-private-hooks"],
+  rateLimits: values["no-rate-limits"] ? false : undefined,
   logger: true,
   iceServers: parseIceServers(process.env.SLACKOSS_ICE_SERVERS),
 });

@@ -13,6 +13,7 @@ import {
 import type { Store } from "./store.js";
 import { hashToken } from "./auth.js";
 import { socketMessage } from "./socketSchema.js";
+import type { RateLimiter } from "./limits.js";
 
 interface Client {
   ws: WebSocket;
@@ -44,6 +45,8 @@ export class Gateway {
   constructor(
     private store: Store,
     private workspaceName: () => string,
+    /** Shared with the HTTP side, so one caller has one allowance overall. */
+    private limiter: RateLimiter | null = null,
   ) {
     this.heartbeat = setInterval(() => {
       for (const c of this.clients) {
@@ -74,6 +77,14 @@ export class Gateway {
         socket.destroy();
         return;
       }
+      // Opening sockets is cheap for the caller and not for the server, so it
+      // is rationed before the handshake rather than after it. Keyed on the
+      // address because there is no account yet to key on.
+      const address = (req.socket.remoteAddress ?? "unknown").replace(/^::ffff:/, "");
+      if (this.limiter && !this.limiter.take("socket", address).ok) {
+        socket.destroy();
+        return;
+      }
       wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws));
     });
   }
@@ -92,6 +103,11 @@ export class Gateway {
       ),
     ).then(() => {});
     return this.closePromise;
+  }
+
+  /** Silent when refused: a dropped typing notice is not worth an error frame. */
+  private affordEphemeral(userId: ID): boolean {
+    return !this.limiter || this.limiter.take("ephemeral", userId).ok;
   }
 
   onlineUserIds(): ID[] {
@@ -198,6 +214,9 @@ export class Gateway {
       if (msg.type === "ping") {
         this.send(ws, { type: "pong" });
       } else if (msg.type === "typing") {
+        // Every keystroke can send one of these, and each fans out to a whole
+        // channel, so the cost of sending is far below the cost of delivering.
+        if (!this.affordEphemeral(client.userId)) return;
         if (this.store.canAccess(msg.channelId, client.userId)) {
           this.broadcastEphemeral(
             { type: "typing", channelId: msg.channelId, userId: client.userId },
@@ -211,6 +230,7 @@ export class Gateway {
       } else if (msg.type === "huddle.leave") {
         this.leaveHuddle(msg.channelId, client.userId);
       } else if (msg.type === "huddle.signal") {
+        if (!this.affordEphemeral(client.userId)) return;
         // Only relay between two people actually in the same huddle.
         const room = this.huddles.get(msg.channelId);
         if (
