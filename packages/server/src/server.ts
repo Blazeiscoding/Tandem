@@ -1793,6 +1793,31 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return `${origin}/api/commands/response/${token}`;
   };
 
+  /**
+   * Whether a capability handed to an app is still good at the moment it is
+   * being spent.
+   *
+   * A `response_url` lives half an hour, a `trigger_id` three minutes, and
+   * even an ordinary reply arrives only after the app's own endpoint has
+   * answered. In any of those gaps the app can be deleted or its bot
+   * deactivated, the bot can be removed from the channel, the channel can be
+   * archived or deleted, and the person being answered can be deactivated or
+   * lose access. Checking only when the capability was handed out would make
+   * every one of those revocations avoidable by waiting, so it is all checked
+   * again here, where the reply would actually be posted.
+   */
+  const capabilityHolds = (target: { channelId: ID; botUserId: ID; invokerId: ID }): boolean => {
+    const bot = store.getUser(target.botUserId);
+    if (!bot || bot.deactivated) return false;
+    if (!store.appForBotUser(target.botUserId)) return false;
+    const channel = store.getChannel(target.channelId);
+    if (!channel || channel.archived) return false;
+    if (!store.canAccess(channel.id, bot.id)) return false;
+    const invoker = store.getUser(target.invokerId);
+    if (!invoker || invoker.deactivated) return false;
+    return store.canAccess(channel.id, invoker.id);
+  };
+
   /** A private note back to the person who ran the command. */
   const sayEphemeral = (channelId: ID, toUserId: ID, fromUserId: ID, text: string): void => {
     gateway.sendToUser(toUserId, {
@@ -1819,6 +1844,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   ): void => {
     const trimmed = raw.trim();
     if (!trimmed) return; // an empty 200 is a silent acknowledgement
+    // The app had its seconds to answer; a lot can be revoked in them.
+    if (!capabilityHolds(target)) return;
 
     let payload: {
       text?: unknown;
@@ -2017,7 +2044,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   /** Slack's `response_url`: how an app replies after its first few seconds. */
   app.post<{ Params: { token: string } }>("/api/commands/response/:token", async (req, reply) => {
     const target = responseTargets.get(req.params.token);
-    if (!target || target.expiresAt < Date.now()) {
+    if (!target || target.expiresAt < Date.now() || !capabilityHolds(target)) {
+      // A url whose app, channel or audience has gone is spent, not merely
+      // unusable this once: keeping it would only invite the same call again.
       responseTargets.delete(req.params.token);
       return reply.status(404).send({ ok: false, error: "expired_url" });
     }
@@ -2204,6 +2233,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (trigger.appId !== owner.id) {
       return reply.status(403).send({ ok: false, error: "trigger_not_yours" });
     }
+    if (!capabilityHolds({ ...trigger, invokerId: trigger.userId })) {
+      triggers.delete(body.trigger_id as string);
+      return reply.status(400).send({ ok: false, error: "expired_trigger_id" });
+    }
     triggers.delete(body.trigger_id as string);
 
     const id = ulid();
@@ -2248,6 +2281,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (!owner?.interactivityUrl) {
       openViews.delete(open.view.id);
       throw new HttpError(400, "no_interactivity_url");
+    }
+    // A form can sit open for half an hour before anyone presses submit.
+    if (!capabilityHolds({ ...open, invokerId: open.userId })) {
+      openViews.delete(open.view.id);
+      throw new HttpError(404, "view_not_found");
     }
 
     // Only the fields the app actually asked for, in Slack's nested shape.
