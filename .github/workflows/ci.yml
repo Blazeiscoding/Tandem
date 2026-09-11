@@ -36,6 +36,8 @@ jobs:
         with:
           name: browser-test-results
           path: test-results/
+          # Long enough to look at a failure, short enough not to accumulate.
+          retention-days: 7
   windows:
     runs-on: windows-latest
     steps:
@@ -47,8 +49,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @slackoss/desktop package --win
+      # Packaging still has to succeed here, and test:desktop then launches the
+      # unpacked app it produced. What is no longer kept is the installer that
+      # same step writes beside it: uploading a 107 MB file on every push and
+      # holding it for ninety days used most of what this repository is given
+      # for artifacts, and nothing read them. A release workflow can publish
+      # one deliberately when there is something to hand out.
       - run: pnpm test:desktop
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer-unsigned
-          path: apps/desktop/release/*.exe
