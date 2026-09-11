@@ -63,7 +63,8 @@ Usage: slackoss-server [options]
                     and typing notices; limits are keyed on the account where
                     there is one, so a whole office behind a single address
                     does not share one person's allowance. Turn this off only
-                    on a network where everyone is already trusted.
+                    on a network where everyone is already trusted. Also
+                    settable with SLACKOSS_RATE_LIMITS=off.
 
   --allow-private-hooks
                     Let slash commands and event subscriptions call private
@@ -266,7 +267,8 @@ const server = await createWorkspaceServer({
   webDistPath,
   publicUrl: values["public-url"],
   allowPrivateHooks: values["allow-private-hooks"],
-  rateLimits: values["no-rate-limits"] ? false : undefined,
+  rateLimits:
+    values["no-rate-limits"] || process.env.SLACKOSS_RATE_LIMITS === "off" ? false : undefined,
   logger: true,
   iceServers: parseIceServers(process.env.SLACKOSS_ICE_SERVERS),
 });

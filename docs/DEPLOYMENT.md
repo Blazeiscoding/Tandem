@@ -209,7 +209,7 @@ The allowances are held in memory, so a restart grants one fresh burst. Buckets
 are dropped once they refill, which keeps the bookkeeping proportional to who is
 active rather than to everyone who has ever connected.
 
-`--no-rate-limits` turns all of this off. That is reasonable on a network where
+`--no-rate-limits`, or `SLACKOSS_RATE_LIMITS=off`, turns all of this off. That is reasonable on a network where
 everyone is already trusted and unreasonable anywhere reachable from outside it.
 Bulk imports and seeding scripts are the usual reason to want it; prefer running
 those against a server started with the flag rather than raising the limits for
