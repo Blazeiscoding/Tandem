@@ -79,6 +79,19 @@ const SCHEDULED_ATTEMPTS = 3;
 /** Delivered queue rows are kept this long as proof of completion. */
 const SCHEDULED_RETENTION_MS = 7 * 24 * 3600_000;
 
+/** Delays after failures; the eighth failed attempt becomes terminal. */
+const EVENT_DELIVERY_RETRY_MS = [
+  5_000,
+  30_000,
+  2 * 60_000,
+  10 * 60_000,
+  30 * 60_000,
+  3600_000,
+  6 * 3600_000,
+];
+const EVENT_DELIVERY_ATTEMPTS = EVENT_DELIVERY_RETRY_MS.length + 1;
+const EVENT_DELIVERY_RETENTION_MS = 7 * 24 * 3600_000;
+
 export interface ServerOptions {
   /** Directory holding workspace.db and uploads. Use ":memory:" for tests. */
   dataDir: string;
@@ -135,6 +148,8 @@ export interface WorkspaceServer {
   flushFileDeletions: () => Promise<void>;
   /** Frees uploads nobody attached. Runs on a timer; exposed so tests need not wait. */
   expireAbandonedUploads: () => number;
+  /** Delivers a bounded batch of committed integration events. */
+  flushEventDeliveries: () => Promise<void>;
   stop: () => Promise<void>;
 }
 
@@ -223,6 +238,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         store.autoFollowThread(event.message.threadRootId, event.message.userId, envelope.seq);
       }
     }
+    enqueueSubscriberDeliveries(envelope, channelId);
     return envelope;
   };
   /**
@@ -273,7 +289,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   const publish = (envelope: EventEnvelope, channelId: ID | null) => {
     gateway.publish(envelope, channelId);
-    dispatchToSubscribers(envelope, channelId);
+    void flushEventDeliveries();
     publishThreadFollows(envelope);
     publishMentionChanges(envelope);
   };
@@ -299,12 +315,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return result;
   };
 
-  /**
-   * Fans a durable event out to apps subscribed over HTTP. Deliberately fire
-   * and forget: a slow or broken endpoint must never hold up the person who
-   * sent the message.
-   */
-  const dispatchToSubscribers = (envelope: EventEnvelope, channelId: ID | null): void => {
+  /** Adds every eligible subscriber beside the event, inside its transaction. */
+  const enqueueSubscriberDeliveries = (envelope: EventEnvelope, channelId: ID | null): void => {
     const subs = store.listAllSubscriptions();
     if (subs.length === 0) return;
     const payload = toSlackEvent(envelope.event);
@@ -335,16 +347,78 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         // reverse-engineer the mapping.
         slackoss: { type: envelope.event.type, seq: envelope.seq },
       });
-      void postToUrl(subscription.url, body, "application/json", {
-        allowPrivate: opts.allowPrivateHooks,
-        headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", body),
-      }).catch((err: unknown) => {
-        app.log.warn(
-          { url: subscription.url, err: (err as Error).message },
-          "event subscription delivery failed",
-        );
-      });
+      store.enqueueEventDelivery(subscription.id, channelId, envelope.seq, body);
     }
+  };
+
+  let eventDeliveryFlush: Promise<void> | null = null;
+  /**
+   * Delivers in sequence per subscription and in parallel across endpoints.
+   * A receiver can see a duplicate if this process dies after its HTTP 2xx but
+   * before the row is deleted; event_id remains stable so it can deduplicate.
+   */
+  const flushEventDeliveries = (): Promise<void> => {
+    if (eventDeliveryFlush) return eventDeliveryFlush;
+    eventDeliveryFlush = (async () => {
+      let remaining = 50;
+      while (remaining > 0) {
+        const due = store.dueEventDeliveries(Date.now(), Math.min(10, remaining));
+        if (due.length === 0) break;
+        remaining -= due.length;
+        await Promise.all(
+          due.map(async (delivery) => {
+            try {
+              const retryHeaders: Record<string, string> =
+                delivery.attempts > 0
+                  ? {
+                      "x-slack-retry-num": String(delivery.attempts),
+                      "x-slack-retry-reason": "http_error",
+                    }
+                  : {};
+              const res = await postToUrl(delivery.url, delivery.body, "application/json", {
+                allowPrivate: opts.allowPrivateHooks,
+                headers: {
+                  ...signatureHeaders(delivery.signingSecret, delivery.body),
+                  ...retryHeaders,
+                },
+              });
+              if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
+              store.completeEventDelivery(delivery.id);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "unknown delivery error";
+              const delay =
+                EVENT_DELIVERY_RETRY_MS[
+                  Math.min(delivery.attempts, EVENT_DELIVERY_RETRY_MS.length - 1)
+                ]!;
+              const failure = store.failEventDelivery(
+                delivery.id,
+                message,
+                Date.now() + delay,
+                EVENT_DELIVERY_ATTEMPTS,
+              );
+              // Deleting the subscription/app or revoking channel membership
+              // while the request was in flight deliberately removed the row.
+              if (!failure) return;
+              app.log.warn(
+                {
+                  subscriptionId: delivery.subscriptionId,
+                  eventSeq: delivery.eventSeq,
+                  attempt: failure.attempts,
+                  terminal: failure.terminal,
+                  err: message,
+                },
+                failure.terminal
+                  ? "event subscription delivery abandoned"
+                  : "event subscription delivery will retry",
+              );
+            }
+          }),
+        );
+      }
+    })().finally(() => {
+      eventDeliveryFlush = null;
+    });
+    return eventDeliveryFlush;
   };
 
   /** Posts a message and fans it out. Used by the API and the scheduler alike. */
@@ -2422,6 +2496,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return { ok: true };
   });
 
+  app.post<{ Params: { id: string } }>("/api/subscriptions/:id/retry", async (req) => {
+    requireAdmin(req);
+    if (!store.getSubscription(req.params.id)) throw new HttpError(404, "not_found");
+    const retried = store.retryFailedEventDeliveries(req.params.id);
+    void flushEventDeliveries();
+    return { ok: true, retried };
+  });
+
   // ---------- scheduled messages ----------
 
   app.post<{ Params: { id: string } }>("/api/channels/:id/scheduled", async (req, reply) => {
@@ -2752,6 +2834,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
   };
   flushScheduled();
+  void flushEventDeliveries();
   reconcileOrphanedBlobs();
   expireAbandonedUploads();
   void flushFileDeletions();
@@ -2759,12 +2842,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     flushScheduled();
     void flushFileDeletions();
   }, 15_000);
+  const eventDeliveryTimer = setInterval(() => void flushEventDeliveries(), 5_000);
 
   const pruneTimer = setInterval(() => {
     store.pruneEvents();
     store.pruneScheduled(Date.now() - SCHEDULED_RETENTION_MS);
     store.pruneSessions();
     store.pruneDownloadTokens();
+    store.pruneEventDeliveries(Date.now() - EVENT_DELIVERY_RETENTION_MS);
     // After pruning the queue, so a scheduled message that has just gone stops
     // holding its attachments in the same round rather than an hour later.
     if (expireAbandonedUploads() > 0) void flushFileDeletions();
@@ -2780,15 +2865,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     flushScheduled,
     flushFileDeletions,
     expireAbandonedUploads,
+    flushEventDeliveries,
     stop: () => {
       if (stopping) return stopping;
       clearInterval(scheduleTimer);
+      clearInterval(eventDeliveryTimer);
       clearInterval(pruneTimer);
       mdnsHandle?.stop();
       stopping = (async () => {
         await gateway.close();
         await app.close();
-        await flushFileDeletions();
+        await Promise.all([flushFileDeletions(), eventDeliveryFlush ?? Promise.resolve()]);
         db.close();
       })();
       return stopping;

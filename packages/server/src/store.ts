@@ -2058,6 +2058,10 @@ export class Store {
     url: string;
     event_types: string;
     created_at: number;
+    pending_count?: number;
+    failed_count?: number;
+    last_error?: string | null;
+    last_failed_at?: number | null;
   }): EventSubscription {
     return {
       id: r.id,
@@ -2065,6 +2069,16 @@ export class Store {
       url: r.url,
       eventTypes: JSON.parse(r.event_types) as string[],
       createdAt: r.created_at,
+      ...(r.pending_count !== undefined
+        ? {
+            delivery: {
+              pending: r.pending_count,
+              failed: r.failed_count ?? 0,
+              lastError: r.last_error ?? null,
+              lastFailedAt: r.last_failed_at ?? null,
+            },
+          }
+        : {}),
     };
   }
 
@@ -2081,9 +2095,28 @@ export class Store {
 
   listSubscriptions(appId: ID): EventSubscription[] {
     const rows = this.db
-      .prepare("SELECT * FROM event_subscriptions WHERE app_id = ? ORDER BY created_at")
+      .prepare(
+        `SELECT s.*,
+          (SELECT COUNT(*) FROM event_deliveries d
+           WHERE d.subscription_id = s.id AND d.failed_at IS NULL) AS pending_count,
+          (SELECT COUNT(*) FROM event_deliveries d
+           WHERE d.subscription_id = s.id AND d.failed_at IS NOT NULL) AS failed_count,
+          (SELECT d.last_error FROM event_deliveries d
+           WHERE d.subscription_id = s.id AND d.failed_at IS NOT NULL
+           ORDER BY d.failed_at DESC, d.id DESC LIMIT 1) AS last_error,
+          (SELECT d.failed_at FROM event_deliveries d
+           WHERE d.subscription_id = s.id AND d.failed_at IS NOT NULL
+           ORDER BY d.failed_at DESC, d.id DESC LIMIT 1) AS last_failed_at
+         FROM event_subscriptions s WHERE s.app_id = ? ORDER BY s.created_at`,
+      )
       .all(appId) as unknown as Parameters<Store["toSubscription"]>[0][];
     return rows.map((r) => this.toSubscription(r));
+  }
+
+  getSubscription(id: ID): EventSubscription | null {
+    const row = this.db.prepare("SELECT * FROM event_subscriptions WHERE id = ?").get(id) as
+      Parameters<Store["toSubscription"]>[0] | undefined;
+    return row ? this.toSubscription(row) : null;
   }
 
   /** Every subscription plus its app, so delivery needs one query per event. */
@@ -2091,7 +2124,8 @@ export class Store {
     const rows = this.db
       .prepare(
         "SELECT s.*, a.id AS a_id, a.name AS a_name, a.bot_user_id, a.created_by, a.created_at AS a_created_at" +
-          " FROM event_subscriptions s JOIN apps a ON a.id = s.app_id",
+          " FROM event_subscriptions s JOIN apps a ON a.id = s.app_id" +
+          " JOIN users u ON u.id = a.bot_user_id WHERE u.deactivated = 0",
       )
       .all() as unknown as (Parameters<Store["toSubscription"]>[0] & {
       a_id: string;
@@ -2114,6 +2148,125 @@ export class Store {
 
   deleteSubscription(id: ID): boolean {
     return this.db.prepare("DELETE FROM event_subscriptions WHERE id = ?").run(id).changes > 0;
+  }
+
+  // ---------- durable outgoing event delivery ----------
+
+  enqueueEventDelivery(
+    subscriptionId: ID,
+    channelId: ID | null,
+    eventSeq: number,
+    body: string,
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO event_deliveries
+           (id, subscription_id, channel_id, event_seq, body, next_attempt_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(ulid(), subscriptionId, channelId, eventSeq, body, now, now);
+  }
+
+  /**
+   * At most one event per subscription is returned. An older retry blocks newer
+   * events for that endpoint, preserving event-sequence order.
+   */
+  dueEventDeliveries(
+    now = Date.now(),
+    limit = 10,
+  ): {
+    id: ID;
+    subscriptionId: ID;
+    eventSeq: number;
+    body: string;
+    attempts: number;
+    url: string;
+    signingSecret: string;
+  }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT d.id, d.subscription_id, d.event_seq, d.body, d.attempts,
+                s.url, a.signing_secret
+         FROM event_deliveries d
+         JOIN event_subscriptions s ON s.id = d.subscription_id
+         JOIN apps a ON a.id = s.app_id
+         JOIN users u ON u.id = a.bot_user_id
+         WHERE d.failed_at IS NULL AND d.next_attempt_at <= ? AND u.deactivated = 0
+           AND (d.channel_id IS NULL OR EXISTS (
+             SELECT 1 FROM channel_members cm
+             WHERE cm.channel_id = d.channel_id AND cm.user_id = a.bot_user_id
+           ))
+           AND NOT EXISTS (
+             SELECT 1 FROM event_deliveries older
+             WHERE older.subscription_id = d.subscription_id
+               AND older.failed_at IS NULL
+               AND (older.event_seq < d.event_seq OR
+                    (older.event_seq = d.event_seq AND older.id < d.id))
+           )
+         ORDER BY d.next_attempt_at, d.event_seq, d.id LIMIT ?`,
+      )
+      .all(now, limit) as unknown as {
+      id: string;
+      subscription_id: string;
+      event_seq: number;
+      body: string;
+      attempts: number;
+      url: string;
+      signing_secret: string;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      subscriptionId: r.subscription_id,
+      eventSeq: r.event_seq,
+      body: r.body,
+      attempts: r.attempts,
+      url: r.url,
+      signingSecret: r.signing_secret,
+    }));
+  }
+
+  completeEventDelivery(id: ID): boolean {
+    return this.db.prepare("DELETE FROM event_deliveries WHERE id = ?").run(id).changes > 0;
+  }
+
+  failEventDelivery(
+    id: ID,
+    error: string,
+    nextAttemptAt: number,
+    maxAttempts: number,
+    now = Date.now(),
+  ): { attempts: number; terminal: boolean } | null {
+    this.db
+      .prepare(
+        `UPDATE event_deliveries SET
+           attempts = attempts + 1,
+           next_attempt_at = ?,
+           last_error = ?,
+           failed_at = CASE WHEN attempts + 1 >= ? THEN ? ELSE NULL END
+         WHERE id = ?`,
+      )
+      .run(nextAttemptAt, error.slice(0, 500), maxAttempts, now, id);
+    const row = this.db
+      .prepare("SELECT attempts, failed_at FROM event_deliveries WHERE id = ?")
+      .get(id) as { attempts: number; failed_at: number | null } | undefined;
+    return row ? { attempts: row.attempts, terminal: row.failed_at !== null } : null;
+  }
+
+  pruneEventDeliveries(failedBefore: number): void {
+    this.db.prepare("DELETE FROM event_deliveries WHERE failed_at < ?").run(failedBefore);
+  }
+
+  retryFailedEventDeliveries(subscriptionId: ID, now = Date.now()): number {
+    return Number(
+      this.db
+        .prepare(
+          `UPDATE event_deliveries SET attempts = 0, next_attempt_at = ?,
+             failed_at = NULL, last_error = NULL
+           WHERE subscription_id = ? AND failed_at IS NOT NULL`,
+        )
+        .run(now, subscriptionId).changes,
+    );
   }
 
   // ---------- invites ----------

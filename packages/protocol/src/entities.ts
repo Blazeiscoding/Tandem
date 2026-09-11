@@ -298,4 +298,11 @@ export interface EventSubscription {
   /** Native event types delivered; empty means every type the app can see. */
   eventTypes: string[];
   createdAt: number;
+  /** Delivery health, included in the administrator's app detail response. */
+  delivery?: {
+    pending: number;
+    failed: number;
+    lastError: string | null;
+    lastFailedAt: number | null;
+  };
 }

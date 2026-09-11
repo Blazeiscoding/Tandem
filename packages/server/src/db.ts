@@ -325,6 +325,34 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_download_tokens_file ON download_tokens(file_id);
   CREATE INDEX idx_download_tokens_session ON download_tokens(session_hash);
   `,
+  // v20 — durable, ordered delivery for outgoing integration events.
+  `
+  CREATE TABLE event_deliveries (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL REFERENCES event_subscriptions(id) ON DELETE CASCADE,
+    channel_id TEXT REFERENCES channels(id) ON DELETE CASCADE,
+    event_seq INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    failed_at INTEGER,
+    last_error TEXT,
+    UNIQUE (subscription_id, event_seq)
+  );
+  CREATE INDEX idx_event_deliveries_due
+    ON event_deliveries(failed_at, next_attempt_at, event_seq);
+  CREATE INDEX idx_event_deliveries_channel ON event_deliveries(channel_id);
+  CREATE TRIGGER discard_revoked_event_deliveries AFTER DELETE ON channel_members
+  BEGIN
+    DELETE FROM event_deliveries
+    WHERE channel_id = OLD.channel_id AND subscription_id IN (
+      SELECT s.id FROM event_subscriptions s
+      JOIN apps a ON a.id = s.app_id
+      WHERE a.bot_user_id = OLD.user_id
+    );
+  END;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */
