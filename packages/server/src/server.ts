@@ -68,6 +68,7 @@ import { imageSize } from "./imageSize.js";
 import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
+import { LOGGER_OPTIONS } from "./redact.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
 import { secretToken, ulid } from "./ids.js";
@@ -129,7 +130,12 @@ export interface ServerOptions {
    * Turn it on deliberately when the bot really does run on the same network.
    */
   allowPrivateHooks?: boolean;
-  logger?: boolean;
+  /**
+   * Request logging. A stream can be given instead of `true` to send the log
+   * somewhere other than stdout, which is also how a test reads back what was
+   * actually written.
+   */
+  logger?: boolean | { stream: NodeJS.WritableStream };
   /** Private deployments default to LAN-only media with no external ICE service. */
   iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
   /**
@@ -646,7 +652,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       );
     });
 
-  const app = Fastify({ logger: opts.logger ?? false, forceCloseConnections: true });
+  const app = Fastify({
+    // Redacting where the log is configured rather than at each call site: the
+    // leak is Fastify's own request logging, which no route goes through.
+    logger: opts.logger
+      ? { ...LOGGER_OPTIONS, ...(typeof opts.logger === "object" ? opts.logger : {}) }
+      : false,
+    forceCloseConnections: true,
+  });
   // The default allow-list is GET/HEAD/POST only, which silently breaks
   // reactions, edits, deletes, pins and saves in the browser.
   await app.register(cors, {
@@ -1495,7 +1508,6 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   app.get<{ Params: { id: string }; Querystring: { download?: string } }>(
     "/api/files/:id",
-    { logLevel: "silent" }, // Never put a redeemable ticket in request logs.
     async (req, reply) => {
       // A ticket stands in for the header a navigation cannot carry. Whoever
       // spends it still has to pass the checks its issuer passed.
