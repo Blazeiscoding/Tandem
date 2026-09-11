@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useCopy } from "../lib/useCopy.js";
-import type { ID } from "@slackoss/protocol";
+import type { EventSubscription, ID } from "@slackoss/protocol";
 import { ApiError, type AppDetail } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
@@ -297,6 +297,33 @@ const EVENT_TYPES = [
   "channel.created",
 ];
 
+/**
+ * How an endpoint's queue is doing, in the terms an administrator has to act
+ * on: work still waiting, work given up on, and events that never got queued
+ * because the endpoint was too far behind to hold them.
+ */
+function DeliveryStatus({ delivery }: { delivery: EventSubscription["delivery"] }) {
+  if (!delivery) return null;
+  const { pending, failed, dropped, lastError } = delivery;
+  if (pending === 0 && failed === 0 && dropped === 0) return null;
+  const parts = [
+    pending > 0 ? `${pending} waiting` : null,
+    failed > 0 ? `${failed} given up on` : null,
+    dropped > 0 ? `${dropped} dropped while behind` : null,
+    failed > 0 && lastError ? lastError : null,
+  ].filter(Boolean);
+  const bad = failed > 0 || dropped > 0;
+  return (
+    <p
+      role={bad ? "alert" : "status"}
+      title={lastError ?? undefined}
+      className={`truncate ${bad ? "text-alert" : "text-ink-faint"}`}
+    >
+      {parts.join(" · ")}
+    </p>
+  );
+}
+
 function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () => void }) {
   const client = useClient();
   const [url, setUrl] = useState("");
@@ -363,18 +390,7 @@ function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () =>
                 Remove
               </button>
             </div>
-            {sub.delivery && (sub.delivery.pending > 0 || sub.delivery.failed > 0) && (
-              <p
-                role={sub.delivery.failed > 0 ? "alert" : "status"}
-                title={sub.delivery.lastError ?? undefined}
-                className={`truncate ${sub.delivery.failed > 0 ? "text-alert" : "text-ink-faint"}`}
-              >
-                {sub.delivery.pending > 0 && `${sub.delivery.pending} pending`}
-                {sub.delivery.pending > 0 && sub.delivery.failed > 0 && " · "}
-                {sub.delivery.failed > 0 &&
-                  `${sub.delivery.failed} failed${sub.delivery.lastError ? ` · ${sub.delivery.lastError}` : ""}`}
-              </p>
-            )}
+            <DeliveryStatus delivery={sub.delivery} />
           </li>
         ))}
       </ul>

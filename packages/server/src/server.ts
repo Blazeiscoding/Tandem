@@ -347,7 +347,12 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         // reverse-engineer the mapping.
         slackoss: { type: envelope.event.type, seq: envelope.seq },
       });
-      store.enqueueEventDelivery(subscription.id, channelId, envelope.seq, body);
+      if (!store.enqueueEventDelivery(subscription.id, channelId, envelope.seq, body)) {
+        app.log.warn(
+          { subscriptionId: subscription.id, eventSeq: envelope.seq },
+          "event subscription backlog full, event dropped",
+        );
+      }
     }
   };
 
@@ -383,7 +388,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
                 },
               });
               if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
-              store.completeEventDelivery(delivery.id);
+              store.completeEventDelivery(delivery.id, delivery.subscriptionId);
             } catch (err) {
               const message = err instanceof Error ? err.message : "unknown delivery error";
               const delay =
@@ -399,12 +404,19 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
               // Deleting the subscription/app or revoking channel membership
               // while the request was in flight deliberately removed the row.
               if (!failure) return;
+              // An endpoint that has used up a whole ladder of attempts is not
+              // coming back on its own, so the rest of its queue goes with it
+              // rather than each event repeating the same hours of retries.
+              const alsoAbandoned = failure.terminal
+                ? store.abandonEventBacklog(delivery.subscriptionId, message)
+                : 0;
               app.log.warn(
                 {
                   subscriptionId: delivery.subscriptionId,
                   eventSeq: delivery.eventSeq,
                   attempt: failure.attempts,
                   terminal: failure.terminal,
+                  alsoAbandoned,
                   err: message,
                 },
                 failure.terminal
