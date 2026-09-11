@@ -252,3 +252,103 @@ describe("outbox durability", () => {
     fresh.destroy();
   });
 });
+
+describe("reconnecting more than once", () => {
+  it("survives a run of reconnections without losing or duplicating anything", async () => {
+    const sent: string[] = [];
+    for (let round = 0; round < 4; round++) {
+      await disconnect();
+      const text = `round ${round}`;
+      await owner.sendMessage(channelId, { text });
+      sent.push(text);
+      client.connect();
+      await expect.poll(() => client.state.status).toBe("online");
+      await expect
+        .poll(() => client.state.timelines[channelId]?.items.some((m) => m.text === text))
+        .toBe(true);
+    }
+    const texts = client.state.timelines[channelId]!.items.map((m) => m.text);
+    // Each message once, in the order it was sent: a replay that overlapped
+    // what was already applied would show one of them twice.
+    expect(texts.filter((t) => t.startsWith("round "))).toEqual(sent);
+    expect(client.state.lastSeq).toBe(server.store.currentSeq());
+  });
+});
+
+describe("sequence numbers with gaps in them", () => {
+  it("replays across events it is not allowed to see", async () => {
+    // A private room the member is not in. Its events take sequence numbers
+    // that will never be delivered here, so what arrives is not consecutive —
+    // and nothing may assume it is.
+    const secret = (await owner.createChannel({ type: "private", name: "secret" })).channel;
+    await disconnect();
+    await owner.sendMessage(secret.id, { text: "not for you" });
+    await owner.sendMessage(secret.id, { text: "nor this" });
+    const visible = (await owner.sendMessage(channelId, { text: "after the gap" })).message;
+    await owner.sendMessage(secret.id, { text: "nor this either" });
+
+    client.connect();
+    await expect
+      .poll(() => client.state.timelines[channelId]?.items.some((m) => m.id === visible.id))
+      .toBe(true);
+    const items = client.state.timelines[channelId]!.items;
+    expect(items.some((m) => m.text.includes("not for you"))).toBe(false);
+    expect(client.state.channels[secret.id]).toBeUndefined();
+    // Caught up to where the server is, not to the last thing it was shown;
+    // otherwise every reconnection would replay the same invisible gap again.
+    expect(client.state.lastSeq).toBe(server.store.currentSeq());
+
+    // And a second reconnection has nothing left to do.
+    await disconnect();
+    client.connect();
+    await expect.poll(() => client.state.status).toBe("online");
+    expect(
+      client.state.timelines[channelId]!.items.filter((m) => m.id === visible.id),
+    ).toHaveLength(1);
+  });
+});
+
+describe("a server that has gone backwards", () => {
+  it("starts again rather than waiting for sequence numbers that will not come", async () => {
+    await owner.sendMessage(channelId, { text: "before the rollback" });
+    await expect.poll(() => client.state.timelines[channelId]?.items.length).toBe(1);
+    await disconnect();
+
+    // What a restore from backup looks like from here: the client is holding a
+    // cursor past anything the server still has.
+    (client as unknown as { store: { setState: (p: object) => void } }).store.setState({
+      lastSeq: server.store.currentSeq() + 5000,
+    });
+    const after = (await owner.sendMessage(channelId, { text: "after the rollback" })).message;
+
+    client.connect();
+    await expect.poll(() => client.state.status).toBe("online");
+    await expect
+      .poll(() => client.state.timelines[channelId]?.items.some((m) => m.id === after.id))
+      .toBe(true);
+    // Asking to resume from a cursor the server cannot honour has to mean
+    // reloading, not sitting quietly waiting for events that will never arrive.
+    expect(client.state.lastSeq).toBe(server.store.currentSeq());
+  });
+});
+
+describe("a refusal that will not stop on its own", () => {
+  it("gives up and says why when the account must replace its password", async () => {
+    const self = client.state.self!;
+    await disconnect();
+    server.store.setPassword(
+      self.id,
+      server.store.getUserAuthByHandle(self.handle)!.passwordHash,
+      server.store.getUserAuthByHandle(self.handle)!.salt,
+      true,
+    );
+
+    client.connect();
+    await expect.poll(() => client.state.status).toBe("password_change_required");
+    // Retrying cannot help, so it must not keep trying: a loop that never ends
+    // and never says why is worse than stopping.
+    const before = client.state.status;
+    await new Promise((r) => setTimeout(r, 250));
+    expect(client.state.status).toBe(before);
+  });
+});
