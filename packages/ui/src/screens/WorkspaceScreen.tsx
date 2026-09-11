@@ -329,10 +329,14 @@ function WorkspaceInner({
           ? "signed out"
           : status === "protocol_mismatch"
             ? "Server version incompatible — update Gatherline"
-            : "offline";
+            : status === "password_change_required"
+              ? "Choose a new password to carry on"
+              : "offline";
 
   useEffect(() => {
-    if (status === "auth_failed") onSignedOut();
+    // Signing out is what leads back to the screen that can replace a password:
+    // signing in again lands on it, holding the password it needs to replace.
+    if (status === "auth_failed" || status === "password_change_required") onSignedOut();
   }, [status, onSignedOut]);
 
   return (
