@@ -55,7 +55,10 @@ describe("the desktop client's copy of it", () => {
       resolve(here, "../../../apps/desktop/src/renderer/index.html"),
       "utf8",
     );
-    const found = /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html);
+    // Tolerant of how the formatter chooses to lay the element out: it wraps
+    // long attributes across lines, which a regex expecting them adjacent
+    // would read as the element being absent.
+    const found = /http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(html);
     expect(
       found,
       "the desktop renderer has no Content-Security-Policy meta element",
