@@ -140,6 +140,11 @@ test("two people register, chat, become friends, reconnect, and exchange real We
   const errors: string[] = [];
   for (const page of [alice, bob]) {
     page.on("pageerror", (err) => errors.push(err.message));
+    // A blocked resource is reported to the console rather than thrown, so it
+    // would slip past the page-error check above on its own.
+    page.on("console", (m) => {
+      if (m.text().includes("Content Security Policy")) errors.push(m.text());
+    });
     await page.addInitScript(() => {
       const Original = window.RTCPeerConnection;
       (window as any).peers = [];
@@ -274,6 +279,11 @@ test("scrolls back through a long channel without unbounded growth or losing its
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
+  // A blocked resource is reported to the console rather than thrown, so it
+  // would slip past the page-error check above on its own.
+  page.on("console", (m) => {
+    if (m.text().includes("Content Security Policy")) errors.push(m.text());
+  });
   try {
     await register(page, "carol");
     // Far more history than the client keeps in memory, posted as the same user.
@@ -350,6 +360,11 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
 }, info) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // A blocked resource is reported to the console rather than thrown, so it
+  // would slip past the page-error check above on its own.
+  page.on("console", (m) => {
+    if (m.text().includes("Content Security Policy")) errors.push(m.text());
+  });
   await page.goto(base);
   await expect(page).toHaveTitle("Gatherline");
   await page.screenshot({ path: info.outputPath("gatherline-welcome.png") });
@@ -539,6 +554,11 @@ test("an app's button calls it back and rewrites the message it sits on", async 
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
+  // A blocked resource is reported to the console rather than thrown, so it
+  // would slip past the page-error check above on its own.
+  page.on("console", (m) => {
+    if (m.text().includes("Content Security Policy")) errors.push(m.text());
+  });
   try {
     // Alice owns this workspace, so she is the one who can create an app.
     const login = await (
@@ -697,6 +717,11 @@ test("a button opens the app's form, and what you type reaches the app", async (
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
+  // A blocked resource is reported to the console rather than thrown, so it
+  // would slip past the page-error check above on its own.
+  page.on("console", (m) => {
+    if (m.text().includes("Content Security Policy")) errors.push(m.text());
+  });
   try {
     const login = await (
       await fetch(`${base}/api/auth/login`, {

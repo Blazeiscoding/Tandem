@@ -70,6 +70,7 @@ import { OutboundError, postToUrl } from "./outbound.js";
 import { DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
 import { LOGGER_OPTIONS } from "./redact.js";
 import { firstHeaderValue, isLoopbackOrigin, originFromConnection } from "./netTrust.js";
+import { SECURITY_HEADERS } from "./securityHeaders.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
 import { secretToken, ulid } from "./ids.js";
@@ -687,6 +688,15 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
   });
   await app.register(multipart, { limits: { fileSize: maxFileSize, files: 1 } });
+
+  // On every response rather than only on the client's HTML. An API reply is
+  // not a page, but it can be navigated to directly, and a header that is
+  // always there cannot be forgotten on the one route that needed it.
+  app.addHook("onSend", async (_req, reply) => {
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+      if (!reply.hasHeader(name)) reply.header(name, value);
+    }
+  });
 
   // Slack-style integrations often post `payload=<json>` as a form rather than
   // JSON, so accept that shape too. Small enough not to warrant a plugin.

@@ -707,12 +707,18 @@ describe("durable event delivery", () => {
     failOnly("/resign");
     stub.received.length = 0;
     await post("sign me");
-    await eventually(() => stub.received.filter((r) => r.url === "/resign").length >= 1);
-    makeDue(bot.subscriptionId);
-    await server.flushEventDeliveries();
-    await eventually(() => stub.received.filter((r) => r.url === "/resign").length >= 2);
+    const tries = () => stub.received.filter((r) => r.url === "/resign");
+    await eventually(() => tries().length >= 1);
+    // Looping rather than flushing once: a flush already running is joined
+    // rather than restarted, so a single call is not guaranteed to be the one
+    // that makes the next attempt.
+    for (let i = 0; i < 10 && tries().length < 2; i++) {
+      makeDue(bot.subscriptionId);
+      await server.flushEventDeliveries();
+    }
 
-    const attempts = stub.received.filter((r) => r.url === "/resign");
+    const attempts = tries();
+    expect(attempts.length).toBeGreaterThanOrEqual(2);
     // One event, however many attempts it takes — which is what lets a receiver
     // that already handled it recognise the repeat.
     const ids = attempts.map((r) => (JSON.parse(r.body) as { event_id: string }).event_id);
