@@ -189,6 +189,22 @@ deactivated bot receives no new events and its prior pending deliveries pause.
 Removing a bot from a channel discards queued events for that channel, so restoring
 membership does not disclose events from the revoked interval.
 
+## Behind a reverse proxy
+
+Set `--public-url` to the address people actually use. It is what an app is told
+to send its replies to, and having it configured means nothing has to be inferred
+from a request. Add `--trust-proxy` only when a proxy in front of this server
+writes the `X-Forwarded-*` headers and nothing can reach the server directly:
+anyone can send those headers, and without a proxy to vouch for them a forged one
+would decide where an app's reply and its token went. With neither set, the server
+uses the address the connection arrived on, which no header can change.
+
+While a workspace has no owner yet, creating the first account from the machine
+running the server does not need the claim code. That applies to a command line
+request or to the page this server itself served, not to any page that merely has
+your browser post to localhost — those carry an `Origin` naming somewhere else and
+are asked for the code like anyone else.
+
 ## Request limits
 
 One caller is held to a fair share of sign-in attempts, messages, uploads,
