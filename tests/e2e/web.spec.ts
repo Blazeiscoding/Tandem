@@ -895,3 +895,61 @@ test("deactivating someone signs them out of the app they already have open", as
     await leaverContext.close().catch(() => {});
   }
 });
+
+test("an admin who never copied a bot token can replace it, and the old one stops working", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const page = await context.newPage();
+  try {
+    await signIn(page, "alice");
+    // Every replacement asks first; this test means yes.
+    page.on("dialog", (d) => void d.accept());
+
+    await page.getByRole("button", { name: "⚙ Apps and integrations", exact: true }).click();
+    let dialog = page.getByRole("dialog", { name: "Apps and integrations" });
+    await dialog.getByPlaceholder("App name, e.g. Deploy Bot").fill("Rotation Demo");
+    await dialog.getByRole("button", { name: "Create", exact: true }).click();
+    const app = dialog.locator("li").filter({ hasText: "Rotation Demo" }).first();
+    const tokenRow = app
+      .locator("div")
+      .filter({ hasText: /^Bot token · shown once/ })
+      .first();
+    const firstToken = (await tokenRow.locator("code").textContent())!;
+    expect(firstToken.startsWith("xoxb-")).toBe(true);
+
+    // Closing the dialog is how a token shown once gets lost.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole("button", { name: "⚙ Apps and integrations", exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "Apps and integrations" });
+    const reopened = dialog.locator("li").filter({ hasText: "Rotation Demo" }).first();
+    await expect(reopened.getByText(/Bot token · shown once/)).toHaveCount(0);
+
+    await reopened.getByRole("button", { name: "New bot token", exact: true }).click();
+    const newRow = reopened
+      .locator("div")
+      .filter({ hasText: /^Bot token · shown once/ })
+      .first();
+    await expect(newRow).toBeVisible();
+    const secondToken = (await newRow.locator("code").textContent())!;
+    expect(secondToken.startsWith("xoxb-")).toBe(true);
+    expect(secondToken).not.toBe(firstToken);
+
+    const tryToken = async (token: string) =>
+      (
+        await (
+          await fetch(`${base}/api/chat.postMessage`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+            body: JSON.stringify({ channel: "nowhere", text: "hello" }),
+          })
+        ).json()
+      ).error;
+    expect(await tryToken(firstToken)).toBe("invalid_auth");
+    // Past authentication: refused for the channel, not for who is asking.
+    expect(await tryToken(secondToken)).not.toBe("invalid_auth");
+  } finally {
+    await context.close().catch(() => {});
+  }
+});

@@ -1690,3 +1690,197 @@ describe("modals", () => {
     expect(stolen.data.error).toBe("trigger_not_yours");
   });
 });
+
+describe("replacing an app's credentials", () => {
+  const sign = (secret: string, ts: string, body: string) =>
+    `v0=${createHmac("sha256", secret).update(`v0:${ts}:${body}`).digest("hex")}`;
+
+  async function postAs(token: string, text: string) {
+    return api<{ ok: boolean; error?: string }>("/api/chat.postMessage", {
+      token,
+      body: { channel: channelId, text },
+    });
+  }
+
+  it("gives a working bot token and stops the old one at once", async () => {
+    const created = await newApp("Rotating Bot");
+    server.store.addMember(channelId, created.botUser.id);
+    expect((await postAs(created.token, "before")).data.ok).toBe(true);
+
+    const replaced = await api<{ token: string }>(`/api/apps/${created.id}/token`, {
+      method: "POST",
+      token: aliceToken,
+    });
+    expect(replaced.status).toBe(200);
+    expect(replaced.data.token.startsWith("xoxb-")).toBe(true);
+    expect(replaced.data.token).not.toBe(created.token);
+
+    // No overlap: a token is replaced because it leaked, and a window in which
+    // both work is a window in which the leaked one still does.
+    const old = await postAs(created.token, "with the leaked token");
+    expect(old.status).toBe(401);
+    expect(old.data.error).toBe("invalid_auth");
+    expect((await postAs(replaced.data.token, "after")).data.ok).toBe(true);
+  });
+
+  it("signs the next request with a new signing secret, and not the old one", async () => {
+    const created = await newApp("Secret Bot");
+    stub.handler = () => ({ body: "" });
+    const registered = await api(`/api/apps/${created.id}/commands`, {
+      token: aliceToken,
+      body: { command: "/rotated", url: stub.url("/rotated") },
+    });
+    expect(registered.status).toBe(201);
+
+    const replaced = await api<{ signingSecret: string }>(
+      `/api/apps/${created.id}/signing-secret`,
+      { method: "POST", token: aliceToken },
+    );
+    expect(replaced.status).toBe(200);
+    expect(replaced.data.signingSecret).not.toBe(created.signingSecret);
+
+    stub.received.length = 0;
+    await api(`/api/channels/${channelId}/commands`, {
+      token: aliceToken,
+      body: { text: "/rotated" },
+    });
+    const sent = stub.received.find((r) => r.url === "/rotated")!;
+    const ts = sent.headers["x-slack-request-timestamp"]!;
+    expect(sent.headers["x-slack-signature"]).toBe(
+      sign(replaced.data.signingSecret, ts, sent.body),
+    );
+    expect(sent.headers["x-slack-signature"]).not.toBe(sign(created.signingSecret, ts, sent.body));
+
+    // What an admin reads back is the secret now in use.
+    const listed = await api<{ apps: { id: string; signingSecret: string }[] }>("/api/apps", {
+      token: aliceToken,
+    });
+    expect(listed.data.apps.find((a) => a.id === created.id)!.signingSecret).toBe(
+      replaced.data.signingSecret,
+    );
+  });
+
+  it("signs an event already waiting in the queue with the new secret", async () => {
+    // The body is queued; the signature is not. An endpoint whose secret leaked
+    // should not keep receiving events signed with it after the replacement.
+    const created = await newApp("Queued Secret Bot");
+    stub.handler = (req) => ({
+      body: JSON.stringify({
+        challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+      }),
+    });
+    const sub = await api<{ subscription: { id: string } }>(
+      `/api/apps/${created.id}/subscriptions`,
+      {
+        token: aliceToken,
+        body: { url: stub.url("/queued-secret"), eventTypes: ["message.created"] },
+      },
+    );
+    expect(sub.status).toBe(201);
+    server.store.addMember(channelId, created.botUser.id);
+
+    const db = (
+      server.store as unknown as {
+        db: {
+          prepare: (q: string) => {
+            run: (...a: unknown[]) => void;
+            get: (...a: unknown[]) => unknown;
+          };
+        };
+      }
+    ).db;
+    const attempts = () =>
+      (
+        db
+          .prepare("SELECT attempts FROM event_deliveries WHERE subscription_id = ?")
+          .get(sub.data.subscription.id) as { attempts: number } | undefined
+      )?.attempts ?? 0;
+
+    stub.handler = (req) =>
+      req.url === "/queued-secret" ? { status: 503, body: "" } : { body: "" };
+    await api(`/api/channels/${channelId}/messages`, {
+      token: aliceToken,
+      body: { text: "waiting through a rotation" },
+    });
+    await eventually(() => attempts() > 0, 5000);
+
+    const replaced = await api<{ signingSecret: string }>(
+      `/api/apps/${created.id}/signing-secret`,
+      { method: "POST", token: aliceToken },
+    );
+    stub.handler = () => ({ body: "" });
+    stub.received.length = 0;
+    db.prepare("UPDATE event_deliveries SET next_attempt_at = 0 WHERE subscription_id = ?").run(
+      sub.data.subscription.id,
+    );
+    // A flush already running is joined rather than restarted, so keep asking
+    // until the retry has actually gone out.
+    while (!stub.received.some((r) => r.url === "/queued-secret"))
+      await server.flushEventDeliveries();
+
+    const retried = stub.received.find((r) => r.url === "/queued-secret")!;
+    const ts = retried.headers["x-slack-request-timestamp"]!;
+    expect(retried.headers["x-slack-retry-num"]).toBe("1");
+    expect(retried.headers["x-slack-signature"]).toBe(
+      sign(replaced.data.signingSecret, ts, retried.body),
+    );
+  });
+
+  it("gives a webhook a new URL for the same channel, and refuses the old one", async () => {
+    const created = await newApp("Hook Rotation Bot");
+    const made = await api<{ webhook: { id: string }; url: string }>(
+      `/api/apps/${created.id}/webhooks`,
+      { token: aliceToken, body: { channelId } },
+    );
+    expect(made.status).toBe(201);
+    const hook = (path: string, text: string) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+    expect((await hook(made.data.url, "through the first url")).status).toBe(200);
+
+    const replaced = await api<{ webhook: { id: string; channelId: string }; url: string }>(
+      `/api/webhooks/${made.data.webhook.id}/url`,
+      { method: "POST", token: aliceToken },
+    );
+    expect(replaced.status).toBe(200);
+    expect(replaced.data.url).not.toBe(made.data.url);
+    // Same webhook, same channel: nothing to choose again.
+    expect(replaced.data.webhook.id).toBe(made.data.webhook.id);
+    expect(replaced.data.webhook.channelId).toBe(channelId);
+
+    expect((await hook(made.data.url, "through the leaked url")).status).toBe(404);
+    expect((await hook(replaced.data.url, "through the new url")).status).toBe(200);
+  });
+
+  it("is for administrators only", async () => {
+    const created = await newApp("Guarded Rotation Bot");
+    const made = await api<{ webhook: { id: string } }>(`/api/apps/${created.id}/webhooks`, {
+      token: aliceToken,
+      body: { channelId },
+    });
+    for (const path of [
+      `/api/apps/${created.id}/token`,
+      `/api/apps/${created.id}/signing-secret`,
+      `/api/webhooks/${made.data.webhook.id}/url`,
+    ]) {
+      const refused = await api(path, { method: "POST", token: bobToken });
+      expect(refused.status, path).toBe(403);
+    }
+    // And a refusal replaced nothing.
+    server.store.addMember(channelId, created.botUser.id);
+    expect((await postAs(created.token, "still mine")).data.ok).toBe(true);
+  });
+
+  it("says so when there is nothing to replace", async () => {
+    for (const path of [
+      "/api/apps/01NOSUCHAPP000000000000000/token",
+      "/api/apps/01NOSUCHAPP000000000000000/signing-secret",
+      "/api/webhooks/01NOSUCHHOOK00000000000000/url",
+    ]) {
+      expect((await api(path, { method: "POST", token: aliceToken })).status, path).toBe(404);
+    }
+  });
+});
