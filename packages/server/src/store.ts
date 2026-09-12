@@ -786,6 +786,12 @@ export class Store {
     this.db
       .prepare("UPDATE messages SET text = ?, edited_at = ? WHERE id = ?")
       .run(text, Date.now(), id);
+    // Every earlier version of the words, wherever the log still holds it. An
+    // edit is often how someone takes back what they wrote, and leaving the
+    // first draft on disk would make the correction cosmetic. The caller emits
+    // the new version after this returns, so nothing appended yet is the one
+    // being kept.
+    this.redactMessageEvents(id);
     return this.getMessage(id)!;
   }
 
@@ -797,7 +803,9 @@ export class Store {
     this.db.prepare("DELETE FROM reactions WHERE message_id = ?").run(id);
     this.db.prepare("DELETE FROM pins WHERE message_id = ?").run(id);
     this.db.prepare("DELETE FROM saved_items WHERE message_id = ?").run(id);
+    this.redactMessageEvents(id);
   }
+
 
   /** Newest-first page of top-level channel messages (or thread replies). */
   listMessages(opts: { channelId: ID; before?: ID; limit: number; threadRootId?: ID }): Message[] {
@@ -2378,9 +2386,65 @@ export class Store {
 
   appendEvent(event: WorkspaceEvent, channelId: ID | null): EventEnvelope {
     const res = this.db
-      .prepare("INSERT INTO events (channel_id, type, payload, created_at) VALUES (?, ?, ?, ?)")
-      .run(channelId, event.type, JSON.stringify(event), Date.now());
+      .prepare(
+        "INSERT INTO events (channel_id, type, payload, created_at, message_id) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(channelId, event.type, JSON.stringify(event), Date.now(), Store.eventMessageId(event));
     return { seq: Number(res.lastInsertRowid), event };
+  }
+
+  /**
+   * Which message an event is about, or null if it is not about one. This is
+   * stored beside the payload so that deleting a message can find every copy of
+   * its words without reading the whole log.
+   */
+  private static eventMessageId(event: WorkspaceEvent): ID | null {
+    if (event.type === "message.created" || event.type === "message.updated") {
+      return event.message.id;
+    }
+    if (event.type === "message.deleted") return event.messageId;
+    return null;
+  }
+
+  /**
+   * Takes the text and attachment names of one message out of the event log,
+   * leaving the events themselves in place.
+   *
+   * The events have to stay: a client catching up replays them in order, and a
+   * missing sequence number is indistinguishable from a log it has fallen off
+   * the end of, which would send it back for a whole new snapshot. What it
+   * replays instead is a message with no words in it, immediately followed by
+   * the edit or the deletion that supersedes it, so the state it arrives at is
+   * the same one it would have reached anyway.
+   *
+   * Returns how many events were changed.
+   */
+  redactMessageEvents(messageId: ID, keepSeq?: number): number {
+    const rows = this.db
+      .prepare(
+        `SELECT seq, payload FROM events
+         WHERE message_id = ? AND type IN ('message.created', 'message.updated')
+         ${keepSeq === undefined ? "" : "AND seq != ?"}`,
+      )
+      .all(messageId, ...(keepSeq === undefined ? [] : [keepSeq])) as {
+      seq: number;
+      payload: string;
+    }[];
+    const update = this.db.prepare("UPDATE events SET payload = ? WHERE seq = ?");
+    let changed = 0;
+    for (const row of rows) {
+      const event = JSON.parse(row.payload) as WorkspaceEvent;
+      if (event.type !== "message.created" && event.type !== "message.updated") continue;
+      const before = row.payload;
+      event.message.text = "";
+      // A filename is often as telling as the message it was attached to.
+      event.message.files = [];
+      const after = JSON.stringify(event);
+      if (after === before) continue;
+      update.run(after, row.seq);
+      changed++;
+    }
+    return changed;
   }
 
   currentSeq(): number {
