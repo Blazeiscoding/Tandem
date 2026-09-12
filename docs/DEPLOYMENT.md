@@ -314,6 +314,16 @@ anyone can send those headers, and without a proxy to vouch for them a forged on
 would decide where an app's reply and its token went. With neither set, the server
 uses the address the connection arrived on, which no header can change.
 
+The address must be a full `http://` or `https://` URL. A path is fine, for a
+server published under one (`https://example.com/chat`); a username or password,
+a query or a `#fragment` is refused at startup, since whatever is in the address
+is repeated in every URL handed to an app.
+
+The server checks its settings before it starts and stops with a one-line reason
+naming the flag: a port outside 0–65535, a malformed `--public-url`, a fraction
+of a day for `--retention-days`, an unknown flag, a port already in use or one
+this account may not bind, or a `--host` address the machine does not have.
+
 While a workspace has no owner yet, creating the first account from the machine
 running the server does not need the claim code. That applies to a command line
 request or to the page this server itself served, not to any page that merely has
