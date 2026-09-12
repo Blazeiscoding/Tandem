@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const MIGRATIONS: string[] = [
   // v1 — initial schema
@@ -385,7 +385,84 @@ export function openDbAtVersion(path: string, version: number): DatabaseSync {
   return openDb(path, version);
 }
 
-export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
+/** Where copies taken before an upgrade go, beside the workspace they came from. */
+export const UPGRADE_BACKUP_DIR = "pre-upgrade";
+/** How many of those copies are kept. Each is a whole database. */
+export const UPGRADE_BACKUPS_KEPT = 3;
+
+export interface OpenDbOptions {
+  /**
+   * Copy an existing workspace before migrating it. On by default. Turning it
+   * off is for someone who has just taken their own backup and has no room for
+   * a second copy, not for everyday use.
+   */
+  backupBeforeUpgrade?: boolean;
+  /** Told where the copy went, once it has been written. */
+  onUpgradeBackup?: (file: string) => void;
+}
+
+/**
+ * A consistent copy of the database as it is before any migration touches it.
+ *
+ * A migration runs in a transaction, so one that fails leaves the old schema
+ * behind. What a transaction cannot undo is a migration that succeeds and is
+ * wrong, or an upgrade someone wants to walk back a week later: rolling back
+ * means the old application with the old data, and without a copy there is no
+ * old data to roll back to. This is that copy, taken before the first change,
+ * with nothing asked of the host.
+ *
+ * `VACUUM INTO` writes a snapshot including anything still in the write-ahead
+ * log. Attachments are not copied: no migration touches them.
+ */
+function backupBeforeUpgrade(db: DatabaseSync, path: string, from: number, to: number): string {
+  const dir = join(dirname(path), UPGRADE_BACKUP_DIR);
+  const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
+  const file = join(dir, `workspace-v${from}-before-v${to}-${stamp}.db`);
+  try {
+    mkdirSync(dir, { recursive: true });
+    db.prepare("VACUUM INTO ?").run(file);
+    const copy = new DatabaseSync(file, { readOnly: true });
+    try {
+      const { user_version } = copy.prepare("PRAGMA user_version").get() as {
+        user_version: number;
+      };
+      if (user_version !== from) throw new Error("the copy has the wrong schema version");
+    } finally {
+      copy.close();
+    }
+  } catch (err) {
+    // Best effort. Whatever stopped the copy can stop this too — on Linux a
+    // file where the directory should be makes even removing a missing file
+    // fail — and the reason worth reporting is the first one.
+    try {
+      rmSync(file, { force: true });
+    } catch {
+      // Nothing was written that needs removing, or it cannot be removed.
+    }
+    throw new Error(
+      `Could not back up this workspace before upgrading it, so it has not been upgraded ` +
+        `and nothing has changed. ${(err as Error).message}. Free some disk space and start ` +
+        `again, or take a backup yourself and start with --skip-upgrade-backup.`,
+    );
+  }
+  // Only the most recent few. One copy per upgrade is what rolling back the
+  // last few needs; keeping every one would fill the disk a database at a time.
+  // Ordered by when each was taken, which the name records.
+  const taken = (name: string) => /-before-v\d+-(.+)\.db$/.exec(name)?.[1] ?? "";
+  const copies = readdirSync(dir)
+    .filter((name) => /^workspace-v\d+-before-v\d+-.+\.db$/.test(name))
+    .sort((a, b) => taken(a).localeCompare(taken(b)));
+  for (const old of copies.slice(0, Math.max(0, copies.length - UPGRADE_BACKUPS_KEPT))) {
+    rmSync(join(dir, old), { force: true });
+  }
+  return file;
+}
+
+export function openDb(
+  path: string,
+  upTo = MIGRATIONS.length,
+  options: OpenDbOptions = {},
+): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL");
@@ -398,6 +475,22 @@ export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
     throw new Error(
       "This workspace was created by a newer server version. Upgrade the server before opening it.",
     );
+  }
+  // Version 0 is a file that has only just been created: nothing to lose yet.
+  if (
+    path !== ":memory:" &&
+    user_version > 0 &&
+    user_version < upTo &&
+    options.backupBeforeUpgrade !== false
+  ) {
+    let file: string;
+    try {
+      file = backupBeforeUpgrade(db, path, user_version, upTo);
+    } catch (err) {
+      db.close();
+      throw err;
+    }
+    options.onUpgradeBackup?.(file);
   }
   for (let v = user_version; v < upTo; v++) {
     db.exec("BEGIN");
