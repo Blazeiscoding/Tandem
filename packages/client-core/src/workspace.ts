@@ -21,7 +21,14 @@ import { FileCache } from "./fileCache.js";
 import { HuddleSession, type HuddleState } from "./huddle.js";
 
 export type ConnectionStatus =
-  "connecting" | "online" | "reconnecting" | "auth_failed" | "protocol_mismatch" | "closed";
+  | "connecting"
+  | "online"
+  | "reconnecting"
+  | "auth_failed"
+  | "protocol_mismatch"
+  /** The server will refuse this account until its password is replaced. */
+  | "password_change_required"
+  | "closed";
 
 /** A file shown in the composer or in an optimistic message, before the server has it. */
 export interface LocalAttachment {
@@ -419,10 +426,15 @@ export class WorkspaceClient {
       this.leaveHuddle();
       if (event.code === 4003) this.store.setState({ status: "auth_failed" });
       if (event.code === 4002) this.store.setState({ status: "protocol_mismatch" });
+      if (event.code === 4004) this.store.setState({ status: "password_change_required" });
+      // Retrying only makes sense for a refusal that might stop. These will not
+      // until somebody does something, so reconnecting would be a loop that
+      // never ends and never says why.
       if (
         this.stopped ||
         this.state.status === "auth_failed" ||
-        this.state.status === "protocol_mismatch"
+        this.state.status === "protocol_mismatch" ||
+        this.state.status === "password_change_required"
       )
         return;
       this.store.setState({ status: "reconnecting" });
@@ -461,6 +473,9 @@ export class WorkspaceClient {
       case "error":
         if (msg.code === "auth_failed") this.store.setState({ status: "auth_failed" });
         if (msg.code === "protocol_mismatch") this.store.setState({ status: "protocol_mismatch" });
+        if (msg.code === "password_change_required") {
+          this.store.setState({ status: "password_change_required" });
+        }
         break;
       case "pong":
         break;
