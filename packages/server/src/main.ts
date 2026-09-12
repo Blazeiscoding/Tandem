@@ -22,6 +22,7 @@ const { values, positionals } = parseArgs({
     "no-mdns": { type: "boolean", default: false },
     "storage-limit-mb": { type: "string" },
     "abandoned-upload-hours": { type: "string" },
+    "retention-days": { type: "string" },
     web: { type: "string" },
     "public-url": { type: "string" },
     "allow-private-hooks": { type: "boolean", default: false },
@@ -55,6 +56,13 @@ Usage: slackoss-server [options]
                     How long an upload may sit unattached before it is freed
                     (default 24). Attachments a scheduled message still needs
                     are never swept, however old they are.
+  --retention-days <n>
+                    Discard conversation older than this many days; 0 keeps
+                    everything (default). What it removes is removed from the
+                    database, not hidden: getting it back means restoring a
+                    backup taken before the sweep ran. A thread goes as one
+                    thing, once its newest reply is past the window too. Also
+                    settable with SLACKOSS_RETENTION_DAYS.
   --web <dir>       Serve the browser client from this directory
   --public-url <u>  How others reach this server, e.g. https://chat.team.dev
                     (set it behind a reverse proxy; used in URLs given to apps)
@@ -255,6 +263,11 @@ const abandonedUploadHours = numericOption(
   values["abandoned-upload-hours"] ?? process.env.SLACKOSS_ABANDONED_UPLOAD_HOURS,
   24,
 );
+const retentionDays = numericOption(
+  "--retention-days",
+  values["retention-days"] ?? process.env.SLACKOSS_RETENTION_DAYS,
+  0,
+);
 if (abandonedUploadHours <= 0) {
   console.error(`
   --abandoned-upload-hours must be greater than zero
@@ -266,6 +279,7 @@ const server = await createWorkspaceServer({
   dataDir: resolve(values.data),
   maxStorageBytes: Math.round(storageLimitMb * 1024 * 1024),
   abandonedUploadTtlMs: Math.round(abandonedUploadHours * 3600_000),
+  retentionDays: Math.round(retentionDays),
   port: Number(values.port),
   host: values.host,
   workspaceName: values.name,
@@ -284,6 +298,11 @@ const server = await createWorkspaceServer({
 console.log(`\n  SlackOSS server v${SERVER_VERSION} is running`);
 console.log(`  Data: ${resolve(values.data)}`);
 console.log(`  Local:   http://localhost:${server.port}`);
+if (retentionDays > 0) {
+  // Said out loud on every start. A setting that quietly discards history is
+  // one somebody should be reminded they turned on.
+  console.log(`  Retention: conversation older than ${retentionDays} days is discarded`);
+}
 for (const addr of lanAddresses()) {
   console.log(`  Network: http://${addr}:${server.port}  <- share this with your team`);
 }

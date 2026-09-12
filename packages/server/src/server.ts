@@ -152,6 +152,16 @@ export interface ServerOptions {
    * anywhere reachable from outside it.
    */
   rateLimits?: Partial<Limits> | false;
+  /**
+   * How many days of conversation to keep. Omitted or zero keeps everything,
+   * which is the default: a workspace that silently started discarding history
+   * would be worse than one that grows.
+   *
+   * Turning it on is not reversible. What it removes is removed from the
+   * database entirely rather than hidden, so restoring it means restoring a
+   * backup taken before the sweep ran.
+   */
+  retentionDays?: number;
 }
 
 export interface WorkspaceServer {
@@ -169,6 +179,11 @@ export interface WorkspaceServer {
   flushFileDeletions: () => Promise<void>;
   /** Frees uploads nobody attached. Runs on a timer; exposed so tests need not wait. */
   expireAbandonedUploads: () => number;
+  /**
+   * Discards conversation past the retention window, returning how many
+   * messages went. Runs on a timer; exposed so tests need not wait.
+   */
+  applyRetention: () => number;
   /** Delivers a bounded batch of committed integration events. */
   flushEventDeliveries: () => Promise<void>;
   stop: () => Promise<void>;
@@ -199,6 +214,12 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     (!Number.isSafeInteger(opts.abandonedUploadTtlMs) || opts.abandonedUploadTtlMs <= 0)
   ) {
     throw new Error("abandonedUploadTtlMs must be a positive safe integer");
+  }
+  if (
+    opts.retentionDays !== undefined &&
+    (!Number.isSafeInteger(opts.retentionDays) || opts.retentionDays < 0)
+  ) {
+    throw new Error("retentionDays must be a non-negative safe integer");
   }
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
   const db = openDb(dbPath);
@@ -586,6 +607,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const blobPath = (fileId: string) => join(filesDir!, fileId);
   const storage = new StorageBudget(filesDir, opts.maxStorageBytes || null);
   const abandonedUploadTtlMs = opts.abandonedUploadTtlMs ?? 24 * 3600_000;
+  const retentionMs = (opts.retentionDays ?? 0) * 24 * 3600_000;
 
   let fileCleanup: Promise<void> | null = null;
   const flushFileDeletions = (): Promise<void> => {
@@ -654,6 +676,30 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     store.queueFileDeletions(orphans);
     app.log.warn({ count: orphans.length }, "queued orphaned attachment blobs");
     return orphans.length;
+  };
+
+  /**
+   * Discards conversation older than the configured retention window.
+   *
+   * Nothing is emitted for what goes. These messages are old enough that no
+   * screen is showing them, and announcing a month of deletions would put
+   * thousands of events into the very log this is meant to keep small. A client
+   * scrolled back that far keeps what it has until it next asks the server,
+   * which will not have it.
+   */
+  const applyRetention = (): number => {
+    if (!retentionMs) return 0;
+    const { messageIds, fileIds } = store.transaction(() =>
+      store.purgeMessagesBefore(Date.now() - retentionMs),
+    );
+    if (messageIds.length === 0) return 0;
+    store.transaction(() => store.queueFileDeletions(fileIds));
+    app.log.info(
+      { messages: messageIds.length, files: fileIds.length, retentionDays: opts.retentionDays },
+      "discarded conversation past the retention window",
+    );
+    if (fileIds.length > 0) void flushFileDeletions();
+    return messageIds.length;
   };
 
   const removeMessage = (existing: Message) =>
@@ -3020,6 +3066,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     // After pruning the queue, so a scheduled message that has just gone stops
     // holding its attachments in the same round rather than an hour later.
     if (expireAbandonedUploads() > 0) void flushFileDeletions();
+    applyRetention();
   }, 3600_000);
   let stopping: Promise<void> | null = null;
 
@@ -3032,6 +3079,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     flushScheduled,
     flushFileDeletions,
     expireAbandonedUploads,
+    applyRetention,
     flushEventDeliveries,
     stop: () => {
       if (stopping) return stopping;

@@ -806,6 +806,71 @@ export class Store {
     this.redactMessageEvents(id);
   }
 
+  /**
+   * Removes every trace of conversations older than `before`, and returns the
+   * attachment ids whose bytes the caller still has to delete from disk.
+   *
+   * A thread ages out as one thing. A root is taken only when its newest reply
+   * is past the cutoff too, and then its replies go with it, because a reply
+   * hanging under nothing reads as a database that has gone wrong rather than
+   * as a retention window doing its job.
+   *
+   * `limit` is a ceiling on roots per call so the first sweep after someone
+   * turns this on does not hold the database for a minute. What it leaves
+   * behind is taken on the next round.
+   */
+  purgeMessagesBefore(before: number, limit = 2000): { messageIds: ID[]; fileIds: ID[] } {
+    const roots = (
+      this.db
+        .prepare(
+          `SELECT id FROM messages m
+           WHERE m.thread_root_id IS NULL AND m.created_at < ?
+             AND NOT EXISTS (
+               SELECT 1 FROM messages r WHERE r.thread_root_id = m.id AND r.created_at >= ?
+             )
+           ORDER BY m.id LIMIT ?`,
+        )
+        .all(before, before, limit) as { id: string }[]
+    ).map((r) => r.id);
+    if (roots.length === 0) return { messageIds: [], fileIds: [] };
+
+    const rootPlaceholders = roots.map(() => "?").join(",");
+    const replies = (
+      this.db
+        .prepare(`SELECT id FROM messages WHERE thread_root_id IN (${rootPlaceholders})`)
+        .all(...roots) as { id: string }[]
+    ).map((r) => r.id);
+    const messageIds = [...roots, ...replies];
+    const placeholders = messageIds.map(() => "?").join(",");
+
+    const fileIds = (
+      this.db
+        .prepare(`SELECT id FROM files WHERE message_id IN (${placeholders})`)
+        .all(...messageIds) as { id: string }[]
+    ).map((r) => r.id);
+
+    // Everything that points at a message, before the messages themselves:
+    // foreign keys are on, so a leftover reference would refuse the delete
+    // rather than quietly orphan.
+    for (const sql of [
+      `DELETE FROM reactions WHERE message_id IN (${placeholders})`,
+      `DELETE FROM pins WHERE message_id IN (${placeholders})`,
+      `DELETE FROM saved_items WHERE message_id IN (${placeholders})`,
+      `DELETE FROM message_requests WHERE message_id IN (${placeholders})`,
+      `DELETE FROM thread_follows WHERE root_id IN (${placeholders})`,
+      `DELETE FROM files WHERE message_id IN (${placeholders})`,
+      // Not a foreign key, but a scheduled row still naming a message that no
+      // longer exists would report a send that cannot be looked up.
+      `UPDATE scheduled_messages SET message_id = NULL WHERE message_id IN (${placeholders})`,
+      `DELETE FROM messages WHERE id IN (${placeholders})`,
+    ]) {
+      this.db.prepare(sql).run(...messageIds);
+    }
+
+    // The rows are gone; the log still holds what they said.
+    for (const id of messageIds) this.redactMessageEvents(id);
+    return { messageIds, fileIds };
+  }
 
   /** Newest-first page of top-level channel messages (or thread replies). */
   listMessages(opts: { channelId: ID; before?: ID; limit: number; threadRootId?: ID }): Message[] {
