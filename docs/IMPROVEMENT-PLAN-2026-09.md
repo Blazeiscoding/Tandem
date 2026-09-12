@@ -635,3 +635,17 @@ Each can now be replaced from Apps and integrations, after a confirmation that s
 Six server regressions and one browser scenario. Keeping the old tokens, not storing the new secret, not replacing the webhook's hash, and dropping the administrator check each fail their own cases; the browser scenario fails if the new token is not shown. That scenario goes the way an administrator would lose a token — creating an app, closing the dialog, reopening it to find the token gone — and then checks against the API that the first token is refused and the second is accepted. Workspace typechecks, formatting, all 378 tests (server 275, client-core 62, UI 29, protocol 12) and all 8 browser scenarios passed.
 
 The rest of I02 is still open: least-privilege scopes for bot tokens, and bounds on what one app may do beyond the posting rate every account already has.
+
+### A copy before every upgrade (O02)
+
+The server already refused a database newer than it understood, and each migration already ran in its own transaction, so a migration that failed left the old schema behind. What a transaction cannot undo is a migration that succeeds and turns out to be wrong, or an upgrade somebody wants to walk back a week later. Rolling back means the previous release together with the data it understood, and the documentation's answer — take a backup before upgrading — depended on somebody remembering to, every time, before the step that makes it too late.
+
+The server now takes that copy itself. Before the first migration touches an existing workspace, `VACUUM INTO` writes a consistent snapshot, including anything still in the write-ahead log, into `pre-upgrade/` inside the data directory, named for the two schema versions it sits between. The copy is opened and its version checked before anything is migrated. The startup output says where it went and the log records it. A brand-new workspace, or one already current, gets no copy, since there is nothing to roll back. Only the three most recent copies are kept — each is a whole database — and anything else someone has put in that folder is left alone.
+
+If the copy cannot be written, most often because the disk is full, the server refuses to upgrade: the error says nothing has changed, the file is still at its old version, and nothing is left holding it, which matters on Windows where an open handle would stop the host moving the workspace aside. `--skip-upgrade-backup` turns the copy off for someone who has just taken a backup and has no room for a second.
+
+The copy is the database only. Attachments are not duplicated, since no migration touches them; the rollback instructions say what that means for anything uploaded after the upgrade, and that everything written since the upgrade is lost with a rollback.
+
+Six regressions in `packages/server/test/upgrade.test.ts`. Taking no copy, not pruning, leaving the handle open on failure, swallowing a failed copy, and copying a workspace that is already current each fail their own cases. The open-handle case only bites on Windows, where CI runs it. The bundled CLI was also started against a workspace one version behind, and printed where its copy went. Workspace typechecks, formatting, all 384 tests (server 281, client-core 62, UI 29, protocol 12) and all 8 browser scenarios passed.
+
+Still open from O02: historical migration fixtures beyond the v8 one, and handling a disk that fills during the migration itself rather than before it.

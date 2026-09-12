@@ -149,6 +149,20 @@ Before upgrading, take a backup. Rebuild and restart with Compose; SQLite migrat
 run automatically. To roll back a schema change, restore the matching backup and
 previous application version together — the server refuses to open a database
 newer than it understands, so an application rollback alone will not start.
+
+The server also copies the database itself before any upgrade that changes the
+schema, so there is something to roll back to even when nobody remembered. The copy
+goes in `pre-upgrade/` inside the data directory, is named for the schema versions
+it sits between, and the startup output says where it went. The three most recent
+are kept. If the copy cannot be written — most often a full disk — the server
+refuses to upgrade and changes nothing. The copy is the database only: attachments
+are not duplicated, since no migration touches them. To roll back with it, stop the
+server, put the copy in place of `workspace.db`, and start the previous release.
+Everything written since the upgrade is lost with it — messages, accounts, settings.
+Attachments uploaded since then stay on disk with nothing pointing at them; a release
+that reconciles orphaned attachments frees them on start, and an older one leaves
+them for you to remove. `--skip-upgrade-backup` turns the copy off,
+for someone who has just taken a backup and has no room for a second one.
 Deleting a container preserves the named volume; `docker compose down -v` deletes
 it, so avoid that command for real data.
 
