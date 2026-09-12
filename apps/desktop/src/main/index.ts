@@ -1,11 +1,11 @@
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, safeStorage, shell } from "electron";
 import { join } from "node:path";
-import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { pathToFileURL } from "node:url";
 import { Bonjour, type Service } from "bonjour-service";
 import { DEEP_LINK_PROTOCOL, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
+import { createSettingsStorage } from "./settings.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 const isTest = process.env.SLACKOSS_TEST === "1";
@@ -95,64 +95,22 @@ ipcMain.handle("deeplink:consume", () => {
   return url;
 });
 
-// ---------- settings storage (plain JSON in userData) ----------
+// ---------- settings and OS-protected saved sign-ins ----------
 
-const settingsPath = () => join(app.getPath("userData"), "settings.json");
-let settingsRead: Promise<Record<string, unknown>> | null = null;
-let settingsWrite: Promise<void> = Promise.resolve();
-
-async function readSettings(): Promise<Record<string, unknown>> {
-  if (settingsRead) return settingsRead;
-  const reading = (async () => {
-    let raw: string;
-    try {
-      raw = await readFile(settingsPath(), "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw error;
-    }
-    const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      throw new Error("Could not read settings: expected a JSON object.");
-    return value as Record<string, unknown>;
-  })();
-  settingsRead = reading;
-  try {
-    return await reading;
-  } finally {
-    // Neither a failed read nor a valid old copy may hide a repaired file or
-    // let a later write silently replace data that has become unreadable.
-    if (settingsRead === reading) settingsRead = null;
-  }
-}
-
-ipcMain.handle("storage:get", async (_e, key: string, options?: { strict?: boolean }) => {
-  await settingsWrite.catch(() => {});
-  try {
-    const s = await readSettings();
-    return s[key] ?? null;
-  } catch (error) {
-    if (options?.strict) throw error;
-    return null;
-  }
+const settings = createSettingsStorage(join(app.getPath("userData"), "settings.json"), {
+  isAvailable: () =>
+    safeStorage.isEncryptionAvailable() &&
+    (process.platform !== "linux" ||
+      !["basic_text", "unknown"].includes(safeStorage.getSelectedStorageBackend())),
+  encryptString: (value) => safeStorage.encryptString(value),
+  decryptString: (value) => safeStorage.decryptString(value),
 });
 
-function writeSetting(key: string, value: unknown): Promise<void> {
-  // Serialize every writer and read the original strictly before replacement.
-  // A failed read must never turn an unknown settings file into empty settings.
-  settingsWrite = settingsWrite
-    .catch(() => {})
-    .then(async () => {
-      const s = await readSettings();
-      const next = { ...s, [key]: value };
-      await mkdir(app.getPath("userData"), { recursive: true });
-      const temporary = `${settingsPath()}.tmp`;
-      await writeFile(temporary, JSON.stringify(next, null, 2));
-      await rename(temporary, settingsPath());
-    });
-  return settingsWrite;
-}
+ipcMain.handle("storage:get", (_e, key: string, options?: { strict?: boolean }) =>
+  settings.get(key, options),
+);
 
+const writeSetting = (key: string, value: unknown) => settings.set(key, value);
 ipcMain.handle("storage:set", (_e, key: string, value: unknown) => writeSetting(key, value));
 
 // ---------- LAN discovery (mDNS browse) ----------
