@@ -271,6 +271,25 @@ deactivated bot receives no new events and its prior pending deliveries pause.
 Removing a bot from a channel discards queued events for that channel, so restoring
 membership does not disclose events from the revoked interval.
 
+### Replacing a leaked credential
+
+Apps and integrations offers a replacement for each of an app's three kinds of
+secret, without deleting the app or losing its commands, subscriptions and
+webhooks:
+
+- **New bot token** replaces every token the app has. The old one stops working
+  with that request, with no overlap, since a token is replaced because it has
+  leaked. This is also how to get a token for an app whose original was never
+  copied: the server stores tokens only as hashes and cannot show one again.
+- **Replace** beside the signing secret takes effect on the next request the server signs,
+  including event deliveries already waiting in the queue, which are signed when
+  they are sent. The app rejects requests until it has the new secret.
+- **New URL** on a webhook keeps its channel and replaces the secret in its URL.
+  Anything posting to the old URL gets a 404.
+
+Each replacement is logged with the app or webhook and the administrator who made
+it, never the credential itself.
+
 ## Behind a reverse proxy
 
 Set `--public-url` to the address people actually use. It is what an app is told
