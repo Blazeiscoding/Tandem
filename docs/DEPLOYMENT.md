@@ -332,6 +332,35 @@ action after resolving the problem. Unreadable browser values and malformed
 desktop settings are preserved instead of being treated as empty. Repairing the
 desktop settings file can be retried without restarting the app.
 
+## Desktop saved sign-ins
+
+Gatherline encrypts the desktop app's saved sign-ins using Electron's
+[OS-backed safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+Windows uses the current OS account's protection; macOS uses Keychain and Linux
+needs a supported secret store. Linux's `basic_text` fallback is refused. On
+macOS, consistent application signing is needed for reliable Keychain behavior
+across updates.
+
+An old plaintext sign-in list is migrated on its next successful read or settings
+write. The original remains intact if encryption or replacement fails; it is
+still plaintext until migration succeeds. New credentials are never saved with
+a plaintext fallback. A failed save leaves the current session usable and shows
+Retry saving. Unlock the system key store and retry before closing if you want
+the new sign-in remembered.
+
+If saved sign-ins cannot be unlocked, the app offers Retry or a confirmed Forget
+saved sign-ins action. Forgetting removes only the saved sign-ins, so you can
+authenticate again while keeping drafts, queued messages and hosted workspaces.
+Copying desktop settings to another OS account/machine may require signing in
+again; the protected credentials depend on the original OS key store. Older
+desktop builds do not understand this protected saved-sign-in format.
+
+Drafts and other local settings remain unencrypted. This does not encrypt browser
+localStorage, server data or older backups, and it does not protect credentials
+from a compromised running app or another process with the same OS-account
+access. Native runtime verification currently covers Windows; macOS/Linux
+behavior still needs platform testing.
+
 ## Current boundaries
 
 Friends and accounts do not federate across servers. Account settings offers password
