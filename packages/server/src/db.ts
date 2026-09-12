@@ -431,7 +431,14 @@ function backupBeforeUpgrade(db: DatabaseSync, path: string, from: number, to: n
       copy.close();
     }
   } catch (err) {
-    rmSync(file, { force: true });
+    // Best effort. Whatever stopped the copy can stop this too — on Linux a
+    // file where the directory should be makes even removing a missing file
+    // fail — and the reason worth reporting is the first one.
+    try {
+      rmSync(file, { force: true });
+    } catch {
+      // Nothing was written that needs removing, or it cannot be removed.
+    }
     throw new Error(
       `Could not back up this workspace before upgrading it, so it has not been upgraded ` +
         `and nothing has changed. ${(err as Error).message}. Free some disk space and start ` +
