@@ -153,6 +153,11 @@ export interface ServerOptions {
    */
   rateLimits?: Partial<Limits> | false;
   /**
+   * Copy an existing workspace before upgrading its schema. On by default; see
+   * `OpenDbOptions.backupBeforeUpgrade` for when turning it off is reasonable.
+   */
+  backupBeforeUpgrade?: boolean;
+  /**
    * How many days of conversation to keep. Omitted or zero keeps everything,
    * which is the default: a workspace that silently started discarding history
    * would be worse than one that grows.
@@ -173,6 +178,8 @@ export interface WorkspaceServer {
    * once someone owns it. The host prints it; it is not served over the API.
    */
   claimCode: string | null;
+  /** The copy taken before this start upgraded the workspace, if it did. */
+  upgradeBackup: string | null;
   /** Posts anything now due. Runs on a timer; exposed so tests need not wait. */
   flushScheduled: () => void;
   /** Retries a bounded batch of committed attachment deletions. */
@@ -222,7 +229,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     throw new Error("retentionDays must be a non-negative safe integer");
   }
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
-  const db = openDb(dbPath);
+  let upgradeBackup: string | null = null;
+  const db = openDb(dbPath, undefined, {
+    backupBeforeUpgrade: opts.backupBeforeUpgrade,
+    onUpgradeBackup: (file) => (upgradeBackup = file),
+  });
   const store = new Store(db);
 
   if (opts.workspaceName) store.setMeta("workspace_name", opts.workspaceName);
@@ -750,6 +761,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    *
    * Registered before any route, since it only applies to routes added after.
    */
+  if (upgradeBackup) {
+    app.log.info({ file: upgradeBackup }, "backed up the workspace before upgrading it");
+  }
+
   const runningHandlers = new Set<Promise<void>>();
   app.addHook("onRoute", (route) => {
     const handler = route.handler;
@@ -3172,6 +3187,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     gateway,
     /** Set only while the workspace still has no owner. */
     claimCode: claimCode(),
+    upgradeBackup,
     flushScheduled,
     flushFileDeletions,
     expireAbandonedUploads,

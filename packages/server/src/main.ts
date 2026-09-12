@@ -28,6 +28,7 @@ const { values, positionals } = parseArgs({
     "allow-private-hooks": { type: "boolean", default: false },
     "no-rate-limits": { type: "boolean", default: false },
     "trust-proxy": { type: "boolean", default: false },
+    "skip-upgrade-backup": { type: "boolean", default: false },
     handle: { type: "string" },
     "make-owner": { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
@@ -80,6 +81,14 @@ Usage: slackoss-server [options]
                     does not share one person's allowance. Turn this off only
                     on a network where everyone is already trusted. Also
                     settable with SLACKOSS_RATE_LIMITS=off.
+
+  --skip-upgrade-backup
+                    Do not copy the workspace before upgrading it to a newer
+                    schema. The copy goes in pre-upgrade/ inside the data
+                    directory and the three most recent are kept; it is what
+                    rolling back an upgrade restores. Skip it only when you
+                    have just taken a backup yourself and have no disk space
+                    for a second copy.
 
   --allow-private-hooks
                     Let slash commands and event subscriptions call private
@@ -289,6 +298,7 @@ const server = await createWorkspaceServer({
   publicUrl: values["public-url"],
   allowPrivateHooks: values["allow-private-hooks"],
   trustProxy: values["trust-proxy"],
+  backupBeforeUpgrade: !values["skip-upgrade-backup"],
   rateLimits:
     values["no-rate-limits"] || process.env.SLACKOSS_RATE_LIMITS === "off" ? false : undefined,
   logger: true,
@@ -297,6 +307,9 @@ const server = await createWorkspaceServer({
 
 console.log(`\n  SlackOSS server v${SERVER_VERSION} is running`);
 console.log(`  Data: ${resolve(values.data)}`);
+if (server.upgradeBackup) {
+  console.log(`  Upgraded this workspace; the copy from before is at ${server.upgradeBackup}`);
+}
 console.log(`  Local:   http://localhost:${server.port}`);
 if (retentionDays > 0) {
   // Said out loud on every start. A setting that quietly discards history is
