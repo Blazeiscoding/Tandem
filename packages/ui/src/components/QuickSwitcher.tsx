@@ -7,6 +7,7 @@ import { channelTitle } from "../lib/format.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { formatTime } from "../lib/format.js";
+import { isImeKey } from "../lib/textInput.js";
 
 /** Ctrl+K — jump to any channel, DM, or person. */
 export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: ID) => void }) {
@@ -56,6 +57,9 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
           setIndex(0);
         }}
         onKeyDown={(e) => {
+          // Enter chooses among an input method's candidates. Jumping to a
+          // channel on it would take somebody out of the box mid-word.
+          if (isImeKey(e.nativeEvent)) return;
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             setIndex(
@@ -241,6 +245,11 @@ export function SearchDialog(props: {
             maxLength={200}
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              // A form submits on Enter from a text field, which would run the
+              // search on the Enter that picked an input method's candidate.
+              if (e.key === "Enter" && isImeKey(e.nativeEvent)) e.preventDefault();
+            }}
             placeholder="Search every channel you can see"
             className={inputCls}
           />
