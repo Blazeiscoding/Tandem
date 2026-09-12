@@ -541,6 +541,20 @@ export class Api {
     return this.request("POST", `/api/apps/${appId}/webhooks`, body);
   }
 
+  /** Replaces every bot token the app has; the old ones stop working at once. */
+  replaceAppToken(appId: ID): Promise<{ token: string }> {
+    return this.request("POST", `/api/apps/${appId}/token`);
+  }
+
+  replaceSigningSecret(appId: ID): Promise<{ signingSecret: string }> {
+    return this.request("POST", `/api/apps/${appId}/signing-secret`);
+  }
+
+  /** A new URL for the same webhook and channel; the old URL stops working. */
+  replaceWebhookUrl(id: ID): Promise<{ webhook: Webhook; url: string }> {
+    return this.request("POST", `/api/webhooks/${id}/url`);
+  }
+
   deleteWebhook(id: ID): Promise<{ ok: true }> {
     return this.request("DELETE", `/api/webhooks/${id}`);
   }
