@@ -450,6 +450,15 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }
   };
 
+  /**
+   * Shutdown, as the parts of the server that outlive a single call see it.
+   * `closing` stops loops from starting another round; the signal ends outbound
+   * calls already under way, so an app slow to answer cannot hold the process
+   * open for its whole timeout.
+   */
+  let closing = false;
+  const shutdown = new AbortController();
+
   let eventDeliveryFlush: Promise<void> | null = null;
   /**
    * Delivers in sequence per subscription and in parallel across endpoints.
@@ -460,7 +469,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (eventDeliveryFlush) return eventDeliveryFlush;
     eventDeliveryFlush = (async () => {
       let remaining = 50;
-      while (remaining > 0) {
+      while (remaining > 0 && !closing) {
         const due = store.dueEventDeliveries(Date.now(), Math.min(10, remaining));
         if (due.length === 0) break;
         remaining -= due.length;
@@ -476,6 +485,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
                   : {};
               const res = await postToUrl(delivery.url, delivery.body, "application/json", {
                 allowPrivate: opts.allowPrivateHooks,
+                signal: shutdown.signal,
                 headers: {
                   ...signatureHeaders(delivery.signingSecret, delivery.body),
                   ...retryHeaders,
@@ -484,6 +494,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
               if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
               store.completeEventDelivery(delivery.id, delivery.subscriptionId);
             } catch (err) {
+              // Cut short by this server stopping, which says nothing about the
+              // endpoint. The row stays due and goes out after the restart,
+              // rather than spending one of the endpoint's attempts.
+              if (err instanceof OutboundError && err.code === "aborted") return;
               const message = err instanceof Error ? err.message : "unknown delivery error";
               const delay =
                 EVENT_DELIVERY_RETRY_MS[
@@ -726,6 +740,31 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       ? { ...LOGGER_OPTIONS, ...(typeof opts.logger === "object" ? opts.logger : {}) }
       : false,
     forceCloseConnections: true,
+  });
+
+  /**
+   * Every route handler still running. Closing the listener destroys the
+   * connections but not the handlers behind them: a slash command waiting on
+   * its app wakes up afterwards and goes on to read and write the database. So
+   * shutdown waits for these to finish before closing it.
+   *
+   * Registered before any route, since it only applies to routes added after.
+   */
+  const runningHandlers = new Set<Promise<void>>();
+  app.addHook("onRoute", (route) => {
+    const handler = route.handler;
+    route.handler = function (req, reply) {
+      const result = handler.call(this, req, reply) as unknown;
+      if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        const settled = Promise.resolve(result).then(
+          () => {},
+          () => {},
+        );
+        runningHandlers.add(settled);
+        void settled.then(() => runningHandlers.delete(settled));
+      }
+      return result as ReturnType<typeof handler>;
+    };
   });
   // The default allow-list is GET/HEAD/POST only, which silently breaks
   // reactions, edits, deletes, pins and saves in the browser.
@@ -2181,6 +2220,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     try {
       const res = await postToUrl(found.command.url, form, "application/x-www-form-urlencoded", {
         allowPrivate: opts.allowPrivateHooks,
+        signal: shutdown.signal,
         headers: signatureHeaders(store.appSigningSecret(found.app.id) ?? "", form),
       });
       if (res.status < 200 || res.status >= 300) {
@@ -2509,6 +2549,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         "application/x-www-form-urlencoded",
         {
           allowPrivate: opts.allowPrivateHooks,
+          signal: shutdown.signal,
           headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
         },
       );
@@ -2550,6 +2591,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     try {
       const res = await postToUrl(url, probe, "application/json", {
         allowPrivate: opts.allowPrivateHooks,
+        signal: shutdown.signal,
         headers: signatureHeaders(store.appSigningSecret(appId) ?? "", probe),
       });
       answered = res.body.trim();
@@ -2661,6 +2703,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         "application/x-www-form-urlencoded",
         {
           allowPrivate: opts.allowPrivateHooks,
+          signal: shutdown.signal,
           headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
         },
       );
@@ -3083,13 +3126,19 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     flushEventDeliveries,
     stop: () => {
       if (stopping) return stopping;
+      closing = true;
       clearInterval(scheduleTimer);
       clearInterval(eventDeliveryTimer);
       clearInterval(pruneTimer);
       mdnsHandle?.stop();
+      // Before waiting on anything, so whatever is waiting on an app hears
+      // about it now rather than at the end of its timeout.
+      shutdown.abort();
       stopping = (async () => {
         await gateway.close();
         await app.close();
+        // Nothing new can arrive now, so this set only shrinks.
+        while (runningHandlers.size > 0) await Promise.all(runningHandlers);
         await Promise.all([flushFileDeletions(), eventDeliveryFlush ?? Promise.resolve()]);
         db.close();
       })();
