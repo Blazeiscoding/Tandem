@@ -8,32 +8,58 @@ import { createWorkspaceServer, SERVER_VERSION } from "./server.js";
 import { backupWorkspace, restoreWorkspace, verifyBackup } from "./backup.js";
 import { listAccounts, recoverAccount } from "./recover.js";
 import { parseIceServers } from "./rtc.js";
+import {
+  ConfigError,
+  describeStartupError,
+  parsePort,
+  parsePublicUrl,
+  parseWholeNumber,
+} from "./config.js";
 
-const { values, positionals } = parseArgs({
-  allowPositionals: true,
-  options: {
-    data: { type: "string", default: "./data" },
-    out: { type: "string" },
-    from: { type: "string" },
-    port: { type: "string", default: String(DEFAULT_PORT) },
-    host: { type: "string", default: "0.0.0.0" },
-    name: { type: "string" },
-    "invite-only": { type: "boolean" },
-    "no-mdns": { type: "boolean", default: false },
-    "storage-limit-mb": { type: "string" },
-    "abandoned-upload-hours": { type: "string" },
-    "retention-days": { type: "string" },
-    web: { type: "string" },
-    "public-url": { type: "string" },
-    "allow-private-hooks": { type: "boolean", default: false },
-    "no-rate-limits": { type: "boolean", default: false },
-    "trust-proxy": { type: "boolean", default: false },
-    "skip-upgrade-backup": { type: "boolean", default: false },
-    handle: { type: "string" },
-    "make-owner": { type: "boolean", default: false },
-    help: { type: "boolean", short: "h", default: false },
-  },
-});
+/** Says what was wrong and stops, without a stack trace nobody asked for. */
+function refuse(message: string, code = 1): never {
+  console.error(`
+  ${message}
+`);
+  process.exit(code);
+}
+
+const { values, positionals } = (() => {
+  try {
+    return parseArgs({
+      allowPositionals: true,
+      options: {
+        data: { type: "string", default: "./data" },
+        out: { type: "string" },
+        from: { type: "string" },
+        port: { type: "string", default: String(DEFAULT_PORT) },
+        host: { type: "string", default: "0.0.0.0" },
+        name: { type: "string" },
+        "invite-only": { type: "boolean" },
+        "no-mdns": { type: "boolean", default: false },
+        "storage-limit-mb": { type: "string" },
+        "abandoned-upload-hours": { type: "string" },
+        "retention-days": { type: "string" },
+        web: { type: "string" },
+        "public-url": { type: "string" },
+        "allow-private-hooks": { type: "boolean", default: false },
+        "no-rate-limits": { type: "boolean", default: false },
+        "trust-proxy": { type: "boolean", default: false },
+        "skip-upgrade-backup": { type: "boolean", default: false },
+        handle: { type: "string" },
+        "make-owner": { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false },
+      },
+    });
+  } catch (err) {
+    // An unknown or malformed flag. Node's own message says which one.
+    return refuse(
+      `${(err as Error).message}
+  Run slackoss-server --help to see the options.`,
+      2,
+    );
+  }
+})();
 
 if (values.help) {
   console.log(`slackoss-server v${SERVER_VERSION}
@@ -132,7 +158,7 @@ if (command === "backup") {
   const manifest = await backupWorkspace({
     dataDir: resolve(values.data),
     out: resolve(values.out),
-  });
+  }).catch((err: unknown) => refuse(err instanceof Error ? err.message : String(err)));
   const totals = Object.entries(manifest.counts)
     .map(([table, n]) => `${n} ${table.replace(/_/g, " ")}`)
     .join(", ");
@@ -272,11 +298,22 @@ const abandonedUploadHours = numericOption(
   values["abandoned-upload-hours"] ?? process.env.SLACKOSS_ABANDONED_UPLOAD_HOURS,
   24,
 );
-const retentionDays = numericOption(
-  "--retention-days",
-  values["retention-days"] ?? process.env.SLACKOSS_RETENTION_DAYS,
-  0,
-);
+let port: number;
+let retentionDays: number;
+let publicUrl: string | undefined;
+try {
+  port = parsePort(values.port);
+  // Whole days: 1.5 would otherwise be announced as 1.5 and applied as 2.
+  retentionDays = parseWholeNumber(
+    values["retention-days"] ?? process.env.SLACKOSS_RETENTION_DAYS,
+    "--retention-days",
+    0,
+  );
+  publicUrl = values["public-url"] === undefined ? undefined : parsePublicUrl(values["public-url"]);
+} catch (err) {
+  if (!(err instanceof ConfigError)) throw err;
+  refuse(err.message);
+}
 if (abandonedUploadHours <= 0) {
   console.error(`
   --abandoned-upload-hours must be greater than zero
@@ -288,14 +325,14 @@ const server = await createWorkspaceServer({
   dataDir: resolve(values.data),
   maxStorageBytes: Math.round(storageLimitMb * 1024 * 1024),
   abandonedUploadTtlMs: Math.round(abandonedUploadHours * 3600_000),
-  retentionDays: Math.round(retentionDays),
-  port: Number(values.port),
+  retentionDays,
+  port,
   host: values.host,
   workspaceName: values.name,
   inviteOnly: values["invite-only"],
   mdns: !values["no-mdns"],
   webDistPath,
-  publicUrl: values["public-url"],
+  publicUrl,
   allowPrivateHooks: values["allow-private-hooks"],
   trustProxy: values["trust-proxy"],
   backupBeforeUpgrade: !values["skip-upgrade-backup"],
@@ -303,7 +340,7 @@ const server = await createWorkspaceServer({
     values["no-rate-limits"] || process.env.SLACKOSS_RATE_LIMITS === "off" ? false : undefined,
   logger: true,
   iceServers: parseIceServers(process.env.SLACKOSS_ICE_SERVERS),
-});
+}).catch((err: unknown) => refuse(describeStartupError(err, { port, host: values.host })));
 
 console.log(`\n  SlackOSS server v${SERVER_VERSION} is running`);
 console.log(`  Data: ${resolve(values.data)}`);
