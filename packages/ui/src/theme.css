@@ -149,12 +149,22 @@ textarea {
   }
 }
 
+/*
+ * Shortening a looping animation does not stop it — it speeds it up. The
+ * pulsing dot that says a call is live would run its whole cycle in a
+ * hundredth of a second and flicker, which is worse for the person who asked
+ * for less motion than what they were trying to avoid. Capping the iteration
+ * count is what actually ends it; the duration is then only about how long the
+ * one remaining cycle takes.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

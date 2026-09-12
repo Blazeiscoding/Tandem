@@ -9,6 +9,7 @@ import {
   MESSAGE_LIMIT,
 } from "./FormattingToolbar.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { isImeKey } from "../lib/textInput.js";
 
 export function MessageEditor({ message, onClose }: { message: Message; onClose: () => void }) {
   const client = useClient();
@@ -146,7 +147,8 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
           aria-label="Edit message"
           onChange={(e) => change(e.target.value)}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            // Enter confirms an IME candidate rather than saving the edit.
+            if (isImeKey(e.nativeEvent)) return;
             if ((e.ctrlKey || e.metaKey) && !e.altKey) {
               const marker = formattingShortcut(e.key);
               if (marker) {

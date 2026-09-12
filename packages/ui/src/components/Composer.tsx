@@ -13,6 +13,7 @@ import { useComposerPreferences } from "../lib/composerPreferences.js";
 import { formatScheduleTime, localDateTime, schedulePresets } from "../lib/schedule.js";
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { caretToRestore, isImeKey, type PendingCaret } from "../lib/textInput.js";
 import {
   FormattingToolbar,
   formatText,
@@ -81,6 +82,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const [attachmentNote, setAttachmentNote] = useState<string | null>(null);
   const autocompleteId = useId();
   const box = useRef<HTMLTextAreaElement>(null);
+  const pendingCaret = useRef<PendingCaret | null>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
   const dragDepth = useRef(0);
@@ -196,6 +198,23 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     box.current.style.height = `${Math.min(box.current.scrollHeight, 220)}px`;
   }, [text]);
 
+  /**
+   * Puts the caret back after a rewrite, before the browser has painted.
+   *
+   * Waiting a frame for this leaves a gap a fast typist gets a keystroke into,
+   * and completing a mention with Tab is exactly when someone is typing fast.
+   * The restore is abandoned if the field has moved on, because leaving the
+   * caret where their own typing put it beats dragging it back to where it
+   * belonged a moment ago.
+   */
+  useLayoutEffect(() => {
+    const target = caretToRestore(pendingCaret.current, text);
+    pendingCaret.current = null;
+    if (!target || !box.current) return;
+    box.current.focus();
+    box.current.setSelectionRange(target.start, target.end);
+  }, [text]);
+
   function replaceSelection(
     replacement: string,
     start: number,
@@ -204,13 +223,11 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     selectionEnd = selectionStart,
   ) {
     if (scheduleLock.current || recoveryBlocksSend) return;
-    setText(text.slice(0, start) + replacement + text.slice(end));
+    const next = text.slice(0, start) + replacement + text.slice(end);
+    setText(next);
     edited.current = true;
     setMentionQuery(null);
-    requestAnimationFrame(() => {
-      box.current?.focus();
-      box.current?.setSelectionRange(selectionStart, selectionEnd);
-    });
+    pendingCaret.current = { start: selectionStart, end: selectionEnd, text: next };
   }
 
   function format(marker: string, placeholderText: string, block = false) {
@@ -267,10 +284,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     const next = `/${command} `;
     setText(next);
     edited.current = true;
-    requestAnimationFrame(() => {
-      box.current?.setSelectionRange(next.length, next.length);
-      box.current?.focus();
-    });
+    pendingCaret.current = { start: next.length, end: next.length, text: next };
   }
 
   function refreshMentionState(value: string, caret: number) {
@@ -293,11 +307,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setText(next);
     setMentionQuery(null);
     edited.current = true;
-    requestAnimationFrame(() => {
-      const pos = mentionQuery.start + token.length + 1;
-      box.current?.setSelectionRange(pos, pos);
-      box.current?.focus();
-    });
+    const pos = mentionQuery.start + token.length + 1;
+    pendingCaret.current = { start: pos, end: pos, text: next };
   }
 
   useEffect(() => setCommandIndex(0), [commandCandidates.length]);
@@ -469,7 +480,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Enter confirms an IME candidate; it must not send an unfinished message.
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (isImeKey(e.nativeEvent)) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const marker = formattingShortcut(e.key);
       if (marker) {
