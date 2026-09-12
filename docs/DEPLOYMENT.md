@@ -307,6 +307,31 @@ Bulk imports and seeding scripts are the usual reason to want it; prefer running
 those against a server started with the flag rather than raising the limits for
 everybody.
 
+## Changing a workspace address and keeping local work
+
+Updated clients store drafts, queued sends, scheduling recovery and recent
+searches by workspace ID and account ID. Renaming the workspace or restoring its
+backup preserves that ID. Before changing its address, open the old address once
+with the updated client so it can associate that address with the workspace.
+Legacy data can then migrate from any previously approved address, including
+scheduling recovery for conversations you have not reopened. Existing stable
+data takes precedence over an additional address's legacy copy.
+
+When another address claims an identity this device already knows, the client
+shows the previous and new addresses. Approve it only when you recognize the
+move: continuing restores local work and may automatically send queued messages.
+The ID itself is public and does not prove that a different server is trustworthy.
+
+This works within the same desktop app profile or browser app origin. A browser
+served from a new origin cannot read the old origin's localStorage. These local
+items are not uploaded as drafts, included in server backups, or encrypted by
+this feature. Older servers continue to use URL/account keys.
+
+If local storage cannot be read or saved, keep the client open and use its Retry
+action after resolving the problem. Unreadable browser values and malformed
+desktop settings are preserved instead of being treated as empty. Repairing the
+desktop settings file can be retried without restarting the app.
+
 ## Current boundaries
 
 Friends and accounts do not federate across servers. Account settings offers password

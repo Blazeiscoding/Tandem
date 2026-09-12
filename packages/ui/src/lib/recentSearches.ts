@@ -3,6 +3,12 @@ import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
+import {
+  readWorkspaceStorage,
+  workspaceStorageKey,
+  writeWorkspaceStorage,
+  type WorkspaceStorageKey,
+} from "./workspaceStorage.js";
 
 export interface RecentSearch {
   query: string;
@@ -33,7 +39,7 @@ function parse(value: unknown): RecentSearch[] {
   return entries;
 }
 
-function createHistory(platform: Platform, key: string | null) {
+function createHistory(platform: Platform, key: WorkspaceStorageKey | null) {
   const state = createStore(() => ({
     items: [] as RecentSearch[],
     busy: false,
@@ -48,11 +54,11 @@ function createHistory(platform: Platform, key: string | null) {
     state.setState({ busy: true, error: null });
     // Serialize reads and writes across closed/reopened dialogs, so a late
     // history append cannot undo an explicit clear.
-    const operation = (queue.get(key) ?? Promise.resolve())
+    const operation = (queue.get(key.key) ?? Promise.resolve())
       .then(async () => {
-        const previous = clear ? [] : parse(await platform.storage.get<unknown>(key));
+        const previous = clear ? [] : parse(await readWorkspaceStorage<unknown>(platform, key));
         const items = transform ? transform(previous).slice(0, LIMIT) : previous;
-        if (transform) await platform.storage.set(key, items);
+        if (transform) await writeWorkspaceStorage(platform, key, items);
         state.setState({ items });
       })
       .catch(() => {
@@ -62,9 +68,9 @@ function createHistory(platform: Platform, key: string | null) {
       })
       .finally(() => {
         state.setState({ busy: --pending > 0 });
-        if (queue.get(key) === operation) queue.delete(key);
+        if (queue.get(key.key) === operation) queue.delete(key.key);
       });
-    queue.set(key, operation);
+    queue.set(key.key, operation);
   }
   update();
   return {
@@ -80,7 +86,11 @@ export function useRecentSearches() {
   const platform = usePlatform();
   const client = useClient();
   const selfId = useWorkspace((s) => s.self?.id);
-  const key = selfId ? `recent-searches:${client.baseUrl}:${selfId}` : null;
+  const workspaceId = useWorkspace((s) => s.workspaceId);
+  const key = useMemo(
+    () => workspaceStorageKey(client.baseUrl, workspaceId, selfId, "recent-searches"),
+    [client.baseUrl, workspaceId, selfId],
+  );
   const history = useMemo(() => createHistory(platform, key), [platform, key]);
   return {
     ...useStore(history.state),

@@ -109,6 +109,8 @@ export interface ReadySnapshot {
   /** Live huddles the user can see: channelId -> participant ids. */
   huddles: Record<ID, ID[]>;
   workspaceName: string;
+  /** Stable across address/name changes and backup restores. Older servers omit it. */
+  workspaceId?: ID;
   friends?: Friendship[];
 }
 

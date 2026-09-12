@@ -13,6 +13,7 @@ type Session =
   | { view: "join"; autoProbe?: string; inviteCode?: string }
   | {
       view: "workspace";
+      id: number;
       client: WorkspaceClient;
       server: SavedServer;
       /** Set when a slackoss://message link opened this workspace. */
@@ -25,6 +26,7 @@ export function App({ platform }: { platform: Platform }) {
   const [session, setSession] = useState<Session>({ view: "loading" });
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
   const clientRef = useRef<WorkspaceClient | null>(null);
+  const connectionId = useRef(0);
   /** Which workspace is open, so a deep link to it can skip reconnecting. */
   const openServerUrl = useRef<string | null>(null);
 
@@ -53,7 +55,13 @@ export function App({ platform }: { platform: Platform }) {
       ];
       persistServers(updated);
       openServerUrl.current = server.url;
-      setSession({ view: "workspace", client, server, target: target ?? null });
+      setSession({
+        view: "workspace",
+        id: ++connectionId.current,
+        client,
+        server,
+        target: target ?? null,
+      });
     },
     [persistServers],
   );
@@ -172,7 +180,7 @@ export function App({ platform }: { platform: Platform }) {
           )}
           {session.view === "workspace" && (
             <WorkspaceScreen
-              key={session.server.url}
+              key={session.id}
               client={session.client}
               platform={platform}
               initialTarget={session.target ?? null}

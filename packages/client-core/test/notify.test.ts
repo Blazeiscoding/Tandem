@@ -53,6 +53,7 @@ function state(over: Partial<WorkspaceState> = {}): WorkspaceState {
     friends: [],
     status: "online",
     workspaceName: "W",
+    workspaceId: null,
     self: me,
     users: { [me.id]: me, [them.id]: them },
     channels: { C1: channel("public") },

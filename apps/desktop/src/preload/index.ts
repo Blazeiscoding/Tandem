@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 export interface SlackossBridge {
   downloadFile: (url: string) => Promise<void>;
-  storageGet: (key: string) => Promise<unknown>;
+  storageGet: (key: string, options?: { strict?: boolean }) => Promise<unknown>;
   storageSet: (key: string, value: unknown) => Promise<void>;
   lanSnapshot: () => Promise<unknown[]>;
   onLanServers: (cb: (servers: unknown[]) => void) => () => void;
@@ -16,7 +16,7 @@ export interface SlackossBridge {
 
 const bridge: SlackossBridge = {
   downloadFile: (url) => ipcRenderer.invoke("file:download", url),
-  storageGet: (key) => ipcRenderer.invoke("storage:get", key),
+  storageGet: (key, options) => ipcRenderer.invoke("storage:get", key, options),
   storageSet: (key, value) => ipcRenderer.invoke("storage:set", key, value),
   lanSnapshot: () => ipcRenderer.invoke("lan:snapshot"),
   onLanServers: (cb) => {

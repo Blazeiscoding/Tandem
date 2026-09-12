@@ -471,7 +471,10 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
     .poll(() =>
       page.evaluate(() =>
         Object.keys(localStorage).some(
-          (key) => key.includes("drafts:") && localStorage.getItem(key)?.includes("calmer space"),
+          (key) =>
+            key.startsWith("slackoss:local:v1:") &&
+            key.endsWith(":drafts") &&
+            localStorage.getItem(key)?.includes("calmer space"),
         ),
       ),
     )
