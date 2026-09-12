@@ -248,6 +248,12 @@ when the server restarts. A successful receiver may see the same event again if 
 server exits after its HTTP response but before recording completion, so receivers
 must deduplicate by the stable `event_id`.
 
+Stopping the server cuts off any delivery, slash command or button call still
+waiting on an app, rather than waiting out its timeout. A delivery cut off that way
+is not counted as one of the endpoint's attempts, since the endpoint neither answered
+nor refused; it goes out again after the restart. Requests already being handled are
+finished before the database closes, so a shutdown never leaves one half-applied.
+
 One endpoint may hold at most 500 waiting events. Delivery is ordered, so a receiver
 that stops answering holds up everything behind it; without a ceiling its queue would
 grow for as long as the workspace stays busy. Past the ceiling events are counted as
