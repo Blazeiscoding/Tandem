@@ -6,7 +6,18 @@ import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 
 /** A secret with a copy button. Bot tokens are shown once; others can be re-read. */
-function SecretRow({ label, value, once }: { label: string; value: string; once?: boolean }) {
+function SecretRow({
+  label,
+  value,
+  once,
+  onReplace,
+}: {
+  label: string;
+  value: string;
+  once?: boolean;
+  /** Offered beside the copy button, for a secret that may have leaked. */
+  onReplace?: () => void;
+}) {
   const { copy, label: copyLabel, copied } = useCopy();
   const [shown, setShown] = useState(false);
   return (
@@ -35,6 +46,14 @@ function SecretRow({ label, value, once }: { label: string; value: string; once?
         >
           {copyLabel("Copy", "Copied", "Copy failed")}
         </button>
+        {onReplace && (
+          <button
+            onClick={onReplace}
+            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-lifted hover:text-ink"
+          >
+            Replace
+          </button>
+        )}
       </div>
     </div>
   );
@@ -58,6 +77,7 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
   /** Bot tokens from this session only; the server never returns them again. */
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [hookUrls, setHookUrls] = useState<Record<string, string>>({});
+  const [rotateError, setRotateError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     client.api
@@ -94,6 +114,49 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
+  /**
+   * Every replacement asks first and says what stops working, because the old
+   * credential is dead the moment the server answers and whatever was using
+   * it fails until someone updates it.
+   */
+  async function replace(question: string, action: () => Promise<void>) {
+    if (!confirm(question)) return;
+    setRotateError(null);
+    try {
+      await action();
+    } catch {
+      setRotateError("Could not replace it. Nothing was changed; try again.");
+    }
+  }
+
+  const replaceToken = (a: AppDetail) =>
+    replace(
+      `Replace ${a.name}'s bot token? The current token stops working immediately.`,
+      async () => {
+        const r = await client.api.replaceAppToken(a.id);
+        setSecrets((s) => ({ ...s, [a.id]: r.token }));
+      },
+    );
+
+  const replaceSigningSecret = (a: AppDetail) =>
+    replace(
+      `Replace ${a.name}'s signing secret? The app will reject requests from this workspace until it has the new one.`,
+      async () => {
+        await client.api.replaceSigningSecret(a.id);
+        load();
+      },
+    );
+
+  const replaceWebhookUrl = (a: AppDetail, webhookId: ID, channelName: string) =>
+    replace(
+      `Replace the webhook URL for #${channelName}? Anything posting to the current URL will stop working.`,
+      async () => {
+        const r = await client.api.replaceWebhookUrl(webhookId);
+        setHookUrls((h) => ({ ...h, [webhookId]: `${client.baseUrl}${r.url}` }));
+        load();
+      },
+    );
+
   async function addWebhook(appId: ID, channelId: ID) {
     const r = await client.api.createWebhook(appId, { channelId });
     // The path comes back relative; show the address a tool would actually call.
@@ -122,6 +185,12 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
         </button>
       </form>
 
+      {rotateError && (
+        <p role="alert" className="mb-3 text-sm text-alert">
+          {rotateError}
+        </p>
+      )}
+
       {apps === null && (
         <p className="py-4 text-center font-mono text-xs text-ink-faint">loading…</p>
       )}
@@ -135,20 +204,30 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
             <div className="flex items-center gap-2">
               <span className="font-medium">{a.name}</span>
               <button
+                onClick={() => void replaceToken(a)}
+                className="ml-auto rounded px-2 py-1 text-[11px] text-ink-faint transition-colors hover:text-ink"
+              >
+                New bot token
+              </button>
+              <button
                 onClick={async () => {
                   if (!confirm(`Delete ${a.name}? Its tokens and webhooks stop working.`)) return;
                   await client.api.deleteApp(a.id);
                   load();
                   void client.loadCommands();
                 }}
-                className="ml-auto rounded px-2 py-1 text-[11px] text-ink-faint transition-colors hover:text-alert"
+                className="rounded px-2 py-1 text-[11px] text-ink-faint transition-colors hover:text-alert"
               >
                 Delete
               </button>
             </div>
 
             {secrets[a.id] && <SecretRow label="Bot token" value={secrets[a.id]!} once />}
-            <SecretRow label="Signing secret" value={a.signingSecret} />
+            <SecretRow
+              label="Signing secret"
+              value={a.signingSecret}
+              onReplace={() => void replaceSigningSecret(a)}
+            />
 
             <SectionLabel>Incoming webhooks</SectionLabel>
             <ul className="space-y-1.5">
@@ -157,11 +236,19 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
                   <div className="flex items-center gap-2 text-ink-dim">
                     <span className="text-copper">#{channels[w.channelId]?.name ?? "unknown"}</span>
                     <button
+                      onClick={() =>
+                        void replaceWebhookUrl(a, w.id, channels[w.channelId]?.name ?? "unknown")
+                      }
+                      className="ml-auto text-ink-faint hover:text-ink"
+                    >
+                      New URL
+                    </button>
+                    <button
                       onClick={async () => {
                         await client.api.deleteWebhook(w.id);
                         load();
                       }}
-                      className="ml-auto text-ink-faint hover:text-alert"
+                      className="text-ink-faint hover:text-alert"
                     >
                       Remove
                     </button>
