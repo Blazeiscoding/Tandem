@@ -1823,6 +1823,40 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     };
   });
 
+  /**
+   * A new bot token, replacing every one the app had. For a token that has
+   * leaked, and for an admin who closed the dialog before copying the one they
+   * were shown at creation, which is otherwise a working app nobody can use.
+   *
+   * Logged without the token: who replaced which app's credentials is what an
+   * operator wants to find afterwards.
+   */
+  app.post<{ Params: { id: string } }>("/api/apps/:id/token", async (req) => {
+    const me = requireAdmin(req);
+    const target = store.getApp(req.params.id);
+    if (!target) throw new HttpError(404, "not_found");
+    const token = secretToken("xoxb-");
+    store.transaction(() => store.replaceAppTokens(target.id, hashToken(token)));
+    req.log.info({ appId: target.id, by: me.id }, "app bot token replaced");
+    return { token };
+  });
+
+  /**
+   * A new signing secret. Every request signed from here on uses it, including
+   * event deliveries already waiting in the queue, which are signed when they
+   * are sent rather than when they were queued. The app refuses them until it
+   * has the new secret, which is the point when the old one has leaked.
+   */
+  app.post<{ Params: { id: string } }>("/api/apps/:id/signing-secret", async (req) => {
+    const me = requireAdmin(req);
+    const target = store.getApp(req.params.id);
+    if (!target) throw new HttpError(404, "not_found");
+    const signingSecret = secretToken();
+    store.transaction(() => store.setAppSigningSecret(target.id, signingSecret));
+    req.log.info({ appId: target.id, by: me.id }, "app signing secret replaced");
+    return { signingSecret };
+  });
+
   app.delete<{ Params: { id: string } }>("/api/apps/:id", async (req) => {
     requireAdmin(req);
     if (!store.getApp(req.params.id)) throw new HttpError(404, "not_found");
@@ -1851,6 +1885,25 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       return created;
     });
     return reply.status(201).send({ webhook, url: `/hooks/${token}` });
+  });
+
+  /**
+   * A new URL for an existing webhook. The secret is the whole of a webhook's
+   * authority, so a URL pasted somewhere public has to be replaceable without
+   * removing the webhook and choosing its channel again.
+   */
+  app.post<{ Params: { id: string } }>("/api/webhooks/:id/url", async (req) => {
+    const me = requireAdmin(req);
+    const token = secretToken();
+    const webhook = store.transaction(() =>
+      store.replaceWebhookToken(req.params.id, hashToken(token)),
+    );
+    if (!webhook) throw new HttpError(404, "not_found");
+    req.log.info(
+      { webhookId: webhook.id, appId: webhook.appId, by: me.id },
+      "webhook url replaced",
+    );
+    return { webhook, url: `/hooks/${token}` };
   });
 
   app.delete<{ Params: { id: string } }>("/api/webhooks/:id", async (req) => {

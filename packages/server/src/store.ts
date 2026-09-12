@@ -1992,6 +1992,24 @@ export class Store {
       .run(tokenHash, appId, Date.now());
   }
 
+  /**
+   * Swaps every token an app holds for one new one. The old ones stop working
+   * with this write rather than after some overlap: rotating is what someone
+   * does when a token has leaked, and a window in which both work is a window
+   * in which the leaked one still does.
+   */
+  replaceAppTokens(appId: ID, tokenHash: string): void {
+    this.db.prepare("DELETE FROM app_tokens WHERE app_id = ?").run(appId);
+    this.addAppToken(appId, tokenHash);
+  }
+
+  setAppSigningSecret(appId: ID, signingSecret: string): boolean {
+    return (
+      this.db.prepare("UPDATE apps SET signing_secret = ? WHERE id = ?").run(signingSecret, appId)
+        .changes > 0
+    );
+  }
+
   /** The app a bot token belongs to, or null if it is unknown. */
   /**
    * The app a bot token belongs to. A deactivated bot user is refused here as
@@ -2019,6 +2037,21 @@ export class Store {
       )
       .run(id, input.appId, input.channelId, input.tokenHash, now);
     return { id, appId: input.appId, channelId: input.channelId, createdAt: now };
+  }
+
+  /** A new secret for an existing webhook, which keeps its channel and its id. */
+  replaceWebhookToken(id: ID, tokenHash: string): Webhook | null {
+    const changed = this.db
+      .prepare("UPDATE webhooks SET token_hash = ? WHERE id = ?")
+      .run(tokenHash, id).changes;
+    if (changed === 0) return null;
+    const r = this.db.prepare("SELECT * FROM webhooks WHERE id = ?").get(id) as {
+      id: string;
+      app_id: string;
+      channel_id: string;
+      created_at: number;
+    };
+    return { id: r.id, appId: r.app_id, channelId: r.channel_id, createdAt: r.created_at };
   }
 
   /** Resolves an incoming webhook secret to its app and target channel. */
