@@ -488,6 +488,43 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(composer).toHaveValue("A calmer space for our next big idea.");
   await composer.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
   await expect(composer).toHaveValue("A calmer space for our next big idea.");
+
+  // Completing a mention rewrites the whole field, and typing straight after
+  // has to carry on from where the completion left off.
+  await composer.fill("");
+  await composer.pressSequentially("Hi @may", { delay: 10 });
+  await page.keyboard.press("Tab");
+  const completed = await composer.inputValue();
+  expect(completed).toMatch(/^Hi <@[A-Z0-9]+> $/);
+  await composer.pressSequentially("ready?", { delay: 5 });
+  expect(await composer.inputValue()).toBe(`${completed}ready?`);
+
+  // Formatting is where the caret has to land in the middle rather than at the
+  // end: bolding a word should leave the word selected, ready to keep typing
+  // over, not drop the caret past the closing marker.
+  await composer.fill("hello world");
+  await composer.evaluate((el) => (el as HTMLTextAreaElement).setSelectionRange(0, 5));
+  await page.keyboard.press("Control+b");
+  await expect(composer).toHaveValue("*hello* world");
+  const selection = await composer.evaluate((el) => {
+    const box = el as HTMLTextAreaElement;
+    return [box.selectionStart, box.selectionEnd];
+  });
+  expect(selection).toEqual([1, 6]);
+  await composer.fill("A calmer space for our next big idea.");
+
+  // The switcher takes Enter too, and an input method's Enter is not a
+  // request to go anywhere.
+  await page.keyboard.press("Control+k");
+  const switcher = page.getByRole("dialog", { name: "Jump to", exact: true });
+  await expect(switcher).toBeVisible();
+  await switcher
+    .getByRole("textbox")
+    .dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
+  await expect(switcher).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(composer).toBeFocused();
+
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(composer).toBeEmpty();
   await expect(
