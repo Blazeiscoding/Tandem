@@ -237,6 +237,11 @@ describe("the url handed to an app", () => {
     expect(url.startsWith("https://chat.team.dev/")).toBe(true);
   });
 
+  it("builds on an address published under a path, without doubling the slash", async () => {
+    const url = await responseUrlFor({ publicUrl: "https://example.com/chat/" }, {});
+    expect(url.startsWith("https://example.com/chat/api/commands/response/")).toBe(true);
+  });
+
   it("prefers the configured address over anything a header claims", async () => {
     const url = await responseUrlFor(
       { publicUrl: "https://chat.team.dev", trustProxy: true },

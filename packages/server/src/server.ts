@@ -67,6 +67,7 @@ import { advertise, type MdnsHandle } from "./mdns.js";
 import { imageSize } from "./imageSize.js";
 import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
+import { parsePort, parsePublicUrl } from "./config.js";
 import { DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
 import { LOGGER_OPTIONS } from "./redact.js";
 import { firstHeaderValue, isLoopbackOrigin, originFromConnection } from "./netTrust.js";
@@ -228,6 +229,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   ) {
     throw new Error("retentionDays must be a non-negative safe integer");
   }
+  // Checked here as well as by the CLI, so the desktop app's embedded server
+  // and anyone calling this directly get the same refusal.
+  if (opts.port !== undefined) parsePort(opts.port, "port");
+  const publicUrl =
+    opts.publicUrl === undefined ? undefined : parsePublicUrl(opts.publicUrl, "publicUrl");
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
   let upgradeBackup: string | null = null;
   const db = openDb(dbPath, undefined, {
@@ -278,7 +284,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * server, if it is there at all.
    */
   const isLocalRequest = (req: FastifyRequest) => {
-    if (opts.publicUrl) return false;
+    if (publicUrl) return false;
     if (
       ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip"].some(
         (name) => req.headers[name] !== undefined,
@@ -861,7 +867,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * arrived on, which no header can change.
    */
   const requestOrigin = (req: FastifyRequest): string => {
-    if (opts.publicUrl) return opts.publicUrl.replace(/\/$/, "");
+    if (publicUrl) return publicUrl;
     if (opts.trustProxy) {
       const proto = firstHeaderValue(req.headers["x-forwarded-proto"]) || "http";
       const host =
