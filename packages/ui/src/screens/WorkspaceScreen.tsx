@@ -27,6 +27,7 @@ import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
+import { WorkspaceStorageGate } from "../components/WorkspaceStorageGate.js";
 
 const ActivityPanel = lazy(() =>
   import("../components/ActivityPanel.js").then((module) => ({ default: module.ActivityPanel })),
@@ -93,12 +94,19 @@ export function WorkspaceScreen({
           </div>
         )}
         <div className="min-h-0 flex-1">
-          <WorkspaceInner
+          <WorkspaceStorageGate
+            client={client}
             platform={platform}
-            initialTarget={initialTarget ?? null}
             onLeaveWorkspace={onLeaveWorkspace}
             onSignedOut={onSignedOut}
-          />
+          >
+            <WorkspaceInner
+              platform={platform}
+              initialTarget={initialTarget ?? null}
+              onLeaveWorkspace={onLeaveWorkspace}
+              onSignedOut={onSignedOut}
+            />
+          </WorkspaceStorageGate>
         </div>
       </div>
     </ClientContext.Provider>

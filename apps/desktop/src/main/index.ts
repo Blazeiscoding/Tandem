@@ -98,33 +98,48 @@ ipcMain.handle("deeplink:consume", () => {
 // ---------- settings storage (plain JSON in userData) ----------
 
 const settingsPath = () => join(app.getPath("userData"), "settings.json");
-let settingsCache: Record<string, unknown> | null = null;
 let settingsRead: Promise<Record<string, unknown>> | null = null;
 let settingsWrite: Promise<void> = Promise.resolve();
 
 async function readSettings(): Promise<Record<string, unknown>> {
-  if (settingsCache) return settingsCache;
   if (settingsRead) return settingsRead;
-  settingsRead = (async () => {
+  const reading = (async () => {
+    let raw: string;
     try {
-      settingsCache = JSON.parse(await readFile(settingsPath(), "utf8")) as Record<string, unknown>;
-    } catch {
-      settingsCache = {};
+      raw = await readFile(settingsPath(), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+      throw error;
     }
-    return settingsCache;
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error("Could not read settings: expected a JSON object.");
+    return value as Record<string, unknown>;
   })();
-  return settingsRead;
+  settingsRead = reading;
+  try {
+    return await reading;
+  } finally {
+    // Neither a failed read nor a valid old copy may hide a repaired file or
+    // let a later write silently replace data that has become unreadable.
+    if (settingsRead === reading) settingsRead = null;
+  }
 }
 
-ipcMain.handle("storage:get", async (_e, key: string) => {
+ipcMain.handle("storage:get", async (_e, key: string, options?: { strict?: boolean }) => {
   await settingsWrite.catch(() => {});
-  const s = await readSettings();
-  return s[key] ?? null;
+  try {
+    const s = await readSettings();
+    return s[key] ?? null;
+  } catch (error) {
+    if (options?.strict) throw error;
+    return null;
+  }
 });
 
-ipcMain.handle("storage:set", (_e, key: string, value: unknown) => {
-  // Serialize independent draft/settings writes. Publish the new cache only
-  // after replacing the file, so a failed save cannot look persisted to readers.
+function writeSetting(key: string, value: unknown): Promise<void> {
+  // Serialize every writer and read the original strictly before replacement.
+  // A failed read must never turn an unknown settings file into empty settings.
   settingsWrite = settingsWrite
     .catch(() => {})
     .then(async () => {
@@ -134,10 +149,11 @@ ipcMain.handle("storage:set", (_e, key: string, value: unknown) => {
       const temporary = `${settingsPath()}.tmp`;
       await writeFile(temporary, JSON.stringify(next, null, 2));
       await rename(temporary, settingsPath());
-      settingsCache = next;
     });
   return settingsWrite;
-});
+}
+
+ipcMain.handle("storage:set", (_e, key: string, value: unknown) => writeSetting(key, value));
 
 // ---------- LAN discovery (mDNS browse) ----------
 
@@ -232,9 +248,7 @@ ipcMain.handle("hosting:start", async (_e, opts: { workspaceName: string; port?:
     hosted = await start(0);
   }
   hostedName = opts.workspaceName;
-  const s = await readSettings();
-  s["lastHosted"] = { workspaceName: opts.workspaceName, port: hosted.port };
-  await writeFile(settingsPath(), JSON.stringify(s, null, 2));
+  await writeSetting("lastHosted", { workspaceName: opts.workspaceName, port: hosted.port });
   return hostingStatus();
 });
 

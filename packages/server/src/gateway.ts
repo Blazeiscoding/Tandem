@@ -192,6 +192,7 @@ export class Gateway {
           mentionCounts: this.store.unreadMentionCounts(user.id),
           huddles: this.huddlesVisibleTo(user.id),
           workspaceName: this.workspaceName(),
+          workspaceId: this.store.getMeta("workspace_id") ?? undefined,
           friends: this.store.listFriends(user.id),
         };
         const missed =

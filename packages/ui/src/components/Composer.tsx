@@ -15,6 +15,12 @@ import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { caretToRestore, isImeKey, type PendingCaret } from "../lib/textInput.js";
 import {
+  readWorkspaceStorage,
+  workspaceStorageKey,
+  writeWorkspaceStorage,
+  type WorkspaceStorageKey,
+} from "../lib/workspaceStorage.js";
+import {
   FormattingToolbar,
   formatText,
   formattingShortcut,
@@ -47,15 +53,17 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const channels = useWorkspace((s) => s.channels);
   const commands = useWorkspace((s) => s.commands);
   const selfId = useWorkspace((s) => s.self?.id);
+  const workspaceId = useWorkspace((s) => s.workspaceId);
   const channelType = useWorkspace((s) => s.channels[channelId]?.type);
   const archived = useWorkspace((s) => s.channels[channelId]?.archived ?? false);
   const isRoom = channelType === "public" || channelType === "private";
   // Threads keep their own draft slot so a channel draft isn't clobbered.
   const draftKey = threadRootId ? `${channelId}:${threadRootId}` : channelId;
-  const scheduleStorageKey = selfId
-    ? `schedule-request:${client.baseUrl}:${selfId}:${draftKey}`
-    : null;
-  const [scheduleLoadedKey, setScheduleLoadedKey] = useState<string | null>(null);
+  const scheduleStorageKey = useMemo(
+    () => workspaceStorageKey(client.baseUrl, workspaceId, selfId, "schedule-request", draftKey),
+    [client, workspaceId, selfId, draftKey],
+  );
+  const [scheduleLoadedKey, setScheduleLoadedKey] = useState<WorkspaceStorageKey | null>(null);
   const [pendingSchedule, setPendingSchedule] = useState<ScheduleMessageBody | null>(null);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
   const scheduleReady = scheduleStorageKey !== null && scheduleLoadedKey === scheduleStorageKey;
@@ -109,15 +117,14 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       scheduleContext.current = {};
       uploadController.current?.abort();
     };
-  }, [client, draftKey]);
+  }, [client, draftKey, scheduleStorageKey]);
 
   useEffect(() => {
     let active = true;
     setPendingSchedule(null);
     setScheduleLoadedKey(null);
     if (!scheduleStorageKey) return;
-    void platform.storage
-      .get<unknown>(scheduleStorageKey)
+    void readWorkspaceStorage<unknown>(platform, scheduleStorageKey)
       .then((value) => {
         if (!active) return;
         const parsed = value == null ? null : scheduleMessageBody.safeParse(value);
@@ -389,7 +396,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       // Persist the exact payload before it can reach the server, including
       // uploaded IDs and the original time. A retry never creates a new key.
       savingRecovery = true;
-      await platform.storage.set(scheduleStorageKey, body);
+      await writeWorkspaceStorage(platform, scheduleStorageKey, body);
       savingRecovery = false;
       if (!current()) return;
       setPendingSchedule(body);
@@ -421,11 +428,15 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     }
   }
 
-  async function confirmSchedule(body: ScheduleMessageBody, storageKey: string, context: object) {
+  async function confirmSchedule(
+    body: ScheduleMessageBody,
+    storageKey: WorkspaceStorageKey,
+    context: object,
+  ) {
     const { scheduled } = await client.api.scheduleMessage(channelId, body);
     if (scheduleContext.current !== context) return;
     // If clearing recovery fails, leave the same request available for retry.
-    await platform.storage.set(storageKey, null);
+    await writeWorkspaceStorage(platform, storageKey, null);
     if (scheduleContext.current !== context) return;
     setPendingSchedule(null);
     if (typed.current.text.trim() === body.text) {
@@ -451,7 +462,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setScheduleError(null);
     try {
       if (dismiss) {
-        await platform.storage.set(scheduleStorageKey, null);
+        await writeWorkspaceStorage(platform, scheduleStorageKey, null);
         if (scheduleContext.current === context) {
           setPendingSchedule(null);
           setScheduleLoadedKey(scheduleStorageKey);

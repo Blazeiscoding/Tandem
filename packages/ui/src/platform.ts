@@ -30,7 +30,8 @@ export interface Platform {
   /** "desktop" gets the frameless titlebar spacing; "web" does not. */
   kind: "desktop" | "web";
   storage: {
-    get: <T>(key: string) => Promise<T | null>;
+    /** Strict reads must reject unreadable data instead of treating it as absent. */
+    get: <T>(key: string, options?: { strict?: boolean }) => Promise<T | null>;
     set: (key: string, value: unknown) => Promise<void>;
   };
   notify: (title: string, body: string) => void;
@@ -69,11 +70,12 @@ export function webPlatform(): Platform {
       setTimeout(() => frame.remove(), 300_000);
     },
     storage: {
-      get: async <T>(key: string) => {
+      get: async <T>(key: string, options?: { strict?: boolean }) => {
         try {
           const raw = localStorage.getItem(`slackoss:${key}`);
-          return raw ? (JSON.parse(raw) as T) : null;
-        } catch {
+          return raw === null ? null : (JSON.parse(raw) as T);
+        } catch (error) {
+          if (options?.strict) throw error;
           return null;
         }
       },

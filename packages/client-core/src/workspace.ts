@@ -197,6 +197,8 @@ export interface WorkspaceState {
   friends: Friendship[];
   status: ConnectionStatus;
   workspaceName: string;
+  /** Authenticated storage identity; null when an older server does not expose it. */
+  workspaceId: ID | null;
   self: User | null;
   users: Record<ID, User>;
   channels: Record<ID, Channel>;
@@ -239,6 +241,7 @@ const initialState: WorkspaceState = {
   friends: [],
   status: "connecting",
   workspaceName: "",
+  workspaceId: null,
   self: null,
   users: {},
   channels: {},
@@ -483,6 +486,18 @@ export class WorkspaceClient {
   }
 
   private applyReady(snap: ReadySnapshot): void {
+    // A replaced server must not inherit this connection's private drafts or
+    // outbox, even if a copied session token happens to work there. Keep the
+    // old identity intact so unmount can flush its work before signing in again.
+    if (
+      this.state.self &&
+      (this.state.self.id !== snap.self.id ||
+        (this.state.workspaceId && snap.workspaceId && this.state.workspaceId !== snap.workspaceId))
+    ) {
+      this.destroy();
+      this.store.setState({ status: "auth_failed" });
+      return;
+    }
     this.reconnectDelay = 1000;
     // Anything the server had already recorded when we connected is history,
     // however soon after it reaches us.
@@ -515,6 +530,7 @@ export class WorkspaceClient {
     this.store.setState((prev) => ({
       status: snap.replayFrom === undefined ? "online" : "connecting",
       workspaceName: snap.workspaceName,
+      workspaceId: snap.workspaceId ?? prev.workspaceId,
       self: snap.self,
       users,
       channels,
@@ -1489,6 +1505,7 @@ export class WorkspaceClient {
       nonce: p.nonce,
       channelId: p.channelId,
       threadRootId: p.threadRootId,
+      broadcast: p.broadcast,
       text: p.text,
       userId: p.userId,
       createdAt: p.createdAt,
@@ -1526,6 +1543,7 @@ export class WorkspaceClient {
         [],
         entry.nonce,
         entry.threadRootId ?? undefined,
+        entry.broadcast,
       );
     }
   }
