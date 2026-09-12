@@ -162,6 +162,82 @@ restart. Cleanup handles at most 100 queued files per pass; shutdown awaits the
 active pass before closing the database. A locked file can remain on disk until
 cleanup succeeds, but the download API no longer serves it after deletion commits.
 
+## Deletion and retention
+
+### What deleting a message does
+
+Deleting a message removes it from every channel, thread, search result, pinned
+list and saved list immediately, and releases its attachments. Specifically:
+
+- **The message itself** is kept as an empty tombstone rather than a row that is
+  gone. The row holds no text, no attachment and nothing anyone wrote; what it
+  still holds is an id, an author and a timestamp, which is what lets a reply
+  posted under it keep resolving.
+- **Replies** to a deleted thread root go with it, from everyone's point of
+  view. The thread drops out of the followed list and asking for it returns
+  `thread_not_found`, so deleting the message you opened a conversation with
+  takes down everyone else's answers to it. Their rows, and their text, stay in
+  the database — unreachable through the API, but there on disk and in a backup.
+  This is worth knowing before deleting the top of a long thread: it is the one
+  place where what a deletion appears to do and what it actually stores differ.
+- **Attachments** are removed from the database with the message and their bytes
+  are deleted from disk by a queue that retries until it succeeds. A file locked
+  by the operating system can survive on disk for a few minutes; the download
+  API stops serving it the moment the deletion commits.
+- **Pins, saves and reactions** pointing at it are deleted outright.
+- **The search index** loses the text as part of the same write. SQLite marks the
+  freed index pages reusable rather than overwriting them, so the words can
+  remain in unallocated space inside `workspace.db` until something else writes
+  over them. `VACUUM` on a stopped server rewrites the file without them.
+- **The event log** loses the text and the attachment names too. The events
+  themselves stay — a missing sequence number would look to a catching-up client
+  exactly like a log it had fallen off the end of, and send it back for a whole
+  new snapshot — but what they replay is a message with nothing in it, followed
+  immediately by the deletion.
+- **Editing** a message does the same to every earlier version of it. Taking
+  back a sentence by editing it away is the usual way people do it, and leaving
+  the first draft in the log would make the correction cosmetic.
+- **The request log** never held the text: the server logs methods, paths and
+  status codes, not bodies.
+- **Backups** taken before the deletion still contain the original text, in full.
+  Nothing this server does reaches into a backup you have already made. If a
+  deletion has to be permanent, the backups from before it have to go too.
+
+There is no account deletion. An account can be deactivated, which ends its
+sessions and stops it signing in, and what it wrote stays where it is.
+
+### Keeping less history
+
+```sh
+slackoss-server --data ./data --retention-days 365
+```
+
+Off by default: a workspace that quietly started discarding history would be
+worse than one that grows. Also settable with `SLACKOSS_RETENTION_DAYS`. The
+server prints the window on every start, because a setting that deletes things
+is one to be reminded of.
+
+An hourly sweep removes conversation older than the window outright — rows,
+attachments, pins, saves, reactions, and the text in the event log — rather than
+hiding it. A thread ages out as one thing: a root is taken only once its newest
+reply is past the window too, so nobody is left with replies hanging under
+nothing. Up to 2,000 threads go per pass, so the first sweep after turning this
+on does not hold the database for a minute; the rest follow on the next hour.
+
+Nothing is announced to connected clients. These messages are old enough that no
+screen is showing them, and announcing a year of deletions would put the events
+into the very log this is meant to keep small. A client scrolled that far back
+keeps what it already has until it next asks the server, which will not have it.
+
+This is not reversible. Getting discarded conversation back means restoring a
+backup taken before the sweep ran. Decide the window before turning it on, take
+a backup, and remember that lowering it later discards everything the new window
+excludes on the next hour.
+
+The event log is pruned separately and always: only the most recent 20,000
+events are kept, which is what a client resyncs against. Falling behind that is
+not a loss of history — the client takes a fresh snapshot instead.
+
 ## Integration delivery
 
 Outgoing event subscriptions use a durable queue in `workspace.db`. Each matching

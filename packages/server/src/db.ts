@@ -359,6 +359,17 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_event_deliveries_backlog
     ON event_deliveries(subscription_id, failed_at);
   `,
+  // v22 — deleting a message has to reach the copy of its text in the event log.
+  // Without a way to find those rows, the words someone deleted stay readable on
+  // disk until the log is pruned, which can be months.
+  `
+  ALTER TABLE events ADD COLUMN message_id TEXT;
+  UPDATE events SET message_id = json_extract(payload, '$.message.id')
+    WHERE type IN ('message.created', 'message.updated');
+  UPDATE events SET message_id = json_extract(payload, '$.messageId')
+    WHERE type = 'message.deleted';
+  CREATE INDEX idx_events_message ON events(message_id);
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */
