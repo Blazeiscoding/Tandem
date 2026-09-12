@@ -21,7 +21,7 @@ import { request as httpsRequest } from "node:https";
 
 class OutboundError extends Error {
   constructor(
-    public code: "blocked_host" | "unreachable" | "timeout" | "too_large",
+    public code: "blocked_host" | "unreachable" | "timeout" | "too_large" | "aborted",
     message: string,
   ) {
     super(message);
@@ -83,6 +83,12 @@ export interface OutboundOptions {
   /** Response bytes read before we give up; replies are meant to be small. */
   maxBytes?: number;
   headers?: Record<string, string>;
+  /**
+   * Ends the call early. The server aborts every outbound call when it shuts
+   * down, so an app that is slow to answer cannot hold the process open for
+   * the whole of its timeout.
+   */
+  signal?: AbortSignal;
 }
 
 export interface OutboundResponse {
@@ -125,6 +131,10 @@ export function postToUrl(
         `${literal} is a private address; start the server with --allow-private-hooks to allow this`,
       ),
     );
+  }
+
+  if (opts.signal?.aborted) {
+    return Promise.reject(new OutboundError("aborted", "the server is shutting down"));
   }
 
   return new Promise<OutboundResponse>((resolve, reject) => {
@@ -197,6 +207,15 @@ export function postToUrl(
         res.on("error", (err) => finish(() => reject(err)));
       },
     );
+
+    const onAbort = () => {
+      req.destroy();
+      finish(() => reject(new OutboundError("aborted", "the server is shutting down")));
+    };
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    // A long-lived signal would otherwise collect one listener per call.
+    const release = () => opts.signal?.removeEventListener("abort", onAbort);
+    req.on("close", release);
 
     req.setTimeout(timeoutMs, () => {
       req.destroy();
