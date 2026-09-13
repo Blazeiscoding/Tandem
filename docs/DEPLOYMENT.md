@@ -187,13 +187,14 @@ list and saved list immediately, and releases its attachments. Specifically:
   gone. The row holds no text, no attachment and nothing anyone wrote; what it
   still holds is an id, an author and a timestamp, which is what lets a reply
   posted under it keep resolving.
-- **Replies** to a deleted thread root go with it, from everyone's point of
-  view. The thread drops out of the followed list and asking for it returns
-  `thread_not_found`, so deleting the message you opened a conversation with
-  takes down everyone else's answers to it. Their rows, and their text, stay in
-  the database — unreachable through the API, but there on disk and in a backup.
-  This is worth knowing before deleting the top of a long thread: it is the one
-  place where what a deletion appears to do and what it actually stores differ.
+- **Replies** are deleted with the message that started their thread — every
+  reply, whoever wrote it, exactly as if each had been deleted on its own: words
+  blanked, attachments released, and their copies in the event log redacted. The
+  thread drops out of the followed list and asking for it returns
+  `thread_not_found`. Deleting the message you opened a conversation with
+  therefore deletes everyone else's answers to it, which is worth knowing before
+  deleting the top of a long thread. Deleting a single reply leaves the rest of
+  the thread alone.
 - **Attachments** are removed from the database with the message and their bytes
   are deleted from disk by a queue that retries until it succeeds. A file locked
   by the operating system can survive on disk for a few minutes; the download

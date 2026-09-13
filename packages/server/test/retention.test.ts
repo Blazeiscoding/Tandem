@@ -150,24 +150,78 @@ describe("what deleting a message actually reaches", () => {
     expect((created.event as any).message.text).toBe("");
   });
 
-  it("takes everyone's replies down with a thread root, and says so", async () => {
+  it("removes a thread's replies with its first message, words and attachments too", async () => {
     const root = await post("the opening message");
+    const fileId = await attach("reply-attachment.txt");
     const reply = await api(`/api/channels/${channelId}/messages`, "POST", {
       text: "somebody else's answer",
       threadRootId: root.id,
+      fileIds: [fileId],
     });
     expect(reply.status).toBe(201);
+    const blob = join(directory, "files", fileId);
+    expect(existsSync(blob)).toBe(true);
 
     await api(`/api/messages/${root.id}`, "DELETE");
-    // Not a thread with a removed top: no thread at all. This is documented in
-    // DEPLOYMENT.md because it is surprising, and pinned here because a change
-    // to it would be a change to what deleting means.
     const thread = await api(`/api/channels/${channelId}/threads/${root.id}`, "GET");
     expect(thread.status).toBe(404);
-    expect(thread.body.error).toBe("thread_not_found");
     expect((await api(`/api/threads/followed`, "GET")).body.threads).toEqual([]);
-    // The reply's own words are still stored, out of anyone's reach.
-    expect(server!.store.getMessage(reply.body.message.id)?.text).toBe("somebody else's answer");
+
+    // Not hidden: gone, the way a deleted message is.
+    expect(server!.store.getMessage(reply.body.message.id)).toBeNull();
+    const log = loggedPayloads();
+    expect(log).not.toContain("somebody else's answer");
+    expect(log).not.toContain("reply-attachment.txt");
+    await server!.flushFileDeletions();
+    expect(existsSync(blob)).toBe(false);
+  });
+
+  it("announces each reply's removal before the thread's own, so an open thread empties first", async () => {
+    const root = await post("a thread about to go");
+    const first = (
+      await api(`/api/channels/${channelId}/messages`, "POST", {
+        text: "one",
+        threadRootId: root.id,
+      })
+    ).body.message;
+    const second = (
+      await api(`/api/channels/${channelId}/messages`, "POST", {
+        text: "two",
+        threadRootId: root.id,
+      })
+    ).body.message;
+    const before = server!.store.currentSeq();
+
+    await api(`/api/messages/${root.id}`, "DELETE");
+    const deletions = (server!.store.eventsSince(before, userId) ?? [])
+      .map((e) => e.event)
+      .filter((e) => e.type === "message.deleted") as {
+      messageId: string;
+      threadRootId: string | null;
+    }[];
+    expect(deletions.map((e) => e.messageId)).toEqual([first.id, second.id, root.id]);
+    expect(deletions.map((e) => e.threadRootId)).toEqual([root.id, root.id, null]);
+  });
+
+  it("leaves the thread alone when only a reply is deleted", async () => {
+    const root = await post("still here");
+    const keep = (
+      await api(`/api/channels/${channelId}/messages`, "POST", {
+        text: "keep",
+        threadRootId: root.id,
+      })
+    ).body.message;
+    const drop = (
+      await api(`/api/channels/${channelId}/messages`, "POST", {
+        text: "drop",
+        threadRootId: root.id,
+      })
+    ).body.message;
+
+    await api(`/api/messages/${drop.id}`, "DELETE");
+    expect(server!.store.getMessage(root.id)).not.toBeNull();
+    expect(server!.store.getMessage(keep.id)?.text).toBe("keep");
+    expect(server!.store.getMessage(drop.id)).toBeNull();
   });
 
   it("takes the pins and saves that pointed at it", async () => {

@@ -734,21 +734,38 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return messageIds.length;
   };
 
+  /**
+   * Deletes a message, and when it started a thread, every reply in it.
+   *
+   * A reply has nothing to hang from once its thread's first message is gone:
+   * the thread cannot be opened, and keeping the replies stored where nobody can
+   * reach them served no one. So they go the same way, in the same transaction —
+   * words blanked, attachments released, and the copies in the event log
+   * redacted — and each is announced, replies before the message they answered,
+   * so an open thread empties before it closes.
+   */
   const removeMessage = (existing: Message) =>
     mutate((emit) => {
-      const fileIds = store.fileIdsForMessage(existing.id);
-      store.deleteFiles(fileIds);
-      store.queueFileDeletions(fileIds);
-      store.deleteMessage(existing.id);
-      emit(
-        {
-          type: "message.deleted",
-          channelId: existing.channelId,
-          messageId: existing.id,
-          threadRootId: existing.threadRootId,
-        },
-        existing.channelId,
-      );
+      const replies = existing.threadRootId === null ? store.threadReplyIds(existing.id) : [];
+      const doomed = [
+        ...replies.map((id) => ({ id, threadRootId: existing.id as ID | null })),
+        { id: existing.id, threadRootId: existing.threadRootId },
+      ];
+      for (const message of doomed) {
+        const fileIds = store.fileIdsForMessage(message.id);
+        store.deleteFiles(fileIds);
+        store.queueFileDeletions(fileIds);
+        store.deleteMessage(message.id);
+        emit(
+          {
+            type: "message.deleted",
+            channelId: existing.channelId,
+            messageId: message.id,
+            threadRootId: message.threadRootId,
+          },
+          existing.channelId,
+        );
+      }
     });
 
   const app = Fastify({
