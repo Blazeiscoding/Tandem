@@ -3,7 +3,7 @@
 ## Windows and LAN
 
 Build an installer with `pnpm --filter @slackoss/desktop package --win`.
-The output is `apps/desktop/release/SlackOSS Setup 0.1.0.exe`. Local builds are
+The output is `apps/desktop/release/Gatherline Setup 0.1.0.exe`. Local builds are
 unsigned unless you supply a signing certificate; Windows may show SmartScreen.
 
 Install, choose **Host a workspace on this computer**, name it, and create the
@@ -18,6 +18,38 @@ alone does not bypass NAT, CGNAT, or firewalls. LAN discovery does not cross rou
 Data is under the app's user-data folder in `hosted/<workspace-name>/`. Advanced
 deployments can set `SLACKOSS_USER_DATA_DIR` to choose the desktop profile location.
 Treat workspace names as identifiers when reopening existing local workspaces.
+
+### Closing the window, and quitting
+
+While a workspace is hosted, or starting or stopping, closing Gatherline's window
+does not stop it. The window goes to the system tray, whose icon offers **Open
+Gatherline**, what is hosted and on which port, **Stop hosting…** and **Stop
+hosting and quit…**. Launching Gatherline again, or opening a `slackoss://` link,
+also brings the window back. On a desktop with no tray, closing minimizes the
+window instead. With nothing hosted, closing the last window quits on Windows and
+Linux; macOS keeps the app in the dock as usual.
+
+A bar under a workspace you are hosting says so and offers **Manage hosting**: the
+workspace's name, the addresses teammates connect to, its port and its data
+folder. Stopping, or quitting while hosting, asks first, because everyone
+connected is disconnected. Messages, files and accounts stay on disk. Quitting
+waits for a start already under way, and for the server to finish what it is
+doing. If stopping fails, Gatherline stays open and says so. If it fails while
+quitting, you can keep Gatherline open or quit anyway; quitting anyway ends at
+once and may lose changes still being written, but never deletes workspace data.
+
+If the last-used hosting settings cannot be saved, the workspace keeps running and
+Manage hosting shows a warning. Hosting does not resume by itself after quitting
+or restarting the computer, and the computer must stay awake. To reopen a
+workspace, host it again under the same name: the name decides its data folder,
+so a different name starts an empty workspace. A list of the workspaces on this
+computer, and renaming one, are not available yet.
+
+Only Windows has been checked. The packaged test closes the window while hosting,
+reads the tray menu, stops through the confirmation and quits with nothing
+hosted; the confirmations the tray and quitting show are not exercised. Whether a
+tray appears on Linux depends on the desktop environment, and macOS has not been
+run.
 
 ## Docker and VPS
 

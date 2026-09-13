@@ -16,9 +16,14 @@ export interface SavedServer {
 
 export interface HostingStatus {
   running: boolean;
+  phase?: "stopped" | "starting" | "running" | "stopping";
+  workspaceName?: string;
   port?: number;
   dataDir?: string;
   lanUrls?: string[];
+  warning?: string;
+  /** Whether closing the window can keep hosting through the system tray. */
+  backgroundAvailable?: boolean;
 }
 
 /**
@@ -49,6 +54,7 @@ export interface Platform {
   /** "Open to LAN" — run a workspace server inside this app. Desktop only. */
   hosting?: {
     status: () => Promise<HostingStatus>;
+    subscribe?: (cb: (status: HostingStatus) => void) => () => void;
     start: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
     stop: () => Promise<void>;
   };

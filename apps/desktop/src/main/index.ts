@@ -1,11 +1,23 @@
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, safeStorage, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  safeStorage,
+  shell,
+  Tray,
+} from "electron";
 import { join } from "node:path";
 import { networkInterfaces } from "node:os";
 import { pathToFileURL } from "node:url";
 import { Bonjour, type Service } from "bonjour-service";
 import { DEEP_LINK_PROTOCOL, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
-import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
+import { createWorkspaceServer } from "@slackoss/server";
 import { createSettingsStorage } from "./settings.js";
+import { createHostingController } from "./hosting.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 const isTest = process.env.SLACKOSS_TEST === "1";
@@ -14,6 +26,11 @@ const legacyUserData = app.getPath("userData");
 app.setName("Gatherline");
 app.setPath("userData", process.env.SLACKOSS_USER_DATA_DIR ?? legacyUserData);
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let rendererReady = false;
+let quitting = false;
+let quitReady = false;
+let quitTask: Promise<void> | null = null;
 
 ipcMain.handle("file:download", (event, value: unknown) => {
   if (!mainWindow || event.sender.id !== mainWindow.webContents.id || typeof value !== "string")
@@ -44,14 +61,12 @@ if ((isDev || isTest) && process.env.SLACKOSS_TEST_MEDIA === "1") {
 let pendingDeepLink: string | null = null;
 
 function deliverDeepLink(url: string): void {
-  const win = BrowserWindow.getAllWindows()[0];
-  if (!win) {
-    pendingDeepLink = url;
-    return;
+  pendingDeepLink = url;
+  const win = showMainWindow();
+  if (win && rendererReady) {
+    pendingDeepLink = null;
+    win.webContents.send("deeplink", url);
   }
-  if (win.isMinimized()) win.restore();
-  win.focus();
-  win.webContents.send("deeplink", url);
 }
 
 function deepLinkFromArgv(argv: string[]): string | null {
@@ -60,16 +75,14 @@ function deepLinkFromArgv(argv: string[]): string | null {
 
 // A second launch must hand its link to the running instance, not open a
 // second window with its own embedded server.
-if (!app.requestSingleInstanceLock()) {
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) {
   app.quit();
 } else {
   app.on("second-instance", (_e, argv) => {
     const url = deepLinkFromArgv(argv);
     if (url) deliverDeepLink(url);
-    else {
-      const win = BrowserWindow.getAllWindows()[0];
-      win?.focus();
-    }
+    else showMainWindow();
   });
 }
 
@@ -89,7 +102,9 @@ if (!isTest && isDev && process.platform === "win32") {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
 }
 
-ipcMain.handle("deeplink:consume", () => {
+ipcMain.handle("deeplink:consume", (event) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return null;
+  rendererReady = true;
   const url = pendingDeepLink;
   pendingDeepLink = null;
   return url;
@@ -157,9 +172,6 @@ ipcMain.handle("lan:snapshot", () => {
 
 // ---------- "Open to LAN" hosting (server runs in this process) ----------
 
-let hosted: WorkspaceServer | null = null;
-let hostedName: string | null = null;
-
 function lanUrls(port: number): string[] {
   const out: string[] = [];
   for (const ifaces of Object.values(networkInterfaces())) {
@@ -171,50 +183,152 @@ function lanUrls(port: number): string[] {
 }
 
 function hostingStatus() {
-  return hosted
-    ? { running: true, port: hosted.port, lanUrls: lanUrls(hosted.port) }
-    : { running: false };
+  return { ...hosting.status(), backgroundAvailable: !!tray && !tray.isDestroyed() };
 }
 
-ipcMain.handle("hosting:status", () => hostingStatus());
-
-ipcMain.handle("hosting:start", async (_e, opts: { workspaceName: string; port?: number }) => {
-  if (hosted) return hostingStatus();
-  const slug =
-    opts.workspaceName
-      .toLowerCase()
-      .replaceAll(/[^a-z0-9]+/g, "-")
-      .replaceAll(/^-|-$/g, "") || "workspace";
-  const dataDir = join(app.getPath("userData"), "hosted", slug);
-  const start = (port: number) =>
+const hosting = createHostingController({
+  dataRoot: join(app.getPath("userData"), "hosted"),
+  defaultPort: DEFAULT_PORT,
+  lanUrls,
+  saveLastHosted: (value) => writeSetting("lastHosted", value),
+  onChange: publishHostingStatus,
+  startServer: ({ dataDir, port, workspaceName }) =>
     createWorkspaceServer({
       dataDir,
       port,
-      workspaceName: opts.workspaceName,
+      workspaceName,
       mdns: true,
       webDistPath: app.isPackaged
         ? join(process.resourcesPath, "web")
         : join(import.meta.dirname, "../../../web/dist"),
-    });
+    }),
+});
 
-  try {
-    hosted = await start(opts.port ?? DEFAULT_PORT);
-  } catch (err) {
-    // Something else already has the default port (often another workspace on
-    // this machine). Take any free one — mDNS advertises whatever we land on.
-    if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
-    hosted = await start(0);
-  }
-  hostedName = opts.workspaceName;
-  await writeSetting("lastHosted", { workspaceName: opts.workspaceName, port: hosted.port });
+ipcMain.handle("hosting:status", () => hostingStatus());
+ipcMain.handle("hosting:start", async (_e, opts: unknown) => {
+  if (quitting) throw new Error("Gatherline is shutting down. Try again after reopening it.");
+  if (trayStopPending)
+    throw new Error("Finish the stop-hosting confirmation before starting a workspace.");
+  await hosting.start(opts);
   return hostingStatus();
 });
+ipcMain.handle("hosting:stop", () => hosting.stop());
 
-ipcMain.handle("hosting:stop", async () => {
-  await hosted?.stop();
-  hosted = null;
-  hostedName = null;
-});
+function publishHostingStatus(): void {
+  const status = hostingStatus();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("hosting:changed", status);
+  }
+  updateTray();
+}
+
+function showMainWindow(): BrowserWindow | null {
+  if (!app.isReady() || quitting) return null;
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  const win = mainWindow!;
+  if (win.isMinimized()) win.restore();
+  if (!isTest) win.show();
+  win.focus();
+  return win;
+}
+
+async function confirmStop(forQuit: boolean): Promise<boolean> {
+  const choice = await dialog.showMessageBox({
+    type: "question",
+    title: forQuit ? "Stop hosting and quit?" : "Stop hosting?",
+    message: forQuit
+      ? "Quit Gatherline and stop the hosted workspace?"
+      : "Stop the hosted workspace?",
+    detail:
+      "Teammates will be disconnected until you start hosting again. Stored messages and files stay on this computer.",
+    buttons: ["Cancel", forQuit ? "Stop hosting and quit" : "Stop hosting"],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  return choice.response === 1;
+}
+
+let trayStopPending = false;
+async function stopFromTray(): Promise<void> {
+  if (trayStopPending || quitting) return;
+  trayStopPending = true;
+  updateTray();
+  try {
+    if (await confirmStop(false)) await hosting.stop();
+  } catch {
+    showMainWindow();
+    await dialog.showMessageBox({
+      type: "error",
+      message: "The workspace could not be stopped. Open hosting controls and try again.",
+    });
+  } finally {
+    trayStopPending = false;
+    updateTray();
+  }
+}
+
+function updateTray(): void {
+  if (!tray || tray.isDestroyed()) return;
+  const status = hosting.status();
+  const label =
+    status.phase === "starting"
+      ? "Starting workspace…"
+      : status.phase === "stopping"
+        ? "Stopping workspace…"
+        : status.running
+          ? `Hosting ${status.workspaceName} · port ${status.port}`
+          : "Not hosting";
+  tray.setToolTip(`Gatherline — ${label}`.slice(0, 127));
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Open Gatherline",
+        click: () => {
+          showMainWindow();
+        },
+      },
+      { label: label.replaceAll("&", "&&"), enabled: false },
+      {
+        label: "Stop hosting…",
+        enabled: status.phase === "running" && !quitting && !trayStopPending,
+        click: () => {
+          void stopFromTray().catch(() => {});
+        },
+      },
+      { type: "separator" },
+      {
+        label: status.phase === "stopped" ? "Quit Gatherline" : "Stop hosting and quit…",
+        enabled: !quitting && !trayStopPending,
+        click: () => app.quit(),
+      },
+    ]),
+  );
+}
+
+function createTray(): void {
+  try {
+    const file = process.platform === "win32" ? "icon.ico" : "icon.png";
+    const iconPath = app.isPackaged
+      ? join(process.resourcesPath, "tray", file)
+      : join(import.meta.dirname, "../../build", file);
+    const icon = nativeImage.createFromPath(iconPath);
+    if (icon.isEmpty()) throw new Error("Tray icon is missing.");
+    tray = new Tray(
+      process.platform === "win32" ? iconPath : icon.resize({ width: 18, height: 18 }),
+    );
+    tray.on("click", () => {
+      showMainWindow();
+    });
+    tray.on("double-click", () => {
+      showMainWindow();
+    });
+    updateTray();
+  } catch {
+    tray?.destroy();
+    tray = null;
+    // A desktop without tray support keeps a hosted window in the taskbar.
+  }
+}
 
 // ---------- window ----------
 
@@ -241,6 +355,25 @@ function createWindow(): void {
   });
 
   mainWindow.setMenuBarVisibility(false);
+  const win = mainWindow;
+  rendererReady = false;
+  win.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) rendererReady = false;
+  });
+  win.on("close", (event) => {
+    if (quitReady) return;
+    if (quitting || hosting.status().phase !== "stopped") {
+      event.preventDefault();
+      if (hostingStatus().backgroundAvailable) win.hide();
+      else win.minimize();
+    }
+  });
+  win.on("closed", () => {
+    if (mainWindow === win) {
+      mainWindow = null;
+      rendererReady = false;
+    }
+  });
 
   // Huddles need the microphone, and screen share needs display capture.
   // Grant those to our own renderer; refuse everything else.
@@ -323,31 +456,72 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
+  if (!primaryInstance) return;
+  const initial = deepLinkFromArgv(process.argv);
+  if (initial && !pendingDeepLink) pendingDeepLink = initial;
+  createTray();
   createWindow();
   startDiscovery();
-  // A cold start from a link arrives in argv rather than as an event.
-  const initial = deepLinkFromArgv(process.argv);
-  if (initial) pendingDeepLink = initial;
-
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    showMainWindow();
   });
 });
 
 app.on("window-all-closed", () => {
-  // Keep serving while hosting a workspace, even with the window closed (Windows/Linux tray-less v1: quit unless hosting).
-  if (process.platform !== "darwin" && !hosted) app.quit();
+  // macOS keeps an app with no windows running either way; the dock reopens it.
+  if (process.platform === "darwin") return;
+  if (hosting.status().phase === "stopped") app.quit();
+  // A server with nothing on screen and no tray to reach it by would be invisible.
+  else if (!quitting && !tray) showMainWindow();
 });
 
-let shuttingDown = false;
 app.on("before-quit", (event) => {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  if (hosted) {
-    event.preventDefault();
-    void hosted.stop().finally(() => {
-      bonjour.destroy();
-      app.quit();
+  if (quitReady || !primaryInstance) return;
+  event.preventDefault();
+  if (quitTask || trayStopPending) return;
+  quitting = true;
+  updateTray();
+  quitTask = (async () => {
+    if (hosting.status().phase !== "stopped" && !(await confirmStop(true))) {
+      quitting = false;
+      updateTray();
+      return;
+    }
+    await hosting.shutdown();
+    quitReady = true;
+    tray?.destroy();
+    tray = null;
+    bonjour.destroy();
+    app.quit();
+  })()
+    .catch(async () => {
+      const choice = await dialog.showMessageBox({
+        type: "error",
+        title: "The workspace could not finish stopping",
+        message: "Keep Gatherline open, or quit without waiting for the remaining work?",
+        detail:
+          "Shutdown failed. Quitting anyway ends the process immediately and may lose unfinished changes. Existing workspace data is not deleted.",
+        buttons: ["Keep open", "Quit anyway"],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      if (choice.response === 1) {
+        tray?.destroy();
+        // Only the user's explicit response to a failed shutdown may bypass draining.
+        app.exit(1);
+      } else {
+        quitting = false;
+        showMainWindow();
+        updateTray();
+      }
+    })
+    .finally(() => {
+      quitTask = null;
+      if (!quitReady && quitting) {
+        quitting = false;
+        showMainWindow();
+        updateTray();
+      }
     });
-  } else bonjour.destroy();
+  void quitTask.catch(() => {});
 });

@@ -10,6 +10,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "package": "pnpm --filter @slackoss/web build && electron-vite build && electron-builder --config electron-builder.yml"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
     "react-dom": "^19.1.0",
     "tailwindcss": "^4.1.12",
     "typescript": "^5.9.2",
-    "vite": "^7.1.0"
+    "vite": "^7.1.0",
+    "vitest": "^3.2.0"
   }
 }
