@@ -167,6 +167,11 @@ curl -X POST http://your-server:8543/api/chat.postMessage   -H "authorization: B
 
 `chat.postMessage` accepts a channel id or `#name`, supports `thread_ts`, and
 replies with Slack's `{ok, channel, ts}` — or `{ok:false, error}` on failure.
+`auth.test` and `views.open` are there too. Slack's own Web API SDK is tested
+against this server — its form-encoded calls, its error handling, and the
+`auth.test` call Bolt makes before it will start. [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) is the full
+contract — every supported method and field, each event and what it becomes,
+and each place this server differs from Slack.
 Block Kit payloads are flattened to text rather than rejected, so a message
 written for Slack still reads sensibly, and the **buttons** in an `actions`
 block are drawn as buttons.
