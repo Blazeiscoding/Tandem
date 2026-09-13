@@ -1259,6 +1259,17 @@ export class Store {
     return blobIds.filter((id) => !known.has(id));
   }
 
+  /** The replies still standing in a thread, oldest first. */
+  threadReplyIds(rootId: ID): ID[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT id FROM messages WHERE thread_root_id = ? AND deleted_at IS NULL ORDER BY id",
+        )
+        .all(rootId) as { id: string }[]
+    ).map((r) => r.id);
+  }
+
   /** File ids belonging to a message — used to delete blobs when the message goes. */
   fileIdsForMessage(messageId: ID): ID[] {
     const rows = this.db.prepare("SELECT id FROM files WHERE message_id = ?").all(messageId) as {
