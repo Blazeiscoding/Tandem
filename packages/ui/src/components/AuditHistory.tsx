@@ -35,6 +35,10 @@ export function describeAuditEntry(
       return `${actor} reactivated ${target}`;
     case "user.password_reset":
       return `${actor} reset ${possessive(target)} password`;
+    case "user.invite_permission_granted":
+      return `${actor} allowed ${target} to create invite codes`;
+    case "user.invite_permission_removed":
+      return `${actor} stopped ${target} creating invite codes`;
     case "account.recovered":
       return `The host recovered ${possessive(target)} account from the server's command line${
         d.madeOwner ? " and made them the owner" : ""

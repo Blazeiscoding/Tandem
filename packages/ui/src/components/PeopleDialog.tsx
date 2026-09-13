@@ -55,7 +55,7 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
 
   async function change(
     person: Person,
-    patch: { role?: "member" | "admin"; deactivated?: boolean },
+    patch: { role?: "member" | "admin"; deactivated?: boolean; canInvite?: boolean },
   ) {
     if (busy) return;
     setError(null);
@@ -305,7 +305,9 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
                           ? "Owner"
                           : person.role === "admin"
                             ? "Admin"
-                            : "Member"}
+                            : person.canInvite && !person.isBot
+                              ? "Member · can invite"
+                              : "Member"}
                       {person.lastSeenAt && !person.deactivated && (
                         <> · last seen {formatDay(person.lastSeenAt)}</>
                       )}
@@ -327,6 +329,19 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
                           {person.role === "admin" ? "Make member" : "Make admin"}
                         </button>
                       )}
+                      {!person.isBot &&
+                        !person.deactivated &&
+                        person.role === "member" &&
+                        typeof person.canInvite === "boolean" && (
+                          <button
+                            disabled={!!busy}
+                            onClick={() => void change(person, { canInvite: !person.canInvite })}
+                            aria-pressed={!!person.canInvite}
+                            className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
+                          >
+                            {person.canInvite ? "Stop inviting" : "Allow inviting"}
+                          </button>
+                        )}
                       <button
                         disabled={!!busy}
                         onClick={() => void change(person, { deactivated: !person.deactivated })}
@@ -409,6 +424,10 @@ function errorText(code: string, message?: string): string {
       return "That account is gone. Reopen this list.";
     case "bots_have_no_role":
       return "An app has no role to change.";
+    case "bots_cannot_invite":
+      return "An app cannot be allowed to invite people.";
+    case "admins_can_always_invite":
+      return "Admins can always invite people.";
     case "admin_only":
       return "You do not have permission to do that.";
     default:

@@ -57,7 +57,14 @@ beforeEach(async () => {
   owner = { token: first.data.token, id: first.data.user.id };
   const joined = await register("member", (await invite(owner.token)).code);
   member = { token: joined.data.token, id: joined.data.user.id };
+  // Most of this file is about codes a member made, so this member may make them.
+  await allowInviting(member.id, true);
 });
+
+async function allowInviting(id: string, canInvite: boolean) {
+  const res = await call(`/api/admin/users/${id}`, owner.token, "PATCH", { canInvite });
+  expect(res.status).toBe(200);
+}
 
 afterEach(() => server.stop());
 
@@ -170,5 +177,115 @@ describe("an invite whose creator has been deactivated", () => {
     await setDeactivated(member.id, true);
     await setDeactivated(member.id, false);
     expect((await register("welcome-back", paused.code)).status).toBe(201);
+  });
+});
+
+describe("permission to create invite codes", () => {
+  it("is something a new member does not have until an administrator gives it", async () => {
+    const joined = await register("newcomer", (await invite(owner.token)).code);
+    const newcomer = joined.data.token;
+    const me = await call<{ user: { canInvite: boolean } }>("/api/me", newcomer);
+    expect(me.data.user.canInvite).toBe(false);
+
+    const refused = await call<{ error: string }>("/api/invites", newcomer, "POST", {
+      expiresInHours: 24,
+    });
+    expect(refused.status).toBe(403);
+    expect(refused.data.error).toBe("invite_permission_required");
+  });
+
+  it("is always there for an owner, without being given", async () => {
+    const me = await call<{ user: { canInvite: boolean } }>("/api/me", owner.token);
+    expect(me.data.user.canInvite).toBe(true);
+    expect((await call("/api/invites", owner.token, "POST", { expiresInHours: 1 })).status).toBe(
+      201,
+    );
+  });
+
+  it("stops a member's codes working when it is taken away, and starts them again when it is back", async () => {
+    const theirs = await invite(member.token);
+    await allowInviting(member.id, false);
+
+    expect((await register("too-late", theirs.code)).status).toBe(403);
+    const listed = (await call<{ invites: Invite[] }>("/api/invites", owner.token)).data.invites;
+    expect(listed.find((i) => i.code === theirs.code)!.status).toBe("creator_not_permitted");
+    // And no new ones.
+    expect((await call("/api/invites", member.token, "POST", { expiresInHours: 1 })).status).toBe(
+      403,
+    );
+
+    await allowInviting(member.id, true);
+    expect((await register("on-time", theirs.code)).status).toBe(201);
+  });
+
+  it("does not stop a member withdrawing the codes they already made", async () => {
+    const theirs = await invite(member.token);
+    await allowInviting(member.id, false);
+    const revoked = await call<{ invite: Invite }>(
+      `/api/invites/${theirs.code}`,
+      member.token,
+      "DELETE",
+    );
+    expect(revoked.status).toBe(200);
+    expect(revoked.data.invite.status).toBe("revoked");
+  });
+
+  it("is given by administrators only", async () => {
+    const joined = await register("peer", (await invite(owner.token)).code);
+    const res = await call(`/api/admin/users/${joined.data.user.id}`, member.token, "PATCH", {
+      canInvite: true,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("is not a setting for an admin, who can always invite, or for an app", async () => {
+    const joined = await register("deputy", (await invite(owner.token)).code);
+    const deputy = joined.data.user.id;
+    await call(`/api/admin/users/${deputy}`, owner.token, "PATCH", { role: "admin" });
+    const forAdmin = await call<{ error: string }>(
+      `/api/admin/users/${deputy}`,
+      owner.token,
+      "PATCH",
+      {
+        canInvite: false,
+      },
+    );
+    expect(forAdmin.status).toBe(400);
+    expect(forAdmin.data.error).toBe("admins_can_always_invite");
+
+    const app = await call<{ botUser: { id: string } }>("/api/apps", owner.token, "POST", {
+      name: "Inviting Bot",
+    });
+    const forApp = await call<{ error: string }>(
+      `/api/admin/users/${app.data.botUser.id}`,
+      owner.token,
+      "PATCH",
+      { canInvite: true },
+    );
+    expect(forApp.status).toBe(400);
+    expect(forApp.data.error).toBe("bots_cannot_invite");
+  });
+
+  it("goes with the admin role when someone is made a member again", async () => {
+    const joined = await register("former-admin", (await invite(owner.token)).code);
+    const id = joined.data.user.id;
+    await call(`/api/admin/users/${id}`, owner.token, "PATCH", { role: "admin" });
+    const made = await invite(joined.data.token);
+    await call(`/api/admin/users/${id}`, owner.token, "PATCH", { role: "member" });
+    // Being an admin was the permission, so their codes stop with it.
+    expect((await register("after-demotion", made.code)).status).toBe(403);
+  });
+
+  it("is recorded when it changes, and not when it does not", async () => {
+    await allowInviting(member.id, true); // already allowed in beforeEach
+    await allowInviting(member.id, false);
+    const { entries } = (
+      await call<{ entries: { action: string; targetId: string }[] }>(
+        "/api/admin/audit?limit=20",
+        owner.token,
+      )
+    ).data;
+    const about = entries.filter((e) => e.targetId === member.id).map((e) => e.action);
+    expect(about).toEqual(["user.invite_permission_removed", "user.invite_permission_granted"]);
   });
 });

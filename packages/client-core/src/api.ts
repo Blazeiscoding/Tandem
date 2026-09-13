@@ -617,7 +617,7 @@ export class Api {
   /** Change someone's role, or take their access away. Admins only. */
   updateUserAdmin(
     userId: ID,
-    patch: { role?: "member" | "admin"; deactivated?: boolean },
+    patch: { role?: "member" | "admin"; deactivated?: boolean; canInvite?: boolean },
   ): Promise<{ user: User }> {
     return this.request("PATCH", `/api/admin/users/${userId}`, patch);
   }

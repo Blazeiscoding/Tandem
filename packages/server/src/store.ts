@@ -44,6 +44,7 @@ interface UserRow {
   deactivated: number;
   dnd_until: number | null;
   created_at: number;
+  can_invite?: number;
 }
 
 interface ChannelRow {
@@ -107,7 +108,17 @@ function toUser(r: UserRow): User {
     deactivated: r.deactivated === 1,
     dndUntil: r.dnd_until,
     createdAt: r.created_at,
+    canInvite: mayInvite(r.role, r.is_bot, r.can_invite),
   };
+}
+
+/**
+ * The one rule for who may create invite codes, used for the flag clients see
+ * and for the codes a creator has already handed out. An app never may.
+ */
+function mayInvite(role: string, isBot: number, canInvite: number | undefined | null): boolean {
+  if (isBot === 1) return false;
+  return role === "owner" || role === "admin" || canInvite === 1;
 }
 
 /** How long a session survives without being used. */
@@ -255,6 +266,11 @@ export class Store {
     return rows.map(toUser);
   }
 
+  /** The explicit member grant, independent of permission conferred by an admin role. */
+  getMemberInvitePermission(id: ID): boolean {
+    return this.db.prepare("SELECT can_invite FROM users WHERE id = ?").get(id)?.can_invite === 1;
+  }
+
   updateUser(
     id: ID,
     patch: {
@@ -264,6 +280,7 @@ export class Store {
       dndUntil?: number | null;
       role?: Role;
       deactivated?: boolean;
+      canInvite?: boolean;
     },
   ): User {
     const sets: string[] = [];
@@ -291,6 +308,10 @@ export class Store {
     if (patch.deactivated !== undefined) {
       sets.push("deactivated = ?");
       params.push(patch.deactivated ? 1 : 0);
+    }
+    if (patch.canInvite !== undefined) {
+      sets.push("can_invite = ?");
+      params.push(patch.canInvite ? 1 : 0);
     }
     if (sets.length > 0) {
       this.db
@@ -2487,6 +2508,9 @@ export class Store {
       uses: number;
       revoked_at: number | null;
       creator_deactivated: number | null;
+      creator_role: string | null;
+      creator_is_bot: number | null;
+      creator_can_invite: number | null;
     },
     now: number,
   ): Invite {
@@ -2498,11 +2522,13 @@ export class Store {
         ? "revoked"
         : r.creator_deactivated !== 0
           ? "creator_deactivated"
-          : r.expires_at !== null && now > r.expires_at
-            ? "expired"
-            : r.max_uses !== null && r.uses >= r.max_uses
-              ? "used_up"
-              : "active";
+          : !mayInvite(r.creator_role ?? "", r.creator_is_bot ?? 0, r.creator_can_invite)
+            ? "creator_not_permitted"
+            : r.expires_at !== null && now > r.expires_at
+              ? "expired"
+              : r.max_uses !== null && r.uses >= r.max_uses
+                ? "used_up"
+                : "active";
     return {
       code: r.code,
       createdBy: r.created_by,
@@ -2517,7 +2543,8 @@ export class Store {
 
   /** A creator who no longer exists counts as deactivated: nobody vouches for the link. */
   private static readonly INVITE_COLUMNS = `i.code, i.created_by, i.created_at, i.expires_at,
-    i.max_uses, i.uses, i.revoked_at, COALESCE(u.deactivated, 1) AS creator_deactivated`;
+    i.max_uses, i.uses, i.revoked_at, COALESCE(u.deactivated, 1) AS creator_deactivated,
+    u.role AS creator_role, u.is_bot AS creator_is_bot, u.can_invite AS creator_can_invite`;
 
   getInvite(code: string, now = Date.now()): Invite | null {
     const r = this.db

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError } from "@slackoss/client-core";
 import { useCopy } from "../lib/useCopy.js";
 import type { Channel, ID, Invite, InviteStatus } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
@@ -254,34 +255,55 @@ const INVITE_STATUS: Record<InviteStatus, string> = {
   used_up: "Used up",
   revoked: "Revoked",
   creator_deactivated: "Creator deactivated",
+  creator_not_permitted: "Creator can no longer invite",
 };
 
 export function InviteDialog(props: { onClose: () => void }) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
+  const selfRole = useWorkspace((s) => s.self?.role);
+  // Older servers do not send the flag; every member could invite there.
+  const canInvite = useWorkspace((s) => s.self?.canInvite ?? true);
   const [invite, setInvite] = useState<string | null>(null);
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const listRequest = useRef(0);
+  const permissions = useMemo(
+    () =>
+      Object.values(users)
+        .map((user) => `${user.id}:${user.role}:${user.canInvite}:${user.deactivated}`)
+        .sort()
+        .join("|"),
+    [users],
+  );
   const { copy, label, copied } = useCopy();
   const host = client.baseUrl.replace(/^https?:\/\//, "");
   const link = invite ? `slackoss://join?host=${host}&code=${invite}` : null;
 
-  async function loadInvites() {
+  const loadInvites = useCallback(async () => {
+    const request = ++listRequest.current;
     try {
-      setInvites((await client.api.listInvites()).invites);
+      const result = await client.api.listInvites();
+      if (request === listRequest.current) setInvites(result.invites);
     } catch {
       // The list is a convenience beside creating one; failing to load it
       // should not stop anyone inviting a colleague.
-      setInvites(null);
+      if (request === listRequest.current) setInvites(null);
     }
-  }
+  }, [client]);
 
   useEffect(() => {
     void loadInvites();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client]);
+    return () => {
+      listRequest.current++;
+    };
+  }, [loadInvites, permissions]);
+
+  useEffect(() => {
+    if (!canInvite) setInvite(null);
+  }, [canInvite]);
 
   async function generate() {
     setBusy(true);
@@ -290,8 +312,12 @@ export function InviteDialog(props: { onClose: () => void }) {
       const { invite } = await client.api.createInvite({ expiresInHours: 24 * 7 });
       setInvite(invite.code);
       void loadInvites();
-    } catch {
-      setError("Could not create an invite code. Check your connection and try again.");
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.code === "invite_permission_required"
+          ? "An administrator must allow you to create invite codes."
+          : "Could not create an invite code. Check your connection and try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -335,7 +361,7 @@ export function InviteDialog(props: { onClose: () => void }) {
           </button>
         </div>
       </div>
-      {invite ? (
+      {invite && canInvite ? (
         <div className="rounded-lg border border-edge bg-ground p-3">
           <div className="mb-1 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
             Invite code · valid 7 days
@@ -352,7 +378,7 @@ export function InviteDialog(props: { onClose: () => void }) {
             </button>
           </div>
         </div>
-      ) : (
+      ) : canInvite ? (
         <button
           onClick={() => void generate()}
           disabled={busy}
@@ -360,6 +386,11 @@ export function InviteDialog(props: { onClose: () => void }) {
         >
           Generate invite code
         </button>
+      ) : (
+        <p className="rounded-lg border border-edge bg-ground p-3 text-sm text-ink-dim">
+          Creating invite codes needs permission from an administrator. Ask one to allow it, or to
+          invite the person for you.
+        </p>
       )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-alert">
@@ -373,7 +404,16 @@ export function InviteDialog(props: { onClose: () => void }) {
           </div>
           <ul className="max-h-60 space-y-1.5 overflow-y-auto" aria-label="Invite codes">
             {invites.map((inv) => {
-              const status = inv.status ?? "active";
+              // A role change takes effect before a refreshed list returns.
+              if (selfRole !== "owner" && selfRole !== "admin" && inv.createdBy !== selfId)
+                return null;
+              const author = users[inv.createdBy];
+              const status =
+                inv.status !== "revoked" && author?.deactivated
+                  ? "creator_deactivated"
+                  : inv.status !== "revoked" && author?.canInvite === false
+                    ? "creator_not_permitted"
+                    : (inv.status ?? "active");
               const creator =
                 inv.createdBy === selfId ? "you" : (users[inv.createdBy]?.displayName ?? "someone");
               return (
