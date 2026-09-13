@@ -410,6 +410,26 @@ from a compromised running app or another process with the same OS-account
 access. Native runtime verification currently covers Windows; macOS/Linux
 behavior still needs platform testing.
 
+## Invites
+
+With `--invite-only`, everyone after the owner needs an invite code to create an
+account. Any member can make one from **Invite people**; the dialog's codes last
+seven days. The same dialog lists codes: every code for an administrator, and
+only their own for a member, since a code is what lets a stranger in. Each shows
+how many times it has been used and whether it still works.
+
+**Revoke** stops a code letting anyone else in, for one that has been shared
+further than meant. Its creator or an administrator can revoke it; a member who
+tries someone else's is told there is no such code, so trying codes cannot
+confirm which exist. A revoked code stays in the list, marked as revoked.
+
+A code also stops working while the person who made it is deactivated — nobody
+still in the workspace vouches for it — and works again if they are brought back.
+Revoke it as well if it should stay dead. Codes are left out of the request log.
+
+Without `--invite-only`, anyone who can reach the server can create an account,
+and a code is not asked for.
+
 ## Current boundaries
 
 Friends and accounts do not federate across servers. Account settings offers password
