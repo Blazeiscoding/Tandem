@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCopy } from "../lib/useCopy.js";
-import type { Channel, ID } from "@slackoss/protocol";
+import type { Channel, ID, Invite, InviteStatus } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
@@ -247,16 +247,72 @@ export function NewDmDialog(props: {
   );
 }
 
+/** What an invite's status means to the person looking at the list. */
+const INVITE_STATUS: Record<InviteStatus, string> = {
+  active: "Active",
+  expired: "Expired",
+  used_up: "Used up",
+  revoked: "Revoked",
+  creator_deactivated: "Creator deactivated",
+};
+
 export function InviteDialog(props: { onClose: () => void }) {
   const client = useClient();
+  const users = useWorkspace((s) => s.users);
+  const selfId = useWorkspace((s) => s.self?.id);
   const [invite, setInvite] = useState<string | null>(null);
+  const [invites, setInvites] = useState<Invite[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const { copy, label, copied } = useCopy();
   const host = client.baseUrl.replace(/^https?:\/\//, "");
   const link = invite ? `slackoss://join?host=${host}&code=${invite}` : null;
 
+  async function loadInvites() {
+    try {
+      setInvites((await client.api.listInvites()).invites);
+    } catch {
+      // The list is a convenience beside creating one; failing to load it
+      // should not stop anyone inviting a colleague.
+      setInvites(null);
+    }
+  }
+
+  useEffect(() => {
+    void loadInvites();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client]);
+
   async function generate() {
-    const { invite } = await client.api.createInvite({ expiresInHours: 24 * 7 });
-    setInvite(invite.code);
+    setBusy(true);
+    setError(null);
+    try {
+      const { invite } = await client.api.createInvite({ expiresInHours: 24 * 7 });
+      setInvite(invite.code);
+      void loadInvites();
+    } catch {
+      setError("Could not create an invite code. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke(code: string) {
+    if (
+      !confirm(
+        "Revoke this invite? Anyone who has not used it yet will not be able to join with it.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    try {
+      await client.api.revokeInvite(code);
+      if (code === invite) setInvite(null);
+      void loadInvites();
+    } catch {
+      setError("Could not revoke that invite. Nothing was changed; try again.");
+    }
   }
 
   return (
@@ -297,9 +353,63 @@ export function InviteDialog(props: { onClose: () => void }) {
           </div>
         </div>
       ) : (
-        <button onClick={generate} className={`${primaryBtnCls} w-full`}>
+        <button
+          onClick={() => void generate()}
+          disabled={busy}
+          className={`${primaryBtnCls} w-full`}
+        >
           Generate invite code
         </button>
+      )}
+      {error && (
+        <p role="alert" className="mt-3 text-sm text-alert">
+          {error}
+        </p>
+      )}
+      {invites && invites.length > 0 && (
+        <div className="mt-5">
+          <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
+            Invite codes
+          </div>
+          <ul className="max-h-60 space-y-1.5 overflow-y-auto" aria-label="Invite codes">
+            {invites.map((inv) => {
+              const status = inv.status ?? "active";
+              const creator =
+                inv.createdBy === selfId ? "you" : (users[inv.createdBy]?.displayName ?? "someone");
+              return (
+                <li
+                  key={inv.code}
+                  className="flex items-center gap-3 rounded-lg border border-edge px-3 py-2 text-sm"
+                >
+                  <code className="font-mono text-[13px] tracking-[0.15em] text-ink">
+                    {inv.code}
+                  </code>
+                  <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">
+                    by {creator} · {inv.uses}
+                    {inv.maxUses !== null ? ` of ${inv.maxUses}` : ""} used
+                    {inv.expiresAt !== null && status === "active"
+                      ? ` · until ${new Date(inv.expiresAt).toLocaleDateString()}`
+                      : ""}
+                  </span>
+                  <span
+                    className={`text-xs ${status === "active" ? "text-online" : "text-ink-faint"}`}
+                  >
+                    {INVITE_STATUS[status]}
+                  </span>
+                  {status !== "revoked" && (
+                    <button
+                      onClick={() => void revoke(inv.code)}
+                      className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted hover:text-alert"
+                      aria-label={`Revoke invite ${inv.code}`}
+                    >
+                      Revoke
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </Dialog>
   );

@@ -3147,6 +3147,36 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return reply.status(201).send({ invite });
   });
 
+  /**
+   * The invites someone can do something about: every one for an administrator,
+   * and a member's own for everyone else. Codes are credentials for an
+   * invite-only workspace, so a member is never shown anyone else's.
+   */
+  app.get("/api/invites", async (req) => {
+    const me = requireUser(req);
+    const admin = me.role === "owner" || me.role === "admin";
+    return { invites: store.listInvites(admin ? {} : { createdBy: me.id }) };
+  });
+
+  /**
+   * Withdraws an invite, for a link that has been shared further than meant.
+   * Its creator or an administrator may; anyone else is told there is no such
+   * invite, so trying codes cannot confirm which ones exist.
+   */
+  app.delete<{ Params: { code: string } }>("/api/invites/:code", async (req) => {
+    const me = requireUser(req);
+    const admin = me.role === "owner" || me.role === "admin";
+    const invite = store.getInvite(req.params.code);
+    if (!invite || (!admin && invite.createdBy !== me.id)) {
+      throw new HttpError(404, "invite_not_found");
+    }
+    if (store.revokeInvite(invite.code, me.id)) {
+      // Without the code: the log is not somewhere a credential should end up.
+      req.log.info({ createdBy: invite.createdBy, by: me.id }, "invite revoked");
+    }
+    return { invite: store.getInvite(invite.code) };
+  });
+
   app.get("/api/activity", async (req) => {
     const me = requireUser(req);
     const query = activityQuery.parse(req.query);

@@ -8,6 +8,7 @@ import type {
   Friendship,
   ID,
   Invite,
+  InviteStatus,
   Message,
   MessageAction,
   ReactionGroup,
@@ -2448,18 +2449,32 @@ export class Store {
     return this.getInvite(code)!;
   }
 
-  getInvite(code: string): Invite | null {
-    const r = this.db.prepare("SELECT * FROM invites WHERE code = ?").get(code) as
-      | {
-          code: string;
-          created_by: string;
-          created_at: number;
-          expires_at: number | null;
-          max_uses: number | null;
-          uses: number;
-        }
-      | undefined;
-    if (!r) return null;
+  private toInvite(
+    r: {
+      code: string;
+      created_by: string;
+      created_at: number;
+      expires_at: number | null;
+      max_uses: number | null;
+      uses: number;
+      revoked_at: number | null;
+      creator_deactivated: number | null;
+    },
+    now: number,
+  ): Invite {
+    // Revoked first: it is the one somebody chose, and it stays true whatever
+    // else changes. A creator who has been deactivated comes next, and unlike
+    // revocation it lifts again if they are reactivated.
+    const status: InviteStatus =
+      r.revoked_at !== null
+        ? "revoked"
+        : r.creator_deactivated !== 0
+          ? "creator_deactivated"
+          : r.expires_at !== null && now > r.expires_at
+            ? "expired"
+            : r.max_uses !== null && r.uses >= r.max_uses
+              ? "used_up"
+              : "active";
     return {
       code: r.code,
       createdBy: r.created_by,
@@ -2467,15 +2482,53 @@ export class Store {
       expiresAt: r.expires_at,
       maxUses: r.max_uses,
       uses: r.uses,
+      revokedAt: r.revoked_at,
+      status,
     };
   }
 
-  /** Validates and consumes one use. Returns false if invalid/expired/exhausted. */
+  /** A creator who no longer exists counts as deactivated: nobody vouches for the link. */
+  private static readonly INVITE_COLUMNS = `i.code, i.created_by, i.created_at, i.expires_at,
+    i.max_uses, i.uses, i.revoked_at, COALESCE(u.deactivated, 1) AS creator_deactivated`;
+
+  getInvite(code: string, now = Date.now()): Invite | null {
+    const r = this.db
+      .prepare(
+        `SELECT ${Store.INVITE_COLUMNS} FROM invites i LEFT JOIN users u ON u.id = i.created_by
+         WHERE i.code = ?`,
+      )
+      .get(code) as Parameters<Store["toInvite"]>[0] | undefined;
+    return r ? this.toInvite(r, now) : null;
+  }
+
+  /** Newest first. Everyone's when `createdBy` is omitted, which is for administrators. */
+  listInvites(opts: { createdBy?: ID; limit?: number } = {}, now = Date.now()): Invite[] {
+    const rows = this.db
+      .prepare(
+        `SELECT ${Store.INVITE_COLUMNS} FROM invites i LEFT JOIN users u ON u.id = i.created_by
+         ${opts.createdBy ? "WHERE i.created_by = ?" : ""}
+         ORDER BY i.created_at DESC, i.code DESC LIMIT ?`,
+      )
+      .all(...(opts.createdBy ? [opts.createdBy] : []), opts.limit ?? 200) as Parameters<
+      Store["toInvite"]
+    >[0][];
+    return rows.map((r) => this.toInvite(r, now));
+  }
+
+  /** True if this call withdrew it; false if it was already withdrawn or never existed. */
+  revokeInvite(code: string, by: ID, now = Date.now()): boolean {
+    return (
+      this.db
+        .prepare(
+          "UPDATE invites SET revoked_at = ?, revoked_by = ? WHERE code = ? AND revoked_at IS NULL",
+        )
+        .run(now, by, code).changes > 0
+    );
+  }
+
+  /** Validates and consumes one use. Returns false for anything but an active invite. */
   consumeInvite(code: string): boolean {
-    const inv = this.getInvite(code);
-    if (!inv) return false;
-    if (inv.expiresAt !== null && Date.now() > inv.expiresAt) return false;
-    if (inv.maxUses !== null && inv.uses >= inv.maxUses) return false;
+    if (this.getInvite(code)?.status !== "active") return false;
     this.db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(code);
     return true;
   }

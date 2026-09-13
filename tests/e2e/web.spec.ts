@@ -953,3 +953,40 @@ test("an admin who never copied a bot token can replace it, and the old one stop
     await context.close().catch(() => {});
   }
 });
+
+test("an invite code that got out can be revoked from the dialog that made it", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const page = await context.newPage();
+  try {
+    await signIn(page, "alice");
+    page.on("dialog", (d) => void d.accept());
+
+    await page.getByRole("button", { name: "+ Invite people", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Invite people" });
+    await dialog.getByRole("button", { name: "Generate invite code", exact: true }).click();
+    const code = (await dialog.locator("code.text-lg").textContent())!.trim();
+    expect(code.length).toBeGreaterThan(4);
+
+    // The new code is listed with the others, and usable.
+    const codes = dialog.getByRole("list", { name: "Invite codes" });
+    const row = codes.locator("li").filter({ hasText: code });
+    await expect(row.getByText("Active", { exact: true })).toBeVisible();
+
+    await row.getByRole("button", { name: `Revoke invite ${code}`, exact: true }).click();
+    await expect(row.getByText("Revoked", { exact: true })).toBeVisible();
+    await expect(row.getByRole("button", { name: `Revoke invite ${code}` })).toHaveCount(0);
+
+    // And the server agrees, rather than only the list.
+    const token = await page.evaluate(
+      () => JSON.parse(localStorage.getItem("slackoss:servers")!)[0].token,
+    );
+    const { invites } = await (
+      await fetch(`${base}/api/invites`, { headers: { authorization: `Bearer ${token}` } })
+    ).json();
+    expect(invites.find((i: { code: string }) => i.code === code).status).toBe("revoked");
+  } finally {
+    await context.close().catch(() => {});
+  }
+});
