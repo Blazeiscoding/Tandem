@@ -940,7 +940,8 @@ describe("workspace server", () => {
     const noAuth = await api<{ ok: boolean; error: string }>("/api/chat.postMessage", {
       body: { channel: "#general", text: "nope" },
     });
-    expect(noAuth.status).toBe(401);
+    // Slack answers a failed method with 200 and ok:false; see slackError.
+    expect(noAuth.status).toBe(200);
     expect(noAuth.data).toEqual({ ok: false, error: "invalid_auth" });
 
     const noChannel = await api<{ error: string }>("/api/chat.postMessage", {

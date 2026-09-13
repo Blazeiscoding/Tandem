@@ -106,7 +106,9 @@ describe("self-hosted product", () => {
       channel: channel.id,
       text: "unauthorized",
     });
-    expect(result.status).toBe(403);
+    // Slack answers a failed method with 200 and ok:false; see slackError.
+    expect(result.status).toBe(200);
+    expect((result.data as { error?: string }).error).toBe("not_in_channel");
     expect(server!.store.isMember(channel.id, created.app.botUserId)).toBe(false);
     server!.store.addMember(channel.id, created.app.botUserId);
     expect(

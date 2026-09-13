@@ -819,15 +819,21 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   );
 
   // Serve the browser client (if bundled) so teammates without the app can join.
-  if (opts.webDistPath && existsSync(join(opts.webDistPath, "index.html"))) {
-    await app.register(fastifyStatic, { root: opts.webDistPath });
-    app.setNotFoundHandler((req, reply) => {
-      if (req.raw.url?.startsWith("/api/") || req.raw.url?.startsWith("/ws")) {
-        return reply.status(404).send({ error: "not_found" });
-      }
-      return reply.sendFile("index.html");
-    });
-  }
+  const servesWebClient = !!opts.webDistPath && existsSync(join(opts.webDistPath, "index.html"));
+  if (servesWebClient) await app.register(fastifyStatic, { root: opts.webDistPath! });
+  app.setNotFoundHandler((req, reply) => {
+    const url = req.raw.url ?? "";
+    // A Slack Web API method this server does not implement. Slack's answer is
+    // `unknown_method`, which its SDK reports by name; a bare 404 would reach
+    // a bot as a transport failure that says nothing about why.
+    if (/^\/api\/[a-z]+(?:\.[A-Za-z]+)+(?:[?#]|$)/.test(url)) {
+      return reply.status(200).send({ ok: false, error: "unknown_method" });
+    }
+    if (!servesWebClient || url.startsWith("/api/") || url.startsWith("/ws")) {
+      return reply.status(404).send({ error: "not_found" });
+    }
+    return reply.sendFile("index.html");
+  });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ZodError) {
@@ -1986,14 +1992,70 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return reply.type("text/plain").send("ok");
   });
 
+  // ---------- Slack Web API methods ----------
+
+  /**
+   * A failed Slack Web API call, answered the way Slack answers one: HTTP 200
+   * with `ok: false`. Slack's own SDK treats every status other than 200 and
+   * 429 as a transport failure and never reads the body, so a 4xx here reaches
+   * a bot as a generic HTTP error instead of the `channel_not_found` it checks
+   * for. Rate limiting keeps its 429, which the SDK does understand.
+   */
+  const slackError = (error: string) => ({ ok: false as const, error });
+
+  /**
+   * The app a Web API call is made as. Slack takes the token as a bearer header
+   * or as a `token` field in the body, and code written against it uses both.
+   */
+  const slackCaller = (req: FastifyRequest) => {
+    const body = req.body as { token?: unknown } | undefined;
+    const token = bearerToken(req) ?? (typeof body?.token === "string" ? body.token : null);
+    return token ? store.appForToken(hashToken(token)) : null;
+  };
+
+  /**
+   * A structured argument. Slack's SDK sends every call form-encoded, with
+   * anything that is not a plain value JSON-encoded into a string, so `blocks`
+   * and `view` arrive as text from the most common client of all. Read as-is,
+   * a message silently lost its buttons and no modal could be opened.
+   */
+  const structured = (value: unknown): unknown => {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return undefined;
+    }
+  };
+
+  /**
+   * Slack's auth.test. Bolt calls it before it will start, and gives up if it
+   * fails, so without it no Bolt app could run against this server at all.
+   * `bot_id` is the app's id: this server has no separate bot identity.
+   */
+  app.post("/api/auth.test", async (req) => {
+    const owner = slackCaller(req);
+    if (!owner) return slackError("invalid_auth");
+    const bot = store.getUser(owner.botUserId)!;
+    return {
+      ok: true,
+      url: `${requestOrigin(req)}/`,
+      team: workspaceName(),
+      user: bot.handle,
+      team_id: store.getMeta("workspace_id") ?? "",
+      user_id: bot.id,
+      bot_id: owner.id,
+      is_enterprise_install: false,
+    };
+  });
+
   /**
    * Slack Web API compatible send, so existing bot code works by pointing at
    * this server. Errors use Slack's `{ok:false, error}` shape.
    */
-  app.post("/api/chat.postMessage", async (req, reply) => {
-    const token = bearerToken(req);
-    const owner = token ? store.appForToken(hashToken(token)) : null;
-    if (!owner) return reply.status(401).send({ ok: false, error: "invalid_auth" });
+  app.post("/api/chat.postMessage", async (req) => {
+    const owner = slackCaller(req);
+    if (!owner) return slackError("invalid_auth");
     // A bot stuck in a loop is the version of this that nobody is watching.
     ration("post", owner.botUserId);
 
@@ -2003,23 +2065,20 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       blocks?: unknown;
       thread_ts?: string;
     };
-    if (typeof body.channel !== "string" || !body.channel) {
-      return reply.status(400).send({ ok: false, error: "channel_not_found" });
-    }
+    if (typeof body.channel !== "string" || !body.channel) return slackError("channel_not_found");
 
     // Slack accepts an id or a #name; so do we.
     const named = body.channel.replace(/^#/, "");
     const channel = store.getChannel(body.channel) ?? store.getChannelByName(named);
-    if (!channel || channel.archived) {
-      return reply.status(404).send({ ok: false, error: "channel_not_found" });
-    }
+    if (!channel || channel.archived) return slackError("channel_not_found");
 
     if (channel.type !== "public" && !store.isMember(channel.id, owner.botUserId)) {
-      return reply.status(403).send({ ok: false, error: "not_in_channel" });
+      return slackError("not_in_channel");
     }
 
-    const text = payloadToText(body);
-    if (!text) return reply.status(400).send({ ok: false, error: "no_text" });
+    const blocks = structured(body.blocks);
+    const text = payloadToText({ text: body.text, blocks });
+    if (!text) return slackError("no_text");
 
     let threadRootId: ID | null = null;
     if (body.thread_ts) {
@@ -2035,7 +2094,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       threadRootId,
       nonce: null,
       fileIds: [],
-      actions: blocksToActions(body.blocks),
+      actions: blocksToActions(blocks),
     });
     // `ts` is Slack's message identifier; ours is the message id.
     return { ok: true, channel: channel.id, ts: message.id, message };
@@ -2053,6 +2112,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     invokerId: ID;
     botUserId: ID;
     threadRootId: ID | null;
+    /**
+     * The message whose button was pressed, when there was one. A later reply
+     * may rewrite or remove it just as an immediate answer can: Bolt always
+     * acknowledges a press at once with an empty body and rewrites the message
+     * afterwards through this url, so honouring `replace_original` only in the
+     * immediate answer turned "Approve" into a second message instead.
+     */
+    originMessageId?: ID;
     expiresAt: number;
     usesLeft: number;
   }
@@ -2331,7 +2398,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
     const raw = req.body;
     const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? {});
-    deliverCommandReply(target, text, "application/json");
+    deliverCommandReply(target, text, "application/json", target.originMessageId);
     return { ok: true };
   });
 
@@ -2495,35 +2562,30 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * Slack's views.open. The trigger_id decides who sees it, so an app cannot
    * open a modal in front of someone who did not just ask for one.
    */
-  app.post("/api/views.open", async (req, reply) => {
-    const token = bearerToken(req);
-    const owner = token ? store.appForToken(hashToken(token)) : null;
-    if (!owner) return reply.status(401).send({ ok: false, error: "invalid_auth" });
+  app.post("/api/views.open", async (req) => {
+    const owner = slackCaller(req);
+    if (!owner) return slackError("invalid_auth");
 
     const body = (req.body ?? {}) as { trigger_id?: unknown; view?: unknown };
     const trigger = typeof body.trigger_id === "string" ? triggers.get(body.trigger_id) : undefined;
     if (!trigger || trigger.expiresAt < Date.now()) {
       if (typeof body.trigger_id === "string") triggers.delete(body.trigger_id);
-      return reply.status(400).send({ ok: false, error: "expired_trigger_id" });
+      return slackError("expired_trigger_id");
     }
     // The trigger belongs to whoever it was issued for, and to that app alone.
-    if (trigger.appId !== owner.id) {
-      return reply.status(403).send({ ok: false, error: "trigger_not_yours" });
-    }
+    if (trigger.appId !== owner.id) return slackError("trigger_not_yours");
     if (!capabilityHolds({ ...trigger, invokerId: trigger.userId })) {
       triggers.delete(body.trigger_id as string);
-      return reply.status(400).send({ ok: false, error: "expired_trigger_id" });
+      return slackError("expired_trigger_id");
     }
     triggers.delete(body.trigger_id as string);
 
     const id = ulid();
-    const { droppedFields, ...view } = parseView(body.view, id);
+    const { droppedFields, ...view } = parseView(structured(body.view), id);
     if (view.fields.length === 0) {
       // Either there was nothing to fill in, or everything in it was a control
       // we cannot draw. Saying so beats showing an empty box.
-      return reply
-        .status(400)
-        .send({ ok: false, error: droppedFields > 0 ? "unsupported_elements" : "no_inputs" });
+      return slackError(droppedFields > 0 ? "unsupported_elements" : "no_inputs");
     }
 
     const now = Date.now();
@@ -2632,10 +2694,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       }
       const answered = res.body.trim();
       if (answered.startsWith("{")) {
-        const parsed = JSON.parse(answered) as {
-          response_action?: unknown;
-          errors?: Record<string, string>;
-        };
+        let parsed: { response_action?: unknown; errors?: Record<string, string> };
+        try {
+          parsed = JSON.parse(answered) as typeof parsed;
+        } catch {
+          // The app did answer, so saying it did not would send someone
+          // looking for a network problem that is not there.
+          return {
+            ok: false,
+            errors: {},
+            message: "The app answered with something that could not be read.",
+          };
+        }
         // Slack's shape for "your answers are not acceptable, here is why".
         if (parsed.response_action === "errors" && parsed.errors) {
           return { ok: false, errors: parsed.errors };
@@ -2739,7 +2809,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       botUserId: owner.botUserId,
       threadRootId: message.threadRootId,
     };
-    const responseUrl = newResponseUrl(target, requestOrigin(req));
+    const responseUrl = newResponseUrl(
+      { ...target, originMessageId: message.id },
+      requestOrigin(req),
+    );
     const payload = JSON.stringify({
       type: "block_actions",
       // Slack sends this as a form field named payload; so do we below.
