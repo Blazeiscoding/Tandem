@@ -874,6 +874,12 @@ test("deactivating someone signs them out of the app they already have open", as
       dialog.locator("li").filter({ hasText: "@frank" }).getByText("Deactivated"),
     ).toBeVisible();
 
+    // And the workspace remembers who did it.
+    await dialog.getByRole("button", { name: "Show recent changes", exact: true }).click();
+    await expect(
+      dialog.getByRole("region", { name: "Recent changes" }).getByText("You deactivated frank"),
+    ).toBeVisible();
+
     // Frank's open app does not keep working: it drops back to the join screen.
     await expect(leaverPage.getByText("Find your workspace", { exact: true })).toBeVisible({
       timeout: 20_000,

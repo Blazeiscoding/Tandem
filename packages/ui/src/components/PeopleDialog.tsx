@@ -7,6 +7,7 @@ import { Avatar } from "./Avatar.js";
 import { formatDay } from "../lib/format.js";
 import { accountError } from "../lib/account.js";
 import { useCopy } from "../lib/useCopy.js";
+import { AuditHistory } from "./AuditHistory.js";
 
 type Person = User & { lastSeenAt: number | null };
 
@@ -376,6 +377,10 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
                 : `Show ${inactiveCount} deactivated ${inactiveCount === 1 ? "account" : "accounts"}`}
             </button>
           )}
+
+          <div>
+            <AuditHistory />
+          </div>
 
           <p className="mt-4 text-[11px] text-ink-faint">
             Deactivating signs someone out everywhere and stops them signing back in. Their messages
