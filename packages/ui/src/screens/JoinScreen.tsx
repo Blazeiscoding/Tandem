@@ -15,6 +15,9 @@ interface Props {
   onConnected: (server: SavedServer) => void;
   onForget: (url: string) => void;
   onHostClick?: () => void;
+  hostingStatus?: HostingStatus | null;
+  hostingStatusError?: boolean;
+  hostingStatusLoading?: boolean;
 }
 
 type Stage =
@@ -44,10 +47,12 @@ export function JoinScreen({
   onConnected,
   onForget,
   onHostClick,
+  hostingStatus,
+  hostingStatusError,
+  hostingStatusLoading,
 }: Props) {
   const [stage, setStage] = useState<Stage>({ view: "browse" });
   const [lanServers, setLanServers] = useState<DiscoveredServer[]>([]);
-  const [hosting, setHosting] = useState<HostingStatus | null>(null);
   const [error, setError] = useState<Notice | null>(null);
   const [selfServed, setSelfServed] = useState<{ url: string; info: ServerInfo } | null>(null);
   // Web only: whether the question "is this page served by a workspace?" has
@@ -97,11 +102,13 @@ export function JoinScreen({
   }, [platform]);
 
   useEffect(() => {
-    void platform.hosting?.status().then(setHosting);
-  }, [platform]);
-
-  useEffect(() => {
-    if (autoProbe) void probe(autoProbe);
+    if (!autoProbe) return;
+    // Somewhere already signed in to reconnects with those credentials, and asks
+    // again only if they no longer work — reopening your own hosted workspace
+    // should not mean typing the password each time.
+    const saved = savedServers.find((s) => s.url === normalizeSafe(autoProbe));
+    if (saved) void openSaved(saved);
+    else void probe(autoProbe);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoProbe]);
 
@@ -237,7 +244,9 @@ export function JoinScreen({
                 error={error}
                 selfServed={selfServed}
                 onCancelProbe={cancelProbe}
-                hostedPort={hosting?.running ? (hosting.port ?? null) : null}
+                hostingStatus={hostingStatus}
+                hostingStatusError={hostingStatusError}
+                hostingStatusLoading={hostingStatusLoading}
                 onSelect={probe}
                 onOpenSaved={openSaved}
                 onForget={onForget}
@@ -260,8 +269,9 @@ function BrowseCard(props: {
   /** The workspace serving this page, when a browser was opened from one. */
   selfServed: { url: string; info: ServerInfo } | null;
   onCancelProbe: () => void;
-  /** Port of the workspace this machine is hosting, if any. */
-  hostedPort: number | null;
+  hostingStatus?: HostingStatus | null;
+  hostingStatusError?: boolean;
+  hostingStatusLoading?: boolean;
   onSelect: (address: string) => void;
   onOpenSaved: (saved: SavedServer) => void;
   onForget: (url: string) => void;
@@ -341,7 +351,13 @@ function BrowseCard(props: {
                 title={l.name}
                 subtitle={`${l.host}:${l.port}`}
                 // Our own advertisement comes back over mDNS like any other.
-                meta={l.port === props.hostedPort ? "hosted here" : `v${l.serverVersion}`}
+                meta={
+                  !props.hostingStatusError &&
+                  props.hostingStatus?.running &&
+                  l.port === props.hostingStatus.port
+                    ? "hosted here"
+                    : `v${l.serverVersion}`
+                }
                 busy={props.probing?.includes(l.host) ?? false}
                 onClick={() => props.onSelect(`${l.host}:${l.port}`)}
               />
@@ -393,10 +409,27 @@ function BrowseCard(props: {
 
       {props.onHostClick && (
         <p className="pt-2 text-center text-sm text-ink-dim">
-          {props.hostedPort !== null ? (
+          {props.hostingStatusError || props.hostingStatusLoading || !props.hostingStatus ? (
             <>
-              You're hosting on port{" "}
-              <span className="font-mono text-copper">{props.hostedPort}</span>.{" "}
+              {props.hostingStatusError
+                ? "Hosting status unavailable. "
+                : "Checking hosting status… "}
+              <button
+                onClick={props.onHostClick}
+                className="font-medium text-copper hover:underline"
+              >
+                Manage hosting
+              </button>
+            </>
+          ) : props.hostingStatus.running ||
+            props.hostingStatus.phase === "starting" ||
+            props.hostingStatus.phase === "stopping" ? (
+            <>
+              {props.hostingStatus.phase === "starting"
+                ? "Starting your workspace… "
+                : props.hostingStatus.phase === "stopping"
+                  ? "Stopping your workspace… "
+                  : "You're hosting on this computer. "}
               <button
                 onClick={props.onHostClick}
                 className="font-medium text-copper hover:underline"

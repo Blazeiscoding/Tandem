@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { WorkspaceClient } from "@slackoss/client-core";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { normalizeServerUrl, WorkspaceClient } from "@slackoss/client-core";
 import { PlatformContext } from "./context.js";
-import type { HostingStatus, Platform, SavedServer } from "./platform.js";
+import type { Platform, SavedServer } from "./platform.js";
 import { parseDeepLink } from "./lib/deeplink.js";
 import { JoinScreen } from "./screens/JoinScreen.js";
 import { WorkspaceScreen } from "./screens/WorkspaceScreen.js";
-import { Dialog, inputCls, primaryBtnCls } from "./components/Dialog.js";
+import { Dialog, primaryBtnCls } from "./components/Dialog.js";
+import { HostDialog, useHostingStatus } from "./components/HostDialog.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { parseSavedServers } from "./lib/savedServers.js";
 
@@ -27,9 +28,11 @@ export function App({ platform }: { platform: Platform }) {
   const savedServersRef = useRef<SavedServer[]>([]);
   const [session, setSession] = useState<Session>({ view: "loading" });
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
+  const hosting = useHostingStatus(platform.hosting);
   const clientRef = useRef<WorkspaceClient | null>(null);
   const connectionId = useRef(0);
   const navigation = useRef(0);
+  const renderedNavigation = navigation.current;
   const restoredServers = useRef(false);
   const saveVersion = useRef(0);
   const [saveError, setSaveError] = useState(false);
@@ -309,6 +312,9 @@ export function App({ platform }: { platform: Platform }) {
                 onConnected={(server) => openWorkspace(server, savedServers)}
                 onForget={forgetServer}
                 onHostClick={platform.hosting ? () => setHostDialogOpen(true) : undefined}
+                hostingStatus={hosting.status}
+                hostingStatusError={hosting.error}
+                hostingStatusLoading={hosting.loading}
               />
             )}
             {session.view === "workspace" && (
@@ -324,10 +330,22 @@ export function App({ platform }: { platform: Platform }) {
             {hostDialogOpen && platform.hosting && (
               <HostDialog
                 hosting={platform.hosting}
+                state={hosting}
+                viewingHosted={
+                  session.view === "workspace" &&
+                  hosting.status?.port !== undefined &&
+                  session.server.url === normalizeServerUrl(`localhost:${hosting.status.port}`)
+                }
                 onClose={() => setHostDialogOpen(false)}
                 onStarted={(status) => {
                   setHostDialogOpen(false);
-                  setSession({ view: "join", autoProbe: `localhost:${status.port}` });
+                  // A host that finishes starting must not replace a newer deep-link navigation.
+                  if (navigation.current !== renderedNavigation) return;
+                  const url = normalizeServerUrl(`localhost:${status.port}`);
+                  // Already on screen, from Manage hosting: there is nothing to open.
+                  if (openServerUrl.current === url) return;
+                  leaveWorkspace();
+                  setSession({ view: "join", autoProbe: url });
                 }}
               />
             )}
@@ -369,88 +387,38 @@ export function App({ platform }: { platform: Platform }) {
               </Dialog>
             )}
           </div>
+          {session.view === "workspace" &&
+            platform.hosting &&
+            (hosting.status?.running ||
+              hosting.status?.phase === "starting" ||
+              hosting.status?.phase === "stopping" ||
+              hosting.error) && (
+              <div className="flex shrink-0 items-center gap-3 border-t border-edge bg-raised px-4 py-2 text-xs">
+                <span
+                  role={hosting.status?.warning ? "alert" : "status"}
+                  className="min-w-0 flex-1 text-ink-dim"
+                >
+                  {hosting.error
+                    ? "Hosting status unavailable"
+                    : hosting.status?.warning
+                      ? hosting.status.warning
+                      : hosting.status?.phase === "starting"
+                        ? "Starting your hosted workspace…"
+                        : hosting.status?.phase === "stopping"
+                          ? "Stopping your hosted workspace…"
+                          : `Hosting ${hosting.status?.workspaceName ?? "a workspace"} on this computer`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setHostDialogOpen(true)}
+                  className="shrink-0 font-medium text-copper hover:underline"
+                >
+                  Manage hosting
+                </button>
+              </div>
+            )}
         </div>
       </ErrorBoundary>
     </PlatformContext.Provider>
-  );
-}
-
-function HostDialog(props: {
-  hosting: NonNullable<Platform["hosting"]>;
-  onClose: () => void;
-  onStarted: (status: HostingStatus) => void;
-}) {
-  const [status, setStatus] = useState<HostingStatus | null>(null);
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void props.hosting.status().then(setStatus);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function start(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const s = await props.hosting.start({ workspaceName: name.trim() });
-      props.onStarted(s);
-    } catch {
-      setError("The server couldn't start. Is another app using the port?");
-      setBusy(false);
-    }
-  }
-
-  if (status?.running) {
-    return (
-      <Dialog title="Workspace is live" onClose={props.onClose}>
-        <p className="mb-3 text-sm text-ink-dim">
-          A workspace server is already running on this computer.
-        </p>
-        <ul className="mb-4 space-y-1 font-mono text-sm text-copper">
-          {(status.lanUrls ?? []).map((u) => (
-            <li key={u}>{u}</li>
-          ))}
-        </ul>
-        <div className="flex gap-2">
-          <button className={primaryBtnCls} onClick={() => props.onStarted(status)}>
-            Open it
-          </button>
-          <button
-            className="rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim hover:text-ink"
-            onClick={async () => {
-              await props.hosting.stop();
-              setStatus(await props.hosting.status());
-            }}
-          >
-            Stop hosting
-          </button>
-        </div>
-      </Dialog>
-    );
-  }
-
-  return (
-    <Dialog title="Host a workspace" onClose={props.onClose}>
-      <p className="mb-4 text-sm text-ink-dim">
-        Your computer becomes the server — like opening a game to LAN. Teammates on your network
-        will see it instantly; everything stays on this machine.
-      </p>
-      <form onSubmit={start} className="space-y-3">
-        <input
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Workspace name (e.g. Rocket Team)"
-          className={inputCls}
-        />
-        {error && <p className="text-sm text-alert">{error}</p>}
-        <button type="submit" disabled={!name.trim() || busy} className={`${primaryBtnCls} w-full`}>
-          {busy ? "Starting…" : "Start hosting"}
-        </button>
-      </form>
-    </Dialog>
   );
 }
