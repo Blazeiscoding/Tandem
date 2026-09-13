@@ -37,6 +37,15 @@ server with `rateLimits: false` (or `--no-rate-limits` for the CLI, or
 everybody. Rationing has its own suite, where it is the subject rather than a
 background condition every other case has to work around.
 
+Pull requests are scanned for secrets, and the scan reads every commit in the PR,
+not only the final diff. A made-up key in a test that looks random — a hex string,
+a long base64 value, anything shaped like `xoxb-` followed by noise — is reported
+as a leaked credential and fails the check, and a later commit that changes it
+does not clear it, because the earlier commit still contains it. Clearing it means
+rewriting the branch. Give test keys obviously fake, low-entropy values such as
+`"test-signing-secret-not-a-credential"`, or generate them at runtime, so the scan
+never has anything to find.
+
 Use Node 24+ and pnpm 10.23.0 (`corepack enable`). Install with
 `pnpm install --frozen-lockfile`, then run `pnpm format`, `pnpm build`,
 `pnpm typecheck`, and `pnpm test` before submitting a pull request. CI checks
