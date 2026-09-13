@@ -30,6 +30,7 @@ import {
   viewSubmitBody,
   createWebhookBody,
   runCommandBody,
+  auditQuery,
   createInviteBody,
   scheduleMessageBody,
   rescheduleBody,
@@ -1801,6 +1802,21 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return handle;
   };
 
+  /**
+   * The host of a URL an admin gave an app, for the audit log. The whole URL
+   * stays out: webhook and callback URLs often carry a secret in their path.
+   */
+  const hostOf = (url: string): string => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return "";
+    }
+  };
+
+  /** Identifies an invite in the audit log without writing down the code itself. */
+  const inviteFingerprint = (code: string) => hashToken(code).slice(0, 12);
+
   app.post("/api/apps", async (req, reply) => {
     const me = requireAdmin(req);
     const body = createAppBody.parse(req.body);
@@ -1827,6 +1843,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
       const token = secretToken("xoxb-");
       store.addAppToken(created.id, hashToken(token));
+      store.recordAudit({
+        actorId: me.id,
+        action: "app.created",
+        targetType: "app",
+        targetId: created.id,
+        details: { name: created.name },
+      });
       emit({ type: "user.joined", user: bot }, null);
 
       // The bot token is shown once and only stored hashed; the signing secret
@@ -1863,7 +1886,16 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const target = store.getApp(req.params.id);
     if (!target) throw new HttpError(404, "not_found");
     const token = secretToken("xoxb-");
-    store.transaction(() => store.replaceAppTokens(target.id, hashToken(token)));
+    store.transaction(() => {
+      store.replaceAppTokens(target.id, hashToken(token));
+      store.recordAudit({
+        actorId: me.id,
+        action: "app.token_replaced",
+        targetType: "app",
+        targetId: target.id,
+        details: { name: target.name },
+      });
+    });
     req.log.info({ appId: target.id, by: me.id }, "app bot token replaced");
     return { token };
   });
@@ -1879,15 +1911,34 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const target = store.getApp(req.params.id);
     if (!target) throw new HttpError(404, "not_found");
     const signingSecret = secretToken();
-    store.transaction(() => store.setAppSigningSecret(target.id, signingSecret));
+    store.transaction(() => {
+      store.setAppSigningSecret(target.id, signingSecret);
+      store.recordAudit({
+        actorId: me.id,
+        action: "app.signing_secret_replaced",
+        targetType: "app",
+        targetId: target.id,
+        details: { name: target.name },
+      });
+    });
     req.log.info({ appId: target.id, by: me.id }, "app signing secret replaced");
     return { signingSecret };
   });
 
   app.delete<{ Params: { id: string } }>("/api/apps/:id", async (req) => {
-    requireAdmin(req);
-    if (!store.getApp(req.params.id)) throw new HttpError(404, "not_found");
-    store.transaction(() => store.deleteApp(req.params.id));
+    const me = requireAdmin(req);
+    const target = store.getApp(req.params.id);
+    if (!target) throw new HttpError(404, "not_found");
+    store.transaction(() => {
+      store.deleteApp(target.id);
+      store.recordAudit({
+        actorId: me.id,
+        action: "app.deleted",
+        targetType: "app",
+        targetId: target.id,
+        details: { name: target.name },
+      });
+    });
     return { ok: true };
   });
 
@@ -1904,6 +1955,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         appId: owner.id,
         channelId: channel.id,
         tokenHash: hashToken(token),
+      });
+      store.recordAudit({
+        actorId: me.id,
+        action: "webhook.created",
+        targetType: "webhook",
+        targetId: created.id,
+        details: { appId: owner.id, name: owner.name, channelId: channel.id },
       });
       // The bot must be in the channel to post to it.
       if (store.addMember(channel.id, owner.botUserId)) {
@@ -1922,9 +1980,23 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.post<{ Params: { id: string } }>("/api/webhooks/:id/url", async (req) => {
     const me = requireAdmin(req);
     const token = secretToken();
-    const webhook = store.transaction(() =>
-      store.replaceWebhookToken(req.params.id, hashToken(token)),
-    );
+    const webhook = store.transaction(() => {
+      const replaced = store.replaceWebhookToken(req.params.id, hashToken(token));
+      if (replaced) {
+        store.recordAudit({
+          actorId: me.id,
+          action: "webhook.url_replaced",
+          targetType: "webhook",
+          targetId: replaced.id,
+          details: {
+            appId: replaced.appId,
+            name: store.getApp(replaced.appId)?.name ?? null,
+            channelId: replaced.channelId,
+          },
+        });
+      }
+      return replaced;
+    });
     if (!webhook) throw new HttpError(404, "not_found");
     req.log.info(
       { webhookId: webhook.id, appId: webhook.appId, by: me.id },
@@ -1934,8 +2006,24 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   });
 
   app.delete<{ Params: { id: string } }>("/api/webhooks/:id", async (req) => {
-    requireAdmin(req);
-    if (!store.deleteWebhook(req.params.id)) throw new HttpError(404, "not_found");
+    const me = requireAdmin(req);
+    const deleted = store.transaction(() => {
+      const webhook = store.getWebhook(req.params.id);
+      if (!webhook || !store.deleteWebhook(webhook.id)) return false;
+      store.recordAudit({
+        actorId: me.id,
+        action: "webhook.deleted",
+        targetType: "webhook",
+        targetId: webhook.id,
+        details: {
+          appId: webhook.appId,
+          name: store.getApp(webhook.appId)?.name ?? null,
+          channelId: webhook.channelId,
+        },
+      });
+      return true;
+    });
+    if (!deleted) throw new HttpError(404, "not_found");
     return { ok: true };
   });
 
@@ -2251,26 +2339,57 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   };
 
   app.post<{ Params: { id: string } }>("/api/apps/:id/commands", async (req, reply) => {
-    requireAdmin(req);
+    const me = requireAdmin(req);
     const owner = store.getApp(req.params.id);
     if (!owner) throw new HttpError(404, "not_found");
     const body = createCommandBody.parse(req.body);
     if (BUILTIN_COMMANDS.has(body.command) || store.slashCommandByName(body.command)) {
       throw new HttpError(409, "command_taken", `/${body.command} is already in use`);
     }
-    const command = store.createSlashCommand({
-      appId: owner.id,
-      command: body.command,
-      url: body.url,
-      description: body.description ?? "",
-      usageHint: body.usageHint ?? "",
+    const command = store.transaction(() => {
+      const created = store.createSlashCommand({
+        appId: owner.id,
+        command: body.command,
+        url: body.url,
+        description: body.description ?? "",
+        usageHint: body.usageHint ?? "",
+      });
+      store.recordAudit({
+        actorId: me.id,
+        action: "command.created",
+        targetType: "command",
+        targetId: created.id,
+        details: {
+          appId: owner.id,
+          name: owner.name,
+          command: `/${body.command}`,
+          host: hostOf(body.url),
+        },
+      });
+      return created;
     });
     return reply.status(201).send({ command });
   });
 
   app.delete<{ Params: { id: string } }>("/api/commands/:id", async (req) => {
-    requireAdmin(req);
-    if (!store.deleteSlashCommand(req.params.id)) throw new HttpError(404, "not_found");
+    const me = requireAdmin(req);
+    const deleted = store.transaction(() => {
+      const command = store.getSlashCommand(req.params.id);
+      if (!command || !store.deleteSlashCommand(command.id)) return false;
+      store.recordAudit({
+        actorId: me.id,
+        action: "command.deleted",
+        targetType: "command",
+        targetId: command.id,
+        details: {
+          appId: command.appId,
+          name: store.getApp(command.appId)?.name ?? null,
+          command: `/${command.command}`,
+        },
+      });
+      return true;
+    });
+    if (!deleted) throw new HttpError(404, "not_found");
     return { ok: true };
   });
 
@@ -2409,6 +2528,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * they are, what they can do, and when they were last seen. Bots are in the
    * list because a forgotten bot is exactly the account worth noticing.
    */
+  /**
+   * What administrators have changed, newest first, for a workspace that has
+   * to be able to say who deactivated someone or replaced an app's token.
+   */
+  app.get("/api/admin/audit", async (req) => {
+    requireAdmin(req);
+    const query = auditQuery.parse(req.query);
+    const entries = store.listAudit({ before: query.before, limit: query.limit + 1 });
+    const page = entries.slice(0, query.limit);
+    return { entries: page, nextCursor: entries.length > query.limit ? page.at(-1)!.id : null };
+  });
+
   app.get("/api/admin/users", async (req) => {
     requireAdmin(req);
     const lastSeen = store.lastSeenByUser();
@@ -2446,6 +2577,25 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         role: body.role,
         deactivated: body.deactivated,
       });
+      // Only what actually changed: setting a role someone already has is not
+      // an event anybody needs to account for.
+      if (body.role !== undefined && body.role !== target.role) {
+        store.recordAudit({
+          actorId: me.id,
+          action: "user.role_changed",
+          targetType: "user",
+          targetId: target.id,
+          details: { from: target.role, to: body.role },
+        });
+      }
+      if (body.deactivated !== undefined && body.deactivated !== target.deactivated) {
+        store.recordAudit({
+          actorId: me.id,
+          action: body.deactivated ? "user.deactivated" : "user.reactivated",
+          targetType: "user",
+          targetId: target.id,
+        });
+      }
 
       if (body.deactivated === true) {
         // Revoking access has to reach what is already in their hands: every
@@ -2491,9 +2641,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       authJobs--;
     }
     const target = authorize();
+    const actor = requireAdmin(req);
     const revokedSessions = store.transaction(() => {
       store.setPassword(target.id, credentials.hash, credentials.salt, true);
-      return store.revokeSessions(target.id);
+      const revoked = store.revokeSessions(target.id);
+      store.recordAudit({
+        actorId: actor.id,
+        action: "user.password_reset",
+        targetType: "user",
+        targetId: target.id,
+        details: { sessionsEnded: revoked.length },
+      });
+      return revoked;
     });
     for (const tokenHash of revokedSessions) {
       gateway.disconnectSession(tokenHash);
@@ -2516,6 +2675,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     return mutate((emit) => {
       const newOwner = store.updateUser(target.id, { role: "owner" });
       const formerOwner = store.updateUser(me.id, { role: "admin" });
+      store.recordAudit({
+        actorId: me.id,
+        action: "workspace.ownership_transferred",
+        targetType: "user",
+        targetId: target.id,
+        details: { previousOwner: me.id },
+      });
       emit({ type: "user.updated", user: newOwner }, null);
       emit({ type: "user.updated", user: formerOwner }, null);
       return { owner: newOwner, previousOwner: formerOwner };
@@ -2765,17 +2931,30 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * aimed at an unrelated host.
    */
   app.put<{ Params: { id: string } }>("/api/apps/:id/interactivity", async (req) => {
-    requireAdmin(req);
+    const me = requireAdmin(req);
     const owner = store.getApp(req.params.id);
     if (!owner) throw new HttpError(404, "not_found");
     const body = interactivityBody.parse(req.body);
 
+    const record = (url: string) =>
+      store.transaction(() => {
+        store.setInteractivityUrl(owner.id, url);
+        store.recordAudit({
+          actorId: me.id,
+          action: "app.interactivity_url_changed",
+          targetType: "app",
+          targetId: owner.id,
+          details: url
+            ? { name: owner.name, host: hostOf(url) }
+            : { name: owner.name, cleared: true },
+        });
+      });
     if (!body.url) {
-      store.setInteractivityUrl(owner.id, "");
+      record("");
       return { app: store.getApp(owner.id) };
     }
     await verifyCallbackUrl(body.url, owner.id);
-    store.setInteractivityUrl(owner.id, body.url);
+    record(body.url);
     return { app: store.getApp(owner.id) };
   });
 
@@ -2878,31 +3057,72 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   // ---------- outgoing event subscriptions ----------
 
   app.post<{ Params: { id: string } }>("/api/apps/:id/subscriptions", async (req, reply) => {
-    requireAdmin(req);
+    const me = requireAdmin(req);
     const owner = store.getApp(req.params.id);
     if (!owner) throw new HttpError(404, "not_found");
     const body = createSubscriptionBody.parse(req.body);
 
     await verifyCallbackUrl(body.url, owner.id);
 
-    const subscription = store.createSubscription({
-      appId: owner.id,
-      url: body.url,
-      eventTypes: body.eventTypes ?? [],
+    const subscription = store.transaction(() => {
+      const created = store.createSubscription({
+        appId: owner.id,
+        url: body.url,
+        eventTypes: body.eventTypes ?? [],
+      });
+      store.recordAudit({
+        actorId: me.id,
+        action: "subscription.created",
+        targetType: "subscription",
+        targetId: created.id,
+        details: { appId: owner.id, name: owner.name, host: hostOf(body.url) },
+      });
+      return created;
     });
     return reply.status(201).send({ subscription });
   });
 
   app.delete<{ Params: { id: string } }>("/api/subscriptions/:id", async (req) => {
-    requireAdmin(req);
-    if (!store.deleteSubscription(req.params.id)) throw new HttpError(404, "not_found");
+    const me = requireAdmin(req);
+    const deleted = store.transaction(() => {
+      const subscription = store.getSubscription(req.params.id);
+      if (!subscription || !store.deleteSubscription(subscription.id)) return false;
+      store.recordAudit({
+        actorId: me.id,
+        action: "subscription.deleted",
+        targetType: "subscription",
+        targetId: subscription.id,
+        details: {
+          appId: subscription.appId,
+          name: store.getApp(subscription.appId)?.name ?? null,
+          host: hostOf(subscription.url),
+        },
+      });
+      return true;
+    });
+    if (!deleted) throw new HttpError(404, "not_found");
     return { ok: true };
   });
 
   app.post<{ Params: { id: string } }>("/api/subscriptions/:id/retry", async (req) => {
-    requireAdmin(req);
-    if (!store.getSubscription(req.params.id)) throw new HttpError(404, "not_found");
-    const retried = store.retryFailedEventDeliveries(req.params.id);
+    const me = requireAdmin(req);
+    const subscription = store.getSubscription(req.params.id);
+    if (!subscription) throw new HttpError(404, "not_found");
+    const retried = store.transaction(() => {
+      const count = store.retryFailedEventDeliveries(subscription.id);
+      store.recordAudit({
+        actorId: me.id,
+        action: "subscription.retried",
+        targetType: "subscription",
+        targetId: subscription.id,
+        details: {
+          appId: subscription.appId,
+          name: store.getApp(subscription.appId)?.name ?? null,
+          retried: count,
+        },
+      });
+      return count;
+    });
     void flushEventDeliveries();
     return { ok: true, retried };
   });
@@ -3139,10 +3359,20 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.post("/api/invites", async (req, reply) => {
     const me = requireUser(req);
     const body = createInviteBody.parse(req.body ?? {});
-    const invite = store.createInvite({
-      createdBy: me.id,
-      expiresAt: body.expiresInHours ? Date.now() + body.expiresInHours * 3600_000 : null,
-      maxUses: body.maxUses ?? null,
+    const invite = store.transaction(() => {
+      const created = store.createInvite({
+        createdBy: me.id,
+        expiresAt: body.expiresInHours ? Date.now() + body.expiresInHours * 3600_000 : null,
+        maxUses: body.maxUses ?? null,
+      });
+      store.recordAudit({
+        actorId: me.id,
+        action: "invite.created",
+        targetType: "invite",
+        targetId: inviteFingerprint(created.code),
+        details: { expiresAt: created.expiresAt, maxUses: created.maxUses },
+      });
+      return created;
     });
     return reply.status(201).send({ invite });
   });
@@ -3170,7 +3400,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (!invite || (!admin && invite.createdBy !== me.id)) {
       throw new HttpError(404, "invite_not_found");
     }
-    if (store.revokeInvite(invite.code, me.id)) {
+    const revoked = store.transaction(() => {
+      if (!store.revokeInvite(invite.code, me.id)) return false;
+      store.recordAudit({
+        actorId: me.id,
+        action: "invite.revoked",
+        targetType: "invite",
+        targetId: inviteFingerprint(invite.code),
+        details: { createdBy: invite.createdBy },
+      });
+      return true;
+    });
+    if (revoked) {
       // Without the code: the log is not somewhere a credential should end up.
       req.log.info({ createdBy: invite.createdBy, by: me.id }, "invite revoked");
     }

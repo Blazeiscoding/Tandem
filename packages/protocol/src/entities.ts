@@ -141,6 +141,49 @@ export interface Invite {
   status?: InviteStatus;
 }
 
+/** An administrative action that was recorded. */
+export type AuditAction =
+  | "user.role_changed"
+  | "user.deactivated"
+  | "user.reactivated"
+  | "user.password_reset"
+  | "account.recovered"
+  | "workspace.ownership_transferred"
+  | "app.created"
+  | "app.deleted"
+  | "app.token_replaced"
+  | "app.signing_secret_replaced"
+  | "app.interactivity_url_changed"
+  | "webhook.created"
+  | "webhook.url_replaced"
+  | "webhook.deleted"
+  | "command.created"
+  | "command.deleted"
+  | "subscription.created"
+  | "subscription.deleted"
+  | "subscription.retried"
+  | "invite.created"
+  | "invite.revoked";
+
+export type AuditTargetType = "user" | "app" | "webhook" | "command" | "subscription" | "invite";
+
+/**
+ * One entry in the administrative record. Never holds a credential, a URL an
+ * app was given, or anything anyone wrote: only who acted, on what, and the
+ * small facts needed to make sense of it later.
+ */
+export interface AuditEntry {
+  id: ID;
+  at: number;
+  /** Who did it, or null when the host did it from the command line. */
+  actorId: ID | null;
+  action: AuditAction;
+  targetType: AuditTargetType;
+  /** For an invite, a short fingerprint of its code rather than the code. */
+  targetId: string | null;
+  details: Record<string, string | number | boolean | null>;
+}
+
 /** Unauthenticated probe of a server — what the Join screen shows. */
 export interface ServerInfo {
   app: "slackoss";

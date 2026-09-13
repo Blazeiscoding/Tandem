@@ -8,6 +8,7 @@ import type {
   FileMeta,
   Friendship,
   ID,
+  AuditEntry,
   Invite,
   Message,
   SendMessageBody,
@@ -627,6 +628,14 @@ export class Api {
 
   createInvite(body: CreateInviteBody = {}): Promise<{ invite: Invite }> {
     return this.request("POST", "/api/invites", body);
+  }
+
+  /** A page of what administrators have changed, newest first. */
+  listAudit(before?: string): Promise<{ entries: AuditEntry[]; nextCursor: string | null }> {
+    return this.request(
+      "GET",
+      `/api/admin/audit${before ? `?before=${encodeURIComponent(before)}` : ""}`,
+    );
   }
 
   /** Every invite for an administrator; one's own for everyone else. Newest first. */

@@ -223,6 +223,12 @@ export const markReadBody = z.object({
   seq: z.number().int().nonnegative(),
 });
 
+/** A page of the administrative record. */
+export const auditQuery = z.object({
+  before: z.string().max(40).optional(),
+  limit: z.coerce.number().int().positive().max(200).default(50),
+});
+
 export const createInviteBody = z.object({
   expiresInHours: z
     .number()

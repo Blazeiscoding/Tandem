@@ -377,6 +377,19 @@ const MIGRATIONS: string[] = [
   ALTER TABLE invites ADD COLUMN revoked_by TEXT;
   CREATE INDEX idx_invites_created ON invites(created_at);
   `,
+  // v24 — who changed what, for the administrative actions a workspace has to be
+  // able to account for. No foreign keys: a record outlives what it describes.
+  `
+  CREATE TABLE audit_log (
+    id TEXT PRIMARY KEY,
+    at INTEGER NOT NULL,
+    actor_id TEXT,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    details TEXT NOT NULL DEFAULT '{}'
+  );
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

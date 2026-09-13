@@ -84,10 +84,21 @@ export async function recoverAccount(opts: {
         }
         store.updateUser(user.id, { role: "owner" });
       }
-      return {
-        revoked: store.revokeSessions(user.id).length,
-        role: store.getUser(user.id)!.role,
-      };
+      const revoked = store.revokeSessions(user.id).length;
+      // No actor: the host did this from the command line, without signing in,
+      // which is exactly the kind of change the record exists to show.
+      store.recordAudit({
+        actorId: null,
+        action: "account.recovered",
+        targetType: "user",
+        targetId: user.id,
+        details: {
+          madeOwner: opts.makeOwner === true,
+          reactivated: user.deactivated,
+          sessionsEnded: revoked,
+        },
+      });
+      return { revoked, role: store.getUser(user.id)!.role };
     });
     return { temporaryPassword, role, revokedSessions: revoked };
   } finally {

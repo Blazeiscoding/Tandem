@@ -9,6 +9,9 @@ import type {
   ID,
   Invite,
   InviteStatus,
+  AuditAction,
+  AuditEntry,
+  AuditTargetType,
   Message,
   MessageAction,
   ReactionGroup,
@@ -2069,6 +2072,14 @@ export class Store {
     };
   }
 
+  getWebhook(id: ID): Webhook | null {
+    const r = this.db.prepare("SELECT * FROM webhooks WHERE id = ?").get(id) as
+      { id: string; app_id: string; channel_id: string; created_at: number } | undefined;
+    return r
+      ? { id: r.id, appId: r.app_id, channelId: r.channel_id, createdAt: r.created_at }
+      : null;
+  }
+
   listWebhooks(appId: ID): Webhook[] {
     const rows = this.db
       .prepare("SELECT * FROM webhooks WHERE app_id = ? ORDER BY created_at")
@@ -2136,6 +2147,12 @@ export class Store {
     if (!r) return null;
     const app = this.getApp(r.app_id);
     return app ? { command: this.toCommand(r), app } : null;
+  }
+
+  getSlashCommand(id: ID): SlashCommand | null {
+    const r = this.db.prepare("SELECT * FROM slash_commands WHERE id = ?").get(id) as
+      Parameters<Store["toCommand"]>[0] | undefined;
+    return r ? this.toCommand(r) : null;
   }
 
   listSlashCommands(appId: ID): SlashCommand[] {
@@ -2531,6 +2548,68 @@ export class Store {
     if (this.getInvite(code)?.status !== "active") return false;
     this.db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(code);
     return true;
+  }
+
+  // ---------- audit log ----------
+
+  /** Call inside the transaction that makes the change, so neither exists without the other. */
+  recordAudit(
+    entry: {
+      actorId: ID | null;
+      action: AuditAction;
+      targetType: AuditTargetType;
+      targetId: string | null;
+      details?: AuditEntry["details"];
+    },
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        "INSERT INTO audit_log (id, at, actor_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        ulid(now),
+        now,
+        entry.actorId,
+        entry.action,
+        entry.targetType,
+        entry.targetId,
+        JSON.stringify(entry.details ?? {}),
+      );
+  }
+
+  /**
+   * Newest first. `before` is the id of the last entry already seen.
+   *
+   * Ordered by insertion rather than by id: ids made in the same millisecond
+   * are not ordered among themselves, and two changes a moment apart must not
+   * be listed the wrong way round.
+   */
+  listAudit(opts: { before?: ID; limit: number }): AuditEntry[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM audit_log
+         ${opts.before ? "WHERE rowid < (SELECT rowid FROM audit_log WHERE id = ?)" : ""}
+         ORDER BY rowid DESC LIMIT ?`,
+      )
+      .all(...(opts.before ? [opts.before] : []), opts.limit) as {
+      id: string;
+      at: number;
+      actor_id: string | null;
+      action: AuditAction;
+      target_type: AuditTargetType;
+      target_id: string | null;
+      details: string;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      at: r.at,
+      actorId: r.actor_id,
+      action: r.action,
+      targetType: r.target_type,
+      targetId: r.target_id,
+      details: JSON.parse(r.details) as AuditEntry["details"],
+    }));
   }
 
   // ---------- event log ----------
