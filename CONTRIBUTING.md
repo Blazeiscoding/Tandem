@@ -56,6 +56,18 @@ Browser checks: `pnpm exec playwright install chromium`, then `pnpm test:e2e`
 after building. Windows checks: `pnpm --filter @slackoss/desktop package --win`,
 then `pnpm test:desktop`. These tests use temporary workspaces and fake media.
 
+Two things about the desktop suite are easy to trip over. A terminal inside an
+Electron-based tool can export `ELECTRON_RUN_AS_NODE=1`, which makes any Electron
+app it starts run as plain Node; the packaged app then refuses to launch with
+"bad option: --remote-debugging-port". The desktop spec removes it, and anything
+else that launches the app needs to as well. And the app asks before it quits
+while hosting, in a native dialog no test can answer, so a desktop test that stops
+part-way through with a workspace hosted must not end the app by quitting it: the
+dialog opens on the screen of whoever ran the test and the run hangs until it
+times out. The spec kills the app's process tree on failure instead. On Windows
+that has to be the whole tree: Playwright starts the app through `cmd.exe`, the
+process it hands back is that shell, and killing it leaves the app running.
+
 Docker checks: `docker build -f docker/Dockerfile -t slackoss:local .`, then
 `node tests/docker-smoke.mjs`. The smoke test starts an isolated container,
 tests restart persistence and 6,000 socket deliveries, and removes its test data.
