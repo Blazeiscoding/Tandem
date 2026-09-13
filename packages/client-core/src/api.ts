@@ -629,6 +629,16 @@ export class Api {
     return this.request("POST", "/api/invites", body);
   }
 
+  /** Every invite for an administrator; one's own for everyone else. Newest first. */
+  listInvites(): Promise<{ invites: Invite[] }> {
+    return this.request("GET", "/api/invites");
+  }
+
+  /** Stops an invite letting anyone else in. Already-revoked is not an error. */
+  revokeInvite(code: string): Promise<{ invite: Invite }> {
+    return this.request("DELETE", `/api/invites/${encodeURIComponent(code)}`);
+  }
+
   activity(
     mode: "unread" | "mentions",
     opts: { cursor?: ID; signal?: AbortSignal } = {},

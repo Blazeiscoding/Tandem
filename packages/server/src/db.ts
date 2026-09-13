@@ -370,6 +370,13 @@ const MIGRATIONS: string[] = [
     WHERE type = 'message.deleted';
   CREATE INDEX idx_events_message ON events(message_id);
   `,
+  // v23 — an invite that has got out has to be withdrawable. Kept rather than
+  // deleted, so the list can still say a link existed and who withdrew it.
+  `
+  ALTER TABLE invites ADD COLUMN revoked_at INTEGER;
+  ALTER TABLE invites ADD COLUMN revoked_by TEXT;
+  CREATE INDEX idx_invites_created ON invites(created_at);
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

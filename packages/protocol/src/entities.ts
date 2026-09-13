@@ -123,6 +123,12 @@ export interface MessageAction {
   url: string | null;
 }
 
+/**
+ * Whether an invite would let someone in right now. Decided by the server, so a
+ * client with a wrong clock cannot show a dead link as usable.
+ */
+export type InviteStatus = "active" | "expired" | "used_up" | "revoked" | "creator_deactivated";
+
 export interface Invite {
   code: string;
   createdBy: ID;
@@ -130,6 +136,9 @@ export interface Invite {
   expiresAt: number | null;
   maxUses: number | null;
   uses: number;
+  /** Absent from servers before schema v23. */
+  revokedAt?: number | null;
+  status?: InviteStatus;
 }
 
 /** Unauthenticated probe of a server — what the Join screen shows. */

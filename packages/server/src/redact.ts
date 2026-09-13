@@ -10,6 +10,9 @@
  * Nothing detects that automatically, so it is part of writing such a route.
  */
 const SECRET_PATH_PREFIXES = [
+  // An invite code is what lets a stranger into an invite-only workspace, and
+  // revoking one puts it in the path.
+  "/api/invites/",
   // An incoming webhook's whole authority is its token, and it never expires.
   "/hooks/",
   // A response_url: thirty minutes and five uses of the right to post as a bot.
