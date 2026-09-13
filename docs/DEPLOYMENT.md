@@ -410,6 +410,36 @@ from a compromised running app or another process with the same OS-account
 access. Native runtime verification currently covers Windows; macOS/Linux
 behavior still needs platform testing.
 
+## The administrative record
+
+The workspace keeps a record of the administrative changes made in it, readable by
+administrators under **People → Show recent changes**:
+
+- changing someone's role, deactivating or reactivating them, and resetting their
+  password;
+- handing the workspace to a new owner;
+- recovering an account with `slackoss-server recover`, recorded as done by the host
+  rather than by anyone signed in;
+- creating and deleting apps, replacing their bot token or signing secret, and
+  changing where their buttons and forms go;
+- adding, replacing and removing webhooks, slash commands and event subscriptions,
+  and retrying failed deliveries;
+- creating and revoking invite codes.
+
+Each entry says who made the change, to what, and when, and is written in the same
+transaction as the change, so neither exists without the other. A change that
+changes nothing — setting a role someone already has — is not recorded.
+
+The record never holds a credential: no token, signing secret, password or invite
+code, and no URL given to an app, since those often carry a secret of their own.
+Only the host an app is called at is kept, and an invite is identified by a short
+fingerprint of its code. Nobody's messages are in it.
+
+The record is kept in `workspace.db`, so it is in every backup, and it is not
+shortened by `--retention-days`. Anyone who can read that file can read it, and can
+change it: it is an account of what happened through the workspace, not tamper-proof
+evidence against someone with access to the server itself.
+
 ## Invites
 
 With `--invite-only`, everyone after the owner needs an invite code to create an
