@@ -218,6 +218,7 @@ describe("the administrative record", () => {
   });
 
   it("identifies an invite by a fingerprint, never by its code", async () => {
+    await call(`/api/admin/users/${member.id}`, owner.token, "PATCH", { canInvite: true });
     const created = await call<{ invite: { code: string } }>("/api/invites", member.token, "POST", {
       expiresInHours: 24,
     });

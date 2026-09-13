@@ -390,6 +390,11 @@ const MIGRATIONS: string[] = [
     details TEXT NOT NULL DEFAULT '{}'
   );
   `,
+  // v25 — creating invite codes is something a member is given, not something
+  // every member has. Owners and admins can regardless of this column.
+  `
+  ALTER TABLE users ADD COLUMN can_invite INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

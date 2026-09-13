@@ -2588,11 +2588,23 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (body.role !== undefined && target.isBot) {
       throw new HttpError(400, "bots_have_no_role");
     }
+    if (body.canInvite !== undefined) {
+      if (target.isBot) throw new HttpError(400, "bots_cannot_invite");
+      // An admin can always invite, so allowing or refusing it would be a
+      // setting that does nothing — refused rather than silently stored.
+      const resultingRole = body.role ?? target.role;
+      if (resultingRole !== "member") {
+        throw new HttpError(400, "admins_can_always_invite");
+      }
+    }
 
     return mutate((emit, afterCommit) => {
+      const hadInvitePermission =
+        body.canInvite !== undefined && store.getMemberInvitePermission(target.id);
       const updated = store.updateUser(target.id, {
         role: body.role,
         deactivated: body.deactivated,
+        canInvite: body.canInvite,
       });
       // Only what actually changed: setting a role someone already has is not
       // an event anybody needs to account for.
@@ -2603,6 +2615,16 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           targetType: "user",
           targetId: target.id,
           details: { from: target.role, to: body.role },
+        });
+      }
+      if (body.canInvite !== undefined && body.canInvite !== hadInvitePermission) {
+        store.recordAudit({
+          actorId: me.id,
+          action: body.canInvite
+            ? "user.invite_permission_granted"
+            : "user.invite_permission_removed",
+          targetType: "user",
+          targetId: target.id,
         });
       }
       if (body.deactivated !== undefined && body.deactivated !== target.deactivated) {
@@ -3375,6 +3397,15 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   app.post("/api/invites", async (req, reply) => {
     const me = requireUser(req);
+    // A code is a way into the workspace, so making one is something a member
+    // is given. Owners and admins always may; see `canInvite` on the user.
+    if (!me.canInvite) {
+      throw new HttpError(
+        403,
+        "invite_permission_required",
+        "Only people an administrator has allowed can create invite codes.",
+      );
+    }
     const body = createInviteBody.parse(req.body ?? {});
     const invite = store.transaction(() => {
       const created = store.createInvite({

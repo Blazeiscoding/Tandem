@@ -425,7 +425,8 @@ administrators under **People → Show recent changes**:
   changing where their buttons and forms go;
 - adding, replacing and removing webhooks, slash commands and event subscriptions,
   and retrying failed deliveries;
-- creating and revoking invite codes.
+- creating and revoking invite codes, and granting or removing a member's
+  permission to create them.
 
 Each entry says who made the change, to what, and when, and is written in the same
 transaction as the change, so neither exists without the other. A change that
@@ -444,8 +445,10 @@ evidence against someone with access to the server itself.
 ## Invites
 
 With `--invite-only`, everyone after the owner needs an invite code to create an
-account. Any member can make one from **Invite people**; the dialog's codes last
-seven days. The same dialog lists codes: every code for an administrator, and
+account. Owners and administrators can make codes from **Invite people**. A
+member needs an administrator to select **People → Allow inviting** first;
+**Stop inviting** removes that permission. Apps cannot create invite codes.
+The dialog's codes last seven days. The same dialog lists codes: every code for an administrator, and
 only their own for a member, since a code is what lets a stranger in. Each shows
 how many times it has been used and whether it still works.
 
@@ -454,9 +457,17 @@ further than meant. Its creator or an administrator can revoke it; a member who
 tries someone else's is told there is no such code, so trying codes cannot
 confirm which exist. A revoked code stays in the list, marked as revoked.
 
-A code also stops working while the person who made it is deactivated — nobody
-still in the workspace vouches for it — and works again if they are brought back.
-Revoke it as well if it should stay dead. Codes are left out of the request log.
+A code also stops working while its creator is deactivated or cannot invite.
+Restoring access and permission makes their unexpired, unused codes work again;
+revoke a code if it should stay dead. Members can still list and revoke their
+own codes after losing permission to create more. Codes are left out of the
+request log.
+
+Schema v25 starts all members without an explicit invitation grant, including
+existing members during an upgrade. Their previously issued codes pause until
+an administrator allows them to invite. Owner/admin codes continue to work.
+Demoting an administrator removes the permission their role supplied; any
+explicit member grant they held before promotion remains until removed.
 
 Without `--invite-only`, anyone who can reach the server can create an account,
 and a code is not asked for.

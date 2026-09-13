@@ -22,6 +22,12 @@ export interface User {
   /** Epoch ms until which notifications are snoozed, or null when available. */
   dndUntil: number | null;
   createdAt: number;
+  /**
+   * Whether this account may create invite codes: always for an owner or admin,
+   * and for a member only when an administrator has allowed it. Absent from
+   * servers before schema v25, where every member could.
+   */
+  canInvite?: boolean;
 }
 
 export type ChannelType = "public" | "private" | "dm" | "group_dm";
@@ -127,7 +133,14 @@ export interface MessageAction {
  * Whether an invite would let someone in right now. Decided by the server, so a
  * client with a wrong clock cannot show a dead link as usable.
  */
-export type InviteStatus = "active" | "expired" | "used_up" | "revoked" | "creator_deactivated";
+export type InviteStatus =
+  | "active"
+  | "expired"
+  | "used_up"
+  | "revoked"
+  | "creator_deactivated"
+  /** Its creator is no longer allowed to invite people. */
+  | "creator_not_permitted";
 
 export interface Invite {
   code: string;
@@ -147,6 +160,8 @@ export type AuditAction =
   | "user.deactivated"
   | "user.reactivated"
   | "user.password_reset"
+  | "user.invite_permission_granted"
+  | "user.invite_permission_removed"
   | "account.recovered"
   | "workspace.ownership_transferred"
   | "app.created"

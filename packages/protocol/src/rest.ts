@@ -204,8 +204,10 @@ export const adminUserBody = z
   .object({
     role: z.enum(["member", "admin"]).optional(),
     deactivated: z.boolean().optional(),
+    /** Whether a member may create invite codes. Owners and admins always can. */
+    canInvite: z.boolean().optional(),
   })
-  .refine((b) => b.role !== undefined || b.deactivated !== undefined, {
+  .refine((b) => b.role !== undefined || b.deactivated !== undefined || b.canInvite !== undefined, {
     message: "nothing to change",
   });
 

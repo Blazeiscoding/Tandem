@@ -251,6 +251,7 @@ describe("self-hosted product", () => {
     const db = new DatabaseSync(join(dir, "workspace.db"));
     const historical = openDbAtVersion(":memory:", 8);
     try {
+      db.exec("ALTER TABLE users DROP COLUMN can_invite");
       db.exec("DROP TABLE audit_log");
       db.exec("DROP INDEX idx_invites_created");
       db.exec("ALTER TABLE invites DROP COLUMN revoked_by");
