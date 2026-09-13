@@ -33,7 +33,16 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Container            | `node tests/docker-smoke.mjs`             | passed                                                                          | 2026-09-05 |
 
 The last combined verification including tests used `pnpm exec turbo test typecheck build --force`:
-all 14 tasks passed without cached results, including the web, desktop and server CLI builds.
+all 15 tasks passed without cached results on September 14, including the web, desktop and server CLI builds.
+
+The September 14 UI environment phase passed 482 tests: server 347, client-core 62,
+UI 49, protocol 12, desktop 12. Thirteen UI component checks in
+`dialog.dom.test.tsx` and `hostDialog.dom.test.tsx` run with jsdom and Testing
+Library; other UI tests keep Node. Axe checks modal naming and the stopped/live
+hosting views without colour contrast. Mocked element boxes support basic focus
+checks, not layout or screen-reader certification. The browser and packaged
+desktop results above predate this test-only phase; its predecessor passed both
+GitHub jobs in run `34768567486`.
 
 The September 7–8 feature phases were checked with typechecking and production builds only,
 as requested by the user. Account controls, thread/search pagination, composer/editor changes,
@@ -313,6 +322,6 @@ Artifacts:
   surface.
 - **Windows builds are unsigned** unless you supply a certificate, so SmartScreen
   will warn.
-- **CI is configured but unverified.** `.github/workflows/ci.yml` runs these same
-  checks on Linux and Windows runners; it has not been run on GitHub from this
-  workspace.
+- **CI covers Linux and Windows.** `.github/workflows/ci.yml` has passed on GitHub,
+  including browser/container checks on Linux and the packaged Windows scenario
+  in run `34768567486`. macOS remains unverified.

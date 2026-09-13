@@ -56,6 +56,13 @@ Browser checks: `pnpm exec playwright install chromium`, then `pnpm test:e2e`
 after building. Windows checks: `pnpm --filter @slackoss/desktop package --win`,
 then `pnpm test:desktop`. These tests use temporary workspaces and fake media.
 
+UI component checks belong in `packages/ui/test/*.dom.test.tsx`. They run with
+jsdom, Testing Library, explicit cleanup, and the shared accessibility helper.
+Other UI tests keep the Node environment, including static rendering tests.
+The DOM setup approximates visible element boxes for focus checks; it cannot
+test layout, colour contrast, or screen-reader output. Use the browser suite
+for real geometry and check assistive technology separately.
+
 Two things about the desktop suite are easy to trip over. A terminal inside an
 Electron-based tool can export `ELECTRON_RUN_AS_NODE=1`, which makes any Electron
 app it starts run as plain Node; the packaged app then refuses to launch with
