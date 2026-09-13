@@ -9,6 +9,11 @@ asar: true
 extraResources:
   - from: ../web/dist
     to: web
+  - from: build
+    to: tray
+    filter:
+      - icon.ico
+      - icon.png
 win:
   icon: build/icon.ico
   target:

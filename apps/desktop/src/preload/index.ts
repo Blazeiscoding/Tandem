@@ -9,6 +9,7 @@ export interface SlackossBridge {
   hostingStatus: () => Promise<unknown>;
   hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<unknown>;
   hostingStop: () => Promise<void>;
+  onHostingStatus: (cb: (status: unknown) => void) => () => void;
   /** A slackoss:// link that launched the app, if any. */
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
@@ -27,6 +28,11 @@ const bridge: SlackossBridge = {
   hostingStatus: () => ipcRenderer.invoke("hosting:status"),
   hostingStart: (opts) => ipcRenderer.invoke("hosting:start", opts),
   hostingStop: () => ipcRenderer.invoke("hosting:stop"),
+  onHostingStatus: (cb) => {
+    const listener = (_e: unknown, status: unknown) => cb(status);
+    ipcRenderer.on("hosting:changed", listener);
+    return () => ipcRenderer.removeListener("hosting:changed", listener);
+  },
   consumeDeepLink: () => ipcRenderer.invoke("deeplink:consume"),
   onDeepLink: (cb) => {
     const listener = (_e: unknown, url: string) => cb(url);
