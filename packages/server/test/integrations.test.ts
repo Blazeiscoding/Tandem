@@ -1049,6 +1049,73 @@ describe("interactive buttons", () => {
     expect(again.status).toBe(404);
   });
 
+  /** A message with one button from an app that acknowledges presses with nothing. */
+  async function buttonMessage(name: string) {
+    const created = await newApp(name);
+    acceptVerification();
+    await api(`/api/apps/${created.id}/interactivity`, {
+      method: "PUT",
+      token: aliceToken,
+      body: { url: stub.url("/interactions") },
+    });
+    server.store.addMember(channelId, created.botUser.id);
+    const posted = await api<{ ts: string }>("/api/chat.postMessage", {
+      token: created.token,
+      body: {
+        channel: channelId,
+        text: "Ship 413?",
+        blocks: [
+          {
+            type: "actions",
+            elements: [
+              { type: "button", action_id: "go", text: { type: "plain_text", text: "Go" } },
+            ],
+          },
+        ],
+      },
+    });
+    // Bolt's ack(): an empty 200, straight away, with the real answer to follow.
+    stub.received.length = 0;
+    stub.handler = () => ({ body: "" });
+    const pressed = await api<{ ok: boolean }>(`/api/messages/${posted.data.ts}/actions`, {
+      token: bobToken,
+      body: { actionId: "go" },
+    });
+    expect(pressed.data.ok).toBe(true);
+    const payload = JSON.parse(
+      new URLSearchParams(stub.received.find((r) => r.url === "/interactions")!.body).get(
+        "payload",
+      )!,
+    ) as { response_url: string };
+    return { messageId: posted.data.ts, responseUrl: payload.response_url };
+  }
+
+  it("rewrites the message later through response_url, the way Bolt does", async () => {
+    const { messageId, responseUrl } = await buttonMessage("Later Bot");
+    // Bolt's respond({ replace_original: true }) goes to the response_url after
+    // the acknowledgement, never in it.
+    const res = await fetch(responseUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ replace_original: true, text: "Shipped 413." }),
+    });
+    expect(res.status).toBe(200);
+    const updated = server.store.getMessage(messageId)!;
+    expect(updated.text).toBe("Shipped 413.");
+    expect(updated.actions).toEqual([]);
+  });
+
+  it("removes the message later through response_url when asked to", async () => {
+    const { messageId, responseUrl } = await buttonMessage("Cleanup Bot");
+    const res = await fetch(responseUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ delete_original: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(server.store.getMessage(messageId)).toBeNull();
+  });
+
   it("refuses a button on a message the presser cannot see", async () => {
     const created = await newApp("Private Bot");
     acceptVerification();
@@ -1138,7 +1205,9 @@ describe("a deactivated app", () => {
       token: created.token,
       body: { channel: channelId, text: "should not appear" },
     });
-    expect(after.status).toBe(401);
+    // Slack answers a failed method with 200 and ok:false; see slackError.
+    expect(after.status).toBe(200);
+    expect(after.data.error).toBe("invalid_auth");
     expect(
       (
         await fetch(`${base}${hook.data.url}`, {
@@ -1354,7 +1423,8 @@ describe("revoking an app while it is being used", () => {
         },
       },
     });
-    expect(refused.status).toBe(400);
+    // Slack answers a failed method with 200 and ok:false; see slackError.
+    expect(refused.status).toBe(200);
     expect(refused.data.error).toBe("expired_trigger_id");
     await api(`/api/apps/${created.id}`, { token: aliceToken, method: "DELETE" });
   });
@@ -1612,6 +1682,23 @@ describe("modals", () => {
     expect(stub.received).toHaveLength(0);
   });
 
+  it("says the app's answer was unreadable, rather than that it never came", async () => {
+    const created = await interactiveApp("Garbled Bot");
+    const trigger = await pressButton(created, bobToken);
+    const opened = await api<{ view: { id: string } }>("/api/views.open", {
+      token: created.token,
+      body: { trigger_id: trigger, view },
+    });
+
+    stub.handler = () => ({ body: "{not json" });
+    const result = await api<{ ok: boolean; message?: string }>(
+      `/api/views/${opened.data.view.id}/submit`,
+      { token: bobToken, body: { values: { where: { env: "staging" } } } },
+    );
+    expect(result.data.ok).toBe(false);
+    expect(result.data.message).toBe("The app answered with something that could not be read.");
+  });
+
   it("will not pass on an answer the select never offered", async () => {
     const created = await interactiveApp("Picky Bot");
     const trigger = await pressButton(created, bobToken);
@@ -1650,7 +1737,8 @@ describe("modals", () => {
       token: created.token,
       body: { trigger_id: trigger, view },
     });
-    expect(again.status).toBe(400);
+    // Slack answers a failed method with 200 and ok:false; see slackError.
+    expect(again.status).toBe(200);
     expect(again.data.error).toBe("expired_trigger_id");
   });
 
@@ -1674,7 +1762,8 @@ describe("modals", () => {
         },
       },
     });
-    expect(opened.status).toBe(400);
+    // Slack answers a failed method with 200 and ok:false; see slackError.
+    expect(opened.status).toBe(200);
     expect(opened.data.error).toBe("unsupported_elements");
   });
 
@@ -1686,7 +1775,8 @@ describe("modals", () => {
       token: theirs.token,
       body: { trigger_id: trigger, view },
     });
-    expect(stolen.status).toBe(403);
+    // Slack answers a failed method with 200 and ok:false; see slackError.
+    expect(stolen.status).toBe(200);
     expect(stolen.data.error).toBe("trigger_not_yours");
   });
 });
@@ -1718,7 +1808,8 @@ describe("replacing an app's credentials", () => {
     // No overlap: a token is replaced because it leaked, and a window in which
     // both work is a window in which the leaked one still does.
     const old = await postAs(created.token, "with the leaked token");
-    expect(old.status).toBe(401);
+    // Slack answers a failed method with 200 and ok:false; see slackError.
+    expect(old.status).toBe(200);
     expect(old.data.error).toBe("invalid_auth");
     expect((await postAs(replaced.data.token, "after")).data.ok).toBe(true);
   });
