@@ -6,6 +6,8 @@ The recommended direction is to make Gatherline dependable enough for a small te
 
 This is an assessment and implementation plan. Priorities below distinguish reproduced failures, gaps found in code, and proposed features. A passing existing suite is the baseline, not proof that all user journeys work. The assessment was written before any source changed; **Implementation progress** below records what has since been built against it.
 
+What was still open on September 15, item by item, and the order to do it in, is in [REMAINING-WORK-2026-09.md](REMAINING-WORK-2026-09.md).
+
 ## Review scope and baseline
 
 Reviewed all seven workspace packages: protocol, server, client-core, UI, browser app, Electron app, and server CLI. Traced authentication, membership, message creation and deletion, attachments, replay, drafts, unread state, threads, search, scheduling, integrations, huddle signalling, desktop storage and hosting. Also inspected migrations, packaging, Docker, CI, deployment instructions, security notes, and existing tests.
