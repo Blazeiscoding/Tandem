@@ -1,0 +1,270 @@
+# What is left, and how to do it
+
+Written September 15, 2026, against `main` at `b36fec5`, the merge of PR #48, plus the uncommitted modal work on the `fix/modal-keyboard-ownership` branch.
+
+`IMPROVEMENT-PLAN-2026-09.md` holds the original assessment and a log of everything built since. This document looks forward. For every item it says what is still open, what I would do first, and how I would do each piece. It draws on four sources.
+
+- The plan's item tables and every progress entry in its log.
+- The code, searched for each item's acceptance criteria rather than taking the log's word for it.
+- The test inventory: 482 unit and integration tests, 9 browser scenarios and the packaged Windows scenario.
+- A walkthrough of the browser client against a seeded workspace with four people, five channels, a thread, reactions, a pinned code block and an image, screenshotted at 1280×800, 1280×600, 900×1000 and 390×844.
+
+## Where things stand
+
+47 pull requests have merged. The first two milestones, a reliable core and protected accounts and data, are essentially complete. The P0 findings F01 to F09 are fixed and held by regression tests. Accounts, sessions, recovery, retention, backups and pre-upgrade copies all exist. The remaining work sits in three places.
+
+1. **The interface.** Navigation, shared components, keyboard and screen-reader access, responsive layouts, visual consistency and onboarding make up U02 to U06 and U08. It is the largest open area and the first thing anyone trying the app notices.
+2. **Test debt.** More than twenty features from the September 7 to 13 phases shipped with their permanent tests deferred, several at the user's request. Most of the UI ones can now be written as component tests, since PR #48 added a DOM test environment.
+3. **Running it without a developer.** Several local workspaces, hosting that resumes after a restart, backup and restore from the app, calls across real networks, and packages for macOS and Linux.
+
+Tests today: 482 passing, made up of server 347, client-core 62, UI 49, protocol 12 and desktop 12. The modal branch adds nine UI tests that pass locally. Its change to the browser scenario has not been run yet.
+
+## Status by item
+
+Done means the acceptance criteria are met. Mostly means a small remainder. Partial means real work is left. Open means not started. Deferred means conditional by design.
+
+### R, correctness and synchronization
+
+| Item                                  | Status | What is left                                                                                                             |
+| ------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
+| R01 reconnect and resync              | Done   | Reconciling a huddle whose access ended mid-call; a client away longer than the event log for reasons other than pruning |
+| R02 idempotent sends                  | Done   |                                                                                                                          |
+| R03 transactional mutations           | Mostly | The remaining scheduling transitions; broader cancellation                                                               |
+| R04 sockets and huddles follow access | Done   |                                                                                                                          |
+| R05 membership sync                   | Done   |                                                                                                                          |
+| R06 recoverable scheduled delivery    | Done   |                                                                                                                          |
+| R07 deterministic shutdown            | Mostly | The route drain has no deadline, so a handler that never finishes would hold shutdown indefinitely                       |
+| R08 validation and async rules        | Mostly | Server-side revision checks for message edits; cancelling mutations that race a timeline request                         |
+
+### A, accounts, privacy and policy
+
+| Item                                 | Status  | What is left                                                                                                                      |
+| ------------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| A01 safe owner setup                 | Done    |                                                                                                                                   |
+| A02 account lifecycle                | Done    |                                                                                                                                   |
+| A03 local credentials and drafts     | Mostly  | Browser sign-ins still live in localStorage; drafts and the outbox are plain text at rest; the desktop `settings.ts` has no tests |
+| A04 abuse and network trust          | Done    | CORS stays open on purpose, because sessions use bearer tokens and the client can be hosted apart from the server                 |
+| A05 permission policy                | Partial | Channel rules and invite permission exist. Workspace rules for creating channels, configuring apps and moderating do not          |
+| A06 retention and deletion           | Done    |                                                                                                                                   |
+| A07 second factor and preferences    | Open    | TOTP with recovery codes, notification privacy, status expiry, time zone                                                          |
+| A08 moderation and community control | Partial | Channel member removal exists. Reporting, a moderation queue, blocking and muting people do not                                   |
+
+### U, interface, onboarding and accessibility
+
+| Item                            | Status  | What is left                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| U01 joining                     | Mostly  | Invite links open only in the desktop app, as `slackoss://join`. A browser link with the code filled in is missing, and so is a message link a browser can open                                                                                                                               |
+| U02 navigation                  | Partial | Screens have no URLs, so Back leaves the app and reload forgets the channel. Seven account and admin controls are stacked in the sidebar footer                                                                                                                                               |
+| U03 shared components           | Partial | No shared menu, tooltip, toast, confirmation or skeleton. Each dialog builds its own                                                                                                                                                                                                          |
+| U04 keyboard and screen readers | Partial | Modal ownership is in progress. Every message is its own Tab stop. The switcher and emoji chooser have no combobox semantics. Channel details and the sign-in card use buttons as tabs with no selected state. A reaction is read as its emoji and count only. Nothing announces new messages |
+| U05 responsive behaviour        | Partial | The stylesheet has one layout breakpoint, at 760 px. Image previews run off a phone screen, the newest message slips under the composer when a panel opens, and message actions need a hover                                                                                                  |
+| U06 visual consistency          | Partial | Dark theme only; unicode glyphs such as ⚙ and ⇄ beside the line icon set; mixed label styles; 12 colour variables and no spacing or type scale                                                                                                                                                |
+| U07 motion and input methods    | Done    |                                                                                                                                                                                                                                                                                               |
+| U08 onboarding and help         | Open    | No first-run path. The shortcut sheet opens only with Ctrl+/, and nothing on screen says so. There is no diagnostics entry                                                                                                                                                                    |
+
+### C, messaging, search, files and organization
+
+| Item                                  | Status  | What is left                                                                                                                                            |
+| ------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C01 composition and editing           | Mostly  | Lists, quotes and labelled links, in the renderer and the toolbar                                                                                       |
+| C02 durable drafts and outbox         | Done    | Outbox entries with attachments stop after a restart instead of resending, by design                                                                    |
+| C03 threads                           | Mostly  | Per-thread mute, remembered thread scroll, mention counts scoped to one thread                                                                          |
+| C04 unread and notifications          | Mostly  | The browser asks for notification permission on the first click anywhere, usually the Sign in button. Clicking a notification does not open its message |
+| C05 search                            | Mostly  | Relevance sort; files as results                                                                                                                        |
+| C06 channel management                | Done    |                                                                                                                                                         |
+| C07 file transfers                    | Mostly  | Per-account quotas; resumable downloads                                                                                                                 |
+| C08 finding files                     | Open    |                                                                                                                                                         |
+| C09 personal organization             | Partial | Sidebar sections and favourites, notes on saved items, reminders, a drafts view                                                                         |
+| C10 quotes, forwarding, link previews | Open    |                                                                                                                                                         |
+| C11 profiles and presence             | Open    | Avatar upload, time zone, timed status. The protocol has an `away` presence value that nothing sets                                                     |
+
+### H, huddles and media
+
+| Item                       | Status   | What is left                                                                                            |
+| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| H01 device settings        | Open     | There is no device picker, and nothing calls `enumerateDevices`                                         |
+| H02 call recovery          | Open     | No reconnecting state, no ICE restart, no rejoin after the socket reconnects                            |
+| H03 screen sharing         | Partial  | The desktop app lists screens by name. No window choice, preview, pinning or fullscreen                 |
+| H04 deployment diagnostics | Partial  | `SLACKOSS_ICE_SERVERS` and `/api/rtc-config` exist. No connectivity check, no expiring TURN credentials |
+| H05 mesh limits            | Open     |                                                                                                         |
+| H06 SFU                    | Deferred |                                                                                                         |
+
+### O, hosting, administration and operation
+
+| Item                         | Status  | What is left                                                                                                                                                                                                                                              |
+| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| O01 backup and restore       | Mostly  | Command line only, through `backup`, `verify-backup` and `restore`. Nothing in the desktop app                                                                                                                                                            |
+| O02 safe upgrades            | Mostly  | Historical fixtures beyond v8; a disk that fills during the migration itself                                                                                                                                                                              |
+| O03 hosting control center   | Partial | One workspace at a time, found by the folder its name maps to. No list, rename, port choice, open-folder button, backup status or count of who is connected                                                                                               |
+| O04 desktop lifecycle        | Mostly  | The app saves `lastHosted` and never reads it, so after a restart the saved workspace shows as reconnecting until someone starts hosting by hand. Also start at login, sleep and network changes, and the server still running in Electron's main process |
+| O05 workspace administration | Mostly  | Workspace name and icon; a default invite expiry; paging and search for members and apps                                                                                                                                                                  |
+| O06 operational visibility   | Open    | `/api/health` is the only check                                                                                                                                                                                                                           |
+| O07 deployment recipes       | Partial | Settings are validated at startup. Nobody has followed the walkthroughs from a clean machine                                                                                                                                                              |
+| O08 export and import        | Open    |                                                                                                                                                                                                                                                           |
+
+### I, integrations
+
+| Item                        | Status  | What is left                                                                                                                                           |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| I01 durable delivery        | Done    | A configurable retry policy and a delivery history would be extras                                                                                     |
+| I02 lifecycle authorization | Mostly  | Scopes for bot tokens; a count limit on the trigger and `response_url` maps                                                                            |
+| I03 Block Kit inputs        | Open    | Inputs are plain text and static select only, and there is no `views.update`                                                                           |
+| I04 API contract            | Mostly  | The Apps dialog still says most integrations work by changing the URL, which the I04 work showed was untrue. The native API has no OpenAPI description |
+| I05 app management          | Partial | Testing a connection, bot channel controls, trying a command, starter bots                                                                             |
+
+### E, architecture, tests and releases
+
+| Item                       | Status  | What is left                                                                                        |
+| -------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| E01 domain modules         | Open    | `server.ts` is 3,615 lines, `store.ts` 2,894 and the client's `workspace.ts` 2,006                  |
+| E02 typing and lint        | Open    | There is no ESLint, and nothing typechecks `tests/`                                                 |
+| E03 testing gaps           | Partial | See phase 2                                                                                         |
+| E04 UI validation          | Partial | DOM and axe tests cover three components. No visual fixtures; Chromium only                         |
+| E05 client memory and work | Partial | The main renderer chunk is 540 kB, 157 kB gzipped, back over Vite's 500 kB warning                  |
+| E06 server capacity        | Open    |                                                                                                     |
+| E07 CI and releases        | Partial | CI runs on Linux and Windows. No release workflow, no macOS or Linux packages, no checksums or SBOM |
+| E08 performance evidence   | Partial | The September 5 measurements only                                                                   |
+
+X01 to X07 stay conditional, as the plan intended.
+
+## The order I would do it in
+
+Letting someone try the app with their team comes first. Accessibility and polish come next, then hosting and calls, then the engineering foundations, then depth. Test debt runs alongside every phase instead of waiting for the end.
+
+### Phase 0. Finish what is open
+
+A few days of work.
+
+1. **Finish the modal branch.** Codex's uncommitted work on `fix/modal-keyboard-ownership` gives every dialog and the image viewer one owner for the keyboard and focus. It marks the rest of the page `inert` while a dialog is open and stops workspace shortcuts from firing underneath one. Its nine DOM tests pass. Before it merges, run the browser scenario it changed against a fresh build, measure what its two MutationObservers cost on a busy dialog, and check that nothing else appended to `document.body`, a later toast container for instance, is left inert. Then the docs, a PR and CI.
+2. **Fix what the walkthrough found.** Small PRs, each with a DOM or browser test.
+   - Show a browser invite link, `http(s)://<host>/?invite=<code>`, next to the `slackoss://` one, and have the join screen read the code from the address. Do the same for links to a message.
+   - Keep the timeline pinned to the bottom when its box changes size. A ResizeObserver on the scroller that re-pins a view already at the bottom stops the newest message slipping under the composer when a thread or Activity opens.
+   - Fit image previews to the width available, keeping their aspect ratio.
+   - List a direct message once in the switcher, as a person, instead of a `#` row plus an `@` row.
+   - Drop the blank line after a code block. The renderer strips the newline after the opening fence but not the one before the closing fence.
+   - Correct the Apps dialog copy and link to `docs/INTEGRATIONS.md`.
+   - Replace the five buttons on every row of People with one menu per person. Today they squeeze names down to "Alex ...".
+   - Put Invite people, People, Apps and integrations, Switch workspace and Account settings behind one workspace menu. On a 600 px tall window the footer takes 270 px and leaves room for about four channel rows.
+   - When the desktop app opens a saved workspace that this computer hosts and hosting is stopped, offer "Start hosting Rocket Team" from `lastHosted` instead of reconnecting forever.
+   - Ask for browser notification permission from a banner after sign-in, and make clicking a notification open its message.
+   - Give the sign-in and account fields real labels. The join screen's username and password fields have only placeholders.
+   - Lazy-load channel details, the scheduled panel and search to bring the main chunk back under 500 kB.
+3. **Make it easy to try.** Turn the walkthrough's seeding into `scripts/seed-demo.mjs`, which creates people, channels, a thread, reactions and an image through the public API of a running server. Add a short section to the README with the ways to run it and a checklist of journeys worth trying.
+
+### Phase 1. Accessibility and interface polish
+
+Several weeks. Later pieces build on earlier ones, so the order inside this phase matters.
+
+1. **U03, shared components first.** A menu and popover, a tooltip, toast notices, a confirmation dialog, a skeleton and an empty state. Build them on the modal layer so Escape and focus behave the same everywhere, and give each DOM tests with an axe check. The People menu, channel details, message actions and the sidebar menu from phase 0 are the first to use them.
+2. **U04, keyboard and screen readers, in slices.**
+   - One listbox hook using `aria-activedescendant`, with the combobox role on the input, shared by the switcher, the mention and channel autocomplete and the emoji chooser.
+   - A tabs component with `tablist`, `tab` and `tabpanel` roles and arrow keys, for channel details and the sign-in card.
+   - A label audit of every field. A placeholder is not a label.
+   - Roving focus in the message list. The list is one Tab stop, arrow keys move between messages, and Enter opens a message's actions. Reactions read as "👍 2, from Sam and Priya, including you".
+   - Side panels as labelled regions that take focus when they open and hand it back when they close.
+   - A polite live region that announces new messages in the open conversation, throttled, and silent during replay and resync.
+   - One keyboard-only browser scenario that signs in, switches channel, replies in a thread, reacts, searches and opens settings.
+3. **U02, navigation.** Hash routes for a channel, a thread and a message, such as `#/c/<id>`, `#/c/<id>/t/<rootId>` and `#/m/<id>`. Hash routes need no change to how the server serves the client and work unchanged in the desktop app's `file://` renderer, which history routes would not. Back, Forward and reload then do what people expect. Restore the last channel for each workspace and account, put a workspace switcher at the top of the sidebar, and turn Account settings into one dialog with sections for profile, notifications, composing, security and devices.
+4. **U05, responsive behaviour.** Check 390, 768 and 1024 px wide and 600 px tall. On touch, open message actions from a More button or a long press. Collapse the formatting toolbar on phones, and show side panels as full-screen sheets that handle focus. Add Playwright screenshot comparisons at those sizes so a broken layout fails CI.
+5. **U06, a visual system.** Decide between the current navy and mint theme and the Workbench exploration archived under the tag `archive/ui-workbench-rework-2026-09-12`. Then write the tokens down: colour roles, spacing, radius, type scale and the focus ring. Replace the unicode glyphs with the icon set. Build light, system and high-contrast themes on the same tokens, add a compact density, and format timestamps with `Intl.DateTimeFormat` in the reader's locale.
+6. **U08, onboarding and help.** A dismissible first-run checklist for the owner, stored per account: create a channel, invite someone, turn on notifications, try a huddle. A Help menu with searchable shortcuts and a "Copy diagnostics" action that copies versions and connection state and never message content.
+
+### Phase 2. Pay down the test debt
+
+Alongside phase 1. These features shipped without permanent tests. Every new test gets the usual check: take the behaviour out and watch the test fail.
+
+On the server:
+
+- Editing a scheduled message's text: a compare-and-set conflict, repeating an accepted edit, editing while delivery is due.
+- Download tickets: single use, the 60-second expiry, the issuing session signing out, losing access to a private room, the 64-ticket cap.
+- Channel managers: the full allow and deny matrix for creator, manager, admin, owner, member and former member.
+- Member removal and group conversations: removal events and call eviction, leaving a group, starting again with the same people.
+- Activity, saved and pinned paging: tied timestamps at page boundaries, access lost between pages.
+
+In client-core and the UI:
+
+- The composer: formatting keeps the selection, the Enter setting, Enter from an input method, a failed send keeps the draft, the wording for a full workspace.
+- The message editor: the conflict flow, Cancel discarding, a failed save staying open.
+- The scheduled panel, channel details, People, Account settings, Activity and search: loading, error and retry states, and each confirmation.
+- Recent searches and the workspace-identity migration in client-core, and the desktop credential envelope in `settings.ts` against a fake key store.
+
+### Phase 3. Hosting someone else can run
+
+A few weeks.
+
+1. **O04, finished.** An opt-in "Start hosting when Gatherline opens" that reads `lastHosted`. Start at login through `app.setLoginItemSettings`. Fresh addresses and a new mDNS announcement after `powerMonitor` reports a resume or the network changes. Then measure whether database work stalls the window, for example a backup or a retention sweep on a 50,000-message workspace. If it does, move the server into an Electron `utilityProcess` behind the hosting controller, which already owns start, stop and status and is the natural boundary.
+2. **O03, a hosting control center.** A registry of local workspaces keyed by the workspace ID the database already stores, with name, folder and port. From it, list, start and stop workspaces, rename the display name without moving the folder, open the data folder, back up now, and see how many people are connected.
+3. **O05 and O01, administration and backups in the app.** Workspace name and icon, invite-only mode and a default invite expiry. Paging and search in People and Apps. Backup to a chosen folder, and an offline restore wizard that reuses the command line's verification.
+4. **O07, recipes followed from clean machines.** LAN, the desktop host, Docker on a VPS behind Caddy for HTTPS, and coturn for TURN. Follow each on a fresh VM, record the result in `VALIDATION.md`, and add systemd and Windows service examples.
+
+### Phase 4. Calls on real networks
+
+1. **H01.** A device picker with a microphone level meter, remembered choices and `devicechange` handling.
+2. **H02.** Visible connection states, an ICE restart on failure, rejoining after the socket reconnects, and participation scoped to one device so two tabs do not fight over a seat.
+3. **H04.** A connectivity check that gathers candidates against the configured STUN and TURN servers and says whether relaying works, and expiring TURN credentials using the TURN REST shared-secret scheme.
+4. **H05.** Calls with 3, 4 and 6 people measured on stated hardware, and a warning above the size that holds up.
+
+### Phase 5. Engineering foundations
+
+1. **E02, lint as a CI gate.** An ESLint flat config with typescript-eslint's `no-floating-promises` and `no-misused-promises`, react-hooks and jsx-a11y. Fix the findings one package per PR, and typecheck `tests/` and `scripts/`.
+2. **E01, split the server.** Move route groups out of `server.ts` one PR at a time with no change in behaviour: auth, channels and messages, files, scheduling, administration and integrations. The 347 server tests are the safety net. Split `store.ts` along the same lines afterwards.
+3. **E07, releases.** A workflow triggered by a tag that builds the Windows installer, a macOS dmg, a Linux AppImage, the server bundle and the Docker image, smoke-tests each, and publishes checksums and an SBOM. Sign once certificates exist. Routine CI keeps build output out of its artifacts, as `CONTRIBUTING.md` already requires.
+4. **E05, client budgets.** A budget for decoded images, narrower store subscriptions for message rows, and a bundle-size check in CI.
+
+### Phase 6. Depth, chosen by demand
+
+Once people use it, pick from this list by what they ask for.
+
+- C10, quotes and forwarding, with link previews fetched through the outbound guard.
+- C11, avatars, time zones and away status.
+- C09, sidebar sections.
+- C08, a file browser.
+- I03, the remaining Block Kit inputs and `views.update`.
+- I05, connection tests and starter bots for apps.
+- A07, TOTP with recovery codes.
+- A08, reporting and blocking.
+- O06, readiness checks, metrics and a support bundle.
+- O08, export and import.
+
+The X items stay conditional.
+
+## The release criteria, checked
+
+| Criterion from the plan                                                                                  | Today                                                                                          |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| A network interruption or lost acknowledgement loses and duplicates nothing                              | Met                                                                                            |
+| Revocation removes live access and call participation                                                    | Met                                                                                            |
+| Drafts and the outbox survive and stay separate per account                                              | Met                                                                                            |
+| Search, threads, files and saved items page past the first page                                          | Met, apart from the missing file browser                                                       |
+| A first-time host can claim, invite, stop and reopen, back up, restore and upgrade using the UI and docs | Not yet. Browser invite links, resuming hosting, and backup and restore in the app are missing |
+| Core journeys work by keyboard alone and in narrow layouts, and media failures are understandable        | Not yet. Phases 1 and 4                                                                        |
+| Upgrades are tested against historical fixtures, and release artifacts start and keep legacy data paths  | Partly. There is one fixture, v8, and one packaged platform, Windows                           |
+| Capacity claims state their workload, hardware and limits                                                | Met for what `VALIDATION.md` claims. There is no soak test yet                                 |
+
+## How to try it today
+
+The quickest way is the browser client, served by the standalone server.
+
+```sh
+pnpm install
+pnpm build
+node apps/server-cli/dist/slackoss-server.js --data ./data --name "My Team"
+```
+
+Open `http://localhost:8543` and create the first account, which becomes the owner. Opened from any other address, the server asks for the claim code it printed at startup. A second browser profile or a private window can sign up a second person. People on your network use `http://<your-ip>:8543`.
+
+For the desktop app, run `pnpm --filter @slackoss/desktop dev`, or package it with `pnpm --filter @slackoss/desktop package --win` and install `apps/desktop/release/Gatherline Setup 0.1.0.exe`. Choose **Host a workspace on this computer**. A terminal inside an Electron-based tool can export `ELECTRON_RUN_AS_NODE=1`, which stops Electron starting, so unset it first.
+
+With Docker, run `docker compose -f docker/docker-compose.yml up -d --build`.
+
+Until phase 0 lands, expect these rough edges.
+
+- Invite links open only in the desktop app. Share the address and an invite code instead.
+- Opening a thread or Activity can hide the newest message under the composer until you scroll.
+- On a phone, image previews run off the right edge of the screen.
+- After the desktop app restarts, a workspace it hosts shows as reconnecting. Use **Switch workspace**, then host it again under the same name.
+- The browser asks for notification permission on your first click, often on Sign in.
+
+## How the work gets done
+
+The loop stays the same for Claude and Codex. A branch per scope. Permanent tests, each checked by removing what it covers. Typecheck, tests, builds and the browser suite, plus the packaged desktop suite whenever `apps/desktop` changes. `VALIDATION.md` and the plan log updated. Commits in phases, a pull request, CI, then merge. New work ships with its tests unless the user asks otherwise. One agent owns a branch at a time, and the traps recorded in `CONTRIBUTING.md` apply to both.
