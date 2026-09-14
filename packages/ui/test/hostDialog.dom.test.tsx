@@ -140,6 +140,11 @@ describe("hosting a workspace from the host dialog", () => {
     await user.click(await screen.findByRole("button", { name: "Stop hosting" }));
     const confirm = screen.getByRole("dialog", { name: "Stop hosting?" });
     expect(confirm).toHaveTextContent(/Teammates will be disconnected/);
+    // The trigger was replaced by the confirmation. Focus must stay inside
+    // rather than falling back to the page behind the modal.
+    await waitFor(() => expect(confirm).toContainElement(document.activeElement as HTMLElement));
+    await user.tab();
+    expect(confirm).toContainElement(document.activeElement as HTMLElement);
     await user.click(within(confirm).getByRole("button", { name: "Keep hosting" }));
     expect(screen.getByRole("dialog", { name: "Workspace is live" })).toBeInTheDocument();
     expect(hosting.stop).not.toHaveBeenCalled();
