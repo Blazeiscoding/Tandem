@@ -28,6 +28,8 @@ import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
 import { WorkspaceStorageGate } from "../components/WorkspaceStorageGate.js";
+import { hasOpenModal } from "../components/Modal.js";
+import { isImeKey } from "../lib/textInput.js";
 
 const ActivityPanel = lazy(() =>
   import("../components/ActivityPanel.js").then((module) => ({ default: module.ActivityPanel })),
@@ -159,7 +161,7 @@ function WorkspaceInner({
     const previous = document.activeElement as HTMLElement | null;
     nav?.querySelector<HTMLElement>("button")?.focus();
     const onTab = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
+      if (event.defaultPrevented || hasOpenModal() || event.key !== "Tab") return;
       const buttons = [
         ...(nav?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []),
       ].filter((button) => button.getClientRects().length > 0);
@@ -244,6 +246,9 @@ function WorkspaceInner({
   // Global shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A foreground form owns its keys. Shortcuts must not replace a busy
+      // dialog, or let its Escape dismiss a thread behind it as well.
+      if (e.defaultPrevented || hasOpenModal() || isImeKey(e)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setDialog((d) => (d.kind === "switcher" ? { kind: "none" } : { kind: "switcher" }));
