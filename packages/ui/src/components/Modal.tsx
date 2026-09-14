@@ -1,0 +1,326 @@
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { isImeKey } from "../lib/textInput.js";
+
+interface Layer {
+  root: HTMLDivElement;
+  panel: HTMLDivElement;
+  opener: HTMLElement | null;
+  owner: Layer | null;
+  lastFocus: HTMLElement | null;
+  close: () => void;
+}
+
+const layers = new Set<Layer>();
+const originalInert = new Map<HTMLElement, string | null>();
+let bodyObserver: MutationObserver | null = null;
+let focusObserver: MutationObserver | null = null;
+let observedLayer: Layer | null = null;
+let redirectingFocus = false;
+
+function follows(element: Node, other: Node) {
+  return !!(other.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+function activeLayer(): Layer | null {
+  let active: Layer | null = null;
+  for (const layer of layers) {
+    if (layer.root.isConnected && (!active || follows(layer.root, active.root))) active = layer;
+  }
+  return active;
+}
+
+export function hasOpenModal(): boolean {
+  return activeLayer() !== null;
+}
+
+function focusedElement(): HTMLElement | null {
+  return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+}
+
+function ownerOf(element: HTMLElement | null): Layer | null {
+  return element ? ([...layers].find((layer) => layer.panel.contains(element)) ?? null) : null;
+}
+
+function available(element: HTMLElement): boolean {
+  if (
+    !element.isConnected ||
+    element.closest("[hidden], [inert]") ||
+    element.matches(":disabled, input[type=hidden]")
+  )
+    return false;
+  const style = getComputedStyle(element);
+  return (
+    style.visibility !== "hidden" &&
+    style.visibility !== "collapse" &&
+    element.getClientRects().length > 0
+  );
+}
+
+function usableIn(layer: Layer, element: HTMLElement | null): element is HTMLElement {
+  return !!element && layer.panel.contains(element) && available(element);
+}
+
+/** Child autoFocus can run before the new portal's layout effect registers it. */
+function enteringHigherLayer(element: HTMLElement | null, current: Layer): boolean {
+  const root = element?.closest<HTMLElement>("[data-gatherline-modal]");
+  return !!root && root.parentElement === document.body && follows(root, current.root);
+}
+
+function focus(element: HTMLElement) {
+  if (redirectingFocus) return;
+  redirectingFocus = true;
+  try {
+    element.focus({ preventScroll: true });
+  } finally {
+    redirectingFocus = false;
+  }
+}
+
+function recoverFocus() {
+  const layer = activeLayer();
+  if (!layer || redirectingFocus) return;
+  const current = focusedElement();
+  if (enteringHigherLayer(current, layer)) return;
+  if (usableIn(layer, current)) {
+    layer.lastFocus = current;
+    return;
+  }
+  const target = usableIn(layer, layer.lastFocus) ? layer.lastFocus : layer.panel;
+  focus(target);
+  if (usableIn(layer, focusedElement())) layer.lastFocus = focusedElement();
+}
+
+function restoreInert(element: HTMLElement, value: string | null) {
+  if (value === null) element.removeAttribute("inert");
+  else element.setAttribute("inert", value);
+}
+
+/** The active portal stays interactive; the workspace and older portals do not. */
+function isolate(layer: Layer | null) {
+  for (const [element, value] of originalInert) {
+    if (!layer || element.parentElement !== document.body || element === layer.root) {
+      restoreInert(element, value);
+      originalInert.delete(element);
+    }
+  }
+  if (!layer) return;
+  for (const element of document.body.children) {
+    if (!(element instanceof HTMLElement) || element === layer.root) continue;
+    if (!originalInert.has(element)) originalInert.set(element, element.getAttribute("inert"));
+    if (!element.hasAttribute("inert")) element.setAttribute("inert", "");
+  }
+}
+
+function reconcile() {
+  const layer = activeLayer();
+  isolate(layer);
+  if (observedLayer !== layer) {
+    focusObserver?.disconnect();
+    observedLayer = layer;
+    if (layer) {
+      focusObserver ??= new MutationObserver(recoverFocus);
+      focusObserver.observe(layer.root, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: [
+          "disabled",
+          "hidden",
+          "inert",
+          "style",
+          "class",
+          "tabindex",
+          "type",
+          "open",
+        ],
+      });
+    }
+  }
+  recoverFocus();
+}
+
+function tabStops(panel: HTMLElement): HTMLElement[] {
+  const candidates = [
+    ...panel.querySelectorAll<HTMLElement>(
+      "a[href], area[href], button, input, select, textarea, iframe, audio[controls], video[controls], summary, [tabindex], [contenteditable]",
+    ),
+  ].filter((element) => element.tabIndex >= 0 && available(element));
+  // A radio group is one Tab stop, even though every radio can receive focus.
+  return candidates
+    .filter((element) => {
+      if (!(element instanceof HTMLInputElement) || element.type !== "radio" || !element.name)
+        return true;
+      const group = candidates.filter(
+        (candidate): candidate is HTMLInputElement =>
+          candidate instanceof HTMLInputElement &&
+          candidate.type === "radio" &&
+          candidate.name === element.name &&
+          candidate.form === element.form,
+      );
+      return element === (group.find((radio) => radio.checked) ?? group[0]);
+    })
+    .sort((a, b) => (a.tabIndex || Infinity) - (b.tabIndex || Infinity));
+}
+
+function onKeyDown(event: KeyboardEvent) {
+  const layer = activeLayer();
+  if (!layer || event.defaultPrevented || isImeKey(event)) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    layer.close();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const stops = tabStops(layer.panel);
+  const first = stops[0],
+    last = stops.at(-1);
+  const current = focusedElement();
+  if (!first || !last) {
+    event.preventDefault();
+    focus(layer.panel);
+    return;
+  }
+  const outside = !usableIn(layer, current);
+  const panelFocused = current === layer.panel;
+  // A focused confirmation section may have tabIndex=-1. Preserve natural Tab
+  // navigation through its children, while still wrapping at the panel edges.
+  const beyondStops =
+    current &&
+    !stops.includes(current) &&
+    !panelFocused &&
+    !stops.some((stop) => (event.shiftKey ? follows(current, stop) : follows(stop, current)));
+  if (event.shiftKey && (outside || panelFocused || current === first || beyondStops)) {
+    event.preventDefault();
+    focus(last);
+  } else if (!event.shiftKey && (outside || panelFocused || current === last || beyondStops)) {
+    event.preventDefault();
+    focus(first);
+  }
+}
+
+function install() {
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("focusin", recoverFocus);
+  bodyObserver = new MutationObserver(reconcile);
+  bodyObserver.observe(document.body, { childList: true });
+}
+
+function uninstall() {
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("focusin", recoverFocus);
+  bodyObserver?.disconnect();
+  focusObserver?.disconnect();
+  bodyObserver = null;
+  focusObserver = null;
+  observedLayer = null;
+  isolate(null);
+}
+
+/** Find an opener even if the dialog which contained it was removed earlier. */
+function returnTarget(layer: Layer, active: Layer | null): HTMLElement | null {
+  const seen = new Set<Layer>();
+  for (let record: Layer | null = layer; record && !seen.has(record); record = record.owner) {
+    seen.add(record);
+    const removedOwner =
+      record.owner &&
+      !layers.has(record.owner) &&
+      !!record.opener &&
+      record.owner.panel.contains(record.opener);
+    if (
+      !removedOwner &&
+      record.opener &&
+      available(record.opener) &&
+      (!active || active.panel.contains(record.opener))
+    ) {
+      return record.opener;
+    }
+  }
+  return null;
+}
+
+interface Props {
+  title: string;
+  onClose: () => void;
+  dismissible?: boolean;
+  children: ReactNode;
+  backdropClassName?: string;
+  className?: string;
+  style?: CSSProperties;
+}
+
+/** One keyboard/focus owner for every dialog and image viewer. */
+export function Modal({
+  title,
+  onClose,
+  dismissible = true,
+  children,
+  backdropClassName = "",
+  className,
+  style,
+}: Props) {
+  const root = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const layer = useRef<Layer | null>(null);
+  const lastFocus = useRef<HTMLElement | null>(null);
+  const opener = useRef(focusedElement());
+  const owner = useRef(ownerOf(opener.current));
+  const close = useRef(onClose);
+  close.current = () => {
+    if (dismissible) onClose();
+  };
+
+  useLayoutEffect(() => {
+    if (!root.current || !panel.current) return;
+    const current: Layer = {
+      root: root.current,
+      panel: panel.current,
+      opener: opener.current,
+      owner: owner.current,
+      lastFocus: lastFocus.current,
+      close: () => close.current(),
+    };
+    layer.current = current;
+    if (layers.size === 0) install();
+    layers.add(current);
+    reconcile();
+    return () => {
+      const wasActive = activeLayer() === current;
+      lastFocus.current = current.lastFocus;
+      layers.delete(current);
+      layer.current = null;
+      if (layers.size === 0) uninstall();
+      else reconcile();
+      if (wasActive) {
+        const target = returnTarget(current, activeLayer());
+        if (target) focus(target);
+        else recoverFocus();
+      }
+    };
+  }, []);
+
+  return createPortal(
+    <div
+      ref={root}
+      data-gatherline-modal=""
+      className={"fixed inset-0 z-[60] " + backdropClassName}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && activeLayer() === layer.current)
+          close.current();
+      }}
+    >
+      <div
+        ref={panel}
+        role="dialog"
+        tabIndex={-1}
+        aria-modal="true"
+        aria-label={title}
+        className={className}
+        style={style}
+      >
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}

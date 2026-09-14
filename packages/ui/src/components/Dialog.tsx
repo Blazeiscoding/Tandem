@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { Modal } from "./Modal.js";
 
 interface Props {
   title: string;
@@ -9,85 +9,31 @@ interface Props {
 }
 
 export function Dialog({ title, onClose, children, width = 440, dismissible = true }: Props) {
-  const backdrop = useRef<HTMLDivElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  // Capture before child autoFocus runs during commit.
-  const previousFocus = useRef(document.activeElement as HTMLElement | null);
-  const close = useRef(onClose);
-  close.current = () => {
-    if (dismissible) onClose();
-  };
-
-  useEffect(() => {
-    const previous = previousFocus.current;
-    if (!panel.current?.contains(document.activeElement)) panel.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close.current();
-      if (e.key !== "Tab") return;
-      const targets = [
-        ...(panel.current?.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]',
-        ) ?? []),
-      ].filter((el) => el.getClientRects().length > 0);
-      const first = targets[0];
-      const last = targets.at(-1);
-      if (!first) {
-        e.preventDefault();
-        panel.current?.focus();
-        return;
-      }
-      if (
-        e.shiftKey &&
-        (document.activeElement === first || document.activeElement === panel.current)
-      ) {
-        e.preventDefault();
-        last?.focus();
-      } else if (
-        !e.shiftKey &&
-        (document.activeElement === last || document.activeElement === panel.current)
-      ) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      if (previous?.isConnected) previous.focus();
-    };
-  }, []);
-
   return (
-    <div
-      ref={backdrop}
-      onMouseDown={(e) => {
-        if (e.target === backdrop.current) close.current();
-      }}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-3 pt-[10vh]"
+    <Modal
+      title={title}
+      onClose={onClose}
+      dismissible={dismissible}
+      backdropClassName="flex items-start justify-center bg-black/60 px-3 pt-[10vh]"
+      className="max-h-[80vh] max-w-full overflow-y-auto rounded-2xl border border-edge bg-raised p-5 shadow-2xl outline-none"
+      style={{ width }}
     >
-      <div
-        role="dialog"
-        ref={panel}
-        tabIndex={-1}
-        aria-modal="true"
-        aria-label={title}
-        className="max-h-[80vh] max-w-full overflow-y-auto rounded-2xl border border-edge bg-raised p-5 shadow-2xl outline-none"
-        style={{ width }}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">{title}</h2>
-          <button
-            onClick={() => close.current()}
-            disabled={!dismissible}
-            aria-label="Close"
-            className="rounded-lg px-2 py-1 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
-          >
-            ✕
-          </button>
-        </div>
-        {children}
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-bold">{title}</h2>
+        <button
+          type="button"
+          onClick={() => {
+            if (dismissible) onClose();
+          }}
+          disabled={!dismissible}
+          aria-label="Close"
+          className="rounded-lg px-2 py-1 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+        >
+          ✕
+        </button>
       </div>
-    </div>
+      {children}
+    </Modal>
   );
 }
 

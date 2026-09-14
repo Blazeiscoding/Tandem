@@ -3,6 +3,7 @@ import type { FileMeta, ID } from "@slackoss/protocol";
 import { ApiError, type LocalAttachment } from "@slackoss/client-core";
 import { useClient, usePlatform } from "../context.js";
 import { formatBytes } from "../lib/format.js";
+import { Modal } from "./Modal.js";
 
 /** Largest an inline image is drawn at; the real file opens in the lightbox. */
 const MAX_W = 380;
@@ -317,57 +318,16 @@ export function PendingAttachments({
 
 /** Full-size image viewer. Esc or a click outside closes it. */
 export function Lightbox({ file, onClose }: { file: FileMeta; onClose: () => void }) {
-  const container = useRef<HTMLDivElement>(null);
   const { url, error, retry } = useFileResource(file.id);
   const [decodeFailed, setDecodeFailed] = useState(false);
   useEffect(() => setDecodeFailed(false), [url, file.id]);
 
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    container.current?.focus();
-    return () => {
-      if (previous?.isConnected) previous.focus();
-    };
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "Tab") {
-        const buttons = Array.from(
-          container.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
-        );
-        const first = buttons[0],
-          last = buttons.at(-1);
-        if (
-          e.shiftKey &&
-          (document.activeElement === first || document.activeElement === container.current)
-        ) {
-          e.preventDefault();
-          last?.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
   return (
-    <div
-      role="dialog"
-      ref={container}
-      tabIndex={-1}
-      aria-modal="true"
-      aria-label={`Image ${file.name}`}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/85 p-8"
+    <Modal
+      title={`Image ${file.name}`}
+      onClose={onClose}
+      backdropClassName="flex items-center justify-center bg-black/85 p-8"
+      className="flex max-h-full max-w-full flex-col items-center gap-3 outline-none"
     >
       {error && (
         <div role="alert" className="text-center text-ink">
@@ -414,6 +374,6 @@ export function Lightbox({ file, onClose }: { file: FileMeta; onClose: () => voi
           Close
         </button>
       </div>
-    </div>
+    </Modal>
   );
 }

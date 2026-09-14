@@ -479,15 +479,27 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
       ),
     )
     .toBe(true);
+  await page.getByRole("button", { name: "Saved", exact: true }).click();
+  const savedPanel = page.getByRole("complementary", { name: "Later", exact: true });
+  await expect(savedPanel).toBeVisible();
+  await composer.focus();
   await page.keyboard.press("Control+k");
   const dialog = page.getByRole("dialog", { name: "Jump to", exact: true });
   await expect(dialog).toBeVisible();
+  // Workspace shortcuts must not replace a foreground form, and Escape must
+  // leave the background side panel open when it dismisses that form.
+  await page.keyboard.press("Control+f");
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Search messages" })).toHaveCount(0);
   const lastButton = dialog.getByRole("button").last();
   await lastButton.focus();
   await page.keyboard.press("Tab");
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(composer).toBeFocused();
+  await expect(savedPanel).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(savedPanel).toHaveCount(0);
   await expect(composer).toHaveValue("A calmer space for our next big idea.");
   await composer.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
   await expect(composer).toHaveValue("A calmer space for our next big idea.");
