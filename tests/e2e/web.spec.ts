@@ -1244,11 +1244,13 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
       exact: true,
     });
     await expect(planForHost).toHaveCount(0);
-    await post(`Where is the plan? ${messageLink(plan.id)}`);
+    await post(`${messageLink(plan.id)} is where the plan is`);
     const sent = hostPage.getByRole("link", { name: messageLink(plan.id), exact: true });
-    await expect(sent).toBeInViewport();
+    await expect(sent).toBeInViewport({ ratio: 1 });
     const pagesBefore = host.pages().length;
-    await sent.click();
+    // At the start of the link: hovering the message raises its toolbar over
+    // the far end of a line this long.
+    await sent.click({ position: { x: 6, y: 6 } });
     await expect(planForHost).toBeInViewport();
     expect(host.pages()).toHaveLength(pagesBefore);
   } finally {
