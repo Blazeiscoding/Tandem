@@ -341,16 +341,19 @@ it, never the credential itself.
 
 Set `--public-url` to the address people actually use. It is what an app is told
 to send its replies to, and having it configured means nothing has to be inferred
-from a request. Add `--trust-proxy` only when a proxy in front of this server
+from a request. Invite and message links are built on it too, so a link copied by
+someone looking at the workspace through `localhost` still works for everyone
+else. Add `--trust-proxy` only when a proxy in front of this server
 writes the `X-Forwarded-*` headers and nothing can reach the server directly:
 anyone can send those headers, and without a proxy to vouch for them a forged one
 would decide where an app's reply and its token went. With neither set, the server
 uses the address the connection arrived on, which no header can change.
 
 The address must be a full `http://` or `https://` URL. A path is fine, for a
-server published under one (`https://example.com/chat`); a username or password,
-a query or a `#fragment` is refused at startup, since whatever is in the address
-is repeated in every URL handed to an app.
+server published under one (`https://example.com/chat`), though clients reach a
+server at its root, so links are then built on the address each person uses
+instead. A username or password, a query or a `#fragment` is refused at startup,
+since whatever is in the address is repeated in every URL handed to an app.
 
 The server checks its settings before it starts and stops with a one-line reason
 naming the flag: a port outside 0–65535, a malformed `--public-url`, a fraction
