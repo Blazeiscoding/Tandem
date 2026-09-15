@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss/client-core";
-import { ClientContext, useClient, useWorkspace } from "../context.js";
+import { ClientContext, OpenMessageContext, useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import { channelTitle } from "../lib/format.js";
 import { Sidebar } from "../components/Sidebar.js";
@@ -28,6 +28,7 @@ import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
 import { WorkspaceStorageGate } from "../components/WorkspaceStorageGate.js";
+import { ShareableServerProvider } from "../components/ShareableServer.js";
 import { hasOpenModal } from "../components/Modal.js";
 import { isImeKey } from "../lib/textInput.js";
 
@@ -47,7 +48,7 @@ const AccountDialog = lazy(() =>
 interface Props {
   client: WorkspaceClient;
   platform: Platform;
-  /** A message to open on arrival, from a slackoss://message link. */
+  /** A message to open on arrival, from a link to it. */
   initialTarget?: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
   onSignedOut: () => void;
@@ -102,12 +103,14 @@ export function WorkspaceScreen({
             onLeaveWorkspace={onLeaveWorkspace}
             onSignedOut={onSignedOut}
           >
-            <WorkspaceInner
-              platform={platform}
-              initialTarget={initialTarget ?? null}
-              onLeaveWorkspace={onLeaveWorkspace}
-              onSignedOut={onSignedOut}
-            />
+            <ShareableServerProvider platform={platform}>
+              <WorkspaceInner
+                platform={platform}
+                initialTarget={initialTarget ?? null}
+                onLeaveWorkspace={onLeaveWorkspace}
+                onSignedOut={onSignedOut}
+              />
+            </ShareableServerProvider>
           </WorkspaceStorageGate>
         </div>
       </div>
@@ -331,6 +334,14 @@ function WorkspaceInner({
       });
   }
 
+  // One function for the life of the screen, so links in every message can
+  // hold it without each message redrawing whenever this screen does.
+  const jumpTo = useRef(jumpToMessage);
+  jumpTo.current = jumpToMessage;
+  const openMessage = useCallback((channelId: ID, messageId: ID) => {
+    jumpTo.current(channelId, messageId);
+  }, []);
+
   const closeDialog = () => setDialog({ kind: "none" });
 
   const connectionLabel =
@@ -352,7 +363,7 @@ function WorkspaceInner({
     if (status === "auth_failed" || status === "password_change_required") onSignedOut();
   }, [status, onSignedOut]);
 
-  return (
+  const screen = (
     <div className={`workspace-shell relative flex h-full ${sidebarOpen ? "sidebar-open" : ""}`}>
       <DraftPersistence platform={platform} />
       {sidebarOpen && (
@@ -668,4 +679,5 @@ function WorkspaceInner({
       )}
     </div>
   );
+  return <OpenMessageContext.Provider value={openMessage}>{screen}</OpenMessageContext.Provider>;
 }

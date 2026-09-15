@@ -1,6 +1,8 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useContext, type ReactNode } from "react";
 import { broadcastLabel, type ID, type User } from "@slackoss/protocol";
 import type { Channel } from "@slackoss/protocol";
+import { OpenMessageContext } from "../context.js";
+import { parseDeepLink } from "../lib/deeplink.js";
 
 interface Props {
   text: string;
@@ -23,6 +25,7 @@ export function Mrkdwn({
   onChannelClick,
   highlightTerms = [],
 }: Props) {
+  const openMessage = useContext(OpenMessageContext);
   const blocks = text.split(/```/);
   const terms = [...new Set(highlightTerms.filter((term) => term.trim().length > 0))].sort(
     (a, b) => b.length - a.length,
@@ -63,6 +66,7 @@ export function Mrkdwn({
               channels,
               selfId,
               onChannelClick,
+              openMessage,
               highlight,
             })}
           </Fragment>
@@ -92,6 +96,7 @@ const INLINE_RE =
 function renderInline(
   text: string,
   ctx: Pick<Props, "users" | "channels" | "selfId" | "onChannelClick"> & {
+    openMessage?: ((channelId: ID, messageId: ID) => void) | null;
     highlight: (value: string) => ReactNode;
   },
 ): ReactNode[] {
@@ -160,12 +165,26 @@ function renderInline(
         </span>,
       );
     } else if (m[9]) {
+      // A link to a message in this workspace opens it here, instead of in a
+      // new window of the app. A click asking for a new tab or window still
+      // gets one.
+      const link = parseDeepLink(tok);
+      const { openMessage } = ctx;
+      const openHere =
+        openMessage && link?.kind === "message" && ctx.channels[link.channelId]
+          ? (event: React.MouseEvent) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+              event.preventDefault();
+              openMessage(link.channelId, link.messageId);
+            }
+          : undefined;
       out.push(
         <a
           key={key++}
           href={tok}
           target="_blank"
           rel="noreferrer"
+          onClick={openHere}
           className="text-copper underline decoration-copper/40 hover:decoration-copper"
         >
           {ctx.highlight(tok)}

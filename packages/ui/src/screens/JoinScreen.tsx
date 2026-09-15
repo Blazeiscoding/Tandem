@@ -10,7 +10,7 @@ interface Props {
   savedServers: SavedServer[];
   /** Probe this address immediately on mount (used after "Open to LAN" starts). */
   autoProbe?: string;
-  /** Prefilled from a slackoss://join link. */
+  /** Prefilled from an invite link. */
   inviteCode?: string;
   onConnected: (server: SavedServer) => void;
   onForget: (url: string) => void;
@@ -521,8 +521,11 @@ function AuthCard(props: {
 }) {
   const hasUsers = props.info.userCount > 0;
   const isFirstUser = !hasUsers;
-  // An empty workspace has nothing to sign in to, even if we remember a handle here.
-  const [mode, setMode] = useState<"login" | "register">(isFirstUser ? "register" : "login");
+  // An empty workspace has nothing to sign in to, even if we remember a handle
+  // here, and someone arriving with an invite has no account to sign in with.
+  const [mode, setMode] = useState<"login" | "register">(
+    isFirstUser || props.presetInviteCode ? "register" : "login",
+  );
   const [handle, setHandle] = useState(props.savedHandle ?? "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
