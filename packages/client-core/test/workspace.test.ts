@@ -101,6 +101,13 @@ describe("WorkspaceClient", () => {
     expect(normalizeServerUrl("https://chat.example.dev")).toBe("https://chat.example.dev");
   });
 
+  it("takes an address written out in full as written", () => {
+    // Behind a plain proxy on port 80, the page's own origin has no port.
+    expect(normalizeServerUrl("http://chat.local")).toBe("http://chat.local");
+    expect(normalizeServerUrl("http://chat.local:8080/")).toBe("http://chat.local:8080");
+    expect(normalizeServerUrl("HTTPS://Chat.Example.dev/")).toBe("https://chat.example.dev");
+  });
+
   it("builds a local replica from the ready snapshot", async () => {
     const client = new WorkspaceClient(base, aliceToken);
     client.connect();

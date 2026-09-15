@@ -91,9 +91,13 @@ let bob: User;
 
 describe("workspace server", () => {
   it("reports server info before setup", async () => {
-    const { data } = await api<{ workspaceName: string; userCount: number }>("/api/server-info");
+    const { data } = await api<{ workspaceName: string; userCount: number; publicUrl?: string }>(
+      "/api/server-info",
+    );
     expect(data.workspaceName).toBe("Test Workspace");
     expect(data.userCount).toBe(0);
+    // Nothing was configured, so clients build links on the address they use.
+    expect(data).not.toHaveProperty("publicUrl");
   });
 
   it("makes the first registered user the owner and bootstraps #general", async () => {
