@@ -154,6 +154,25 @@ export const MessageTimeline = memo(function MessageTimeline({
     timeline?.hasMoreNewer,
   ]);
 
+  // A new message is not the only thing that moves the bottom out of view.
+  // Opening a side panel or resizing the window changes the scroller's size,
+  // and messages rewrapping to the new width, or a reaction added to the last
+  // one, change the size of what it holds. Neither runs the effect above, so a
+  // reader at the bottom would find the newest message under the composer.
+  const content = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scroller.current;
+    const inner = content.current;
+    if (!el || !inner || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (!pinnedToBottom.current || highlightMessageId || timeline?.hasMoreNewer) return;
+      el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [highlightMessageId, timeline?.hasMoreNewer]);
+
   // Live messages arriving in a long-running channel eventually trim the oldest
   // ones off the top. That removes content above the viewport, which would
   // slide everything up by exactly the height that vanished. Give it back.
@@ -266,96 +285,98 @@ export const MessageTimeline = memo(function MessageTimeline({
       className="timeline-scroll min-h-0 flex-1 overflow-y-auto pb-3"
       aria-busy={loadingHistory !== null}
     >
-      {historyError && (
-        <div role="alert" className="px-6 py-4 text-sm text-ink-dim">
-          Could not load{" "}
-          {historyError === "initial" ? "this conversation" : `${historyError} messages`}.{" "}
-          <button
-            className="text-copper underline"
-            disabled={loadingHistory !== null}
-            onClick={() => void requestHistory(historyError)}
-          >
-            Retry
-          </button>
-        </div>
-      )}
-      {loadingHistory && loadingHistory !== "initial" && (
-        <p role="status" className="px-6 py-2 text-sm text-ink-faint">
-          Loading {loadingHistory} messages…
-        </p>
-      )}
-      {!timeline?.loaded && !historyError && (
-        <div role="status" className="px-6 py-8 text-sm text-ink-faint">
-          Loading conversation…
-        </div>
-      )}
-      {timeline?.hasMore && (
-        <button
-          className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"
-          disabled={loadingHistory !== null}
-          onClick={() => void requestHistory("older")}
-        >
-          Load older messages
-        </button>
-      )}
-      {!timeline?.hasMore && timeline?.loaded && <ChannelIntro channelId={channelId} />}
-      {items.map((msg, i) => {
-        const prev = items[i - 1];
-        const newDay = !prev || !sameDay(prev.createdAt, msg.createdAt);
-        const compact =
-          !newDay &&
-          !!prev &&
-          prev.userId === msg.userId &&
-          msg.createdAt - prev.createdAt < GROUP_WINDOW_MS &&
-          prev.replyCount === 0;
-        return (
-          <div
-            key={msg.id}
-            data-mid={msg.id}
-            ref={msg.id === highlightMessageId ? highlightRef : undefined}
-          >
-            {newDay && <DayDivider ts={msg.createdAt} />}
-            {i === firstUnread && (
-              <div
-                role="separator"
-                aria-label="New messages"
-                className="my-3 flex items-center gap-3 px-5 text-xs font-medium text-copper"
-              >
-                <span className="h-px flex-1 bg-copper/40" />
-                New messages
-                <span className="h-px flex-1 bg-copper/40" />
-              </div>
-            )}
-            <MessageItem
-              message={msg}
-              compact={compact}
-              onOpenThread={onOpenThread}
-              onChannelClick={onChannelClick}
-              onOpenImage={setLightboxFile}
-              onOpenProfile={onOpenProfile}
-              highlighted={msg.id === highlightMessageId}
-            />
+      <div ref={content}>
+        {historyError && (
+          <div role="alert" className="px-6 py-4 text-sm text-ink-dim">
+            Could not load{" "}
+            {historyError === "initial" ? "this conversation" : `${historyError} messages`}.{" "}
+            <button
+              className="text-copper underline"
+              disabled={loadingHistory !== null}
+              onClick={() => void requestHistory(historyError)}
+            >
+              Retry
+            </button>
           </div>
-        );
-      })}
-      {timeline?.hasMoreNewer && (
-        <button
-          className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"
-          disabled={loadingHistory !== null}
-          onClick={() => void requestHistory("newer")}
-        >
-          Load newer messages
-        </button>
-      )}
-      {channelPending.map((p) => (
-        <PendingRow key={p.nonce} pending={p} />
-      ))}
-      {(ephemerals ?? []).map((e) => (
-        <EphemeralRow key={e.id} message={e} channelId={channelId} />
-      ))}
-      <div className="h-5 px-5 pt-1 text-[12px] italic text-ink-faint">
-        {typers.length > 0 &&
-          `${typers.slice(0, 3).join(", ")} ${typers.length === 1 ? "is" : "are"} typing…`}
+        )}
+        {loadingHistory && loadingHistory !== "initial" && (
+          <p role="status" className="px-6 py-2 text-sm text-ink-faint">
+            Loading {loadingHistory} messages…
+          </p>
+        )}
+        {!timeline?.loaded && !historyError && (
+          <div role="status" className="px-6 py-8 text-sm text-ink-faint">
+            Loading conversation…
+          </div>
+        )}
+        {timeline?.hasMore && (
+          <button
+            className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"
+            disabled={loadingHistory !== null}
+            onClick={() => void requestHistory("older")}
+          >
+            Load older messages
+          </button>
+        )}
+        {!timeline?.hasMore && timeline?.loaded && <ChannelIntro channelId={channelId} />}
+        {items.map((msg, i) => {
+          const prev = items[i - 1];
+          const newDay = !prev || !sameDay(prev.createdAt, msg.createdAt);
+          const compact =
+            !newDay &&
+            !!prev &&
+            prev.userId === msg.userId &&
+            msg.createdAt - prev.createdAt < GROUP_WINDOW_MS &&
+            prev.replyCount === 0;
+          return (
+            <div
+              key={msg.id}
+              data-mid={msg.id}
+              ref={msg.id === highlightMessageId ? highlightRef : undefined}
+            >
+              {newDay && <DayDivider ts={msg.createdAt} />}
+              {i === firstUnread && (
+                <div
+                  role="separator"
+                  aria-label="New messages"
+                  className="my-3 flex items-center gap-3 px-5 text-xs font-medium text-copper"
+                >
+                  <span className="h-px flex-1 bg-copper/40" />
+                  New messages
+                  <span className="h-px flex-1 bg-copper/40" />
+                </div>
+              )}
+              <MessageItem
+                message={msg}
+                compact={compact}
+                onOpenThread={onOpenThread}
+                onChannelClick={onChannelClick}
+                onOpenImage={setLightboxFile}
+                onOpenProfile={onOpenProfile}
+                highlighted={msg.id === highlightMessageId}
+              />
+            </div>
+          );
+        })}
+        {timeline?.hasMoreNewer && (
+          <button
+            className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"
+            disabled={loadingHistory !== null}
+            onClick={() => void requestHistory("newer")}
+          >
+            Load newer messages
+          </button>
+        )}
+        {channelPending.map((p) => (
+          <PendingRow key={p.nonce} pending={p} />
+        ))}
+        {(ephemerals ?? []).map((e) => (
+          <EphemeralRow key={e.id} message={e} channelId={channelId} />
+        ))}
+        <div className="h-5 px-5 pt-1 text-[12px] italic text-ink-faint">
+          {typers.length > 0 &&
+            `${typers.slice(0, 3).join(", ")} ${typers.length === 1 ? "is" : "are"} typing…`}
+        </div>
       </div>
       {lightboxFile && <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />}
     </div>

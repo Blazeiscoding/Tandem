@@ -54,16 +54,33 @@ export function Mrkdwn({
             key={i}
             className="my-1 block overflow-x-auto rounded-md border border-edge bg-ground px-3 py-2 font-mono text-[13px]"
           >
-            {highlight(block.replace(/^\n/, ""))}
+            {highlight(trimAtFences(block, true, true))}
           </code>
         ) : (
           <Fragment key={i}>
-            {renderInline(block, { users, channels, selfId, onChannelClick, highlight })}
+            {renderInline(trimAtFences(block, i > 0, i < blocks.length - 1), {
+              users,
+              channels,
+              selfId,
+              onChannelClick,
+              highlight,
+            })}
           </Fragment>
         ),
       )}
     </span>
   );
+}
+
+/**
+ * A code block is a block of its own, so the line break people type against a
+ * fence, just inside or just outside it, would otherwise draw a blank line.
+ */
+function trimAtFences(text: string, afterFence: boolean, beforeFence: boolean): string {
+  let trimmed = text;
+  if (afterFence && trimmed.startsWith("\n")) trimmed = trimmed.slice(1);
+  if (beforeFence && trimmed.endsWith("\n")) trimmed = trimmed.slice(0, -1);
+  return trimmed;
 }
 
 // The escape alternative has to come first: it consumes "\_" before the italic

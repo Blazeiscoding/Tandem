@@ -54,7 +54,9 @@ function ImageAttachment({ file, onOpen }: { file: FileMeta; onOpen: () => void 
     return () => observer.disconnect();
   }, []);
   return (
-    <div ref={container} className="flex">
+    // A flex item will not shrink below its content by default, so without
+    // min-w-0 a preview wider than a phone's column would run off its edge.
+    <div ref={container} className="flex min-w-0 max-w-full">
       <ImagePreview file={file} onOpen={onOpen} visible={visible} />
     </div>
   );
@@ -100,7 +102,9 @@ function ImagePreview({
       aria-label={`Open image ${file.name}`}
       title={file.name}
       // Size is reserved from the stored dimensions, so nothing jumps on load.
-      style={{ width: box.width, height: box.height }}
+      // The ratio, not a fixed height, keeps that reservation right when a
+      // narrow column scales the preview down.
+      style={{ width: box.width, maxWidth: "100%", aspectRatio: `${box.width} / ${box.height}` }}
       className="group/img relative overflow-hidden rounded-xl border border-edge bg-lifted transition-colors hover:border-copper/50"
     >
       {url ? (
