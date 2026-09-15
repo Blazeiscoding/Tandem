@@ -218,6 +218,11 @@ export interface ServerInfo {
   schedulingIdempotency?: boolean;
   /** Single-use, session-bound tickets for native file downloads. */
   downloadTickets?: boolean;
+  /**
+   * How others reach this workspace, when its host configured it. Links people
+   * share are built on it, rather than on whatever address the sharer is using.
+   */
+  publicUrl?: string;
 }
 
 export interface StorageUsage {

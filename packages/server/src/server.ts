@@ -966,6 +966,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       requiresClaim: userCount === 0 && !!claimCode() && !isLocalRequest(req),
       schedulingIdempotency: true,
       downloadTickets: true,
+      ...(publicUrl ? { publicUrl } : {}),
     };
   });
 
