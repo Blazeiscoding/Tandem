@@ -65,4 +65,15 @@ describe("Mrkdwn", () => {
     expect(html).toContain("@Alice");
     expect(html).toContain("#general");
   });
+
+  it("does not draw blank lines for the line breaks typed around a code block", () => {
+    // How nearly everyone writes one: the fences on lines of their own.
+    const html = render("Deploy notes:\n```\npnpm build\npnpm test\n```\nStaging is up.");
+    expect(html).toMatch(/Deploy notes:<code[^>]*>pnpm build\npnpm test<\/code>Staging is up\./);
+  });
+
+  it("keeps the line breaks inside a code block, and text around one written inline", () => {
+    const html = render("before ```\n\nfirst\n\nlast\n\n``` after");
+    expect(html).toMatch(/before <code[^>]*>\nfirst\n\nlast\n<\/code> after/);
+  });
 });
