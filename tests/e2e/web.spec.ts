@@ -4,6 +4,32 @@ import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
+
+/** A real PNG of the given size, so the server reads its dimensions as it would a photo's. */
+function solidPng(width: number, height: number): Buffer {
+  const rows = Buffer.alloc((width * 3 + 1) * height, 0x5a);
+  for (let y = 0; y < height; y++) rows[y * (width * 3 + 1)] = 0;
+  const chunk = (type: string, body: Buffer) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(body.length);
+    const typed = Buffer.concat([Buffer.from(type), body]);
+    const checksum = Buffer.alloc(4);
+    checksum.writeUInt32BE(crc32(typed) >>> 0);
+    return Buffer.concat([length, typed, checksum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // bit depth
+  header[9] = 2; // truecolour
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 let server: ChildProcess;
 let data: string;
@@ -455,6 +481,30 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
     page.getByText("Live update 314 — keeping everyone on the same page.", { exact: true }),
   ).toBeInViewport();
 
+  // A side panel narrows the timeline and rewraps what is in it. Someone
+  // reading the newest message should still see it, not find it under the
+  // composer.
+  const longUpdate = Array(6)
+    .fill("a longer note that wraps onto more lines once the timeline narrows")
+    .join(", ");
+  expect(
+    (
+      await fetch(`${base}/api/channels/${channel.id}/messages`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ text: longUpdate }),
+      })
+    ).ok,
+  ).toBe(true);
+  await expect(page.getByText(longUpdate, { exact: true })).toBeInViewport();
+  await page.getByRole("button", { name: "Saved", exact: true }).click();
+  await expect(page.getByRole("complementary", { name: "Later", exact: true })).toBeVisible();
+  await expect
+    .poll(() => history.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThan(4);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("complementary", { name: "Later", exact: true })).toHaveCount(0);
+
   // Observe input-to-next-frame timing in the built production client. Report
   // timings rather than imposing a machine-dependent "60 fps" CI promise.
   await page.evaluate(() => {
@@ -579,6 +629,31 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(page.getByText("Sent from a small window", { exact: true })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  // An image wider than a phone's column scales down instead of running off it.
+  const upload = new FormData();
+  upload.append("file", new Blob([solidPng(640, 360)], { type: "image/png" }), "wide-mock.png");
+  const uploaded = await (
+    await fetch(`${base}/api/channels/${channel.id}/files`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: upload,
+    })
+  ).json();
+  expect(
+    (
+      await fetch(`${base}/api/channels/${channel.id}/messages`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ text: "The wide mock", fileIds: [uploaded.file.id] }),
+      })
+    ).ok,
+  ).toBe(true);
+  const preview = page.getByRole("button", { name: "Open image wide-mock.png", exact: true });
+  await expect(preview).toBeInViewport();
+  const previewBox = await preview.boundingBox();
+  expect(previewBox!.x + previewBox!.width).toBeLessThanOrEqual(390);
+  expect(await history.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("gatherline-narrow.png") });
   expect(errors).toEqual([]);
 });

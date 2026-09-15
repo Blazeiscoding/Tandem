@@ -9,6 +9,18 @@ import { Mrkdwn } from "./Mrkdwn.js";
 import { formatTime } from "../lib/format.js";
 import { isImeKey } from "../lib/textInput.js";
 
+type SwitcherRow =
+  | { kind: "public" | "private" | "conversation"; id: ID; label: string }
+  /** `channelId` is set when a direct conversation with this person already exists. */
+  | { kind: "person"; id: ID; label: string; channelId?: ID };
+
+const SWITCHER_ICON: Record<SwitcherRow["kind"], string> = {
+  public: "#",
+  private: "🔒",
+  conversation: "@",
+  person: "@",
+};
+
 /** Ctrl+K — jump to any channel, DM, or person. */
 export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: ID) => void }) {
   const client = useClient();
@@ -19,31 +31,47 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
   const [index, setIndex] = useState(0);
 
   const results = useMemo(() => {
-    const query = q.toLowerCase();
-    const chans = Object.values(channels)
-      .filter((c) => !c.archived)
-      .map((c) => ({
-        kind: "channel" as const,
-        id: c.id,
-        label:
-          c.type === "public" || c.type === "private"
-            ? `#${c.name}`
-            : channelTitle(c, users, selfId),
-      }))
-      .filter((r) => r.label.toLowerCase().includes(query));
-    const people = Object.values(users)
-      .filter((u) => u.id !== selfId && !u.deactivated)
-      .filter((u) => u.handle.includes(query) || u.displayName.toLowerCase().includes(query))
-      .map((u) => ({ kind: "user" as const, id: u.id, label: u.displayName }));
-    return [...chans, ...people].slice(0, 12);
+    // "#des" and "@al" are how people write names here; the sign is not part of one.
+    const query = q.trim().toLowerCase().replace(/^[#@]/, "");
+    const matches = (text: string) => text.toLowerCase().includes(query);
+    const rows: SwitcherRow[] = [];
+    // A conversation with one other person is that person, and is listed once,
+    // as them. It opens directly rather than asking the server for it again.
+    const directWith = new Map<ID, ID>();
+    for (const c of Object.values(channels)) {
+      if (c.archived) continue;
+      if (c.type === "public" || c.type === "private") {
+        if (matches(c.name))
+          rows.push({ kind: c.type === "private" ? "private" : "public", id: c.id, label: c.name });
+        continue;
+      }
+      const others = (c.memberIds ?? []).filter((id) => id !== selfId);
+      const other = others.length === 1 ? users[others[0]!] : undefined;
+      if (c.type === "dm" && other && !other.deactivated) {
+        directWith.set(other.id, c.id);
+        continue;
+      }
+      const label = channelTitle(c, users, selfId);
+      if (matches(label)) rows.push({ kind: "conversation", id: c.id, label });
+    }
+    for (const u of Object.values(users)) {
+      if (u.id === selfId || u.deactivated) continue;
+      if (!u.handle.includes(query) && !matches(u.displayName)) continue;
+      rows.push({
+        kind: "person",
+        id: u.id,
+        label: u.displayName,
+        channelId: directWith.get(u.id),
+      });
+    }
+    return rows.slice(0, 12);
   }, [q, channels, users, selfId]);
 
-  async function open(r: (typeof results)[number]) {
-    if (r.kind === "channel") {
-      props.onOpen(r.id);
+  async function open(r: SwitcherRow) {
+    if (r.kind === "person") {
+      props.onOpen(r.channelId ?? (await client.openDm([r.id])).id);
     } else {
-      const ch = await client.openDm([r.id]);
-      props.onOpen(ch.id);
+      props.onOpen(r.id);
     }
   }
 
@@ -82,8 +110,8 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
                 i === index ? "bg-copper/15 text-copper" : "text-ink-dim"
               }`}
             >
-              <span className="w-4 text-center text-ink-faint">
-                {r.kind === "channel" ? "#" : "@"}
+              <span aria-hidden className="w-4 text-center text-ink-faint">
+                {SWITCHER_ICON[r.kind]}
               </span>
               {r.label}
             </button>
