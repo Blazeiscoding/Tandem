@@ -27,13 +27,18 @@ download it. If an artifact genuinely helps diagnose a failure, upload it under
 The browser and desktop suites run against built output rather than the sources:
 `tests/e2e/web.spec.ts` spawns `apps/server-cli/dist/`, and the desktop spec
 launches the packaged app. Build before running them, or they will quietly pass
-against the previous build and tell you nothing about your change.
+against the previous build and tell you nothing about your change. The scenarios
+in `web.spec.ts` share one server and build on each other's accounts, and a
+worker is restarted after a failure with fresh hooks and a fresh server — so a
+failure midway cascades into confusing failures later (a sign-in meeting an
+empty workspace, for instance). Fix the first failure and rerun before chasing
+the later ones.
 
 Requests are rationed by default, keyed on the account where there is one. A
 test or script that seeds history by posting hundreds of messages in a loop is
 indistinguishable from the flooding those limits exist to refuse, so start its
 server with `rateLimits: false` (or `--no-rate-limits` for the CLI, or
-`SLACKOSS_RATE_LIMITS=off` for a container) rather than raising the limits for
+`GATHERLINE_RATE_LIMITS=off` for a container) rather than raising the limits for
 everybody. Rationing has its own suite, where it is the subject rather than a
 background condition every other case has to work around.
 

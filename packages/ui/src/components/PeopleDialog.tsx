@@ -3,6 +3,7 @@ import type { ID, User } from "@slackoss/protocol";
 import { ApiError } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Menu, type MenuItem } from "./Menu.js";
 import { Avatar } from "./Avatar.js";
 import { formatDay } from "../lib/format.js";
 import { accountError } from "../lib/account.js";
@@ -315,64 +316,14 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
                   </div>
 
                   {!protectedTarget && (
-                    <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1.5">
-                      {!person.isBot && !person.deactivated && (
-                        <button
-                          disabled={!!busy}
-                          onClick={() =>
-                            void change(person, {
-                              role: person.role === "admin" ? "member" : "admin",
-                            })
-                          }
-                          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
-                        >
-                          {person.role === "admin" ? "Make member" : "Make admin"}
-                        </button>
-                      )}
-                      {!person.isBot &&
-                        !person.deactivated &&
-                        person.role === "member" &&
-                        typeof person.canInvite === "boolean" && (
-                          <button
-                            disabled={!!busy}
-                            onClick={() => void change(person, { canInvite: !person.canInvite })}
-                            aria-pressed={!!person.canInvite}
-                            className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
-                          >
-                            {person.canInvite ? "Stop inviting" : "Allow inviting"}
-                          </button>
-                        )}
-                      <button
+                    <div className="ml-auto">
+                      <PersonMenu
+                        person={person}
+                        isOwner={isOwner}
                         disabled={!!busy}
-                        onClick={() => void change(person, { deactivated: !person.deactivated })}
-                        className={`rounded-lg border px-2 py-1 text-[12px] transition-colors disabled:opacity-40 ${
-                          person.deactivated
-                            ? "border-edge text-ink-dim hover:border-online hover:text-online"
-                            : "border-edge text-ink-dim hover:border-alert hover:text-alert"
-                        }`}
-                      >
-                        {person.deactivated ? "Reactivate" : "Deactivate"}
-                      </button>
-                      {!person.isBot && !person.deactivated && (
-                        <>
-                          <button
-                            className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim hover:border-copper hover:text-ink disabled:opacity-40"
-                            disabled={!!busy}
-                            onClick={() => beginAction("reset", person)}
-                          >
-                            Reset password
-                          </button>
-                          {isOwner && (
-                            <button
-                              className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim hover:border-copper hover:text-ink disabled:opacity-40"
-                              disabled={!!busy}
-                              onClick={() => beginAction("transfer", person)}
-                            >
-                              Transfer ownership
-                            </button>
-                          )}
-                        </>
-                      )}
+                        onChange={change}
+                        onBeginAction={beginAction}
+                      />
                     </div>
                   )}
                 </li>
@@ -405,6 +356,70 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
       )}
     </Dialog>
   );
+}
+
+/**
+ * One menu per person instead of five buttons squeezing the name down to
+ * "Alex ...". Offers exactly what the buttons offered, under the same rules
+ * the server enforces.
+ */
+function PersonMenu({
+  person,
+  isOwner,
+  disabled,
+  onChange,
+  onBeginAction,
+}: {
+  person: Person;
+  isOwner: boolean;
+  disabled: boolean;
+  onChange: (
+    person: Person,
+    patch: { role?: "member" | "admin"; deactivated?: boolean; canInvite?: boolean },
+  ) => void;
+  onBeginAction: (kind: "reset" | "transfer", person: Person) => void;
+}) {
+  const items: MenuItem[] = [];
+  if (!person.isBot && !person.deactivated) {
+    items.push({
+      id: "role",
+      label: person.role === "admin" ? "Make member" : "Make admin",
+      onSelect: () => onChange(person, { role: person.role === "admin" ? "member" : "admin" }),
+    });
+  }
+  if (
+    !person.isBot &&
+    !person.deactivated &&
+    person.role === "member" &&
+    typeof person.canInvite === "boolean"
+  ) {
+    items.push({
+      id: "invite",
+      label: person.canInvite ? "Stop inviting" : "Allow inviting",
+      onSelect: () => onChange(person, { canInvite: !person.canInvite }),
+    });
+  }
+  items.push({
+    id: "deactivated",
+    label: person.deactivated ? "Reactivate" : "Deactivate",
+    destructive: !person.deactivated,
+    onSelect: () => onChange(person, { deactivated: !person.deactivated }),
+  });
+  if (!person.isBot && !person.deactivated) {
+    items.push({
+      id: "reset",
+      label: "Reset password",
+      onSelect: () => onBeginAction("reset", person),
+    });
+    if (isOwner) {
+      items.push({
+        id: "transfer",
+        label: "Transfer ownership",
+        onSelect: () => onBeginAction("transfer", person),
+      });
+    }
+  }
+  return <Menu label={`Actions for ${person.displayName}`} items={items} disabled={disabled} />;
 }
 
 /**

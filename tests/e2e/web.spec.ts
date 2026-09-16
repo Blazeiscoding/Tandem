@@ -89,7 +89,7 @@ test.afterAll(async () => {
  */
 async function openAuthCard(page: Page) {
   const address = page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev");
-  const username = page.getByPlaceholder("username", { exact: true });
+  const username = page.getByLabel("Username", { exact: true });
   // Whichever the join screen settles on: a served browser skips the list.
   await expect(address.or(username).first()).toBeVisible();
   if (await address.isVisible().catch(() => false)) {
@@ -107,16 +107,16 @@ async function reachAuthCard(page: Page) {
 
 async function register(page: Page, handle: string, claim?: string) {
   await reachAuthCard(page);
-  const create = page.getByRole("button", { name: "Create account", exact: true });
+  const create = page.getByRole("tab", { name: "Create account", exact: true });
   if (await create.isVisible()) await create.click();
-  await page.getByPlaceholder("username", { exact: true }).fill(handle);
-  await page.getByPlaceholder("Display name", { exact: true }).fill(handle);
-  await page.getByPlaceholder("Password (8+ characters)").fill("password123");
+  await page.getByLabel("Username", { exact: true }).fill(handle);
+  await page.getByLabel("Display name", { exact: true }).fill(handle);
+  await page.getByLabel("Password", { exact: true }).fill("password123");
   if (claim) {
     await page.getByLabel("Workspace claim code", { exact: true }).fill("incorrect-code");
     await page.getByRole("button", { name: "Join workspace", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("not accepted");
-    await expect(page.getByPlaceholder("username", { exact: true })).toHaveValue(handle);
+    await expect(page.getByLabel("Username", { exact: true })).toHaveValue(handle);
     await page.getByLabel("Workspace claim code", { exact: true }).fill(claim);
   }
   await page.getByRole("button", { name: "Join workspace", exact: true }).click();
@@ -126,10 +126,10 @@ async function register(page: Page, handle: string, claim?: string) {
 /** Signs an existing account in, rather than creating one. */
 async function signIn(page: Page, handle: string) {
   await reachAuthCard(page);
-  const signInTab = page.getByRole("button", { name: "Sign in", exact: true }).first();
+  const signInTab = page.getByRole("tab", { name: "Sign in", exact: true }).first();
   if (await signInTab.isVisible().catch(() => false)) await signInTab.click();
-  await page.getByPlaceholder("username", { exact: true }).fill(handle);
-  await page.getByPlaceholder("Password", { exact: true }).fill("password123");
+  await page.getByLabel("Username", { exact: true }).fill(handle);
+  await page.getByLabel("Password", { exact: true }).fill("password123");
   await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
   await expect(page.locator("textarea")).toBeVisible();
 }
@@ -141,7 +141,7 @@ test("a browser served by a workspace offers that workspace without being asked"
   // The page came from the workspace, so there is nothing to look up: it goes
   // straight to signing in, named, with no address to type.
   await expect(page.getByRole("heading", { name: "Product Test" })).toBeVisible();
-  await expect(page.getByPlaceholder("username", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
   await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toHaveCount(0);
 
   // The way back to the full list is still there for a second workspace.
@@ -943,7 +943,8 @@ test("deactivating someone signs them out of the app they already have open", as
     await register(leaverPage, "frank");
     await expect(leaverPage.locator("textarea")).toBeVisible();
 
-    await ownerPage.getByRole("button", { name: "⚙ People", exact: true }).click();
+    await ownerPage.getByRole("button", { name: "Workspace", exact: true }).click();
+    await ownerPage.getByRole("menuitem", { name: "People", exact: true }).click();
     const dialog = ownerPage.getByRole("dialog", { name: "People" });
     await expect(dialog).toBeVisible();
 
@@ -952,7 +953,8 @@ test("deactivating someone signs them out of the app they already have open", as
     await expect(ownerRow.getByRole("button")).toHaveCount(0);
 
     const leaverRow = dialog.locator("li").filter({ hasText: "@frank" });
-    await leaverRow.getByRole("button", { name: "Deactivate", exact: true }).click();
+    await leaverRow.getByRole("button", { name: "Actions for frank", exact: true }).click();
+    await ownerPage.getByRole("menuitem", { name: "Deactivate", exact: true }).click();
     // Deactivated accounts drop out of the list, and are still reachable behind
     // a toggle, because reactivating is the other half of this.
     await expect(leaverRow).toHaveCount(0);
@@ -974,15 +976,15 @@ test("deactivating someone signs them out of the app they already have open", as
 
     // And signing back in from that same screen is refused.
     await openAuthCard(leaverPage);
-    await expect(leaverPage.getByPlaceholder("username", { exact: true })).toBeVisible();
-    const signInTab = leaverPage.getByRole("button", { name: "Sign in", exact: true }).first();
+    await expect(leaverPage.getByLabel("Username", { exact: true })).toBeVisible();
+    const signInTab = leaverPage.getByRole("tab", { name: "Sign in", exact: true }).first();
     if (await signInTab.isVisible().catch(() => false)) await signInTab.click();
-    await leaverPage.getByPlaceholder("username", { exact: true }).fill("frank");
-    await leaverPage.getByPlaceholder("Password", { exact: true }).fill("password123");
+    await leaverPage.getByLabel("Username", { exact: true }).fill("frank");
+    await leaverPage.getByLabel("Password", { exact: true }).fill("password123");
     await leaverPage.getByRole("button", { name: "Sign in", exact: true }).last().click();
     await leaverPage.waitForTimeout(1000);
     await expect(leaverPage.locator("textarea")).toHaveCount(0);
-    await expect(leaverPage.getByPlaceholder("username", { exact: true })).toBeVisible();
+    await expect(leaverPage.getByLabel("Username", { exact: true })).toBeVisible();
   } finally {
     await ownerContext.close().catch(() => {});
     await leaverContext.close().catch(() => {});
@@ -999,7 +1001,8 @@ test("an admin who never copied a bot token can replace it, and the old one stop
     // Every replacement asks first; this test means yes.
     page.on("dialog", (d) => void d.accept());
 
-    await page.getByRole("button", { name: "⚙ Apps and integrations", exact: true }).click();
+    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Apps and integrations", exact: true }).click();
     let dialog = page.getByRole("dialog", { name: "Apps and integrations" });
     await dialog.getByPlaceholder("App name, e.g. Deploy Bot").fill("Rotation Demo");
     await dialog.getByRole("button", { name: "Create", exact: true }).click();
@@ -1014,7 +1017,8 @@ test("an admin who never copied a bot token can replace it, and the old one stop
     // Closing the dialog is how a token shown once gets lost.
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await page.getByRole("button", { name: "⚙ Apps and integrations", exact: true }).click();
+    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Apps and integrations", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Apps and integrations" });
     const reopened = dialog.locator("li").filter({ hasText: "Rotation Demo" }).first();
     await expect(reopened.getByText(/Bot token · shown once/)).toHaveCount(0);
@@ -1056,7 +1060,8 @@ test("an invite code that got out can be revoked from the dialog that made it", 
     await signIn(page, "alice");
     page.on("dialog", (d) => void d.accept());
 
-    await page.getByRole("button", { name: "+ Invite people", exact: true }).click();
+    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Invite people", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Invite people" });
     await dialog.getByRole("button", { name: "Generate invite code", exact: true }).click();
     const code = (await dialog.locator("code.text-lg").textContent())!.trim();
@@ -1176,14 +1181,15 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
 
     // The link is a browser's, built on the address this browser uses. That
     // address is this computer's own, and the dialog says so.
-    await hostPage.getByRole("button", { name: "+ Invite people", exact: true }).click();
+    await hostPage.getByRole("button", { name: "Workspace", exact: true }).click();
+    await hostPage.getByRole("menuitem", { name: "Invite people", exact: true }).click();
     const dialog = hostPage.getByRole("dialog", { name: "Invite people" });
     await dialog.getByRole("button", { name: "Generate invite code", exact: true }).click();
     const code = (await dialog.locator("code.text-lg").textContent())!.trim();
     const inviteLink = `${origin}/#/join/${code}`;
     await expect(dialog.getByText(inviteLink, { exact: true })).toBeVisible();
     await expect(
-      dialog.getByText(`slackoss://join?host=127.0.0.1:${port}&code=${code}`, { exact: true }),
+      dialog.getByText(`gatherline://join?host=127.0.0.1:${port}&code=${code}`, { exact: true }),
     ).toBeVisible();
     await expect(dialog.getByText(/reaches only this computer/)).toBeVisible();
     await dialog.getByRole("button", { name: "Copy link", exact: true }).click();
@@ -1214,12 +1220,12 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     const guestPage = await guest.newPage();
     await guestPage.goto(inviteLink);
     await expect(guestPage.getByRole("heading", { name: "Rocket Team" })).toBeVisible();
-    await expect(guestPage.getByPlaceholder("Invite code", { exact: true })).toHaveValue(code);
+    await expect(guestPage.getByLabel("Invite code", { exact: true })).toHaveValue(code);
     // Read once, and gone from the address, so a reload or the history does not hold it.
     await expect(guestPage).toHaveURL(`${origin}/`);
-    await guestPage.getByPlaceholder("username", { exact: true }).fill("ivy");
-    await guestPage.getByPlaceholder("Display name", { exact: true }).fill("Ivy");
-    await guestPage.getByPlaceholder("Password (8+ characters)").fill("password123");
+    await guestPage.getByLabel("Username", { exact: true }).fill("ivy");
+    await guestPage.getByLabel("Display name", { exact: true }).fill("Ivy");
+    await guestPage.getByLabel("Password", { exact: true }).fill("password123");
     await guestPage.getByRole("button", { name: "Join workspace", exact: true }).click();
     await expect(guestPage.locator("textarea")).toBeVisible();
     await expect(
@@ -1249,9 +1255,9 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     contexts.push(later);
     const laterPage = await later.newPage();
     await laterPage.goto(messageLink(plan.id));
-    await laterPage.getByPlaceholder("username", { exact: true }).fill("ivy");
-    await laterPage.getByPlaceholder("Password", { exact: true }).fill("password123");
-    await laterPage.getByPlaceholder("Password", { exact: true }).press("Enter");
+    await laterPage.getByLabel("Username", { exact: true }).fill("ivy");
+    await laterPage.getByLabel("Password", { exact: true }).fill("password123");
+    await laterPage.getByLabel("Password", { exact: true }).press("Enter");
     await expect(
       laterPage.getByText("The launch plan lives in the design doc", { exact: true }),
     ).toBeInViewport();
