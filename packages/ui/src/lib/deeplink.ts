@@ -1,5 +1,9 @@
 import type { HostingStatus } from "../platform.js";
-import { DEEP_LINK_PROTOCOL, normalizeServerUrlSafe } from "./deeplinkHelpers.js";
+import {
+  DEEP_LINK_PROTOCOLS,
+  GATHERLINE_DEEP_LINK_PROTOCOL,
+  normalizeServerUrlSafe,
+} from "./deeplinkHelpers.js";
 
 /** What a link asks the app to do. */
 export type DeepLink =
@@ -15,9 +19,9 @@ const TOKEN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
  * Parses the links the app hands out, in either form:
- * slackoss://join?host=…&code=… and slackoss://message?host=…&channel=…&id=…
- * for the desktop app, and <server>/#/join/<code> and
- * <server>/#/c/<channel>/m/<message> for a browser.
+ * gatherline://join?host=…&code=… and gatherline://message?host=…&channel=…&id=…
+ * for the desktop app (the previous slackoss:// form still reads), and
+ * <server>/#/join/<code> and <server>/#/c/<channel>/m/<message> for a browser.
  * Returns null for anything malformed rather than throwing.
  */
 export function parseDeepLink(raw: string): DeepLink | null {
@@ -28,9 +32,10 @@ export function parseDeepLink(raw: string): DeepLink | null {
     return null;
   }
   if (url.protocol === "http:" || url.protocol === "https:") return parseBrowserLink(url);
-  if (url.protocol !== `${DEEP_LINK_PROTOCOL}:`) return null;
+  if (!(DEEP_LINK_PROTOCOLS as readonly string[]).includes(url.protocol.replace(/:$/, "")))
+    return null;
 
-  // slackoss://join?… parses "join" as the host, not the pathname.
+  // gatherline://join?… parses "join" as the host, not the pathname.
   const action = (url.hostname || url.pathname.replace(/^\/+/, "")).toLowerCase();
   const host = url.searchParams.get("host");
   if (!host) return null;
@@ -93,14 +98,14 @@ export function browserLink(serverUrl: string, target: LinkTarget): string {
     : `${serverUrl}/#/c/${e(target.channelId)}/m/${e(target.messageId)}`;
 }
 
-/** A link that opens the desktop app. */
+/** A link that opens the desktop app. Written in the Gatherline form. */
 export function desktopLink(serverUrl: string, target: LinkTarget): string {
   const e = encodeURIComponent;
   // ":" and "/" are allowed in a query, and leaving them makes the link readable.
   const host = e(serverAddress(serverUrl)).replaceAll("%3A", ":").replaceAll("%2F", "/");
   return target.kind === "join"
-    ? `${DEEP_LINK_PROTOCOL}://join?host=${host}&code=${e(target.code)}`
-    : `${DEEP_LINK_PROTOCOL}://message?host=${host}&channel=${e(target.channelId)}&id=${e(target.messageId)}`;
+    ? `${GATHERLINE_DEEP_LINK_PROTOCOL}://join?host=${host}&code=${e(target.code)}`
+    : `${GATHERLINE_DEEP_LINK_PROTOCOL}://message?host=${host}&channel=${e(target.channelId)}&id=${e(target.messageId)}`;
 }
 
 export interface ShareableServer {

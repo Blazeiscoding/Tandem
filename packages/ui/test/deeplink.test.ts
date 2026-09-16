@@ -11,23 +11,19 @@ import type { HostingStatus } from "../src/platform.js";
 
 describe("parseDeepLink", () => {
   it("reads a join link with an invite code", () => {
-    expect(parseDeepLink("slackoss://join?host=192.168.1.5:8543&code=ABCD1234")).toEqual({
+    expect(parseDeepLink("gatherline://join?host=192.168.1.5:8543&code=ABCD1234")).toEqual({
       kind: "join",
       serverUrl: "http://192.168.1.5:8543",
       code: "ABCD1234",
     });
   });
 
-  it("reads a join link without a code", () => {
-    const link = parseDeepLink("slackoss://join?host=chat.example.dev");
-    expect(link).toEqual({
+  it("still reads the previous slackoss:// form", () => {
+    expect(parseDeepLink("slackoss://join?host=192.168.1.5:8543&code=ABCD1234")).toEqual({
       kind: "join",
-      serverUrl: "http://chat.example.dev:8543",
-      code: null,
+      serverUrl: "http://192.168.1.5:8543",
+      code: "ABCD1234",
     });
-  });
-
-  it("reads a message permalink", () => {
     expect(parseDeepLink("slackoss://message?host=192.168.1.5:8543&channel=C123&id=M456")).toEqual({
       kind: "message",
       serverUrl: "http://192.168.1.5:8543",
@@ -36,8 +32,28 @@ describe("parseDeepLink", () => {
     });
   });
 
+  it("reads a join link without a code", () => {
+    const link = parseDeepLink("gatherline://join?host=chat.example.dev");
+    expect(link).toEqual({
+      kind: "join",
+      serverUrl: "http://chat.example.dev:8543",
+      code: null,
+    });
+  });
+
+  it("reads a message permalink", () => {
+    expect(
+      parseDeepLink("gatherline://message?host=192.168.1.5:8543&channel=C123&id=M456"),
+    ).toEqual({
+      kind: "message",
+      serverUrl: "http://192.168.1.5:8543",
+      channelId: "C123",
+      messageId: "M456",
+    });
+  });
+
   it("survives a url-encoded host", () => {
-    const link = parseDeepLink("slackoss://join?host=192.168.1.5%3A8543");
+    const link = parseDeepLink("gatherline://join?host=192.168.1.5%3A8543");
     expect(link?.serverUrl).toBe("http://192.168.1.5:8543");
   });
 
@@ -58,8 +74,11 @@ describe("parseDeepLink", () => {
   it("rejects anything malformed rather than throwing", () => {
     expect(parseDeepLink("not a url")).toBeNull();
     expect(parseDeepLink("https://example.com/join?host=x")).toBeNull();
+    expect(parseDeepLink("gatherline://join")).toBeNull();
     expect(parseDeepLink("slackoss://join")).toBeNull();
+    expect(parseDeepLink("gatherline://message?host=h&channel=C1")).toBeNull();
     expect(parseDeepLink("slackoss://message?host=h&channel=C1")).toBeNull();
+    expect(parseDeepLink("gatherline://explode?host=h")).toBeNull();
     expect(parseDeepLink("slackoss://explode?host=h")).toBeNull();
     expect(parseDeepLink("https://chat.team.dev/")).toBeNull();
     expect(parseDeepLink("https://chat.team.dev/#/join/")).toBeNull();
@@ -96,7 +115,7 @@ describe("links", () => {
     expect(serverAddress("https://chat.team.dev")).toBe("https://chat.team.dev");
     expect(serverAddress("http://chat.local")).toBe("http://chat.local");
     expect(desktopLink("https://chat.team.dev", { kind: "join", code: "ABCD1234" })).toBe(
-      "slackoss://join?host=https://chat.team.dev&code=ABCD1234",
+      "gatherline://join?host=https://chat.team.dev&code=ABCD1234",
     );
     expect(browserLink("http://192.168.1.5:8543", { kind: "join", code: "ABCD1234" })).toBe(
       "http://192.168.1.5:8543/#/join/ABCD1234",

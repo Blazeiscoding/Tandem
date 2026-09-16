@@ -33,4 +33,5 @@ linux:
 protocols:
   - name: Gatherline
     schemes:
+      - gatherline
       - slackoss

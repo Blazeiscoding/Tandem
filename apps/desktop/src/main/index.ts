@@ -14,17 +14,20 @@ import { join } from "node:path";
 import { networkInterfaces } from "node:os";
 import { pathToFileURL } from "node:url";
 import { Bonjour, type Service } from "bonjour-service";
-import { DEEP_LINK_PROTOCOL, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
+import { DEEP_LINK_PROTOCOLS, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
 import { createWorkspaceServer } from "@slackoss/server";
 import { createSettingsStorage } from "./settings.js";
 import { createHostingController } from "./hosting.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
-const isTest = process.env.SLACKOSS_TEST === "1";
+/** Gatherline name first, previous SLACKOSS_ name still read. */
+const appEnv = (name: string): string | undefined =>
+  process.env[`GATHERLINE_${name}`] ?? process.env[`SLACKOSS_${name}`];
+const isTest = appEnv("TEST") === "1";
 // Branding must not move existing settings, credentials, or hosted databases.
 const legacyUserData = app.getPath("userData");
 app.setName("Gatherline");
-app.setPath("userData", process.env.SLACKOSS_USER_DATA_DIR ?? legacyUserData);
+app.setPath("userData", appEnv("USER_DATA_DIR") ?? legacyUserData);
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let rendererReady = false;
@@ -48,14 +51,14 @@ ipcMain.handle("file:download", (event, value: unknown) => {
   mainWindow.webContents.downloadURL(url.toString());
 });
 
-if ((isDev || isTest) && process.env.SLACKOSS_TEST_MEDIA === "1") {
+if ((isDev || isTest) && appEnv("TEST_MEDIA") === "1") {
   app.commandLine.appendSwitch("remote-debugging-port", "9222");
   // Fake mic/camera so huddles can be exercised without real hardware.
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
   app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
 }
 
-// ---------- slackoss:// deep links ----------
+// ---------- gatherline:// deep links (slackoss:// still opens) ----------
 
 /** Held until a window exists to receive it (cold start via a link). */
 let pendingDeepLink: string | null = null;
@@ -70,7 +73,7 @@ function deliverDeepLink(url: string): void {
 }
 
 function deepLinkFromArgv(argv: string[]): string | null {
-  return argv.find((a) => a.startsWith(`${DEEP_LINK_PROTOCOL}://`)) ?? null;
+  return argv.find((a) => DEEP_LINK_PROTOCOLS.some((p) => a.startsWith(`${p}://`))) ?? null;
 }
 
 // A second launch must hand its link to the running instance, not open a
@@ -95,11 +98,15 @@ app.on("open-url", (event, url) => {
 if (!isTest && isDev && process.platform === "win32") {
   // In dev the executable is electron.exe, so the protocol must point at it
   // plus this project's entry, or Windows would launch a bare Electron.
-  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
-    join(import.meta.dirname, "../.."),
-  ]);
+  for (const protocol of DEEP_LINK_PROTOCOLS) {
+    app.setAsDefaultProtocolClient(protocol, process.execPath, [
+      join(import.meta.dirname, "../.."),
+    ]);
+  }
 } else if (!isTest) {
-  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+  for (const protocol of DEEP_LINK_PROTOCOLS) {
+    app.setAsDefaultProtocolClient(protocol);
+  }
 }
 
 ipcMain.handle("deeplink:consume", (event) => {

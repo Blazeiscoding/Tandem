@@ -10,7 +10,7 @@ export interface SlackossBridge {
   hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<unknown>;
   hostingStop: () => Promise<void>;
   onHostingStatus: (cb: (status: unknown) => void) => () => void;
-  /** A slackoss:// link that launched the app, if any. */
+  /** A gatherline:// (or legacy slackoss://) link that launched the app, if any. */
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
 }

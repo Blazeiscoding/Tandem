@@ -47,8 +47,9 @@ export interface Platform {
   /** Subscribe to LAN server discovery. Returns unsubscribe. Desktop only. */
   discoverLan?: (cb: (servers: DiscoveredServer[]) => void) => () => void;
   /**
-   * Links to join a workspace or open a message: slackoss:// ones in the desktop
-   * app, and the address a browser was opened at.
+   * Links to join a workspace or open a message: gatherline:// ones (the
+   * previous slackoss:// form still reads) in the desktop app, and the
+   * address a browser was opened at.
    */
   deepLinks?: {
     /** A link that launched the app, consumed once. */
