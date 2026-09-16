@@ -373,8 +373,9 @@ export function InviteDialog(props: { onClose: () => void }) {
   return (
     <Dialog title="Invite people" onClose={props.onClose}>
       <p className="mb-4 text-sm text-ink-dim">
-        Send someone an invite link. It opens this workspace in their browser with the code already
-        filled in.
+        {canInvite
+          ? "Send someone an invite link. It opens this workspace in their browser with the code already filled in."
+          : "Anyone joining needs this workspace's address, and an invite code as well if the workspace is invite-only."}
       </p>
       <div className="mb-4 rounded-lg border border-edge bg-ground p-3">
         <div className="mb-1 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
@@ -401,7 +402,7 @@ export function InviteDialog(props: { onClose: () => void }) {
             onClick={() => void copy(host, "host")}
             className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
           >
-            {label("Copy", "Copied", "Copy failed", "host")}
+            {label("Copy address", "Copied", "Copy failed", "host")}
           </button>
         </div>
         {shareable.localOnly && (

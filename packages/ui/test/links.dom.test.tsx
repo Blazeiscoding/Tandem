@@ -9,6 +9,7 @@ import { Mrkdwn } from "../src/components/Mrkdwn.js";
 import { ShareableServerProvider } from "../src/components/ShareableServer.js";
 import { webPlatform, type HostingStatus, type Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
+import { copyBySelection, withoutClipboardApi } from "./clipboard.js";
 
 const owner: User = {
   id: "U_SAM",
@@ -138,6 +139,56 @@ describe("inviting someone", () => {
       dialog.getByText("slackoss://join?host=https://rocket.example.dev&code=ABCD1234"),
     ).toBeVisible();
     expect(dialog.queryByText(/reaches only this computer/)).toBeNull();
+  });
+
+  it("copies from inside the dialog on a page given no Clipboard API", async () => {
+    // A browser that reached the workspace over plain http on the network.
+    const { dialog, root, user } = await inviteWith({ baseUrl: "http://192.168.1.20:8543" });
+    const restoreApi = withoutClipboardApi();
+    const selection = copyBySelection();
+    try {
+      const copyLink = dialog.getByRole("button", { name: "Copy link" });
+      await user.click(copyLink);
+      // The dialog keeps focus to itself, so this copy only works from inside it.
+      expect(selection.copied).toEqual(["http://192.168.1.20:8543/#/join/ABCD1234"]);
+      expect(copyLink).toHaveTextContent("Copied");
+      expect(copyLink).toHaveFocus();
+      expect(root.querySelector("textarea")).toBeNull();
+
+      await user.click(dialog.getByRole("button", { name: "Copy address" }));
+      expect(selection.copied.at(-1)).toBe("192.168.1.20:8543");
+    } finally {
+      selection.restore();
+      restoreApi();
+    }
+  });
+
+  it("tells someone who cannot create invite codes what joining takes", async () => {
+    const member: User = {
+      ...owner,
+      id: "U_ALEX",
+      handle: "alex",
+      role: "member",
+      canInvite: false,
+    };
+    const client = new WorkspaceClient("http://192.168.1.20:8543", "test-token-not-a-credential");
+    client.store.setState({ self: member, users: { U_ALEX: member }, status: "online" });
+    vi.spyOn(client.api, "listInvites").mockResolvedValue({ invites: [] });
+    render(
+      <ClientContext.Provider value={client}>
+        <InviteDialog onClose={() => {}} />
+      </ClientContext.Provider>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Invite people" });
+    expect(dialog).toHaveTextContent(
+      "Anyone joining needs this workspace's address, and an invite code as well if the workspace is invite-only.",
+    );
+    expect(dialog).not.toHaveTextContent(/Send someone an invite link/);
+    expect(within(dialog).getByText("192.168.1.20:8543")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Copy address" })).toBeVisible();
+    expect(within(dialog).queryByRole("button", { name: "Generate invite code" })).toBeNull();
+    await waitFor(() => expect(client.api.listInvites).toHaveBeenCalled());
+    expect(await accessibilityProblems(dialog)).toEqual([]);
   });
 
   it("says so when the only address it has works on this computer alone", async () => {
