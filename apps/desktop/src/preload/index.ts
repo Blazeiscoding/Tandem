@@ -7,6 +7,7 @@ export interface SlackossBridge {
   lanSnapshot: () => Promise<unknown[]>;
   onLanServers: (cb: (servers: unknown[]) => void) => () => void;
   hostingStatus: () => Promise<unknown>;
+  hostingLastHosted: () => Promise<unknown>;
   hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<unknown>;
   hostingStop: () => Promise<void>;
   onHostingStatus: (cb: (status: unknown) => void) => () => void;
@@ -26,6 +27,7 @@ const bridge: SlackossBridge = {
     return () => ipcRenderer.removeListener("lan:servers", listener);
   },
   hostingStatus: () => ipcRenderer.invoke("hosting:status"),
+  hostingLastHosted: () => ipcRenderer.invoke("hosting:lastHosted"),
   hostingStart: (opts) => ipcRenderer.invoke("hosting:start", opts),
   hostingStop: () => ipcRenderer.invoke("hosting:stop"),
   onHostingStatus: (cb) => {

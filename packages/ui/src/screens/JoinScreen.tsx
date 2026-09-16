@@ -4,6 +4,7 @@ import { Api, ApiError, normalizeServerUrl } from "@slackoss/client-core";
 import type { DiscoveredServer, HostingStatus, Platform, SavedServer } from "../platform.js";
 import { BrandMark, Icon } from "../components/Icon.js";
 import { connectionFailure, host, incompatibleWorkspace } from "../lib/connection.js";
+import { resumeTarget } from "../lib/resume.js";
 
 interface Props {
   platform: Platform;
@@ -18,6 +19,7 @@ interface Props {
   hostingStatus?: HostingStatus | null;
   hostingStatusError?: boolean;
   hostingStatusLoading?: boolean;
+  lastHosted?: { workspaceName: string; port: number } | null;
 }
 
 type Stage =
@@ -50,6 +52,7 @@ export function JoinScreen({
   hostingStatus,
   hostingStatusError,
   hostingStatusLoading,
+  lastHosted,
 }: Props) {
   const [stage, setStage] = useState<Stage>({ view: "browse" });
   const [lanServers, setLanServers] = useState<DiscoveredServer[]>([]);
@@ -247,6 +250,8 @@ export function JoinScreen({
                 hostingStatus={hostingStatus}
                 hostingStatusError={hostingStatusError}
                 hostingStatusLoading={hostingStatusLoading}
+                lastHosted={lastHosted ?? null}
+                platform={platform}
                 onSelect={probe}
                 onOpenSaved={openSaved}
                 onForget={onForget}
@@ -257,6 +262,71 @@ export function JoinScreen({
         </div>
       </main>
     </div>
+  );
+}
+
+/**
+ * The workspace this computer hosted last, while hosting is stopped. One
+ * click starts it again on its remembered port and opens the saved sign-in,
+ * instead of reconnecting to a server that is not there.
+ */
+function ResumeHosted(props: {
+  platform: Platform;
+  savedServers: SavedServer[];
+  hostingStatus?: HostingStatus | null;
+  lastHosted: { workspaceName: string; port: number } | null;
+  onSelect: (address: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const target = resumeTarget(props.savedServers, props.hostingStatus, props.lastHosted);
+  if (!target || !props.platform.hosting || !props.lastHosted) return null;
+  // Plain locals: narrowing does not reach into the async handler below.
+  const { saved, workspaceName } = target;
+  const { start } = props.platform.hosting;
+  const { port } = props.lastHosted;
+  const onSelect = props.onSelect;
+
+  async function resume() {
+    if (busy) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      // The remembered port keeps the saved sign-in's address working; a
+      // fallback port would open somewhere the sign-in does not point.
+      await start({ workspaceName, port });
+      onSelect(saved.url);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section aria-label="Hosted on this computer">
+      <SectionLabel>Hosted on this computer</SectionLabel>
+      <div className="rounded-xl border border-copper/40 p-4 text-sm">
+        <p className="text-ink">
+          <span className="font-semibold">{workspaceName}</span> isn’t running. Its messages, files
+          and accounts are still on this computer.
+        </p>
+        {failed && (
+          <p role="alert" className="mt-2 text-alert">
+            Could not start hosting. Its port may be in use by something else — open Manage hosting
+            to start it on another port.
+          </p>
+        )}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void resume()}
+          className="mt-3 rounded-lg bg-copper px-4 py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+        >
+          {busy ? "Starting…" : `Start hosting ${workspaceName}`}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -272,6 +342,8 @@ function BrowseCard(props: {
   hostingStatus?: HostingStatus | null;
   hostingStatusError?: boolean;
   hostingStatusLoading?: boolean;
+  lastHosted?: { workspaceName: string; port: number } | null;
+  platform: Platform;
   onSelect: (address: string) => void;
   onOpenSaved: (saved: SavedServer) => void;
   onForget: (url: string) => void;
@@ -301,6 +373,14 @@ function BrowseCard(props: {
           )}
         </div>
       )}
+
+      <ResumeHosted
+        platform={props.platform}
+        savedServers={props.savedServers}
+        hostingStatus={props.hostingStatus}
+        lastHosted={props.lastHosted ?? null}
+        onSelect={props.onSelect}
+      />
 
       {props.selfServed && (
         <section>

@@ -63,6 +63,8 @@ export interface Platform {
     subscribe?: (cb: (status: HostingStatus) => void) => () => void;
     start: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
     stop: () => Promise<void>;
+    /** The workspace this computer hosted last, if it remembers. */
+    lastHosted?: () => Promise<{ workspaceName: string; port: number } | null>;
   };
 }
 

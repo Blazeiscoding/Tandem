@@ -6,9 +6,10 @@ import { parseDeepLink } from "./lib/deeplink.js";
 import { JoinScreen } from "./screens/JoinScreen.js";
 import { WorkspaceScreen } from "./screens/WorkspaceScreen.js";
 import { Dialog, primaryBtnCls } from "./components/Dialog.js";
-import { HostDialog, useHostingStatus } from "./components/HostDialog.js";
+import { HostDialog, useHostingStatus, useLastHosted } from "./components/HostDialog.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { parseSavedServers } from "./lib/savedServers.js";
+import { hostedButStopped } from "./lib/resume.js";
 
 type Session =
   | { view: "loading" }
@@ -29,6 +30,7 @@ export function App({ platform }: { platform: Platform }) {
   const [session, setSession] = useState<Session>({ view: "loading" });
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
   const hosting = useHostingStatus(platform.hosting);
+  const lastHosted = useLastHosted(platform.hosting);
   const clientRef = useRef<WorkspaceClient | null>(null);
   const connectionId = useRef(0);
   const navigation = useRef(0);
@@ -103,7 +105,12 @@ export function App({ platform }: { platform: Platform }) {
       savedServersRef.current = list;
       setSavedServers(list);
       if (list.length > 0) {
-        openWorkspace(list[0]!, list);
+        // Reconnecting to a workspace this computer hosted but stopped only
+        // ever spins. Offer to host it again instead.
+        const parked = await hostedButStopped(list[0]!, platform.hosting).catch(() => false);
+        if (ticket !== navigation.current) return;
+        if (parked) setSession({ view: "join" });
+        else openWorkspace(list[0]!, list);
       } else {
         setSession({ view: "join" });
       }
@@ -342,6 +349,7 @@ export function App({ platform }: { platform: Platform }) {
                 hostingStatus={hosting.status}
                 hostingStatusError={hosting.error}
                 hostingStatusLoading={hosting.loading}
+                lastHosted={lastHosted}
               />
             )}
             {session.view === "workspace" && (

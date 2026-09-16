@@ -17,7 +17,7 @@ import { Bonjour, type Service } from "bonjour-service";
 import { DEEP_LINK_PROTOCOLS, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
 import { createWorkspaceServer } from "@slackoss/server";
 import { createSettingsStorage } from "./settings.js";
-import { createHostingController } from "./hosting.js";
+import { createHostingController, parseLastHosted } from "./hosting.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 /** Gatherline name first, previous SLACKOSS_ name still read. */
@@ -212,6 +212,12 @@ const hosting = createHostingController({
 });
 
 ipcMain.handle("hosting:status", () => hostingStatus());
+ipcMain.handle("hosting:lastHosted", async () => {
+  // Unreadable settings mean no remembered workspace, not a failed call:
+  // the join screen simply shows no resume offer.
+  const stored = await settings.get("lastHosted").catch(() => null);
+  return parseLastHosted(stored);
+});
 ipcMain.handle("hosting:start", async (_e, opts: unknown) => {
   if (quitting) throw new Error("Gatherline is shutting down. Try again after reopening it.");
   if (trayStopPending)

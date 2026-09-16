@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
 import { join } from "node:path";
-import { createHostingController, type HostingSnapshot } from "../src/main/hosting.js";
+import {
+  createHostingController,
+  parseLastHosted,
+  type HostingSnapshot,
+} from "../src/main/hosting.js";
 
 interface StartRequest {
   workspaceName: string;
@@ -276,6 +280,44 @@ describe("hosting a workspace from the desktop app", () => {
       expect(h.servers).toHaveLength(1);
       expect(h.servers[0]!.stop).toHaveBeenCalledTimes(2);
       expect(h.controller.status()).toEqual({ running: false, phase: "stopped" });
+    });
+  });
+});
+
+describe("remembering the last hosted workspace", () => {
+  it("reads back what a start saved", () => {
+    expect(parseLastHosted({ workspaceName: "Rocket Team", port: 8543 })).toEqual({
+      workspaceName: "Rocket Team",
+      port: 8543,
+    });
+  });
+
+  it("refuses anything malformed rather than hosting under it", () => {
+    for (const bad of [
+      null,
+      undefined,
+      42,
+      "Rocket Team",
+      [],
+      {},
+      { workspaceName: "", port: 8543 },
+      { workspaceName: "   ", port: 8543 },
+      { workspaceName: "x".repeat(81), port: 8543 },
+      { workspaceName: "Rocket Team" },
+      { workspaceName: "Rocket Team", port: -1 },
+      { workspaceName: "Rocket Team", port: 70000 },
+      { workspaceName: "Rocket Team", port: 85.5 },
+      { workspaceName: "Rocket Team", port: "8543" },
+      { workspaceName: 42, port: 8543 },
+    ]) {
+      expect(parseLastHosted(bad), JSON.stringify(bad)).toBeNull();
+    }
+  });
+
+  it("trims the name it kept", () => {
+    expect(parseLastHosted({ workspaceName: "  Rocket Team  ", port: 0 })).toEqual({
+      workspaceName: "Rocket Team",
+      port: 0,
     });
   });
 });

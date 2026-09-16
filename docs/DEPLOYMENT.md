@@ -44,7 +44,10 @@ If the last-used hosting settings cannot be saved, the workspace keeps running a
 Manage hosting shows a warning. Hosting does not resume by itself after quitting
 or restarting the computer, and the computer must stay awake. To reopen a
 workspace, host it again under the same name: the name decides its data folder,
-so a different name starts an empty workspace. A list of the workspaces on this
+so a different name starts an empty workspace. After a restart the join screen
+offers the remembered workspace back with one click — Start hosting it on its
+remembered port, reopening the saved sign-in — instead of reconnecting to a
+server that is not there. A list of the workspaces on this
 computer, and renaming one, are not available yet.
 
 Only Windows has been checked. The packaged test closes the window while hosting,

@@ -165,3 +165,86 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   });
   await closed;
 });
+
+test("restarting offers to host the last workspace again instead of reconnecting", async () => {
+  const data = mkdtempSync(join(tmpdir(), "slackoss-desktop-resume-"));
+  const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
+  const env = {
+    ...inherited,
+    SLACKOSS_TEST: "1",
+    SLACKOSS_TEST_MEDIA: "1",
+    SLACKOSS_USER_DATA_DIR: data,
+  };
+  const executablePath = resolve("apps/desktop/release/win-unpacked/Gatherline.exe");
+  let app = await electron.launch({ executablePath, env });
+  const killTree = () => {
+    const pid = app.process().pid;
+    if (process.platform === "win32" && pid)
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"]);
+    else app.process().kill("SIGKILL");
+  };
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Host a workspace on this computer" }).click();
+    await page.getByPlaceholder("Workspace name (e.g. Rocket Team)").fill("Resume Test");
+    await page.getByRole("button", { name: "Start hosting", exact: true }).click();
+    await page.getByLabel("Username", { exact: true }).fill("resumeowner");
+    await page.getByLabel("Display name", { exact: true }).fill("Resume Owner");
+    await page.getByLabel("Password", { exact: true }).fill("password123");
+    await page.getByRole("button", { name: "Join workspace", exact: true }).click();
+    await expect(page.locator("textarea")).toBeVisible();
+
+    // Stop hosting, then quit with nothing hosted: a plain window close quits.
+    await page.getByRole("button", { name: "Manage hosting", exact: true }).click();
+    const live = page.getByRole("dialog", { name: "Workspace is live" });
+    await live.getByRole("button", { name: "Stop hosting", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Stop hosting?" })
+      .getByRole("button", { name: "Stop hosting", exact: true })
+      .click();
+    await expect(page.getByRole("button", { name: "Manage hosting", exact: true })).toBeHidden();
+    const firstQuit = app.waitForEvent("close");
+    await app.evaluate(({ BrowserWindow }) => {
+      setTimeout(() => BrowserWindow.getAllWindows()[0]!.close(), 0);
+    });
+    await firstQuit;
+
+    // Relaunch with the same profile: no reconnecting to a stopped server.
+    app = await electron.launch({ executablePath, env });
+    page = await app.firstWindow();
+    await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
+    const resume = page.getByRole("region", { name: "Hosted on this computer" });
+    await expect(resume).toBeVisible();
+    await resume.getByRole("button", { name: "Start hosting Resume Test" }).click();
+    // The saved sign-in opens again, handle already filled in.
+    await expect(page.getByLabel("Username", { exact: true })).toHaveValue("resumeowner");
+    await page.getByLabel("Password", { exact: true }).fill("password123");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.locator("textarea")).toBeVisible();
+    expect(await page.evaluate(() => (window as any).slackoss.hostingStatus())).toMatchObject({
+      running: true,
+    });
+
+    // Leave nothing hosted behind: stop, then a plain close quits.
+    await page.getByRole("button", { name: "Manage hosting", exact: true }).click();
+    const liveAgain = page.getByRole("dialog", { name: "Workspace is live" });
+    await liveAgain.getByRole("button", { name: "Stop hosting", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Stop hosting?" })
+      .getByRole("button", { name: "Stop hosting", exact: true })
+      .click();
+    const secondQuit = app.waitForEvent("close");
+    await app.evaluate(({ BrowserWindow }) => {
+      setTimeout(() => BrowserWindow.getAllWindows()[0]!.close(), 0);
+    });
+    await secondQuit;
+  } finally {
+    try {
+      killTree();
+    } catch {
+      // Already quit: the directory removes below regardless.
+    }
+    rmSync(data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});

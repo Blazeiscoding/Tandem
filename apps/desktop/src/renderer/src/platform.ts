@@ -8,6 +8,7 @@ interface SlackossBridge {
   onLanServers: (cb: (servers: DiscoveredServer[]) => void) => () => void;
   hostingStatus: () => Promise<HostingStatus>;
   hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
+  hostingLastHosted: () => Promise<{ workspaceName: string; port: number } | null>;
   hostingStop: () => Promise<void>;
   onHostingStatus: (cb: (status: HostingStatus) => void) => () => void;
   consumeDeepLink: () => Promise<string | null>;
@@ -52,6 +53,7 @@ export function electronPlatform(): Platform {
     hosting: {
       status: () => bridge.hostingStatus(),
       start: (opts) => bridge.hostingStart(opts),
+      lastHosted: () => bridge.hostingLastHosted(),
       stop: () => bridge.hostingStop(),
       subscribe: (cb) => bridge.onHostingStatus(cb),
     },

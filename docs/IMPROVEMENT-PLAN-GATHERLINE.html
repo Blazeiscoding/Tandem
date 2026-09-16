@@ -157,7 +157,11 @@
             channel-details/scheduled/search to get 477kB chunk &lt;500kB.
           </li>
           <li>
-            <code>lastHosted</code> resume: offer “Start hosting X” instead of infinite reconnect.
+            DONE: <code>lastHosted</code> resume — the app reads the remembered workspace, parks on
+            the join screen instead of reconnecting to a stopped server, and offers one-click “Start
+            hosting X” on its remembered port (<code>lib/resume.ts</code>,
+            <code>resume.dom.test.tsx</code>, <code>app.dom.test.tsx</code>, desktop relaunch
+            journey, all green).
           </li>
         </ul>
         <p class="dim">

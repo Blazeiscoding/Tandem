@@ -53,6 +53,27 @@ export function useHostingStatus(hosting: Platform["hosting"]) {
   return { status, loading: loading && status === null, error, refresh };
 }
 
+/** The workspace this computer hosted last, for offering to host it again. */
+export function useLastHosted(hosting: Platform["hosting"]) {
+  const [lastHosted, setLastHosted] = useState<{ workspaceName: string; port: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!hosting?.lastHosted) return;
+    let alive = true;
+    hosting
+      .lastHosted()
+      .then((value) => {
+        if (alive) setLastHosted(value);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [hosting]);
+  return lastHosted;
+}
+
 export function HostDialog(props: {
   hosting: Hosting;
   state: ReturnType<typeof useHostingStatus>;
