@@ -82,9 +82,9 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   await page.getByRole("button", { name: "Host a workspace on this computer" }).click();
   await page.getByPlaceholder("Workspace name (e.g. Rocket Team)").fill("Desktop Test");
   await page.getByRole("button", { name: "Start hosting", exact: true }).click();
-  await page.getByPlaceholder("username", { exact: true }).fill("desktopowner");
-  await page.getByPlaceholder("Display name", { exact: true }).fill("Desktop Owner");
-  await page.getByPlaceholder("Password (8+ characters)").fill("password123");
+  await page.getByLabel("Username", { exact: true }).fill("desktopowner");
+  await page.getByLabel("Display name", { exact: true }).fill("Desktop Owner");
+  await page.getByLabel("Password", { exact: true }).fill("password123");
   await page.getByRole("button", { name: "Join workspace", exact: true }).click();
   await expect(page.locator("textarea")).toBeVisible();
   const status = await page.evaluate(() => (window as any).slackoss.hostingStatus());
