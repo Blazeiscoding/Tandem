@@ -1,4 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { Platform } from "../platform.js";
+
+/** How long "Not now" keeps the banner away on this device. */
+export const NOTIFICATION_PROMPT_SNOOZE_MS = 14 * 24 * 60 * 60 * 1000;
+const SNOOZED_AT = "notificationPromptSnoozedAt";
 
 /** What the browser currently allows, or that it cannot ask at all. */
 function current(): NotificationPermission | "unsupported" {
@@ -7,17 +12,41 @@ function current(): NotificationPermission | "unsupported" {
 }
 
 /**
- * Asked once, after signing in, instead of on the first click anywhere
- * (which was usually the Sign in button). Browsers only prompt from a
- * visible gesture; a dismissal here waits for the next sign-in, while a
- * refusal in the browser's own prompt stays silent until the reader changes
- * it in the browser's site settings.
+ * Asked after signing in, instead of on the first click anywhere (which was
+ * usually the Sign in button). Browsers only prompt from a visible gesture.
+ * "Not now" keeps the banner away on this device for two weeks, rather than
+ * until the next reload, and a refusal in the browser's own prompt stays
+ * silent until the reader changes it in the browser's site settings. The
+ * desktop app grants notifications itself, so it never shows this.
  */
-export function NotificationBanner() {
+export function NotificationBanner({
+  storage,
+  now = Date.now,
+}: {
+  storage: Platform["storage"];
+  now?: () => number;
+}) {
   const [permission, setPermission] = useState(current);
-  const [dismissed, setDismissed] = useState(false);
+  // Unknown until storage answers, so a snoozed banner does not flash first.
+  const [snoozed, setSnoozed] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
-  if (permission !== "default" || dismissed) return null;
+
+  useEffect(() => {
+    if (permission !== "default") return;
+    let alive = true;
+    storage
+      .get<number>(SNOOZED_AT)
+      .then((at) => typeof at === "number" && now() - at < NOTIFICATION_PROMPT_SNOOZE_MS)
+      .catch(() => false)
+      .then((value) => {
+        if (alive) setSnoozed(value);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [storage, now, permission]);
+
+  if (permission !== "default" || snoozed !== false) return null;
 
   async function enable() {
     if (busy) return;
@@ -27,6 +56,12 @@ export function NotificationBanner() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function snooze() {
+    setSnoozed(true);
+    // Remembering is a courtesy: if it cannot be saved, the banner is still gone.
+    storage.set(SNOOZED_AT, now()).catch(() => {});
   }
 
   return (
@@ -48,7 +83,7 @@ export function NotificationBanner() {
       </button>
       <button
         type="button"
-        onClick={() => setDismissed(true)}
+        onClick={snooze}
         className="shrink-0 text-ink-dim hover:text-ink hover:underline"
       >
         Not now
