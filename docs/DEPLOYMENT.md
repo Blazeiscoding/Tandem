@@ -16,7 +16,8 @@ public IP with port forwarding, a VPN such as Tailscale, or a VPS. An IP address
 alone does not bypass NAT, CGNAT, or firewalls. LAN discovery does not cross routers.
 
 Data is under the app's user-data folder in `hosted/<workspace-name>/`. Advanced
-deployments can set `SLACKOSS_USER_DATA_DIR` to choose the desktop profile location.
+deployments can set `GATHERLINE_USER_DATA_DIR` (`SLACKOSS_USER_DATA_DIR` still
+works) to choose the desktop profile location.
 Treat workspace names as identifiers when reopening existing local workspaces.
 
 ### Closing the window, and quitting
@@ -24,7 +25,8 @@ Treat workspace names as identifiers when reopening existing local workspaces.
 While a workspace is hosted, or starting or stopping, closing Gatherline's window
 does not stop it. The window goes to the system tray, whose icon offers **Open
 Gatherline**, what is hosted and on which port, **Stop hosting…** and **Stop
-hosting and quit…**. Launching Gatherline again, or opening a `slackoss://` link,
+hosting and quit…**. Launching Gatherline again, or opening a `gatherline://`
+(or older `slackoss://`) link,
 also brings the window back. On a desktop with no tray, closing minimizes the
 window instead. With nothing hosted, closing the last window quits on Windows and
 Linux; macOS keeps the app in the dock as usual.
@@ -77,10 +79,11 @@ chat.example.org {
 
 By default no third-party ICE server is contacted. LAN peers connect directly.
 For people on different networks, provide your own STUN/TURN configuration through
-`SLACKOSS_ICE_SERVERS`. Compose reads it from the environment or `docker/.env`:
+`GATHERLINE_ICE_SERVERS` (previously `SLACKOSS_ICE_SERVERS`). Compose reads it
+from the environment or `docker/.env`:
 
 ```dotenv
-SLACKOSS_ICE_SERVERS=[{"urls":"stun:turn.example.org:3478"},{"urls":"turn:turn.example.org:3478","username":"workspace","credential":"replace-with-a-strong-secret"}]
+GATHERLINE_ICE_SERVERS=[{"urls":"stun:turn.example.org:3478"},{"urls":"turn:turn.example.org:3478","username":"workspace","credential":"replace-with-a-strong-secret"}]
 ```
 
 The authenticated `/api/rtc-config` endpoint supplies it to members. Static TURN
@@ -99,7 +102,8 @@ reduce processing and bandwidth but do not guarantee a fixed RAM budget.
 
 Attachments are unlimited unless you say otherwise, which on a small disk means
 one enthusiastic upload can fill it. Cap the workspace with `--storage-limit-mb`,
-or `SLACKOSS_STORAGE_LIMIT_MB` for Compose:
+or `GATHERLINE_STORAGE_LIMIT_MB` (`SLACKOSS_STORAGE_LIMIT_MB` still works) for
+Compose:
 
 ```sh
 slackoss-server --data ./data --storage-limit-mb 20000
@@ -116,7 +120,8 @@ per-file maximum. `0` means unlimited, which is the default.
 
 An attachment chosen and then thought better of would otherwise hold its bytes
 forever. Uploads never attached to a message are freed after 24 hours, tunable
-with `--abandoned-upload-hours` or `SLACKOSS_ABANDONED_UPLOAD_HOURS`. Files a
+with `--abandoned-upload-hours` or `GATHERLINE_ABANDONED_UPLOAD_HOURS`
+(`SLACKOSS_ABANDONED_UPLOAD_HOURS` still works). Files a
 scheduled message is still waiting to send are never swept, however old they
 are. The window has to outlast the gap between choosing a file and sending it,
 including a client that goes offline in between: an outbox entry that has been
@@ -260,7 +265,8 @@ slackoss-server --data ./data --retention-days 365
 ```
 
 Off by default: a workspace that quietly started discarding history would be
-worse than one that grows. Also settable with `SLACKOSS_RETENTION_DAYS`. The
+worse than one that grows. Also settable with `GATHERLINE_RETENTION_DAYS`
+(`SLACKOSS_RETENTION_DAYS` still works). The
 server prints the window on every start, because a setting that deletes things
 is one to be reminded of.
 
@@ -386,7 +392,8 @@ The allowances are held in memory, so a restart grants one fresh burst. Buckets
 are dropped once they refill, which keeps the bookkeeping proportional to who is
 active rather than to everyone who has ever connected.
 
-`--no-rate-limits`, or `SLACKOSS_RATE_LIMITS=off`, turns all of this off. That is reasonable on a network where
+`--no-rate-limits`, or `GATHERLINE_RATE_LIMITS=off` (`SLACKOSS_RATE_LIMITS=off`
+still works), turns all of this off. That is reasonable on a network where
 everyone is already trusted and unreasonable anywhere reachable from outside it.
 Bulk imports and seeding scripts are the usual reason to want it; prefer running
 those against a server started with the flag rather than raising the limits for
