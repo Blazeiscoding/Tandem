@@ -84,7 +84,9 @@ Usage: slackoss-server [options]
   --abandoned-upload-hours <n>
                     How long an upload may sit unattached before it is freed
                     (default 24). Attachments a scheduled message still needs
-                    are never swept, however old they are.
+                    are never swept, however old they are. Also settable with
+                    GATHERLINE_ABANDONED_UPLOAD_HOURS
+                    (previously SLACKOSS_ABANDONED_UPLOAD_HOURS).
   --retention-days <n>
                     Discard conversation older than this many days; 0 keeps
                     everything (default). What it removes is removed from the
@@ -108,9 +110,9 @@ Usage: slackoss-server [options]
                     and typing notices; limits are keyed on the account where
                     there is one, so a whole office behind a single address
                     does not share one person's allowance. Turn this off only
-                     on a network where everyone is already trusted. Also
-                     settable with GATHERLINE_RATE_LIMITS=off
-                     (previously SLACKOSS_RATE_LIMITS=off).
+                    on a network where everyone is already trusted. Also
+                    settable with GATHERLINE_RATE_LIMITS=off
+                    (previously SLACKOSS_RATE_LIMITS=off).
 
   --skip-upgrade-backup
                     Do not copy the workspace before upgrading it to a newer
