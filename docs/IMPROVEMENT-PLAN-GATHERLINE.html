@@ -147,8 +147,10 @@
             holds it). E2E auth helpers now target the tab roles from the labels work.
           </li>
           <li>
-            Notification banner after sign-in (not first-click in
-            <code>apps/web/src/main.tsx:7</code>), click opens message.
+            DONE: notification banner after sign-in (<code>NotificationBanner.tsx</code>), replacing
+            the first-click prompt; a notification click focuses the app and jumps to its message
+            through the same jump as links (<code>notify.dom.test.tsx</code> + browser journey,
+            11/11 green).
           </li>
           <li>
             Real <code>&lt;label&gt;</code> for join + <code>AppsDialog.tsx:192,361,368</code>; lazy

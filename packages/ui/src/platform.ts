@@ -41,7 +41,7 @@ export interface Platform {
     get: <T>(key: string, options?: { strict?: boolean }) => Promise<T | null>;
     set: (key: string, value: unknown) => Promise<void>;
   };
-  notify: (title: string, body: string) => void;
+  notify: (title: string, body: string, onClick?: () => void) => void;
   /** Hand a scoped download URL to the browser/OS; completion is managed there. */
   downloadFile?: (url: string) => Promise<void>;
   /** Subscribe to LAN server discovery. Returns unsubscribe. Desktop only. */
@@ -95,9 +95,16 @@ export function webPlatform(): Platform {
         localStorage.setItem(`slackoss:${key}`, JSON.stringify(value));
       },
     },
-    notify: (title, body) => {
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification(title, { body });
+    notify: (title, body, onClick) => {
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      const note = new Notification(title, { body });
+      if (onClick) {
+        note.onclick = (event) => {
+          event.preventDefault();
+          window.focus();
+          onClick();
+          note.close();
+        };
       }
     },
     deepLinks: {

@@ -30,8 +30,16 @@ export function electronPlatform(): Platform {
         (await bridge.storageGet(key, options)) as T | null,
       set: (key, value) => bridge.storageSet(key, value),
     },
-    notify: (title, body) => {
-      new Notification(title, { body, silent: false });
+    notify: (title, body, onClick) => {
+      const note = new Notification(title, { body, silent: false });
+      if (onClick) {
+        note.onclick = (event) => {
+          event.preventDefault();
+          window.focus();
+          onClick();
+          note.close();
+        };
+      }
     },
     discoverLan: (cb) => {
       void bridge.lanSnapshot().then(cb);
