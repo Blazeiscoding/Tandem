@@ -16,6 +16,7 @@ services:
     cap_drop:
       - ALL
     environment:
+      GATHERLINE_ICE_SERVERS: ${GATHERLINE_ICE_SERVERS:-[]}
       SLACKOSS_ICE_SERVERS: ${SLACKOSS_ICE_SERVERS:-[]}
 
 volumes:

@@ -11,6 +11,7 @@ import { parseIceServers } from "./rtc.js";
 import {
   ConfigError,
   describeStartupError,
+  envSetting,
   parsePort,
   parsePublicUrl,
   parseWholeNumber,
@@ -78,7 +79,8 @@ Usage: slackoss-server [options]
   --no-mdns         Do not advertise on the local network
   --storage-limit-mb <n>
                     Attachment storage cap in MiB; 0 is unlimited (default).
-                    Also settable with SLACKOSS_STORAGE_LIMIT_MB.
+                    Also settable with GATHERLINE_STORAGE_LIMIT_MB
+                    (previously SLACKOSS_STORAGE_LIMIT_MB).
   --abandoned-upload-hours <n>
                     How long an upload may sit unattached before it is freed
                     (default 24). Attachments a scheduled message still needs
@@ -89,7 +91,8 @@ Usage: slackoss-server [options]
                     database, not hidden: getting it back means restoring a
                     backup taken before the sweep ran. A thread goes as one
                     thing, once its newest reply is past the window too. Also
-                    settable with SLACKOSS_RETENTION_DAYS.
+                    settable with GATHERLINE_RETENTION_DAYS
+                    (previously SLACKOSS_RETENTION_DAYS).
   --web <dir>       Serve the browser client from this directory
   --public-url <u>  How others reach this server, e.g. https://chat.team.dev
                     (set it behind a reverse proxy; used in URLs given to apps)
@@ -105,8 +108,9 @@ Usage: slackoss-server [options]
                     and typing notices; limits are keyed on the account where
                     there is one, so a whole office behind a single address
                     does not share one person's allowance. Turn this off only
-                    on a network where everyone is already trusted. Also
-                    settable with SLACKOSS_RATE_LIMITS=off.
+                     on a network where everyone is already trusted. Also
+                     settable with GATHERLINE_RATE_LIMITS=off
+                     (previously SLACKOSS_RATE_LIMITS=off).
 
   --skip-upgrade-backup
                     Do not copy the workspace before upgrading it to a newer
@@ -290,12 +294,12 @@ function numericOption(flag: string, raw: string | undefined, fallback: number):
 
 const storageLimitMb = numericOption(
   "--storage-limit-mb",
-  values["storage-limit-mb"] ?? process.env.SLACKOSS_STORAGE_LIMIT_MB,
+  values["storage-limit-mb"] ?? envSetting("STORAGE_LIMIT_MB"),
   0,
 );
 const abandonedUploadHours = numericOption(
   "--abandoned-upload-hours",
-  values["abandoned-upload-hours"] ?? process.env.SLACKOSS_ABANDONED_UPLOAD_HOURS,
+  values["abandoned-upload-hours"] ?? envSetting("ABANDONED_UPLOAD_HOURS"),
   24,
 );
 let port: number;
@@ -305,7 +309,7 @@ try {
   port = parsePort(values.port);
   // Whole days: 1.5 would otherwise be announced as 1.5 and applied as 2.
   retentionDays = parseWholeNumber(
-    values["retention-days"] ?? process.env.SLACKOSS_RETENTION_DAYS,
+    values["retention-days"] ?? envSetting("RETENTION_DAYS"),
     "--retention-days",
     0,
   );
@@ -336,13 +340,12 @@ const server = await createWorkspaceServer({
   allowPrivateHooks: values["allow-private-hooks"],
   trustProxy: values["trust-proxy"],
   backupBeforeUpgrade: !values["skip-upgrade-backup"],
-  rateLimits:
-    values["no-rate-limits"] || process.env.SLACKOSS_RATE_LIMITS === "off" ? false : undefined,
+  rateLimits: values["no-rate-limits"] || envSetting("RATE_LIMITS") === "off" ? false : undefined,
   logger: true,
-  iceServers: parseIceServers(process.env.SLACKOSS_ICE_SERVERS),
+  iceServers: parseIceServers(envSetting("ICE_SERVERS")),
 }).catch((err: unknown) => refuse(describeStartupError(err, { port, host: values.host })));
 
-console.log(`\n  SlackOSS server v${SERVER_VERSION} is running`);
+console.log(`\n  Gatherline server v${SERVER_VERSION} is running`);
 console.log(`  Data: ${resolve(values.data)}`);
 if (server.upgradeBackup) {
   console.log(`  Upgraded this workspace; the copy from before is at ${server.upgradeBackup}`);
