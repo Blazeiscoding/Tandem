@@ -30,7 +30,7 @@ export function App({ platform }: { platform: Platform }) {
   const [session, setSession] = useState<Session>({ view: "loading" });
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
   const hosting = useHostingStatus(platform.hosting);
-  const lastHosted = useLastHosted(platform.hosting);
+  const lastHosted = useLastHosted(platform.hosting, hosting.status);
   const clientRef = useRef<WorkspaceClient | null>(null);
   const connectionId = useRef(0);
   const navigation = useRef(0);

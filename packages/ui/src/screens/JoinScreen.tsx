@@ -267,7 +267,7 @@ export function JoinScreen({
 
 /**
  * The workspace this computer hosted last, while hosting is stopped. One
- * click starts it again on its remembered port and opens the saved sign-in,
+ * click starts it again on its remembered port and reopens the saved sign-in,
  * instead of reconnecting to a server that is not there.
  */
 function ResumeHosted(props: {
@@ -275,7 +275,7 @@ function ResumeHosted(props: {
   savedServers: SavedServer[];
   hostingStatus?: HostingStatus | null;
   lastHosted: { workspaceName: string; port: number } | null;
-  onSelect: (address: string) => void;
+  onOpenSaved: (saved: SavedServer) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -285,7 +285,7 @@ function ResumeHosted(props: {
   const { saved, workspaceName } = target;
   const { start } = props.platform.hosting;
   const { port } = props.lastHosted;
-  const onSelect = props.onSelect;
+  const onOpenSaved = props.onOpenSaved;
 
   async function resume() {
     if (busy) return;
@@ -295,7 +295,9 @@ function ResumeHosted(props: {
       // The remembered port keeps the saved sign-in's address working; a
       // fallback port would open somewhere the sign-in does not point.
       await start({ workspaceName, port });
-      onSelect(saved.url);
+      // Its own sign-in still works, so reopening it asks for no password;
+      // one that stopped working falls back to the sign-in form.
+      onOpenSaved(saved);
     } catch {
       setFailed(true);
     } finally {
@@ -313,8 +315,9 @@ function ResumeHosted(props: {
         </p>
         {failed && (
           <p role="alert" className="mt-2 text-alert">
-            Could not start hosting. Its port may be in use by something else — open Manage hosting
-            to start it on another port.
+            Could not start {workspaceName} on port {port}. Something else may be using that port,
+            or the workspace&rsquo;s folder may not be writable. To start it on a free port, choose
+            Host a workspace on this computer and enter the same name.
           </p>
         )}
         <button
@@ -379,7 +382,7 @@ function BrowseCard(props: {
         savedServers={props.savedServers}
         hostingStatus={props.hostingStatus}
         lastHosted={props.lastHosted ?? null}
-        onSelect={props.onSelect}
+        onOpenSaved={props.onOpenSaved}
       />
 
       {props.selfServed && (

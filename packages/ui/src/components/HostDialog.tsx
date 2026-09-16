@@ -53,11 +53,16 @@ export function useHostingStatus(hosting: Platform["hosting"]) {
   return { status, loading: loading && status === null, error, refresh };
 }
 
-/** The workspace this computer hosted last, for offering to host it again. */
-export function useLastHosted(hosting: Platform["hosting"]) {
+/**
+ * The workspace this computer hosted last, for offering to host it again.
+ * Read again whenever hosting starts or stops, since either can change it.
+ */
+export function useLastHosted(hosting: Platform["hosting"], status: HostingStatus | null) {
   const [lastHosted, setLastHosted] = useState<{ workspaceName: string; port: number } | null>(
     null,
   );
+  const phase = status ? (status.phase ?? (status.running ? "running" : "stopped")) : null;
+  const hosted = status?.running ? `${status.workspaceName ?? ""}:${status.port ?? ""}` : "";
   useEffect(() => {
     if (!hosting?.lastHosted) return;
     let alive = true;
@@ -70,7 +75,7 @@ export function useLastHosted(hosting: Platform["hosting"]) {
     return () => {
       alive = false;
     };
-  }, [hosting]);
+  }, [hosting, phase, hosted]);
   return lastHosted;
 }
 
