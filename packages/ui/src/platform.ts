@@ -1,3 +1,5 @@
+import { parseDeepLink } from "./lib/deeplink.js";
+
 /** A workspace server found on the local network via mDNS. */
 export interface DiscoveredServer {
   name: string;
@@ -44,7 +46,10 @@ export interface Platform {
   downloadFile?: (url: string) => Promise<void>;
   /** Subscribe to LAN server discovery. Returns unsubscribe. Desktop only. */
   discoverLan?: (cb: (servers: DiscoveredServer[]) => void) => () => void;
-  /** slackoss:// links. Desktop only — browsers have no protocol handler. */
+  /**
+   * Links to join a workspace or open a message: slackoss:// ones in the desktop
+   * app, and the address a browser was opened at.
+   */
   deepLinks?: {
     /** A link that launched the app, consumed once. */
     consumePending: () => Promise<string | null>;
@@ -94,5 +99,30 @@ export function webPlatform(): Platform {
         new Notification(title, { body });
       }
     },
+    deepLinks: {
+      consumePending: async () => takeLinkFromAddress(),
+      subscribe: (cb) => {
+        // A link pasted into the address bar of a page already open changes
+        // only the fragment, which loads nothing.
+        const onHashChange = () => {
+          const link = takeLinkFromAddress();
+          if (link) cb(link);
+        };
+        window.addEventListener("hashchange", onHashChange);
+        return () => window.removeEventListener("hashchange", onHashChange);
+      },
+    },
   };
+}
+
+/**
+ * The link this page was opened at, such as <server>/#/join/<code>. It is taken
+ * out of the address once read, so a reload does not act on it again and an
+ * invite code does not stay in the address bar or the history.
+ */
+function takeLinkFromAddress(): string | null {
+  const { href, pathname, search } = window.location;
+  if (!parseDeepLink(href)) return null;
+  history.replaceState(history.state, "", pathname + search);
+  return href;
 }

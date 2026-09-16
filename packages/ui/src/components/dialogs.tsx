@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "@slackoss/client-core";
 import { useCopy } from "../lib/useCopy.js";
+import { browserLink, desktopLink, serverAddress } from "../lib/deeplink.js";
 import type { Channel, ID, Invite, InviteStatus } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { useShareableServer } from "./ShareableServer.js";
 
 export function NewChannelDialog(props: { onClose: () => void; onCreated: (ch: Channel) => void }) {
   const client = useClient();
@@ -258,6 +260,23 @@ const INVITE_STATUS: Record<InviteStatus, string> = {
   creator_not_permitted: "Creator can no longer invite",
 };
 
+function InviteLink(props: { title: string; link: string; copyLabel: string; onCopy: () => void }) {
+  return (
+    <div className="mt-3 border-t border-edge pt-3">
+      <div className="mb-1 text-xs text-ink-faint">{props.title}</div>
+      <div className="flex items-center justify-between gap-2">
+        <code className="min-w-0 break-all font-mono text-xs text-ink">{props.link}</code>
+        <button
+          onClick={props.onCopy}
+          className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
+        >
+          {props.copyLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function InviteDialog(props: { onClose: () => void }) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
@@ -279,8 +298,18 @@ export function InviteDialog(props: { onClose: () => void }) {
     [users],
   );
   const { copy, label, copied } = useCopy();
-  const host = client.baseUrl.replace(/^https?:\/\//, "");
-  const link = invite ? `slackoss://join?host=${host}&code=${invite}` : null;
+  const shareable = useShareableServer();
+  const addresses = [shareable.serverUrl, ...shareable.alternatives];
+  const [chosenAddress, setChosenAddress] = useState<string | null>(null);
+  const serverUrl =
+    chosenAddress && addresses.includes(chosenAddress) ? chosenAddress : shareable.serverUrl;
+  const host = serverAddress(serverUrl);
+  const links = invite
+    ? {
+        browser: browserLink(serverUrl, { kind: "join", code: invite }),
+        desktop: desktopLink(serverUrl, { kind: "join", code: invite }),
+      }
+    : null;
 
   const loadInvites = useCallback(async () => {
     const request = ++listRequest.current;
@@ -344,24 +373,45 @@ export function InviteDialog(props: { onClose: () => void }) {
   return (
     <Dialog title="Invite people" onClose={props.onClose}>
       <p className="mb-4 text-sm text-ink-dim">
-        Teammates on your network can find this workspace automatically. Anyone else needs the
-        address — and an invite code if the workspace is invite-only.
+        Send someone an invite link. It opens this workspace in their browser with the code already
+        filled in.
       </p>
       <div className="mb-4 rounded-lg border border-edge bg-ground p-3">
         <div className="mb-1 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
           Server address
         </div>
         <div className="flex items-center justify-between gap-2">
-          <code className="font-mono text-sm text-copper">{host}</code>
+          {addresses.length > 1 ? (
+            <select
+              aria-label="Address used in links"
+              value={serverUrl}
+              onChange={(e) => setChosenAddress(e.target.value)}
+              className="min-w-0 rounded border border-edge bg-raised px-2 py-1 font-mono text-sm text-copper"
+            >
+              {addresses.map((address) => (
+                <option key={address} value={address}>
+                  {serverAddress(address)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <code className="min-w-0 break-all font-mono text-sm text-copper">{host}</code>
+          )}
           <button
             onClick={() => void copy(host, "host")}
-            className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
+            className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
           >
             {label("Copy", "Copied", "Copy failed", "host")}
           </button>
         </div>
+        {shareable.localOnly && (
+          <p className="mt-2 text-xs text-ink-dim">
+            This address reaches only this computer, so links made here will not work for anyone
+            else. Open this workspace at its network or public address to invite people.
+          </p>
+        )}
       </div>
-      {invite && canInvite ? (
+      {invite && canInvite && links ? (
         <div className="rounded-lg border border-edge bg-ground p-3">
           <div className="mb-1 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
             Invite code · valid 7 days
@@ -371,12 +421,24 @@ export function InviteDialog(props: { onClose: () => void }) {
               {invite}
             </code>
             <button
-              onClick={() => void copy(link!, "link")}
+              onClick={() => void copy(invite, "code")}
               className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
             >
-              {label("Copy link", "Copied", "Copy failed", "link")}
+              {label("Copy code", "Copied", "Copy failed", "code")}
             </button>
           </div>
+          <InviteLink
+            title="Browser link"
+            link={links.browser}
+            copyLabel={label("Copy link", "Copied", "Copy failed", "browser")}
+            onCopy={() => void copy(links.browser, "browser")}
+          />
+          <InviteLink
+            title="Desktop app link"
+            link={links.desktop}
+            copyLabel={label("Copy desktop link", "Copied", "Copy failed", "desktop")}
+            onCopy={() => void copy(links.desktop, "desktop")}
+          />
         </div>
       ) : canInvite ? (
         <button

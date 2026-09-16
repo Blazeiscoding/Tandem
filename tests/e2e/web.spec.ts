@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -1081,5 +1081,185 @@ test("an invite code that got out can be revoked from the dialog that made it", 
     expect(invites.find((i: { code: string }) => i.code === code).status).toBe("revoked");
   } finally {
     await context.close().catch(() => {});
+  }
+});
+
+test("an invite link lets someone into an invite-only workspace from a browser, and a message link opens its message", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  // A workspace of its own, invite-only, so the code the link carries is what
+  // lets the new person in.
+  const port = 18544;
+  const origin = `http://127.0.0.1:${port}`;
+  const inviteData = mkdtempSync(join(tmpdir(), "slackoss-e2e-invite-"));
+  const inviteServer = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      inviteData,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Rocket Team",
+      "--invite-only",
+      "--no-rate-limits",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  const contexts: BrowserContext[] = [];
+  try {
+    await expect
+      .poll(async () => {
+        try {
+          return (await fetch(`${origin}/api/health`)).status;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(200);
+
+    // The owner, created from this machine, which needs no claim code.
+    const registered = await (
+      await fetch(`${origin}/api/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "hana", displayName: "Hana", password: "password123" }),
+      })
+    ).json();
+    const auth = {
+      authorization: `Bearer ${registered.token}`,
+      "content-type": "application/json",
+    };
+    const { channels } = await (await fetch(`${origin}/api/channels`, { headers: auth })).json();
+    const general = channels.find((c: { name: string }) => c.name === "general");
+    const post = async (text: string) => {
+      const response = await fetch(`${origin}/api/channels/${general.id}/messages`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ text }),
+      });
+      expect(response.status).toBe(201);
+      return (await response.json()).message as { id: string };
+    };
+    // A message far enough back that opening it means going to find it.
+    const plan = await post("The launch plan lives in the design doc");
+    for (let i = 0; i < 80; i++) await post(`standup note ${i}`);
+    const latest = await post("Latest update before the invite");
+    const messageLink = (id: string) => `${origin}/#/c/${general.id}/m/${id}`;
+
+    const host = await browser.newContext({
+      viewport: { width: 1280, height: 820 },
+      permissions: ["clipboard-read", "clipboard-write"],
+    });
+    contexts.push(host);
+    const hostPage = await host.newPage();
+    await hostPage.goto(origin);
+    await hostPage.evaluate(
+      (server) => localStorage.setItem("slackoss:servers", JSON.stringify([server])),
+      {
+        url: origin,
+        token: registered.token,
+        workspaceName: "Rocket Team",
+        handle: "hana",
+        lastUsedAt: Date.now(),
+      },
+    );
+    await hostPage.reload();
+    await expect(
+      hostPage.getByText("Latest update before the invite", { exact: true }),
+    ).toBeVisible();
+
+    // The link is a browser's, built on the address this browser uses. That
+    // address is this computer's own, and the dialog says so.
+    await hostPage.getByRole("button", { name: "+ Invite people", exact: true }).click();
+    const dialog = hostPage.getByRole("dialog", { name: "Invite people" });
+    await dialog.getByRole("button", { name: "Generate invite code", exact: true }).click();
+    const code = (await dialog.locator("code.text-lg").textContent())!.trim();
+    const inviteLink = `${origin}/#/join/${code}`;
+    await expect(dialog.getByText(inviteLink, { exact: true })).toBeVisible();
+    await expect(
+      dialog.getByText(`slackoss://join?host=127.0.0.1:${port}&code=${code}`, { exact: true }),
+    ).toBeVisible();
+    await expect(dialog.getByText(/reaches only this computer/)).toBeVisible();
+    await dialog.getByRole("button", { name: "Copy link", exact: true }).click();
+    expect(await hostPage.evaluate(() => navigator.clipboard.readText())).toBe(inviteLink);
+    await hostPage.keyboard.press("Escape");
+
+    // Someone who has never been here opens it: the account form, code filled in.
+    const guest = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+    contexts.push(guest);
+    const guestPage = await guest.newPage();
+    await guestPage.goto(inviteLink);
+    await expect(guestPage.getByRole("heading", { name: "Rocket Team" })).toBeVisible();
+    await expect(guestPage.getByPlaceholder("Invite code", { exact: true })).toHaveValue(code);
+    // Read once, and gone from the address, so a reload or the history does not hold it.
+    await expect(guestPage).toHaveURL(`${origin}/`);
+    await guestPage.getByPlaceholder("username", { exact: true }).fill("ivy");
+    await guestPage.getByPlaceholder("Display name", { exact: true }).fill("Ivy");
+    await guestPage.getByPlaceholder("Password (8+ characters)").fill("password123");
+    await guestPage.getByRole("button", { name: "Join workspace", exact: true }).click();
+    await expect(guestPage.locator("textarea")).toBeVisible();
+    await expect(
+      guestPage.getByText("Latest update before the invite", { exact: true }),
+    ).toBeVisible();
+
+    // Copying a message's link gives the browser form of it.
+    const latestRow = hostPage.locator(`[data-mid="${latest.id}"]`);
+    await latestRow.hover();
+    await latestRow.getByTitle("Copy link to message", { exact: true }).click();
+    expect(await hostPage.evaluate(() => navigator.clipboard.readText())).toBe(
+      messageLink(latest.id),
+    );
+
+    // Pasted into the address bar of the page already open, a message link
+    // goes to the message, however far back it is.
+    const planText = guestPage.getByText("The launch plan lives in the design doc", {
+      exact: true,
+    });
+    await expect(planText).toHaveCount(0);
+    await guestPage.goto(messageLink(plan.id));
+    await expect(planText).toBeInViewport();
+    await expect(guestPage).toHaveURL(`${origin}/`);
+
+    // Opened by someone signed out, it waits for them to sign in.
+    const later = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+    contexts.push(later);
+    const laterPage = await later.newPage();
+    await laterPage.goto(messageLink(plan.id));
+    await laterPage.getByPlaceholder("username", { exact: true }).fill("ivy");
+    await laterPage.getByPlaceholder("Password", { exact: true }).fill("password123");
+    await laterPage.getByPlaceholder("Password", { exact: true }).press("Enter");
+    await expect(
+      laterPage.getByText("The launch plan lives in the design doc", { exact: true }),
+    ).toBeInViewport();
+
+    // A link to a message, sent in a message, opens it in place rather than
+    // in another tab of the app.
+    const planForHost = hostPage.getByText("The launch plan lives in the design doc", {
+      exact: true,
+    });
+    await expect(planForHost).toHaveCount(0);
+    await post(`${messageLink(plan.id)} is where the plan is`);
+    const sent = hostPage.getByRole("link", { name: messageLink(plan.id), exact: true });
+    await expect(sent).toBeInViewport({ ratio: 1 });
+    const pagesBefore = host.pages().length;
+    // At the start of the link: hovering the message raises its toolbar over
+    // the far end of a line this long.
+    await sent.click({ position: { x: 6, y: 6 } });
+    await expect(planForHost).toBeInViewport();
+    expect(host.pages()).toHaveLength(pagesBefore);
+  } finally {
+    for (const context of contexts) await context.close().catch(() => {});
+    if (inviteServer.exitCode === null) {
+      const exited = new Promise((resolve) => inviteServer.once("exit", resolve));
+      inviteServer.kill();
+      await exited;
+    }
+    rmSync(inviteData, { recursive: true, force: true });
   }
 });

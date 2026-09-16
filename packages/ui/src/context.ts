@@ -1,10 +1,18 @@
 import { createContext, useContext } from "react";
 import { useStore } from "zustand";
 import type { WorkspaceClient, WorkspaceState } from "@slackoss/client-core";
+import type { ID } from "@slackoss/protocol";
 import type { Platform } from "./platform.js";
 
 export const PlatformContext = createContext<Platform | null>(null);
 export const ClientContext = createContext<WorkspaceClient | null>(null);
+/**
+ * Opens a message in the workspace on screen, so a link to one written in a
+ * message opens it there rather than in another window of the app.
+ */
+export const OpenMessageContext = createContext<((channelId: ID, messageId: ID) => void) | null>(
+  null,
+);
 
 export function usePlatform(): Platform {
   const p = useContext(PlatformContext);

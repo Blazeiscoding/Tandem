@@ -249,4 +249,20 @@ describe("the url handed to an app", () => {
     );
     expect(url.startsWith("https://chat.team.dev/")).toBe(true);
   });
+
+  it("tells clients the configured address, so the links people share carry it", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "slackoss-origin-"));
+    server = await createWorkspaceServer({
+      dataDir,
+      host: "127.0.0.1",
+      port: 0,
+      mdns: false,
+      logger: false,
+      publicUrl: "https://chat.team.dev/",
+    });
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/server-info`);
+    expect(((await response.json()) as { publicUrl?: string }).publicUrl).toBe(
+      "https://chat.team.dev",
+    );
+  });
 });

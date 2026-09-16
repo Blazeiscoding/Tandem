@@ -56,6 +56,15 @@ Browser checks: `pnpm exec playwright install chromium`, then `pnpm test:e2e`
 after building. Windows checks: `pnpm --filter @slackoss/desktop package --win`,
 then `pnpm test:desktop`. These tests use temporary workspaces and fake media.
 
+A browser test that passes on Windows can still fail on Linux CI, where fonts
+and line breaks differ. Moving the pointer onto a message raises its toolbar over
+the top right of that message, so a click aimed at the middle of something long
+in its first line, a link for instance, can land on the toolbar and time out
+after retrying. Start the message with what is being clicked and click near its
+start, or focus it and press Enter. After a message arrives, wait for
+`toBeInViewport({ ratio: 1 })` before clicking in it: the default passes while
+the row is still partly behind the composer.
+
 UI component checks belong in `packages/ui/test/*.dom.test.tsx`. They run with
 jsdom, Testing Library, explicit cleanup, and the shared accessibility helper.
 Other UI tests keep the Node environment, including static rendering tests.

@@ -19,7 +19,7 @@ type Session =
       id: number;
       client: WorkspaceClient;
       server: SavedServer;
-      /** Set when a slackoss://message link opened this workspace. */
+      /** Set when a link to a message opened this workspace. */
       target?: { channelId: string; messageId: string } | null;
     };
 
@@ -43,6 +43,10 @@ export function App({ platform }: { platform: Platform }) {
   const [forgetError, setForgetError] = useState(false);
   /** Which workspace is open, so a deep link to it can skip reconnecting. */
   const openServerUrl = useRef<string | null>(null);
+  /** A message a link asked for, kept while its workspace is signed in to. */
+  const pendingTarget = useRef<{ serverUrl: string; channelId: string; messageId: string } | null>(
+    null,
+  );
 
   const persistServers = useCallback(
     async (list: SavedServer[]) => {
@@ -117,7 +121,15 @@ export function App({ platform }: { platform: Platform }) {
     };
   }, [restoreServers]);
 
-  // slackoss:// links: join a workspace, or jump to a specific message.
+  /** Nothing of the workspace that was open stays connected behind another screen. */
+  const closeWorkspace = useCallback(() => {
+    clientRef.current?.destroy();
+    clientRef.current = null;
+    openServerUrl.current = null;
+  }, []);
+
+  // Links, from the desktop app or a browser's address: join a workspace, or
+  // jump to a specific message.
   const handleDeepLink = useCallback(
     async (raw: string) => {
       const link = parseDeepLink(raw);
@@ -127,6 +139,7 @@ export function App({ platform }: { platform: Platform }) {
         return;
       }
       setForgetConfirm(false);
+      pendingTarget.current = null;
       const ticket = ++navigation.current;
       try {
         const list = restoredServers.current
@@ -147,29 +160,34 @@ export function App({ platform }: { platform: Platform }) {
             );
             return;
           }
-          // Otherwise it needs credentials we already hold.
+          // Otherwise it needs credentials we already hold, or a sign-in first,
+          // after which the message still opens.
           if (known) {
             openWorkspace(known, list, {
               channelId: link.channelId,
               messageId: link.messageId,
             });
           } else {
+            closeWorkspace();
+            pendingTarget.current = link;
             setSession({ view: "join", autoProbe: link.serverUrl });
           }
           return;
         }
         if (known) openWorkspace(known, list);
-        else
+        else {
+          closeWorkspace();
           setSession({
             view: "join",
             autoProbe: link.serverUrl,
             inviteCode: link.code ?? undefined,
           });
+        }
       } catch {
         if (ticket === navigation.current) setSession({ view: "restore_failed" });
       }
     },
-    [openWorkspace, platform],
+    [closeWorkspace, openWorkspace, platform],
   );
 
   useEffect(() => {
@@ -182,11 +200,10 @@ export function App({ platform }: { platform: Platform }) {
 
   const leaveWorkspace = useCallback(() => {
     navigation.current++;
-    clientRef.current?.destroy();
-    clientRef.current = null;
-    openServerUrl.current = null;
+    pendingTarget.current = null;
+    closeWorkspace();
     setSession({ view: "join" });
-  }, []);
+  }, [closeWorkspace]);
 
   const forgetServer = useCallback(
     (url: string) => {
@@ -309,7 +326,17 @@ export function App({ platform }: { platform: Platform }) {
                 savedServers={savedServers}
                 autoProbe={session.autoProbe}
                 inviteCode={session.inviteCode}
-                onConnected={(server) => openWorkspace(server, savedServers)}
+                onConnected={(server) => {
+                  const pending = pendingTarget.current;
+                  pendingTarget.current = null;
+                  openWorkspace(
+                    server,
+                    savedServers,
+                    pending?.serverUrl === server.url
+                      ? { channelId: pending.channelId, messageId: pending.messageId }
+                      : null,
+                  );
+                }}
                 onForget={forgetServer}
                 onHostClick={platform.hosting ? () => setHostDialogOpen(true) : undefined}
                 hostingStatus={hosting.status}

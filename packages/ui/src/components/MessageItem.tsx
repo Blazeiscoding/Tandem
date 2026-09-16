@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import { useCopy } from "../lib/useCopy.js";
+import { browserLink } from "../lib/deeplink.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { formatTime } from "../lib/format.js";
@@ -7,6 +8,7 @@ import { Avatar } from "./Avatar.js";
 import { MessageAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { MessageEditor } from "./MessageEditor.js";
+import { useShareableServer } from "./ShareableServer.js";
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
 
@@ -38,6 +40,7 @@ export const MessageItem = memo(function MessageItem({
   const self = useWorkspace((s) => s.self);
   const [editing, setEditing] = useState(false);
   const { copy, copied } = useCopy(1200);
+  const shareable = useShareableServer();
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
   const mine = message.userId === self?.id;
@@ -182,10 +185,14 @@ export const MessageItem = memo(function MessageItem({
             label={copied ? (copied.ok ? "✓" : "✕") : "🔗"}
             title={copied && !copied.ok ? "Could not copy the link" : "Copy link to message"}
             onClick={() =>
+              // A browser link opens anywhere: in a browser at the web client,
+              // and in place when clicked inside the app.
               void copy(
-                `slackoss://message?host=${encodeURIComponent(
-                  client.baseUrl.replace(/^https?:\/\//, ""),
-                )}&channel=${message.channelId}&id=${message.id}`,
+                browserLink(shareable.serverUrl, {
+                  kind: "message",
+                  channelId: message.channelId,
+                  messageId: message.id,
+                }),
               )
             }
           />
