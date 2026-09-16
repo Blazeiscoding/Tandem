@@ -14,6 +14,8 @@ export interface SlackossBridge {
   /** A gatherline:// (or legacy slackoss://) link that launched the app, if any. */
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
+  /** Shows the window again, restored and in front. */
+  revealWindow: () => Promise<void>;
 }
 
 const bridge: SlackossBridge = {
@@ -41,6 +43,7 @@ const bridge: SlackossBridge = {
     ipcRenderer.on("deeplink", listener);
     return () => ipcRenderer.removeListener("deeplink", listener);
   },
+  revealWindow: () => ipcRenderer.invoke("window:reveal"),
 };
 
 contextBridge.exposeInMainWorld("slackoss", bridge);

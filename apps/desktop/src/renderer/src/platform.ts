@@ -13,6 +13,7 @@ interface SlackossBridge {
   onHostingStatus: (cb: (status: HostingStatus) => void) => () => void;
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
+  revealWindow: () => Promise<void>;
 }
 
 declare global {
@@ -36,7 +37,9 @@ export function electronPlatform(): Platform {
       if (onClick) {
         note.onclick = (event) => {
           event.preventDefault();
-          window.focus();
+          // The renderer cannot raise a window that is minimized or closed to
+          // the tray; the main process can.
+          void bridge.revealWindow();
           onClick();
           note.close();
         };
