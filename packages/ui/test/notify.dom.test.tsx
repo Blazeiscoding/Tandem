@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { NotificationBanner } from "../src/components/NotificationBanner.js";
-import { webPlatform } from "../src/platform.js";
+import {
+  NOTIFICATION_PROMPT_SNOOZE_MS,
+  NotificationBanner,
+} from "../src/components/NotificationBanner.js";
+import { webPlatform, type Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 
 /** A browser Notification stand-in the tests can answer through. */
@@ -35,39 +38,110 @@ function installNotification(permission: NotificationPermission) {
   return { created, requestPermission };
 }
 
+/** Settings kept in memory, as this device would keep them, counting reads. */
+function deviceStorage() {
+  const values = new Map<string, unknown>();
+  const get = vi.fn(async (key: string) => values.get(key) ?? null);
+  const storage: Platform["storage"] = {
+    get: get as Platform["storage"]["get"],
+    set: async (key, value) => {
+      values.set(key, value);
+    },
+  };
+  return { storage, values, get };
+}
+
+/** Renders the banner and waits until it has heard back from storage. */
+async function banner(props: Parameters<typeof NotificationBanner>[0], reads: () => number) {
+  const before = reads();
+  const view = render(<NotificationBanner {...props} />);
+  await waitFor(() => expect(reads()).toBe(before + 1));
+  await act(async () => {});
+  return view;
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("the notification banner", () => {
   it("offers to turn notifications on, and goes away once they are", async () => {
     const { requestPermission } = installNotification("default");
     const user = userEvent.setup();
-    render(<NotificationBanner />);
-    const banner = screen.getByRole("region", { name: "Notifications" });
-    expect(banner).toHaveTextContent(/mentions while Gatherline is in the background/);
-    expect(await accessibilityProblems(banner)).toEqual([]);
+    render(<NotificationBanner storage={deviceStorage().storage} />);
+    const region = await screen.findByRole("region", { name: "Notifications" });
+    expect(region).toHaveTextContent(/mentions while Gatherline is in the background/);
+    expect(await accessibilityProblems(region)).toEqual([]);
 
     await user.click(screen.getByRole("button", { name: "Turn on" }));
     expect(requestPermission).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("region", { name: "Notifications" })).not.toBeInTheDocument();
   });
 
-  it("waits for the next sign-in when dismissed instead of asking again", async () => {
-    installNotification("default");
+  it("stays away on this device for two weeks after Not now", async () => {
+    const { requestPermission } = installNotification("default");
     const user = userEvent.setup();
-    render(<NotificationBanner />);
+    const { storage, values, get } = deviceStorage();
+    const reads = () => get.mock.calls.length;
+    let clock = 1_000_000;
+    const now = () => clock;
+
+    const first = await banner({ storage, now }, reads);
     await user.click(screen.getByRole("button", { name: "Not now" }));
+    expect(screen.queryByRole("region", { name: "Notifications" })).not.toBeInTheDocument();
+    expect(values.get("notificationPromptSnoozedAt")).toBe(1_000_000);
+    expect(requestPermission).not.toHaveBeenCalled();
+    first.unmount();
+
+    // A reload the next day asks nothing,
+    clock += 24 * 60 * 60 * 1000;
+    const second = await banner({ storage, now }, reads);
+    expect(screen.queryByRole("region", { name: "Notifications" })).not.toBeInTheDocument();
+    second.unmount();
+
+    // and once the two weeks are up, it offers again.
+    clock = 1_000_000 + NOTIFICATION_PROMPT_SNOOZE_MS;
+    await banner({ storage, now }, reads);
+    expect(screen.getByRole("region", { name: "Notifications" })).toBeVisible();
+  });
+
+  it("shows nothing until this device has said whether it was put off", async () => {
+    installNotification("default");
+    const storage: Platform["storage"] = {
+      get: () => new Promise(() => {}),
+      set: async () => {},
+    };
+    render(<NotificationBanner storage={storage} />);
+    await act(async () => {});
     expect(screen.queryByRole("region", { name: "Notifications" })).not.toBeInTheDocument();
   });
 
-  it("stays out of the way when there is nothing to ask", () => {
+  it("still goes away when this device cannot remember the choice", async () => {
+    installNotification("default");
+    const user = userEvent.setup();
+    const storage: Platform["storage"] = {
+      get: async () => {
+        throw new Error("settings locked");
+      },
+      set: async () => {
+        throw new Error("settings locked");
+      },
+    };
+    render(<NotificationBanner storage={storage} />);
+    await user.click(await screen.findByRole("button", { name: "Not now" }));
+    expect(screen.queryByRole("region", { name: "Notifications" })).not.toBeInTheDocument();
+  });
+
+  it("stays out of the way when there is nothing to ask", async () => {
+    const { storage } = deviceStorage();
     for (const permission of ["granted", "denied"] as const) {
       installNotification(permission);
-      const { unmount } = render(<NotificationBanner />);
+      const { unmount } = render(<NotificationBanner storage={storage} />);
+      await act(async () => {});
       expect(screen.queryByRole("region", { name: "Notifications" })).not.toBeInTheDocument();
       unmount();
     }
     vi.stubGlobal("Notification", undefined);
-    render(<NotificationBanner />);
+    render(<NotificationBanner storage={storage} />);
+    await act(async () => {});
     expect(screen.queryByRole("region", { name: "Notifications" })).not.toBeInTheDocument();
   });
 });

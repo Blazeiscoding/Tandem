@@ -88,6 +88,10 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   await page.getByRole("button", { name: "Join workspace", exact: true }).click();
   await expect(page.locator("textarea")).toBeVisible();
   const status = await page.evaluate(() => (window as any).slackoss.hostingStatus());
+  // The app grants its own notifications, so it has nothing to ask about;
+  // refused, every notification it tried to show failed without a word.
+  expect(await page.evaluate(() => Notification.permission)).toBe("granted");
+  await expect(page.getByRole("region", { name: "Notifications" })).toHaveCount(0);
   await expect.poll(trayMenu).toEqual([
     { label: "Open Gatherline", enabled: true },
     { label: `Hosting Desktop Test · port ${status.port}`, enabled: false },
@@ -135,6 +139,66 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   expect(closedWhileHosting).toBe(false);
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   expect((await fetch(`http://127.0.0.1:${status.port}/api/health`)).status).toBe(200);
+
+  // A teammate writes while the window is closed to the tray. The message
+  // notifies, and clicking the notification brings the window back at it.
+  // A test cannot click a system notification, so the renderer's is recorded.
+  await page.evaluate(() => {
+    const shown: Array<{ onclick: ((event: Event) => void) | null }> = [];
+    (window as any).shownNotifications = shown;
+    (window as any).Notification = class {
+      static permission = "granted";
+      onclick: ((event: Event) => void) | null = null;
+      constructor() {
+        shown.push(this);
+      }
+      close() {}
+    };
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0]!;
+    const focus = win.focus.bind(win);
+    (globalThis as any).reveals = 0;
+    win.focus = () => {
+      (globalThis as any).reveals++;
+      focus();
+    };
+  });
+  const hosted = `http://127.0.0.1:${status.port}`;
+  const teammate = await (
+    await fetch(`${hosted}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        handle: "teammate",
+        displayName: "Teammate",
+        password: "password123",
+      }),
+    })
+  ).json();
+  const auth = { authorization: `Bearer ${teammate.token}`, "content-type": "application/json" };
+  const { users } = await (await fetch(`${hosted}/api/users`, { headers: auth })).json();
+  const owner = users.find((u: { handle: string }) => u.handle === "desktopowner");
+  const dm = await (
+    await fetch(`${hosted}/api/channels`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ type: "dm", memberIds: [owner.id] }),
+    })
+  ).json();
+  const posted = await (
+    await fetch(`${hosted}/api/channels/${dm.channel.id}/messages`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ text: "desktop notification check" }),
+    })
+  ).json();
+  await expect.poll(() => page.evaluate(() => (window as any).shownNotifications.length)).toBe(1);
+  await page.evaluate(() => (window as any).shownNotifications[0].onclick(new Event("click")));
+  await expect.poll(() => app.evaluate(() => (globalThis as any).reveals)).toBeGreaterThan(0);
+  await expect(page.locator(`[data-mid="${posted.message.id}"]`)).toContainText(
+    "desktop notification check",
+  );
 
   // Stopping asks first, then stops the server.
   await manage.click();
@@ -217,11 +281,9 @@ test("restarting offers to host the last workspace again instead of reconnecting
     const resume = page.getByRole("region", { name: "Hosted on this computer" });
     await expect(resume).toBeVisible();
     await resume.getByRole("button", { name: "Start hosting Resume Test" }).click();
-    // The saved sign-in opens again, handle already filled in.
-    await expect(page.getByLabel("Username", { exact: true })).toHaveValue("resumeowner");
-    await page.getByLabel("Password", { exact: true }).fill("password123");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    // The saved sign-in still works, so the workspace opens with no password asked.
     await expect(page.locator("textarea")).toBeVisible();
+    await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => (window as any).slackoss.hostingStatus())).toMatchObject({
       running: true,
     });

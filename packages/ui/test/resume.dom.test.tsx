@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Api } from "@slackoss/client-core";
-import type { ServerInfo } from "@slackoss/protocol";
+import { Api, ApiError } from "@slackoss/client-core";
+import type { ServerInfo, User } from "@slackoss/protocol";
 import { JoinScreen } from "../src/screens/JoinScreen.js";
+import { useLastHosted } from "../src/components/HostDialog.js";
 import { hostedButStopped, resumeTarget } from "../src/lib/resume.js";
 import type { HostingStatus, Platform, SavedServer } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
@@ -24,6 +25,19 @@ const info: ServerInfo = {
   userCount: 3,
   requiresInvite: false,
   requiresClaim: false,
+};
+
+const owner: User = {
+  id: "U_SAM",
+  handle: "sam",
+  displayName: "Sam Rivera",
+  role: "owner",
+  statusText: "",
+  statusEmoji: "",
+  isBot: false,
+  deactivated: false,
+  dndUntil: null,
+  createdAt: 0,
 };
 
 const stopped: HostingStatus = { running: false, phase: "stopped" };
@@ -88,6 +102,7 @@ function joinWith(options: {
     options.start ??
     (async () => ({ running: true, phase: "running", workspaceName: "Rocket Team", port: 8543 }));
   const startSpy = vi.fn(start);
+  const onConnected = vi.fn();
   const platform: Platform = {
     kind: "desktop",
     storage: { get: async () => null, set: async () => {} },
@@ -103,41 +118,58 @@ function joinWith(options: {
     <JoinScreen
       platform={platform}
       savedServers={[saved]}
-      onConnected={() => {}}
+      onConnected={onConnected}
       onForget={() => {}}
       onHostClick={() => {}}
       hostingStatus={options.hostingStatus ?? stopped}
       lastHosted={options.lastHosted ?? null}
     />,
   );
-  return { start: startSpy, user: userEvent.setup() };
+  return { start: startSpy, onConnected, user: userEvent.setup() };
 }
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("resuming a hosted workspace", () => {
-  it("offers to host it again instead of reconnecting to nothing", async () => {
-    vi.spyOn(Api.prototype, "serverInfo").mockResolvedValue(info);
-    const { start, user } = joinWith({ lastHosted: remembered });
+  it("offers to host it again, and reopens it without asking for the password", async () => {
+    const me = vi.spyOn(Api.prototype, "me").mockResolvedValue({ user: owner });
+    const { start, onConnected, user } = joinWith({ lastHosted: remembered });
     const card = screen.getByRole("region", { name: "Hosted on this computer" });
     expect(card).toHaveTextContent(/Rocket Team.*isn’t running/);
     expect(await accessibilityProblems(card)).toEqual([]);
 
     await user.click(screen.getByRole("button", { name: "Start hosting Rocket Team" }));
     expect(start).toHaveBeenCalledWith({ workspaceName: "Rocket Team", port: 8543 });
-    // Started on its remembered port, the saved sign-in opens again.
-    expect(await screen.findByRole("heading", { name: "Rocket Team" })).toBeVisible();
+    // Started on its remembered port, the saved sign-in still works there.
+    await waitFor(() => expect(onConnected).toHaveBeenCalledWith(saved));
+    expect(me.mock.contexts[0]).toMatchObject({ baseUrl: saved.url });
+    expect(screen.queryByLabelText("Password")).toBeNull();
   });
 
-  it("says when starting fails instead of leaving a spinner", async () => {
-    const { user } = joinWith({
+  it("asks for the password only when the saved sign-in stopped working", async () => {
+    vi.spyOn(Api.prototype, "me").mockRejectedValue(new ApiError(401, "unauthorized"));
+    vi.spyOn(Api.prototype, "serverInfo").mockResolvedValue(info);
+    const { onConnected, user } = joinWith({ lastHosted: remembered });
+    await user.click(screen.getByRole("button", { name: "Start hosting Rocket Team" }));
+    expect(await screen.findByRole("heading", { name: "Rocket Team" })).toBeVisible();
+    expect(screen.getByLabelText("Password")).toBeVisible();
+    expect(onConnected).not.toHaveBeenCalled();
+  });
+
+  it("says when starting fails, and how to start it on another port", async () => {
+    const { onConnected, user } = joinWith({
       lastHosted: remembered,
       start: async () => {
         throw new Error("port taken");
       },
     });
     await user.click(screen.getByRole("button", { name: "Start hosting Rocket Team" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/port may be in use/);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not start Rocket Team on port 8543.");
+    expect(alert).toHaveTextContent(/choose Host a workspace on this computer/);
+    expect(screen.getByRole("button", { name: "Host a workspace on this computer" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start hosting Rocket Team" })).toBeEnabled();
+    expect(onConnected).not.toHaveBeenCalled();
   });
 
   it("stays quiet when hosting runs, nothing is remembered, or nobody saved it", async () => {
@@ -162,5 +194,39 @@ describe("resuming a hosted workspace", () => {
       expect(screen.queryByRole("region", { name: "Hosted on this computer" })).toBeNull();
       unmount();
     }
+  });
+});
+
+describe("what this computer hosted last", () => {
+  it("is read again whenever hosting starts or stops", async () => {
+    const lastHosted = vi
+      .fn<() => Promise<{ workspaceName: string; port: number } | null>>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ workspaceName: "Beta", port: 8544 });
+    const hosting = { status: async () => stopped, start: vi.fn(), stop: vi.fn(), lastHosted };
+    function Remembered({ status }: { status: HostingStatus | null }) {
+      const value = useLastHosted(hosting, status);
+      return <output>{value ? `${value.workspaceName} on ${value.port}` : "nothing"}</output>;
+    }
+    const betaRunning: HostingStatus = {
+      running: true,
+      phase: "running",
+      workspaceName: "Beta",
+      port: 8544,
+    };
+
+    const view = render(<Remembered status={stopped} />);
+    await waitFor(() => expect(lastHosted).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status")).toHaveTextContent("nothing");
+
+    // Hosting something else changes the answer.
+    view.rerender(<Remembered status={betaRunning} />);
+    expect(await screen.findByText("Beta on 8544")).toBeVisible();
+    expect(lastHosted).toHaveBeenCalledTimes(2);
+
+    // A status that says the same thing again asks nothing new; stopping does.
+    view.rerender(<Remembered status={{ ...betaRunning }} />);
+    view.rerender(<Remembered status={stopped} />);
+    await waitFor(() => expect(lastHosted).toHaveBeenCalledTimes(3));
   });
 });
