@@ -80,7 +80,7 @@ chat.example.org {
 By default no third-party ICE server is contacted. LAN peers connect directly.
 For people on different networks, provide your own STUN/TURN configuration through
 `GATHERLINE_ICE_SERVERS` (previously `SLACKOSS_ICE_SERVERS`). Compose reads it
-from the environment or `docker/.env`:
+from the environment or `docker/.env`, under either name:
 
 ```dotenv
 GATHERLINE_ICE_SERVERS=[{"urls":"stun:turn.example.org:3478"},{"urls":"turn:turn.example.org:3478","username":"workspace","credential":"replace-with-a-strong-secret"}]
