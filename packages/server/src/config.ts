@@ -11,6 +11,15 @@
 /** A setting that cannot be used, with a message meant for the person who set it. */
 export class ConfigError extends Error {}
 
+/**
+ * Reads a setting from the environment under its Gatherline name, falling
+ * back to the previous SLACKOSS_ name so existing deployments keep working.
+ * Where both are set, the Gatherline one wins.
+ */
+export function envSetting(name: string): string | undefined {
+  return process.env[`GATHERLINE_${name}`] ?? process.env[`SLACKOSS_${name}`];
+}
+
 /** A TCP port: a whole number from 0 (any free port) to 65535. */
 export function parsePort(raw: string | number, flag = "--port"): number {
   const text = String(raw).trim();

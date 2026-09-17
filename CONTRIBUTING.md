@@ -27,13 +27,18 @@ download it. If an artifact genuinely helps diagnose a failure, upload it under
 The browser and desktop suites run against built output rather than the sources:
 `tests/e2e/web.spec.ts` spawns `apps/server-cli/dist/`, and the desktop spec
 launches the packaged app. Build before running them, or they will quietly pass
-against the previous build and tell you nothing about your change.
+against the previous build and tell you nothing about your change. The scenarios
+in `web.spec.ts` share one server and build on each other's accounts, and a
+worker is restarted after a failure with fresh hooks and a fresh server — so a
+failure midway cascades into confusing failures later (a sign-in meeting an
+empty workspace, for instance). Fix the first failure and rerun before chasing
+the later ones.
 
 Requests are rationed by default, keyed on the account where there is one. A
 test or script that seeds history by posting hundreds of messages in a loop is
 indistinguishable from the flooding those limits exist to refuse, so start its
 server with `rateLimits: false` (or `--no-rate-limits` for the CLI, or
-`SLACKOSS_RATE_LIMITS=off` for a container) rather than raising the limits for
+`GATHERLINE_RATE_LIMITS=off` for a container) rather than raising the limits for
 everybody. Rationing has its own suite, where it is the subject rather than a
 background condition every other case has to work around.
 
@@ -64,6 +69,25 @@ after retrying. Start the message with what is being clicked and click near its
 start, or focus it and press Enter. After a message arrives, wait for
 `toBeInViewport({ ratio: 1 })` before clicking in it: the default passes while
 the row is still partly behind the composer.
+
+Browsers offer some APIs only to secure pages: https, and this computer's own
+`localhost` or `127.0.0.1`. The suites reach their servers on `127.0.0.1`, so
+they cannot notice something that works there but not at
+`http://192.168.1.20:8543`, which is how a workspace on a home or office network
+is opened. The clipboard is one: `navigator.clipboard` is simply missing on such a
+page, and every copy button failed for people on a LAN until PR #53. When a
+feature uses one of these APIs, also test the page without it, as the invite
+journey does by removing `writeText`.
+
+A renamed setting has to fall back to its previous name everywhere it is passed
+along, not only where the code reads it. The Compose file once passed
+`GATHERLINE_ICE_SERVERS` with a default beside `SLACKOSS_ICE_SERVERS`, and that
+default hid a value still set under the old name.
+
+`pnpm test` runs every package at once, and the server tests allow five seconds
+each. On a busy machine, one still packaging the desktop app for instance, a
+handful of unrelated server tests can time out together. Rerun that package on
+its own before chasing them; a real failure fails there too.
 
 UI component checks belong in `packages/ui/test/*.dom.test.tsx`. They run with
 jsdom, Testing Library, explicit cleanup, and the shared accessibility helper.

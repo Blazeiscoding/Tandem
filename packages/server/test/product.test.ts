@@ -217,7 +217,7 @@ describe("self-hosted product", () => {
       ),
     ).toHaveLength(1);
     expect(() => parseIceServers('[{"urls":"https://invalid","credential":"secret"}]')).toThrow(
-      "SLACKOSS_ICE_SERVERS must be",
+      "GATHERLINE_ICE_SERVERS",
     );
   });
   it("upgrades a workspace that predates message buttons", async () => {

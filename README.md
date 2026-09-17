@@ -33,7 +33,8 @@ host's machine. Keep backups of that folder.
 - **Direct connect** — type `192.168.1.42:8543` or `chat.yourteam.dev`.
 - **Invite links** — `http://host:8543/#/join/<code>` opens the workspace in any
   browser with the invite code filled in. The desktop app has its own form of the
-  same link, `slackoss://join?host=...&code=...`.
+  same link, `gatherline://join?host=...&code=...` (older `slackoss://` links
+  still open).
 - **No app?** — the server also serves a full browser client at `http://host:8543/`.
 
 The first account created on a fresh server becomes its **owner**.
@@ -118,8 +119,9 @@ Search hits, pins and saved items open the channel scrolled to that exact
 message, with the surrounding history loaded around it. Every message has a
 link, `http://host:8543/#/c/<channel>/m/<message>`, that opens it in a browser,
 waits through signing in if it has to, and opens it in place when clicked inside
-a message. `slackoss://` links open the desktop app directly — an invite link
-lands on the join screen with the code filled in.
+a message. `gatherline://` links open the desktop app directly — an invite link
+lands on the join screen with the code filled in. Older `slackoss://` links
+open the same way.
 
 Messages can also be queued for later (🕘 in the composer) and reviewed or
 called back from the Scheduled panel. The queue lives on the server, so a

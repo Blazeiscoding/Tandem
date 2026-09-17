@@ -109,7 +109,9 @@ describe("inviting someone", () => {
     const address = await dialog.findByRole("combobox", { name: "Address used in links" });
     expect(address).toHaveDisplayValue("192.168.1.20:8543");
     expect(dialog.getByText("http://192.168.1.20:8543/#/join/ABCD1234")).toBeVisible();
-    expect(dialog.getByText("slackoss://join?host=192.168.1.20:8543&code=ABCD1234")).toBeVisible();
+    expect(
+      dialog.getByText("gatherline://join?host=192.168.1.20:8543&code=ABCD1234"),
+    ).toBeVisible();
     expect(dialog.queryByText(/reaches only this computer/)).toBeNull();
 
     // The other address is there for whoever is on that network.
@@ -128,7 +130,7 @@ describe("inviting someone", () => {
     });
     expect(await dialog.findByText("https://chat.team.dev/#/join/ABCD1234")).toBeVisible();
     expect(
-      dialog.getByText("slackoss://join?host=https://chat.team.dev&code=ABCD1234"),
+      dialog.getByText("gatherline://join?host=https://chat.team.dev&code=ABCD1234"),
     ).toBeVisible();
   });
 
@@ -136,7 +138,7 @@ describe("inviting someone", () => {
     const { dialog } = await inviteWith({ baseUrl: "https://rocket.example.dev" });
     expect(dialog.getByText("https://rocket.example.dev/#/join/ABCD1234")).toBeVisible();
     expect(
-      dialog.getByText("slackoss://join?host=https://rocket.example.dev&code=ABCD1234"),
+      dialog.getByText("gatherline://join?host=https://rocket.example.dev&code=ABCD1234"),
     ).toBeVisible();
     expect(dialog.queryByText(/reaches only this computer/)).toBeNull();
   });

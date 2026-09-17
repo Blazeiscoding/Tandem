@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
@@ -83,6 +83,7 @@ export function EditProfileDialog(props: { onClose: () => void }) {
   const [statusEmoji, setStatusEmoji] = useState(self?.statusEmoji ?? "");
   const [statusText, setStatusText] = useState(self?.statusText ?? "");
   const [busy, setBusy] = useState(false);
+  const id = useId();
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -105,10 +106,14 @@ export function EditProfileDialog(props: { onClose: () => void }) {
         <div className="flex items-center gap-3">
           <Avatar user={self ?? undefined} size={48} />
           <div className="min-w-0 flex-1">
-            <label className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
+            <label
+              htmlFor={`${id}-display-name`}
+              className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint"
+            >
               Display name
             </label>
             <input
+              id={`${id}-display-name`}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               className={inputCls}
@@ -116,18 +121,20 @@ export function EditProfileDialog(props: { onClose: () => void }) {
           </div>
         </div>
 
-        <div>
-          <label className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
+        <fieldset>
+          <legend className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
             Status
-          </label>
+          </legend>
           <div className="flex gap-2">
             <input
+              aria-label="Status emoji"
               value={statusEmoji}
               onChange={(e) => setStatusEmoji(e.target.value)}
               placeholder="🙂"
               className={`${inputCls} w-16 text-center`}
             />
             <input
+              aria-label="Status text"
               value={statusText}
               onChange={(e) => setStatusText(e.target.value)}
               placeholder="What's happening?"
@@ -161,7 +168,7 @@ export function EditProfileDialog(props: { onClose: () => void }) {
               </button>
             )}
           </div>
-        </div>
+        </fieldset>
 
         <button type="submit" disabled={busy} className={`${primaryBtnCls} w-full`}>
           {busy ? "Saving…" : "Save"}

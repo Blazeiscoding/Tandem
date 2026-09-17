@@ -16,6 +16,8 @@ const paths = {
   headphones: "M3 14v-3a9 9 0 0 1 18 0v3M3 13h4v8H3zM17 13h4v8h-4z",
   arrow: "M4 12h16m-6-6 6 6-6 6",
   thread: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 8h8M8 12h5",
+  /** Three dots, drawn by a round stroke through three points. */
+  dots: "M12 5h.01M12 12h.01M12 19h.01",
 } as const;
 
 /** Small inline vectors: no icon font, network request, or runtime dependency. */
@@ -23,10 +25,12 @@ export function Icon({
   name,
   size = 18,
   style,
+  strokeWidth = 1.7,
 }: {
   name: keyof typeof paths;
   size?: number;
   style?: CSSProperties;
+  strokeWidth?: number;
 }) {
   return (
     <svg
@@ -35,7 +39,7 @@ export function Icon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.7"
+      strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

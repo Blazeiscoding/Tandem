@@ -5,6 +5,7 @@ import { unreadThreadCount } from "@slackoss/client-core";
 import { channelTitle } from "../lib/format.js";
 import { Avatar, PresenceDot } from "./Avatar.js";
 import { BrandMark, Icon } from "./Icon.js";
+import { Menu, type MenuItem } from "./Menu.js";
 
 interface Props {
   activeChannelId: ID | null;
@@ -255,42 +256,51 @@ export function Sidebar(props: Props) {
             </span>
           </span>
         </button>
-        <button
-          onClick={props.onInvite}
-          className="w-full rounded-lg px-3 py-2 text-left text-sm text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
-        >
-          + Invite people
-        </button>
-        {props.onManagePeople && (
-          <button
-            onClick={props.onManagePeople}
-            className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
-          >
-            ⚙ People
-          </button>
-        )}
-        {props.onManageApps && (
-          <button
-            onClick={props.onManageApps}
-            className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
-          >
-            ⚙ Apps and integrations
-          </button>
-        )}
-        <button
-          onClick={props.onSwitchWorkspace}
-          className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
-        >
-          ⇄ Switch workspace
-        </button>
-        <button
-          onClick={props.onAccountSettings}
-          className="w-full rounded-lg px-3 py-1.5 text-left text-[13px] text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
-        >
-          Account settings
-        </button>
+        <WorkspaceMenu
+          onInvite={props.onInvite}
+          onManagePeople={props.onManagePeople}
+          onManageApps={props.onManageApps}
+          onSwitchWorkspace={props.onSwitchWorkspace}
+          onAccountSettings={props.onAccountSettings}
+        />
       </footer>
     </nav>
+  );
+}
+
+/**
+ * Invite, administration, switching and account settings behind one menu: five
+ * stacked rows took 270 px on a 600 px tall window and left room for about
+ * four channel rows.
+ */
+function WorkspaceMenu(props: {
+  onInvite: () => void;
+  onManagePeople?: () => void;
+  onManageApps?: () => void;
+  onSwitchWorkspace: () => void;
+  onAccountSettings: () => void;
+}) {
+  const items: MenuItem[] = [{ id: "invite", label: "Invite people", onSelect: props.onInvite }];
+  if (props.onManagePeople)
+    items.push({ id: "people", label: "People", onSelect: props.onManagePeople });
+  if (props.onManageApps)
+    items.push({ id: "apps", label: "Apps and integrations", onSelect: props.onManageApps });
+  items.push(
+    { id: "switch", label: "Switch workspace", onSelect: props.onSwitchWorkspace },
+    { id: "account", label: "Account settings", onSelect: props.onAccountSettings },
+  );
+  return (
+    <Menu
+      label="Workspace"
+      items={items}
+      triggerClassName="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+      triggerContent={
+        <>
+          <Icon name="menu" size={15} />
+          <span className="flex-1">Workspace</span>
+        </>
+      }
+    />
   );
 }
 

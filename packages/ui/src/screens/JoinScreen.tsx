@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ServerInfo } from "@slackoss/protocol";
 import { Api, ApiError, normalizeServerUrl } from "@slackoss/client-core";
 import type { DiscoveredServer, HostingStatus, Platform, SavedServer } from "../platform.js";
@@ -179,7 +179,7 @@ export function JoinScreen({
   return (
     <div className="flex h-full flex-col">
       {platform.kind === "desktop" && <div className="titlebar-drag h-10 shrink-0" />}
-      <div className="flex flex-1 overflow-y-auto p-5 sm:p-10">
+      <main className="flex flex-1 overflow-y-auto p-5 sm:p-10">
         <div className="join-layout m-auto grid w-full max-w-[1040px] overflow-hidden rounded-3xl border border-edge bg-raised/30 lg:grid-cols-2">
           <section className="join-story hidden flex-col justify-between border-r border-edge p-10 lg:flex">
             <div className="flex items-center gap-3 text-xl font-semibold tracking-tight">
@@ -255,7 +255,7 @@ export function JoinScreen({
             )}
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
@@ -543,8 +543,15 @@ function AuthCard(props: {
   const [mustReplace, setMustReplace] = useState<{ token: string; current: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const id = useId();
 
-  useEffect(() => firstField.current?.focus(), [mode]);
+  // Arrow keys move between the two tabs and leave focus on them, as in any
+  // tab list. Anything else that changes the form puts the cursor in it.
+  const keepTabFocus = useRef(false);
+  useEffect(() => {
+    if (keepTabFocus.current) keepTabFocus.current = false;
+    else firstField.current?.focus();
+  }, [mode]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -616,6 +623,8 @@ function AuthCard(props: {
 
   const inputCls =
     "w-full rounded-lg border border-edge bg-ground px-3 py-2.5 text-sm outline-none placeholder:text-ink-faint focus:border-copper";
+  const labelCls = "mb-1 block text-sm font-medium";
+  const hintCls = "mt-1 text-xs text-ink-dim";
 
   return (
     <div className="rounded-xl border border-edge bg-raised p-6">
@@ -638,25 +647,37 @@ function AuthCard(props: {
             the workspace stays closed until you do.
           </p>
           <form onSubmit={replacePassword} className="space-y-3">
-            <input
-              autoFocus
-              type="password"
-              aria-label="New password"
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="New password (8+ characters)"
-              className={inputCls}
-            />
-            <input
-              type="password"
-              aria-label="Confirm new password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="New password again"
-              className={inputCls}
-            />
+            <div>
+              <label className={labelCls} htmlFor={`${id}-new-password`}>
+                New password
+              </label>
+              <input
+                id={`${id}-new-password`}
+                autoFocus
+                type="password"
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                aria-describedby={`${id}-new-password-hint`}
+                className={inputCls}
+              />
+              <p id={`${id}-new-password-hint`} className={hintCls}>
+                At least 8 characters.
+              </p>
+            </div>
+            <div>
+              <label className={labelCls} htmlFor={`${id}-confirm-password`}>
+                Confirm new password
+              </label>
+              <input
+                id={`${id}-confirm-password`}
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className={inputCls}
+              />
+            </div>
             {error && (
               <p role="alert" className="text-sm text-alert">
                 {error}
@@ -680,10 +701,30 @@ function AuthCard(props: {
           )}
 
           {hasUsers && (
-            <div className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
+            <div
+              role="tablist"
+              aria-label="Account"
+              className="mb-4 flex gap-1 rounded-lg bg-ground p-1"
+              onKeyDown={(event) => {
+                const next = TAB_KEYS[event.key];
+                if (!next) return;
+                event.preventDefault();
+                if (next !== mode) {
+                  keepTabFocus.current = true;
+                  setMode(next);
+                }
+                document.getElementById(`${id}-tab-${next}`)?.focus();
+              }}
+            >
               {(["login", "register"] as const).map((m) => (
                 <button
                   key={m}
+                  id={`${id}-tab-${m}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === m}
+                  aria-controls={`${id}-account-form`}
+                  tabIndex={mode === m ? 0 : -1}
                   onClick={() => setMode(m)}
                   className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                     mode === m ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
@@ -695,86 +736,131 @@ function AuthCard(props: {
             </div>
           )}
 
-          <form onSubmit={submit} className="space-y-3">
-            <input
-              ref={firstField}
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
-              placeholder="username"
-              aria-label="Username"
-              autoComplete="username"
-              spellCheck={false}
-              autoCapitalize="none"
-              className={inputCls}
-            />
-            {mode === "register" && (
-              <input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Display name"
-                aria-label="Display name"
-                autoComplete="nickname"
-                className={inputCls}
-              />
-            )}
-            <input
-              type="password"
-              aria-label="Password"
-              autoComplete={mode === "register" ? "new-password" : "current-password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === "register" ? "Password (8+ characters)" : "Password"}
-              className={inputCls}
-            />
-            {mode === "register" && !isFirstUser && props.info.requiresInvite && (
-              <input
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value)}
-                placeholder="Invite code"
-                spellCheck={false}
-                className={`${inputCls} font-mono`}
-              />
-            )}
-            {mode === "register" && requiresClaim && (
+          <div
+            id={`${id}-account-form`}
+            {...(hasUsers ? { role: "tabpanel", "aria-labelledby": `${id}-tab-${mode}` } : {})}
+          >
+            <form onSubmit={submit} className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm" htmlFor="workspace-claim-code">
-                  Workspace claim code
+                <label className={labelCls} htmlFor={`${id}-handle`}>
+                  Username
                 </label>
                 <input
-                  id="workspace-claim-code"
-                  type="password"
-                  autoComplete="off"
-                  value={claimCode}
-                  onChange={(e) => setClaimCode(e.target.value)}
-                  placeholder="Claim code from the host"
-                  aria-describedby="workspace-claim-help"
+                  id={`${id}-handle`}
+                  ref={firstField}
+                  value={handle}
+                  onChange={(e) => setHandle(e.target.value)}
+                  autoComplete="username"
                   spellCheck={false}
-                  className={`${inputCls} font-mono`}
+                  autoCapitalize="none"
+                  className={inputCls}
                 />
-                <p id="workspace-claim-help" className="mt-1 text-xs text-ink-dim">
-                  Enter the code shown when the host started this workspace to create its owner
-                  account.
-                </p>
               </div>
-            )}
-            {error && (
-              <p role="alert" className="text-sm text-alert">
-                {error}
-              </p>
-            )}
-            <button
-              type="submit"
-              disabled={busy || !handle.trim() || !password}
-              className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
-            >
-              {busy ? "Connecting…" : mode === "login" ? "Sign in" : "Join workspace"}
-            </button>
-          </form>
+              {mode === "register" && (
+                <div>
+                  <label className={labelCls} htmlFor={`${id}-display-name`}>
+                    Display name
+                  </label>
+                  <input
+                    id={`${id}-display-name`}
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    autoComplete="nickname"
+                    aria-describedby={`${id}-display-name-hint`}
+                    className={inputCls}
+                  />
+                  <p id={`${id}-display-name-hint`} className={hintCls}>
+                    What everyone sees. Left empty, it is your username.
+                  </p>
+                </div>
+              )}
+              <div>
+                <label className={labelCls} htmlFor={`${id}-password`}>
+                  Password
+                </label>
+                <input
+                  id={`${id}-password`}
+                  type="password"
+                  autoComplete={mode === "register" ? "new-password" : "current-password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  aria-describedby={mode === "register" ? `${id}-password-hint` : undefined}
+                  className={inputCls}
+                />
+                {mode === "register" && (
+                  <p id={`${id}-password-hint`} className={hintCls}>
+                    At least 8 characters.
+                  </p>
+                )}
+              </div>
+              {mode === "register" && !isFirstUser && props.info.requiresInvite && (
+                <div>
+                  <label className={labelCls} htmlFor={`${id}-invite-code`}>
+                    Invite code
+                  </label>
+                  <input
+                    id={`${id}-invite-code`}
+                    value={inviteCode}
+                    onChange={(e) => setInviteCode(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-describedby={`${id}-invite-code-hint`}
+                    className={`${inputCls} font-mono`}
+                  />
+                  <p id={`${id}-invite-code-hint`} className={hintCls}>
+                    From whoever invited you. This workspace takes new accounts only with one.
+                  </p>
+                </div>
+              )}
+              {mode === "register" && requiresClaim && (
+                <div>
+                  <label className={labelCls} htmlFor="workspace-claim-code">
+                    Workspace claim code
+                  </label>
+                  <input
+                    id="workspace-claim-code"
+                    type="password"
+                    autoComplete="off"
+                    value={claimCode}
+                    onChange={(e) => setClaimCode(e.target.value)}
+                    placeholder="Claim code from the host"
+                    aria-describedby="workspace-claim-help"
+                    spellCheck={false}
+                    className={`${inputCls} font-mono`}
+                  />
+                  <p id="workspace-claim-help" className="mt-1 text-xs text-ink-dim">
+                    Enter the code shown when the host started this workspace to create its owner
+                    account.
+                  </p>
+                </div>
+              )}
+              {error && (
+                <p role="alert" className="text-sm text-alert">
+                  {error}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={busy || !handle.trim() || !password}
+                className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+              >
+                {busy ? "Connecting…" : mode === "login" ? "Sign in" : "Join workspace"}
+              </button>
+            </form>
+          </div>
         </>
       )}
     </div>
   );
 }
+
+/** Which tab each key moves to. With two tabs, the ends and the neighbours are the same. */
+const TAB_KEYS: Record<string, "login" | "register"> = {
+  ArrowLeft: "login",
+  ArrowRight: "register",
+  Home: "login",
+  End: "register",
+};
 
 function errorMessage(err: unknown, mode: "login" | "register"): string {
   if (err instanceof ApiError) {

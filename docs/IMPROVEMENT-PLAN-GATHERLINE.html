@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gatherline — User-Visible First Improvement Plan</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #111820;
+        --panel: #17212b;
+        --line: #2b3a47;
+        --ink: #edf3f7;
+        --dim: #b1c0cd;
+        --faint: #8b9cab;
+        --acc: #8adbc1;
+        --alert: #e0564f;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          15px/1.6 system-ui,
+          sans-serif;
+        margin: 0;
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+      h1,
+      h2,
+      h3 {
+        line-height: 1.25;
+      }
+      h1 {
+        font-size: 28px;
+      }
+      h2 {
+        margin-top: 40px;
+        border-top: 1px solid var(--line);
+        padding-top: 20px;
+      }
+      .badge {
+        display: inline-block;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 10px;
+        font-size: 12px;
+        color: var(--dim);
+        margin-right: 6px;
+      }
+      section.card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px 18px;
+        margin: 12px 0;
+      }
+      code {
+        font-family: ui-monospace, Consolas, monospace;
+        background: #0d141b;
+        padding: 1px 6px;
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      li {
+        margin: 6px 0;
+      }
+      .dim {
+        color: var(--dim);
+      }
+      .faint {
+        color: var(--faint);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0;
+        font-size: 14px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      th {
+        color: var(--dim);
+      }
+      a {
+        color: var(--acc);
+      }
+      .p0 {
+        color: var(--alert);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>
+        <span class="badge">Gatherline</span><span class="badge">user-visible first</span
+        ><span class="badge">scale configurable</span
+        ><span class="badge">sign + update + demo last</span>
+      </p>
+      <h1>Gatherline — Improvement Plan</h1>
+      <p class="dim">
+        Source: <code>packages/server</code>, <code>client-core</code>, <code>protocol</code>,
+        <code>ui</code>, <code>apps/web|desktop|server-cli</code>,
+        <code>docs/REMAINING-WORK-2026-09.md</code>. Priorities: user-visible → Gatherline brand →
+        configurable scale → signing/auto-update/demo.
+      </p>
+      <p class="dim">
+        Status: living plan. Stage 1 in progress. Done and verified (uncommitted): 1.2 Gatherline
+        brand (links + env), 1.3 shared Menu + People menu + sidebar workspace menu. Unit 539 green,
+        browser 10/10 green. Updated 2026-09-16.
+      </p>
+
+      <h2>Stage 1 — User-visible polish (3–5 weeks)</h2>
+      <section class="card">
+        <h3>1.1 Open rough edges <span class="faint">S each, 3–4 days — IN PROGRESS</span></h3>
+        <ul>
+          <li>
+            Browser invite <code>?invite=&lt;code&gt;</code> + message
+            <code>#/c/&lt;id&gt;/m/&lt;msg&gt;</code> links in
+            <code>ui/src/screens/JoinScreen.tsx</code> + <code>App.tsx:133–191</code>, carry target
+            through auth.
+          </li>
+          <li>
+            Timeline re-pin via <code>ResizeObserver</code> in <code>MessageTimeline.tsx</code>;
+            image fit in <code>Attachments.tsx</code> + lightbox focus return.
+          </li>
+          <li>
+            DONE: switcher dedup, fence newline, Apps dialog copy, timeline re-pin, image fit
+            (landed before); People one-menu-per-person (<code>PeopleDialog.tsx</code> +
+            <code>people.dom.test.tsx</code>), sidebar footer behind one Workspace menu
+            (<code>Sidebar.tsx</code>); e2e journeys updated and green.
+          </li>
+          <li>
+            Fixed along the way: shared <code>Menu.tsx</code> first closed on any scroll, so a live
+            timeline settling under it detached it mid-click — it now follows its trigger (<code
+              >menu.dom.test.tsx</code
+            >
+            holds it). E2E auth helpers now target the tab roles from the labels work.
+          </li>
+          <li>
+            Notification banner after sign-in (not first-click in
+            <code>apps/web/src/main.tsx:7</code>), click opens message.
+          </li>
+          <li>
+            Real <code>&lt;label&gt;</code> for join + <code>AppsDialog.tsx:192,361,368</code>; lazy
+            channel-details/scheduled/search to get 477kB chunk &lt;500kB.
+          </li>
+          <li>
+            <code>lastHosted</code> resume: offer “Start hosting X” instead of infinite reconnect.
+          </li>
+        </ul>
+        <p class="dim">
+          Verify:
+          <code
+            >pnpm typecheck &amp;&amp; pnpm test &amp;&amp; pnpm build &amp;&amp; pnpm
+            test:e2e</code
+          >
+        </p>
+      </section>
+      <section class="card">
+        <h3>1.2 Gatherline brand <span class="faint">M, 1 week — deep links DONE</span></h3>
+        <ul>
+          <li>
+            UI, installer (<code>electron-builder.yml</code>), icons
+            (<code>scripts/generate-icons.mjs</code>), docs → Gatherline.
+          </li>
+          <li>
+            DONE: accept <code>gatherline://join</code> + <code>gatherline://c/…</code>, keep
+            <code>slackoss://</code> parsing forever in <code>lib/deeplink.ts</code>. Desktop
+            registers both schemes; invite dialog and e2e show <code>gatherline://</code>.
+          </li>
+          <li>
+            Accept <code>GATHERLINE_*</code> env alias, keep <code>SLACKOSS_*</code> legacy. No
+            data/volume migration.
+          </li>
+          <li>
+            Lint: fail new user-facing “SlackOSS”, allow in compat shims +
+            <code>protocol/src/discovery.ts</code>.
+          </li>
+        </ul>
+      </section>
+      <section class="card">
+        <h3>1.3 Shared components <span class="faint">M, unlocks 1.4–1.6</span></h3>
+        <p>
+          Menu/popover, tooltip, toast, confirm, skeleton/empty/error on modal focus owner. Migrate
+          People → message actions → sidebar → channel details. Each with axe + DOM test.
+        </p>
+      </section>
+      <section class="card">
+        <h3>1.4 Keyboard + screen reader <span class="faint">2 weeks</span></h3>
+        <ul>
+          <li>
+            Listbox hook (<code>aria-activedescendant</code>+combobox) for switcher/mentions/emoji;
+            tabs for details/sign-in.
+          </li>
+          <li>
+            Message list: one Tab stop, arrows, Enter → actions; reaction “👍 2, from Sam and Priya,
+            including you”.
+          </li>
+          <li>
+            Panels as labelled regions with focus return; throttled polite live region, silent on
+            replay.
+          </li>
+          <li>
+            Keyboard-only Playwright journey; enable <code>color-contrast</code> via browser axe.
+          </li>
+        </ul>
+      </section>
+      <section class="card">
+        <h3>1.5 Navigation + responsive + visual</h3>
+        <ul>
+          <li>
+            Hash routes <code>#/c/&lt;id&gt;</code>, <code>#/c/&lt;id&gt;/t/&lt;root&gt;</code>,
+            <code>#/m/&lt;id&gt;</code> (works in <code>file://</code> desktop); restore last
+            channel; workspace switcher top.
+          </li>
+          <li>
+            390/768/1024px + 600px tall; touch More/long-press; sheets with focus; screenshot CI.
+          </li>
+          <li>
+            Lock navy/mint vs Workbench archive; tokens in <code>theme.css</code>; icon set replaces
+            unicode glyphs; light/system/high-contrast + compact + <code>Intl.DateTimeFormat</code>.
+          </li>
+        </ul>
+      </section>
+      <section class="card">
+        <h3>1.6 Daily chat + huddle UX</h3>
+        <ul>
+          <li>
+            Toolbar=renderer, IME guards, failed edit keeps draft; thread paging/follow/inbox; read
+            sync+retry; search paging/highlights/recent; file progress/retry;
+            favourites/drafts/reminders; avatar/timed status/away; quotes/forward + safe previews.
+          </li>
+          <li>
+            Huddle: device picker + meter, connecting/failed + ICE restart + rejoin, window picker +
+            pin/fullscreen. No SFU yet.
+          </li>
+        </ul>
+      </section>
+      <section class="card">
+        <h3>1.7 Onboarding + help <span class="faint">S-M</span></h3>
+        <p>
+          Owner checklist per account, Help menu + “Copy diagnostics” (versions only), actionable
+          empty states.
+        </p>
+      </section>
+
+      <h2>Stage 2 — Harden, keep scale configurable</h2>
+      <table>
+        <tr>
+          <th>Work</th>
+          <th>Acceptance</th>
+        </tr>
+        <tr>
+          <td>Test debt (scheduled-edit CAS, tickets, manager matrix, paging)</td>
+          <td>Remove behaviour → test fails</td>
+        </tr>
+        <tr>
+          <td>ESLint + typecheck <code>tests/</code>/<code>scripts/</code></td>
+          <td>CI gate, one package per PR</td>
+        </tr>
+        <tr>
+          <td>
+            Split <code>server.ts:3615</code> / <code>store.ts:2894</code> /
+            <code>workspace.ts:2006</code>
+          </td>
+          <td>No behaviour change, 347 tests green</td>
+        </tr>
+        <tr>
+          <td>
+            Scale knobs: event-log cap, timeline window, quotas, retention, mesh warn, delivery
+            batch
+          </td>
+          <td>Documented defaults; storage interface abstracted for later Postgres/S3</td>
+        </tr>
+        <tr>
+          <td>
+            In-app backup-now + restore wizard + hosting registry + <code>/ready</code> + metrics
+          </td>
+          <td>Non-dev can run, no CLI needed</td>
+        </tr>
+      </table>
+
+      <h2>Stage 3 — Invest: signing + auto-update + demo</h2>
+      <ul>
+        <li>
+          <span class="p0">Release workflow</span> on tag: Win installer + macOS dmg + Linux
+          AppImage/deb + server bundle + Docker, smoke each, checksums + SBOM + provenance.
+        </li>
+        <li>
+          Authenticode + notarization; <code>electron-updater</code> staged channel with changelog
+          UI.
+        </li>
+        <li>
+          <code>scripts/seed-demo.mjs</code> + README journeys + public demo behind Caddy + coturn;
+          clean-machine runs recorded in <code>VALIDATION.md</code>.
+        </li>
+        <li>Pre-promo proof: TURN check, 3/4/6-person measures, Firefox/WebKit, 24h soak.</li>
+      </ul>
+
+      <h2>Order</h2>
+      <ol>
+        <li>modal focus + links + re-pin + image fit</li>
+        <li>ui-primitives</li>
+        <li>gatherline-brand</li>
+        <li>keyboard-a11y + navigation-responsive</li>
+        <li>onboarding + chat completeness</li>
+        <li>lint/split/knobs alongside</li>
+        <li>signed-updates-demo</li>
+      </ol>
+      <p class="faint">
+        Exit to Stage 3: host can claim/invite/stop/reopen/backup/restore/upgrade from UI+docs;
+        keyboard + narrow pass; installer + demo smoke pass.
+      </p>
+    </main>
+  </body>
+</html>

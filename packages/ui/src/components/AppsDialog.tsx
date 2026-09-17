@@ -5,6 +5,10 @@ import { ApiError, type AppDetail } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 
+/** What an integration can rely on from this server, and where it differs from Slack. */
+const INTEGRATION_CONTRACT_URL =
+  "https://github.com/Blazeiscoding/SlackOSS/blob/main/docs/INTEGRATIONS.md";
+
 /** A secret with a copy button. Bot tokens are shown once; others can be re-read. */
 function SecretRow({
   label,
@@ -167,14 +171,25 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog title="Apps and integrations" onClose={onClose} width={620}>
       <p className="mb-4 text-sm text-ink-dim">
-        Each app posts as its own bot user. Tokens work with Slack&rsquo;s{" "}
-        <code className="font-mono text-copper">chat.postMessage</code>, webhooks and slash commands
-        speak Slack&rsquo;s shapes, and events arrive signed the way Slack signs them &mdash; so
-        most existing integrations work by changing the URL.
+        Each app posts as its own bot user. Its token works with part of Slack&rsquo;s Web API, and
+        webhooks, slash commands, buttons and events use Slack&rsquo;s shapes and signatures, so
+        many Slack integrations can be pointed here. Not all of them: a message&rsquo;s{" "}
+        <code className="font-mono text-copper">ts</code> is an id rather than a time, and there is
+        no OAuth, Socket Mode or scopes. Before relying on one, check{" "}
+        <a
+          href={INTEGRATION_CONTRACT_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="text-copper underline decoration-copper/40 hover:decoration-copper"
+        >
+          <code className="font-mono">docs/INTEGRATIONS.md</code>
+        </a>
+        , which lists every supported method and each difference from Slack.
       </p>
 
       <form onSubmit={create} className="mb-5 flex gap-2">
         <input
+          aria-label="App name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="App name, e.g. Deploy Bot"
@@ -343,18 +358,21 @@ function CommandList({ app, onChanged }: { app: AppDetail; onChanged: () => void
       </ul>
       <form onSubmit={add} className="mt-1.5 flex flex-wrap gap-1.5">
         <input
+          aria-label="Command"
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           placeholder="/deploy"
           className={`${smallInput} w-24`}
         />
         <input
+          aria-label="Command request URL"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://bot.example.com/deploy"
           className={`${smallInput} flex-1`}
         />
         <input
+          aria-label="Command description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="What it does"
@@ -484,6 +502,7 @@ function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () =>
       <form onSubmit={add} className="mt-1.5">
         <div className="flex gap-1.5">
           <input
+            aria-label="Event request URL"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://bot.example.com/events"
@@ -555,6 +574,7 @@ function InteractivityUrl({ app, onChanged }: { app: AppDetail; onChanged: () =>
     <form onSubmit={save}>
       <div className="flex gap-1.5">
         <input
+          aria-label="Interactivity request URL"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://bot.example.com/interactions"

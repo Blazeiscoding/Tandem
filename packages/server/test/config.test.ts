@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   ConfigError,
   describeStartupError,
+  envSetting,
   parsePort,
   parsePublicUrl,
   parseWholeNumber,
@@ -74,6 +75,33 @@ describe("a count of whole units", () => {
     for (const bad of ["-1", "abc", "", "1e3", "99999999999999999999"]) {
       expect(() => parseWholeNumber(bad, "--retention-days", 0), bad).toThrow(ConfigError);
     }
+  });
+});
+
+describe("settings from the environment", () => {
+  const NAMES = ["GATHERLINE_RETENTION_DAYS_TEST", "SLACKOSS_RETENTION_DAYS_TEST"] as const;
+  afterEach(() => {
+    for (const name of NAMES) delete process.env[name];
+  });
+
+  it("reads the Gatherline name", () => {
+    process.env.GATHERLINE_RETENTION_DAYS_TEST = "30";
+    expect(envSetting("RETENTION_DAYS_TEST")).toBe("30");
+  });
+
+  it("still reads the previous SLACKOSS_ name", () => {
+    process.env.SLACKOSS_RETENTION_DAYS_TEST = "30";
+    expect(envSetting("RETENTION_DAYS_TEST")).toBe("30");
+  });
+
+  it("prefers the Gatherline name when both are set", () => {
+    process.env.GATHERLINE_RETENTION_DAYS_TEST = "30";
+    process.env.SLACKOSS_RETENTION_DAYS_TEST = "7";
+    expect(envSetting("RETENTION_DAYS_TEST")).toBe("30");
+  });
+
+  it("is undefined when neither is set", () => {
+    expect(envSetting("RETENTION_DAYS_TEST")).toBeUndefined();
   });
 });
 

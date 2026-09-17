@@ -51,11 +51,12 @@ describe("following links from one workspace to another", () => {
     const opened = connect.mock.contexts[0];
 
     // An invite to a workspace this browser has never signed in to.
-    await follow("slackoss://join?host=127.0.0.1:10&code=ABCD1234");
+    await follow("gatherline://join?host=127.0.0.1:10&code=ABCD1234");
     await waitFor(() => expect(destroy.mock.contexts).toContain(opened));
 
     // A link back to a message in the first one opens that workspace again,
-    // rather than taking it for the one still on screen.
+    // rather than taking it for the one still on screen. The previous
+    // scheme still reads.
     await follow("slackoss://message?host=127.0.0.1:9&channel=C_DESIGN&id=M_PLAN");
     await waitFor(() => expect(connect).toHaveBeenCalledTimes(2));
   });
