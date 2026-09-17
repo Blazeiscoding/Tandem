@@ -70,6 +70,25 @@ start, or focus it and press Enter. After a message arrives, wait for
 `toBeInViewport({ ratio: 1 })` before clicking in it: the default passes while
 the row is still partly behind the composer.
 
+Browsers offer some APIs only to secure pages: https, and this computer's own
+`localhost` or `127.0.0.1`. The suites reach their servers on `127.0.0.1`, so
+they cannot notice something that works there but not at
+`http://192.168.1.20:8543`, which is how a workspace on a home or office network
+is opened. The clipboard is one: `navigator.clipboard` is simply missing on such a
+page, and every copy button failed for people on a LAN until PR #53. When a
+feature uses one of these APIs, also test the page without it, as the invite
+journey does by removing `writeText`.
+
+A renamed setting has to fall back to its previous name everywhere it is passed
+along, not only where the code reads it. The Compose file once passed
+`GATHERLINE_ICE_SERVERS` with a default beside `SLACKOSS_ICE_SERVERS`, and that
+default hid a value still set under the old name.
+
+`pnpm test` runs every package at once, and the server tests allow five seconds
+each. On a busy machine, one still packaging the desktop app for instance, a
+handful of unrelated server tests can time out together. Rerun that package on
+its own before chasing them; a real failure fails there too.
+
 UI component checks belong in `packages/ui/test/*.dom.test.tsx`. They run with
 jsdom, Testing Library, explicit cleanup, and the shared accessibility helper.
 Other UI tests keep the Node environment, including static rendering tests.
