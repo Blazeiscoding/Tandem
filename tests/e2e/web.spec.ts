@@ -1287,3 +1287,114 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     rmSync(inviteData, { recursive: true, force: true });
   }
 });
+
+test("notifications are offered after sign-in, and one opens its message", async ({ browser }) => {
+  const aliceCtx = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  // A stand-in for the browser's Notification: permission starts undecided,
+  // every showing is recorded, and clicks run like the real thing.
+  await aliceCtx.addInitScript(() => {
+    const instances: Array<{
+      title: string;
+      onclick: ((event: Event) => void) | null;
+      close: () => void;
+      closed: boolean;
+    }> = [];
+    let focusCalls = 0;
+    const focus = window.focus.bind(window);
+    window.focus = () => {
+      focusCalls++;
+      focus();
+    };
+    class FakeNotification {
+      static permission = "default";
+      static instances = instances;
+      static focusCalls = () => focusCalls;
+      static async requestPermission() {
+        FakeNotification.permission = "granted";
+        return "granted" as NotificationPermission;
+      }
+      onclick: ((event: Event) => void) | null = null;
+      closed = false;
+      title: string;
+      constructor(title: string, options?: { body?: string }) {
+        this.title = title;
+        instances.push(this as unknown as (typeof instances)[number]);
+        void options;
+      }
+      close() {
+        this.closed = true;
+      }
+    }
+    (window as unknown as { Notification: unknown }).Notification = FakeNotification;
+  });
+  const bobCtx = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  try {
+    const alicePage = await aliceCtx.newPage();
+    await signIn(alicePage, "alice");
+
+    // The ask comes after signing in, not on the first click anywhere.
+    const banner = alicePage.getByRole("region", { name: "Notifications" });
+    await expect(banner).toBeVisible();
+    await alicePage.getByRole("button", { name: "Turn on", exact: true }).click();
+    await expect(banner).toHaveCount(0);
+
+    // A DM from someone else notifies even while this page is in front:
+    // nothing has to steal its focus first.
+    const bobPage = await bobCtx.newPage();
+    await signIn(bobPage, "bobby");
+    const token = await bobPage.evaluate(
+      () => JSON.parse(localStorage.getItem("slackoss:servers")!)[0].token,
+    );
+    const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const { users } = await (await fetch(`${base}/api/users`, { headers: auth })).json();
+    const alice = users.find((u: { handle: string }) => u.handle === "alice");
+    const dm = await (
+      await fetch(`${base}/api/channels`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ type: "dm", memberIds: [alice.id] }),
+      })
+    ).json();
+    const posted = await (
+      await fetch(`${base}/api/channels/${dm.channel.id}/messages`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ text: "browser notification check" }),
+      })
+    ).json();
+    const messageId = posted.message.id as string;
+    await alicePage.waitForFunction(() => {
+      const notes = (window.Notification as unknown as { instances: unknown[] }).instances;
+      return notes.length > 0;
+    });
+
+    // Clicking it focuses the app and jumps to the message, highlighted.
+    await alicePage.evaluate(() => {
+      const notes = (
+        window.Notification as unknown as {
+          instances: Array<{ onclick: ((event: Event) => void) | null }>;
+        }
+      ).instances;
+      notes[0]!.onclick!(new Event("click"));
+    });
+    await alicePage.waitForFunction(
+      (id: string) => {
+        const row = document.querySelector(`[data-mid="${CSS.escape(id)}"]`);
+        if (!row) return false;
+        for (const el of row.querySelectorAll("*")) {
+          if (el.classList.contains("bg-copper/15")) return true;
+        }
+        return false;
+      },
+      messageId,
+      { timeout: 10_000 },
+    );
+    const focusCalls = await alicePage.evaluate(() =>
+      (window.Notification as unknown as { focusCalls: () => number }).focusCalls(),
+    );
+    expect(focusCalls).toBeGreaterThan(0);
+  } finally {
+    await aliceCtx.close().catch(() => {});
+    await bobCtx.close().catch(() => {});
+  }
+});

@@ -27,6 +27,7 @@ import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
+import { NotificationBanner } from "../components/NotificationBanner.js";
 import { WorkspaceStorageGate } from "../components/WorkspaceStorageGate.js";
 import { ShareableServerProvider } from "../components/ShareableServer.js";
 import { hasOpenModal } from "../components/Modal.js";
@@ -227,25 +228,6 @@ function WorkspaceInner({
     return () => clientFromCtx.focusConversation(null);
   }, [clientFromCtx, activeChannelId]);
 
-  // Desktop notifications for incoming messages, gated by channel preferences,
-  // mute and Do Not Disturb (the rules live in client-core so they're testable).
-  useEffect(() => {
-    clientFromCtx.onIncomingMessage = (msg, { live }) => {
-      const state = clientFromCtx.state;
-      // A message you're already looking at needs no notification.
-      if (document.hasFocus() && msg.channelId === activeChannelId) return;
-      if (!decideNotification(state, msg, { live }).notify) return;
-
-      const channel = state.channels[msg.channelId];
-      const from = state.users[msg.userId]?.displayName ?? "Someone";
-      const where = channel?.name ? ` in #${channel.name}` : "";
-      platform.notify(`${from}${where}`, notificationBody(state, msg));
-    };
-    return () => {
-      clientFromCtx.onIncomingMessage = null;
-    };
-  }, [clientFromCtx, activeChannelId, platform]);
-
   // Global shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -344,6 +326,29 @@ function WorkspaceInner({
 
   const closeDialog = () => setDialog({ kind: "none" });
 
+  // Desktop notifications for incoming messages, gated by channel preferences,
+  // mute and Do Not Disturb (the rules live in client-core so they're testable).
+  useEffect(() => {
+    clientFromCtx.onIncomingMessage = (msg, { live }) => {
+      const state = clientFromCtx.state;
+      // A message you're already looking at needs no notification.
+      if (document.hasFocus() && msg.channelId === activeChannelId) return;
+      if (!decideNotification(state, msg, { live }).notify) return;
+
+      const channel = state.channels[msg.channelId];
+      const from = state.users[msg.userId]?.displayName ?? "Someone";
+      const where = channel?.name ? ` in #${channel.name}` : "";
+      // A click opens the message it names, through the same jump that
+      // search results, pins and links use.
+      platform.notify(`${from}${where}`, notificationBody(state, msg), () =>
+        openMessage(msg.channelId, msg.id),
+      );
+    };
+    return () => {
+      clientFromCtx.onIncomingMessage = null;
+    };
+  }, [clientFromCtx, activeChannelId, openMessage, platform]);
+
   const connectionLabel =
     status === "online"
       ? null
@@ -415,6 +420,7 @@ function WorkspaceInner({
       />
 
       <main inert={sidebarOpen} className="flex min-w-0 flex-1 flex-col">
+        <NotificationBanner storage={platform.storage} />
         {navigating && (
           <p role="status" className="px-5 py-2 text-sm text-ink-faint">
             Opening message…

@@ -53,6 +53,32 @@ export function useHostingStatus(hosting: Platform["hosting"]) {
   return { status, loading: loading && status === null, error, refresh };
 }
 
+/**
+ * The workspace this computer hosted last, for offering to host it again.
+ * Read again whenever hosting starts or stops, since either can change it.
+ */
+export function useLastHosted(hosting: Platform["hosting"], status: HostingStatus | null) {
+  const [lastHosted, setLastHosted] = useState<{ workspaceName: string; port: number } | null>(
+    null,
+  );
+  const phase = status ? (status.phase ?? (status.running ? "running" : "stopped")) : null;
+  const hosted = status?.running ? `${status.workspaceName ?? ""}:${status.port ?? ""}` : "";
+  useEffect(() => {
+    if (!hosting?.lastHosted) return;
+    let alive = true;
+    hosting
+      .lastHosted()
+      .then((value) => {
+        if (alive) setLastHosted(value);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [hosting, phase, hosted]);
+  return lastHosted;
+}
+
 export function HostDialog(props: {
   hosting: Hosting;
   state: ReturnType<typeof useHostingStatus>;

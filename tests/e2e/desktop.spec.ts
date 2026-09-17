@@ -88,6 +88,10 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   await page.getByRole("button", { name: "Join workspace", exact: true }).click();
   await expect(page.locator("textarea")).toBeVisible();
   const status = await page.evaluate(() => (window as any).slackoss.hostingStatus());
+  // The app grants its own notifications, so it has nothing to ask about;
+  // refused, every notification it tried to show failed without a word.
+  expect(await page.evaluate(() => Notification.permission)).toBe("granted");
+  await expect(page.getByRole("region", { name: "Notifications" })).toHaveCount(0);
   await expect.poll(trayMenu).toEqual([
     { label: "Open Gatherline", enabled: true },
     { label: `Hosting Desktop Test · port ${status.port}`, enabled: false },
@@ -136,6 +140,66 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   expect((await fetch(`http://127.0.0.1:${status.port}/api/health`)).status).toBe(200);
 
+  // A teammate writes while the window is closed to the tray. The message
+  // notifies, and clicking the notification brings the window back at it.
+  // A test cannot click a system notification, so the renderer's is recorded.
+  await page.evaluate(() => {
+    const shown: Array<{ onclick: ((event: Event) => void) | null }> = [];
+    (window as any).shownNotifications = shown;
+    (window as any).Notification = class {
+      static permission = "granted";
+      onclick: ((event: Event) => void) | null = null;
+      constructor() {
+        shown.push(this);
+      }
+      close() {}
+    };
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0]!;
+    const focus = win.focus.bind(win);
+    (globalThis as any).reveals = 0;
+    win.focus = () => {
+      (globalThis as any).reveals++;
+      focus();
+    };
+  });
+  const hosted = `http://127.0.0.1:${status.port}`;
+  const teammate = await (
+    await fetch(`${hosted}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        handle: "teammate",
+        displayName: "Teammate",
+        password: "password123",
+      }),
+    })
+  ).json();
+  const auth = { authorization: `Bearer ${teammate.token}`, "content-type": "application/json" };
+  const { users } = await (await fetch(`${hosted}/api/users`, { headers: auth })).json();
+  const owner = users.find((u: { handle: string }) => u.handle === "desktopowner");
+  const dm = await (
+    await fetch(`${hosted}/api/channels`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ type: "dm", memberIds: [owner.id] }),
+    })
+  ).json();
+  const posted = await (
+    await fetch(`${hosted}/api/channels/${dm.channel.id}/messages`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ text: "desktop notification check" }),
+    })
+  ).json();
+  await expect.poll(() => page.evaluate(() => (window as any).shownNotifications.length)).toBe(1);
+  await page.evaluate(() => (window as any).shownNotifications[0].onclick(new Event("click")));
+  await expect.poll(() => app.evaluate(() => (globalThis as any).reveals)).toBeGreaterThan(0);
+  await expect(page.locator(`[data-mid="${posted.message.id}"]`)).toContainText(
+    "desktop notification check",
+  );
+
   // Stopping asks first, then stops the server.
   await manage.click();
   await live.getByRole("button", { name: "Stop hosting", exact: true }).click();
@@ -164,4 +228,85 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
     setTimeout(() => BrowserWindow.getAllWindows()[0]!.close(), 0);
   });
   await closed;
+});
+
+test("restarting offers to host the last workspace again instead of reconnecting", async () => {
+  const data = mkdtempSync(join(tmpdir(), "slackoss-desktop-resume-"));
+  const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
+  const env = {
+    ...inherited,
+    SLACKOSS_TEST: "1",
+    SLACKOSS_TEST_MEDIA: "1",
+    SLACKOSS_USER_DATA_DIR: data,
+  };
+  const executablePath = resolve("apps/desktop/release/win-unpacked/Gatherline.exe");
+  let app = await electron.launch({ executablePath, env });
+  const killTree = () => {
+    const pid = app.process().pid;
+    if (process.platform === "win32" && pid)
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"]);
+    else app.process().kill("SIGKILL");
+  };
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Host a workspace on this computer" }).click();
+    await page.getByPlaceholder("Workspace name (e.g. Rocket Team)").fill("Resume Test");
+    await page.getByRole("button", { name: "Start hosting", exact: true }).click();
+    await page.getByLabel("Username", { exact: true }).fill("resumeowner");
+    await page.getByLabel("Display name", { exact: true }).fill("Resume Owner");
+    await page.getByLabel("Password", { exact: true }).fill("password123");
+    await page.getByRole("button", { name: "Join workspace", exact: true }).click();
+    await expect(page.locator("textarea")).toBeVisible();
+
+    // Stop hosting, then quit with nothing hosted: a plain window close quits.
+    await page.getByRole("button", { name: "Manage hosting", exact: true }).click();
+    const live = page.getByRole("dialog", { name: "Workspace is live" });
+    await live.getByRole("button", { name: "Stop hosting", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Stop hosting?" })
+      .getByRole("button", { name: "Stop hosting", exact: true })
+      .click();
+    await expect(page.getByRole("button", { name: "Manage hosting", exact: true })).toBeHidden();
+    const firstQuit = app.waitForEvent("close");
+    await app.evaluate(({ BrowserWindow }) => {
+      setTimeout(() => BrowserWindow.getAllWindows()[0]!.close(), 0);
+    });
+    await firstQuit;
+
+    // Relaunch with the same profile: no reconnecting to a stopped server.
+    app = await electron.launch({ executablePath, env });
+    page = await app.firstWindow();
+    await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
+    const resume = page.getByRole("region", { name: "Hosted on this computer" });
+    await expect(resume).toBeVisible();
+    await resume.getByRole("button", { name: "Start hosting Resume Test" }).click();
+    // The saved sign-in still works, so the workspace opens with no password asked.
+    await expect(page.locator("textarea")).toBeVisible();
+    await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).slackoss.hostingStatus())).toMatchObject({
+      running: true,
+    });
+
+    // Leave nothing hosted behind: stop, then a plain close quits.
+    await page.getByRole("button", { name: "Manage hosting", exact: true }).click();
+    const liveAgain = page.getByRole("dialog", { name: "Workspace is live" });
+    await liveAgain.getByRole("button", { name: "Stop hosting", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Stop hosting?" })
+      .getByRole("button", { name: "Stop hosting", exact: true })
+      .click();
+    const secondQuit = app.waitForEvent("close");
+    await app.evaluate(({ BrowserWindow }) => {
+      setTimeout(() => BrowserWindow.getAllWindows()[0]!.close(), 0);
+    });
+    await secondQuit;
+  } finally {
+    try {
+      killTree();
+    } catch {
+      // Already quit: the directory removes below regardless.
+    }
+    rmSync(data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
 });

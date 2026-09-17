@@ -17,7 +17,7 @@ import { Bonjour, type Service } from "bonjour-service";
 import { DEEP_LINK_PROTOCOLS, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
 import { createWorkspaceServer } from "@slackoss/server";
 import { createSettingsStorage } from "./settings.js";
-import { createHostingController } from "./hosting.js";
+import { createHostingController, parseLastHosted } from "./hosting.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 /** Gatherline name first, previous SLACKOSS_ name still read. */
@@ -108,6 +108,13 @@ if (!isTest && isDev && process.platform === "win32") {
     app.setAsDefaultProtocolClient(protocol);
   }
 }
+
+// A notification clicked while the window is minimized, or closed to the tray
+// while hosting, brings the window back as well as opening its message.
+ipcMain.handle("window:reveal", (event) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+  showMainWindow();
+});
 
 ipcMain.handle("deeplink:consume", (event) => {
   if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return null;
@@ -212,6 +219,12 @@ const hosting = createHostingController({
 });
 
 ipcMain.handle("hosting:status", () => hostingStatus());
+ipcMain.handle("hosting:lastHosted", async () => {
+  // Unreadable settings mean no remembered workspace, not a failed call:
+  // the join screen simply shows no resume offer.
+  const stored = await settings.get("lastHosted").catch(() => null);
+  return parseLastHosted(stored);
+});
 ipcMain.handle("hosting:start", async (_e, opts: unknown) => {
   if (quitting) throw new Error("Gatherline is shutting down. Try again after reopening it.");
   if (trayStopPending)
@@ -382,8 +395,11 @@ function createWindow(): void {
     }
   });
 
-  // Huddles need the microphone, and screen share needs display capture.
-  // Grant those to our own renderer; refuse everything else.
+  // Huddles need the microphone, screen share needs display capture, and
+  // notifications need their own permission: refused, the renderer's
+  // Notification reports "denied" and never shows. Grant those to our own
+  // renderer; refuse everything else.
+  const allowed = new Set(["media", "display-capture", "notifications"]);
   const rendererUrl = isDev
     ? process.env.ELECTRON_RENDERER_URL!
     : pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href;
@@ -402,7 +418,7 @@ function createWindow(): void {
         wc === mainWindow?.webContents &&
           details.isMainFrame &&
           trustedRenderer(details.requestingUrl) &&
-          (permission === "media" || permission === "display-capture"),
+          allowed.has(permission),
       );
     },
   );
@@ -410,7 +426,7 @@ function createWindow(): void {
     return (
       wc === mainWindow?.webContents &&
       trustedRenderer(details.requestingUrl ?? wc.getURL()) &&
-      (permission === "media" || permission === "display-capture")
+      allowed.has(permission)
     );
   });
   mainWindow.webContents.session.setDisplayMediaRequestHandler(

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { WorkspaceClient } from "@slackoss/client-core";
 import { App } from "../src/App.js";
-import type { Platform, SavedServer } from "../src/platform.js";
+import type { HostingStatus, Platform, SavedServer } from "../src/platform.js";
 
 const rocket: SavedServer = {
   url: "http://127.0.0.1:9",
@@ -13,7 +13,10 @@ const rocket: SavedServer = {
 };
 
 /** A browser with one saved sign-in, and a way to hand the app links as they arrive. */
-function appWithLinks() {
+function appWithLinks(hosting?: {
+  status: () => Promise<HostingStatus>;
+  lastHosted: () => Promise<{ workspaceName: string; port: number } | null>;
+}) {
   let deliver: (url: string) => void = () => {};
   const platform: Platform = {
     kind: "web",
@@ -29,6 +32,15 @@ function appWithLinks() {
         return () => {};
       },
     },
+    ...(hosting
+      ? {
+          hosting: {
+            ...hosting,
+            start: async () => ({ running: false, phase: "stopped" as const }),
+            stop: async () => {},
+          },
+        }
+      : {}),
   };
   render(<App platform={platform} />);
   return {
@@ -59,5 +71,32 @@ describe("following links from one workspace to another", () => {
     // scheme still reads.
     await follow("slackoss://message?host=127.0.0.1:9&channel=C_DESIGN&id=M_PLAN");
     await waitFor(() => expect(connect).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("reopening a workspace this computer hosted", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("parks on the join screen instead of reconnecting to a stopped workspace", async () => {
+    const connect = vi.spyOn(WorkspaceClient.prototype, "connect").mockImplementation(() => {});
+    appWithLinks({
+      status: async () => ({ running: false, phase: "stopped" }),
+      lastHosted: async () => ({ workspaceName: "Rocket Team", port: 9 }),
+    });
+    // The saved sign-in points at this computer's own stopped workspace, so
+    // nothing connects: the join screen offers to host it again instead.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Start hosting Rocket Team" })).toBeInTheDocument();
+    });
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("still reconnects when hosting runs", async () => {
+    const connect = vi.spyOn(WorkspaceClient.prototype, "connect").mockImplementation(() => {});
+    appWithLinks({
+      status: async () => ({ running: true, phase: "running" }),
+      lastHosted: async () => ({ workspaceName: "Rocket Team", port: 9 }),
+    });
+    await waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
   });
 });

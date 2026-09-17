@@ -10,6 +10,31 @@ export interface HostingSnapshot {
   warning?: string;
 }
 
+/** What this computer hosted last, as remembered in its settings. */
+export interface LastHosted {
+  workspaceName: string;
+  port: number;
+}
+
+/**
+ * Reads the remembered workspace back, refusing anything malformed rather
+ * than starting hosting under a name or port nobody chose. A settings file
+ * edited by hand, or written by a newer app, must not become a surprise
+ * workspace.
+ */
+export function parseLastHosted(value: unknown): LastHosted | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { workspaceName, port } = value as Record<string, unknown>;
+  if (
+    typeof workspaceName !== "string" ||
+    !workspaceName.trim() ||
+    workspaceName.trim().length > 80
+  )
+    return null;
+  if (typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > 65535) return null;
+  return { workspaceName: workspaceName.trim(), port };
+}
+
 interface HostedServer {
   port: number;
   stop(): Promise<void>;

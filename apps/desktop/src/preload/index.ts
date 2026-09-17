@@ -7,12 +7,15 @@ export interface SlackossBridge {
   lanSnapshot: () => Promise<unknown[]>;
   onLanServers: (cb: (servers: unknown[]) => void) => () => void;
   hostingStatus: () => Promise<unknown>;
+  hostingLastHosted: () => Promise<unknown>;
   hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<unknown>;
   hostingStop: () => Promise<void>;
   onHostingStatus: (cb: (status: unknown) => void) => () => void;
   /** A gatherline:// (or legacy slackoss://) link that launched the app, if any. */
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
+  /** Shows the window again, restored and in front. */
+  revealWindow: () => Promise<void>;
 }
 
 const bridge: SlackossBridge = {
@@ -26,6 +29,7 @@ const bridge: SlackossBridge = {
     return () => ipcRenderer.removeListener("lan:servers", listener);
   },
   hostingStatus: () => ipcRenderer.invoke("hosting:status"),
+  hostingLastHosted: () => ipcRenderer.invoke("hosting:lastHosted"),
   hostingStart: (opts) => ipcRenderer.invoke("hosting:start", opts),
   hostingStop: () => ipcRenderer.invoke("hosting:stop"),
   onHostingStatus: (cb) => {
@@ -39,6 +43,7 @@ const bridge: SlackossBridge = {
     ipcRenderer.on("deeplink", listener);
     return () => ipcRenderer.removeListener("deeplink", listener);
   },
+  revealWindow: () => ipcRenderer.invoke("window:reveal"),
 };
 
 contextBridge.exposeInMainWorld("slackoss", bridge);

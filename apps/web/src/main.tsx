@@ -3,11 +3,8 @@ import { createRoot } from "react-dom/client";
 import { App, webPlatform } from "@slackoss/ui";
 import "./index.css";
 
-// Ask for notification permission once the user interacts.
-if (typeof Notification !== "undefined" && Notification.permission === "default") {
-  window.addEventListener("click", () => void Notification.requestPermission(), { once: true });
-}
-
+// Notification permission is asked from a banner after signing in, not here:
+// asking on the first click anywhere usually meant asking on Sign in.
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App platform={webPlatform()} />
