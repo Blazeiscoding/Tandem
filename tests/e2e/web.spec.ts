@@ -1207,7 +1207,7 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     await dialog.getByRole("button", { name: "Copy desktop link", exact: true }).click();
     await expect(dialog.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
     expect(await hostPage.evaluate(() => navigator.clipboard.readText())).toBe(
-      `slackoss://join?host=127.0.0.1:${port}&code=${code}`,
+      `gatherline://join?host=127.0.0.1:${port}&code=${code}`,
     );
     await hostPage.evaluate(() =>
       (window as unknown as { restoreClipboard: () => void }).restoreClipboard(),
