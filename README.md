@@ -7,7 +7,8 @@ package names, `SLACKOSS_*` settings, data locations, application ID, Docker vol
 names and `slackoss://` links are intentionally retained for compatibility. No data
 migration is needed. The working name has not been trademark-cleared.
 
-The refreshed interface includes a navy-and-mint theme, an original vector mark,
+The refreshed interface includes a slate-and-periwinkle theme, drawn line icons
+where controls once used emoji, an original vector mark,
 keyboard-accessible controls, narrow-window navigation, and a capped live
 timeline that follows new messages without growing indefinitely. See
 [frontend checks and measurements](docs/VALIDATION.md#gatherline-frontend-refresh).
