@@ -14,7 +14,7 @@ If new tests are explicitly deferred for a development phase, record that limit
 in the PR. Keep existing CI checks enabled and distinguish passing existing tests
 from coverage of the new behavior.
 
-Do not upload build output as a CI artifact on every run. A repository is given
+Do not upload build output as a CI artifact on every run. The account has
 half a gigabyte of Actions storage, and GitHub keeps artifacts for ninety days
 unless told otherwise, so one packaged desktop installer per push fills the whole
 allowance in about five runs — this happened, and fifty-six copies of a 107 MB
@@ -23,6 +23,14 @@ launching the result; keeping the file afterwards is a separate decision that
 belongs in a release workflow, on a tag, where somebody actually wants to
 download it. If an artifact genuinely helps diagnose a failure, upload it under
 `if: failure()` and set a short `retention-days`.
+
+CI also deletes what it leaves behind. GitHub counts storage for every hour an
+artifact exists, and deleting one later does not give those hours back. So the
+browser report a failing run uploads expires after a day, and the next run
+deletes it sooner, along with anything else earlier runs left. A separate
+`clean-up` job does the deleting, because it is the only job whose token may
+delete. It starts only when there is something to delete, since every job that
+starts counts as at least a minute of CI time.
 
 The browser and desktop suites run against built output rather than the sources:
 `tests/e2e/web.spec.ts` spawns `apps/server-cli/dist/`, and the desktop spec
