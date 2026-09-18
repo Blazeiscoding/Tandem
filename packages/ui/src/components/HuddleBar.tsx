@@ -103,7 +103,11 @@ function Tile({
         </div>
       )}
       <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-ground/80 px-1.5 py-0.5 text-[11px] text-ink-dim">
-        {muted && <span title="Muted">🔇</span>}
+        {muted && (
+          <span title="Muted" className="text-alert">
+            <Icon name="micOff" size={11} />
+          </span>
+        )}
         {label}
       </span>
     </div>
@@ -238,19 +242,23 @@ function HuddleFace({
   dim?: boolean;
 }) {
   return (
-    <span
-      title={title}
-      className={`relative flex rounded-full ring-2 transition-colors ${
-        speaking ? "ring-online" : "ring-transparent"
-      } ${dim ? "opacity-40" : ""}`}
-    >
-      <Avatar user={user} size={22} />
-      {muted && (
-        <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-raised text-[8px] leading-none">
-          🔇
-        </span>
-      )}
-    </span>
+    <li className="flex shrink-0">
+      <span
+        role="img"
+        aria-label={title}
+        title={title}
+        className={`relative flex rounded-full ring-2 transition-colors ${
+          speaking ? "ring-online" : "ring-transparent"
+        } ${dim ? "opacity-40" : ""}`}
+      >
+        <Avatar user={user} size={22} />
+        {muted && (
+          <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-raised p-0.5 text-ink-dim">
+            <Icon name="micOff" size={9} />
+          </span>
+        )}
+      </span>
+    </li>
   );
 }
 
@@ -283,12 +291,38 @@ export function HuddleBar() {
     }
   };
 
-  return (
-    <div className="flex items-center gap-3 border-t border-copper/40 bg-copper/10 px-5 py-2">
-      <span className="flex size-2 shrink-0 animate-pulse rounded-full bg-online" />
-      <span className="shrink-0 text-sm font-medium text-copper">Huddle in {where}</span>
+  const connecting = huddle.peers.some((p) => !p.connected);
+  /** A toggle names what it controls; aria-pressed, not the name, says whether it is on. */
+  const toggleCls = (on: boolean, onCls: string) =>
+    `flex size-11 items-center justify-center rounded-xl border transition-colors disabled:opacity-50 ${
+      on ? onCls : "border-edge text-ink-dim hover:border-ink-faint hover:text-ink"
+    }`;
 
-      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+  return (
+    <div
+      role="region"
+      aria-label="Active huddle"
+      className="flex flex-wrap items-center gap-3 border-t border-copper/40 bg-raised px-5 py-3"
+    >
+      {/* The minimum width is what sends the controls to a line of their own on a phone. */}
+      <div className="flex min-w-40 flex-1 items-center gap-2.5">
+        <Icon name="headphones" className="text-online" />
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold" title={`Huddle in ${where}`}>
+            Huddle in {where}
+          </div>
+          <div role="status" className="text-xs text-ink-faint">
+            {huddle.peers.length === 0
+              ? "Waiting for someone to join…"
+              : `${huddle.peers.length + 1} participants${connecting ? " · Connecting…" : ""}`}
+          </div>
+        </div>
+      </div>
+
+      <ul
+        aria-label="In the huddle"
+        className="flex min-w-0 max-w-40 items-center gap-1.5 overflow-x-auto p-1"
+      >
         <HuddleFace
           user={selfId ? users[selfId] : undefined}
           title={`You${huddle.micMuted ? " (muted)" : ""}`}
@@ -307,56 +341,56 @@ export function HuddleBar() {
             dim={!p.connected}
           />
         ))}
-        {huddle.peers.length === 0 && (
-          <span className="text-[12px] text-ink-faint">Waiting for someone to join…</span>
-        )}
-      </span>
+      </ul>
 
       {huddle.peers.map((p) => (
         <PeerAudio key={p.userId} peer={p} />
       ))}
 
-      <button
-        onClick={() => client.toggleMic()}
-        title={huddle.micMuted ? "Unmute" : "Mute"}
-        className={`rounded-lg border px-2.5 py-1 text-[13px] transition-colors ${
-          huddle.micMuted
-            ? "border-alert text-alert"
-            : "border-edge text-ink-dim hover:border-ink-faint hover:text-ink"
-        }`}
+      <div
+        role="group"
+        aria-label="Huddle controls"
+        className="ml-auto flex shrink-0 items-center gap-2"
       >
-        {huddle.micMuted ? "🔇" : "🎙"}
-      </button>
-      <button
-        onClick={() => void guarded("camera", () => client.toggleCamera())}
-        disabled={busy !== null}
-        title={huddle.cameraOn ? "Turn your camera off" : "Turn your camera on"}
-        className={`rounded-lg border px-2.5 py-1 text-[13px] transition-colors disabled:opacity-50 ${
-          huddle.cameraOn
-            ? "border-copper text-copper"
-            : "border-edge text-ink-dim hover:border-ink-faint hover:text-ink"
-        }`}
-      >
-        📹
-      </button>
-      <button
-        onClick={() => void guarded("screen", () => client.toggleScreenShare())}
-        disabled={busy !== null}
-        title={huddle.sharingScreen ? "Stop sharing" : "Share your screen"}
-        className={`rounded-lg border px-2.5 py-1 text-[13px] transition-colors disabled:opacity-50 ${
-          huddle.sharingScreen
-            ? "border-copper text-copper"
-            : "border-edge text-ink-dim hover:border-ink-faint hover:text-ink"
-        }`}
-      >
-        🖥
-      </button>
-      <button
-        onClick={() => client.leaveHuddle()}
-        className="rounded-lg bg-alert/90 px-3 py-1 text-[13px] font-semibold text-white transition-colors hover:bg-alert"
-      >
-        Leave
-      </button>
+        <button
+          aria-label="Mute microphone"
+          aria-pressed={huddle.micMuted}
+          onClick={() => client.toggleMic()}
+          title={huddle.micMuted ? "Unmute" : "Mute"}
+          className={toggleCls(huddle.micMuted, "border-alert text-alert")}
+        >
+          <Icon name={huddle.micMuted ? "micOff" : "mic"} />
+        </button>
+        <button
+          aria-label="Camera"
+          aria-pressed={huddle.cameraOn}
+          onClick={() => void guarded("camera", () => client.toggleCamera())}
+          disabled={busy !== null}
+          title={huddle.cameraOn ? "Turn your camera off" : "Turn your camera on"}
+          className={toggleCls(huddle.cameraOn, "border-copper text-copper")}
+        >
+          <Icon name="camera" />
+        </button>
+        <button
+          aria-label="Share screen"
+          aria-pressed={huddle.sharingScreen}
+          onClick={() => void guarded("screen", () => client.toggleScreenShare())}
+          disabled={busy !== null}
+          title={huddle.sharingScreen ? "Stop sharing" : "Share your screen"}
+          className={toggleCls(huddle.sharingScreen, "border-copper text-copper")}
+        >
+          <Icon name="screen" />
+        </button>
+        {/* Leave keeps its word: an arrow out of a door reads as signing out just as easily. */}
+        <button
+          onClick={() => client.leaveHuddle()}
+          title="Leave the huddle"
+          className="flex h-11 items-center gap-2 rounded-xl bg-alert px-4 text-sm font-semibold text-ground transition-colors hover:bg-alert/85"
+        >
+          <Icon name="leave" size={16} />
+          Leave
+        </button>
+      </div>
     </div>
   );
 }

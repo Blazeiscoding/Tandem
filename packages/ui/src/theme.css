@@ -1,21 +1,26 @@
 /*
- * Gatherline visual identity — midnight blue, mint accent, mono for
- * infrastructure (addresses, ports, codes). One committed look, no light mode yet.
+ * Gatherline visual identity: slate surfaces, a periwinkle accent, mono for
+ * infrastructure (addresses, ports, codes). Dark only for now.
+ *
+ * The accent and the alert are light, so text written on them takes the ground
+ * colour, never white. Every ink clears 4.5:1 on every surface, and ink-faint on
+ * lifted comes closest at 4.8. packages/ui/test/theme.test.ts holds both, and
+ * keeps the colours the window, the pages and the icons repeat equal to these.
  */
 @theme {
-  --color-ground: #111820; /* app background */
-  --color-raised: #17212b; /* sidebar, panels */
-  --color-lifted: #22313e; /* hover, cards */
-  --color-edge: #2b3a47; /* borders */
-  --color-ink: #edf3f7; /* primary text */
-  --color-ink-dim: #b1c0cd; /* secondary text */
-  --color-ink-faint: #8b9cab; /* tertiary text */
+  --color-ground: #191d29; /* app background, the timeline */
+  --color-raised: #222737; /* sidebar, panels, cards */
+  --color-lifted: #30374b; /* hover, menus, chips */
+  --color-edge: #3c445a; /* borders */
+  --color-ink: #f0f2fa; /* primary text */
+  --color-ink-dim: #c1c8db; /* secondary text */
+  --color-ink-faint: #9ba6bf; /* tertiary text, timestamps */
   /* Keep the token name compatible with existing integration components. */
-  --color-copper: #8adbc1; /* accent */
-  --color-copper-deep: #69c6a9;
-  --color-online: #8adbc1;
-  --color-alert: #e0564f;
-  --color-mention: rgba(138, 219, 193, 0.1);
+  --color-copper: #b6bfff; /* accent: unread, selected, links, primary actions */
+  --color-copper-deep: #9faaf5; /* accent, pressed and hovered */
+  --color-online: #8dd6b4; /* present, live huddles */
+  --color-alert: #ff948f; /* errors and leaving */
+  --color-mention: rgba(182, 191, 255, 0.09); /* a message that names you */
 
   --font-sans:
     "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
@@ -43,7 +48,7 @@ body {
 }
 
 ::selection {
-  background: rgba(138, 219, 193, 0.25);
+  background: rgba(182, 191, 255, 0.28);
 }
 
 *::-webkit-scrollbar {
@@ -51,13 +56,13 @@ body {
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #354958;
+  background: var(--color-edge);
   border-radius: 5px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #526b7e;
+  background: #566079;
   background-clip: content-box;
   border: 2px solid transparent;
 }
@@ -109,7 +114,7 @@ textarea {
   min-height: min-content;
 }
 .join-story {
-  background: linear-gradient(145deg, #1e3739, #17212b 75%);
+  background: linear-gradient(145deg, #2e3552, var(--color-ground) 75%);
 }
 
 @media (max-width: 760px) {

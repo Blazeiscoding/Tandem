@@ -44,10 +44,11 @@ export function channelTitle(
 
 const AVATAR_HUES = [18, 42, 96, 152, 200, 258, 312, 340];
 
+/** Dark enough on every hue for white initials to clear 4.5:1; cyan is the closest. */
 export function avatarColor(userId: ID): string {
   let h = 0;
   for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
-  return `oklch(0.55 0.13 ${AVATAR_HUES[h % AVATAR_HUES.length]})`;
+  return `oklch(0.52 0.13 ${AVATAR_HUES[h % AVATAR_HUES.length]})`;
 }
 
 export function initials(name: string): string {

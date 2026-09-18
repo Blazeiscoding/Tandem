@@ -3,6 +3,7 @@ import type { FileMeta, ID } from "@slackoss/protocol";
 import { ApiError, type LocalAttachment } from "@slackoss/client-core";
 import { useClient, usePlatform } from "../context.js";
 import { formatBytes } from "../lib/format.js";
+import { Icon, type IconName } from "./Icon.js";
 import { Modal } from "./Modal.js";
 
 /** Largest an inline image is drawn at; the real file opens in the lightbox. */
@@ -175,8 +176,8 @@ function FileCard({ file }: { file: FileMeta }) {
         aria-label={`${error ? "Retry download" : "Download"} ${file.name}`}
         className="flex items-center gap-2.5 rounded-xl border border-edge bg-raised px-3 py-2.5 text-left transition-colors hover:border-copper/50"
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-lifted text-base">
-          {iconFor(file.mime, file.name)}
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-lifted text-copper">
+          <Icon name={iconFor(file.mime, file.name)} size={18} />
         </span>
         <span className="min-w-0">
           <span className="block max-w-[220px] truncate text-sm font-medium">{file.name}</span>
@@ -206,14 +207,14 @@ function FileCard({ file }: { file: FileMeta }) {
   );
 }
 
-function iconFor(mime: string, name: string): string {
-  if (mime.startsWith("video/")) return "🎬";
-  if (mime.startsWith("audio/")) return "🎵";
-  if (mime === "application/pdf") return "📕";
-  if (/zip|tar|gzip|compressed/.test(mime)) return "🗜";
-  if (/\.(ts|tsx|js|jsx|py|rs|go|java|c|cpp|json|yml|yaml|sh)$/i.test(name)) return "📜";
-  if (mime.startsWith("text/")) return "📄";
-  return "📎";
+function iconFor(mime: string, name: string): IconName {
+  if (mime.startsWith("video/")) return "film";
+  if (mime.startsWith("audio/")) return "music";
+  if (mime === "application/pdf") return "fileText";
+  if (/zip|tar|gzip|compressed/.test(mime)) return "fileArchive";
+  if (/\.(ts|tsx|js|jsx|py|rs|go|java|c|cpp|json|yml|yaml|sh)$/i.test(name)) return "fileCode";
+  if (mime.startsWith("text/")) return "fileText";
+  return "file";
 }
 
 function saveUrl(url: string, name: string) {

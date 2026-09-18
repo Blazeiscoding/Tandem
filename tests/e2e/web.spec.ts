@@ -145,7 +145,7 @@ test("a browser served by a workspace offers that workspace without being asked"
   await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toHaveCount(0);
 
   // The way back to the full list is still there for a second workspace.
-  await page.getByRole("button", { name: "← All workspaces" }).click();
+  await page.getByRole("button", { name: "All workspaces", exact: true }).click();
   await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toBeVisible();
   await expect(page.getByText("serving this page")).toBeVisible();
 });

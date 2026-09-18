@@ -4,10 +4,11 @@ import { useClient, useWorkspace } from "../context.js";
 import { channelTitle, formatDay, formatTime } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { Icon } from "./Icon.js";
 
 interface Props {
   title: string;
-  emptyHint: string;
+  emptyHint: ReactNode;
   load: (
     cursor?: string,
     signal?: AbortSignal,
@@ -101,9 +102,9 @@ export function MessageListPanel(props: Props) {
         <button
           onClick={props.onClose}
           aria-label={`Close ${props.title}`}
-          className="rounded-lg px-2 py-1 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
         >
-          ✕
+          <Icon name="close" size={16} />
         </button>
       </header>
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={busy}>
@@ -120,7 +121,14 @@ export function MessageListPanel(props: Props) {
           </p>
         )}
         {busy && (
-          <p role="status" className="py-3 text-center font-mono text-xs text-ink-faint">
+          <p
+            role="status"
+            className="flex items-center justify-center gap-2 py-3 font-mono text-xs text-ink-faint"
+          >
+            <span
+              className="size-3 animate-spin rounded-full border border-edge border-t-copper"
+              aria-hidden="true"
+            />
             Loading messages…
           </p>
         )}
@@ -252,7 +260,12 @@ export function LaterPanel(props: {
   return (
     <MessageListPanel
       title="Later"
-      emptyHint="Save a message with the 🔖 button and it shows up here."
+      emptyHint={
+        <>
+          Choose <Icon name="bookmark" size={13} className="inline align-[-2px]" /> Save for later
+          in a message&rsquo;s actions and it shows up here.
+        </>
+      }
       load={(cursor, signal) => client.api.listSaved(cursor, signal)}
       reloadKey={`saved:${savedSignature}`}
       onClose={props.onClose}

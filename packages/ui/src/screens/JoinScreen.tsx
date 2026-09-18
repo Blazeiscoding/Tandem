@@ -182,32 +182,58 @@ export function JoinScreen({
   return (
     <div className="flex h-full flex-col">
       {platform.kind === "desktop" && <div className="titlebar-drag h-10 shrink-0" />}
-      <main className="flex flex-1 overflow-y-auto p-5 sm:p-10">
-        <div className="join-layout m-auto grid w-full max-w-[1040px] overflow-hidden rounded-3xl border border-edge bg-raised/30 lg:grid-cols-2">
-          <section className="join-story hidden flex-col justify-between border-r border-edge p-10 lg:flex">
+      <main className="flex flex-1 overflow-y-auto p-4 sm:p-8">
+        <div className="join-layout m-auto grid w-full max-w-[1120px] overflow-hidden rounded-3xl border border-edge bg-raised lg:grid-cols-[1.05fr_1fr]">
+          <section className="join-story hidden flex-col justify-between p-10 lg:flex xl:p-12">
             <div className="flex items-center gap-3 text-xl font-semibold tracking-tight">
               <BrandMark size={38} />
               Gatherline
             </div>
-            <div className="py-14">
-              <p className="mb-5 text-xs font-medium uppercase tracking-[0.2em] text-copper">
-                Open source. Open doors.
-              </p>
-              <h2 className="text-[46px] font-semibold leading-[1.12] tracking-tight">
-                Your people.
+            <div className="py-12">
+              <h2 className="max-w-[380px] text-[52px] font-semibold leading-[1.06] tracking-[-0.045em]">
+                A place for
                 <br />
-                Your place.
-                <br />
-                <span className="text-copper">Your server.</span>
+                your people.
               </h2>
-              <p className="mt-6 max-w-[320px] text-[15px] leading-7 text-ink-dim">
-                A home for the conversations that move your team forward. From the office to the
-                next game night.
+              <p className="mt-6 max-w-[340px] text-base leading-7 text-ink-dim">
+                Bring your team together in a workspace you host. Every conversation, file, and
+                shared idea stays on your server.
               </p>
+              {/* An illustration of a channel, not a conversation anyone can read or join. */}
+              <div aria-hidden="true" className="mt-9 rounded-2xl border border-edge bg-ground p-5">
+                <div className="flex items-center gap-2 border-b border-edge pb-4 text-sm font-semibold">
+                  <Icon name="hash" size={17} />
+                  general
+                  <span className="ml-auto text-xs font-normal text-ink-faint">
+                    Conversation preview
+                  </span>
+                </div>
+                <div className="mt-5 flex gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-copper/20 text-xs font-semibold text-copper">
+                    JD
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold">
+                      Jamie Diaz
+                      <span className="ml-2 text-xs font-normal text-ink-faint">9:41 AM</span>
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-ink-dim">
+                      A space for the whole team. What are we working on today?
+                    </p>
+                    <span className="mt-3 inline-flex items-center gap-1.5 text-xs text-copper">
+                      <Icon name="thread" size={14} /> Keep the discussion in a thread
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-3 border-t border-edge pt-6 text-xs text-ink-dim">
-              <Icon name="friends" />
-              <span>Team chat, without giving up control.</span>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-dim">
+              <span className="flex items-center gap-2">
+                <Icon name="friends" size={16} /> Built for your team
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="size-1.5 rounded-full bg-online" /> Open source. Self-hosted.
+              </span>
             </div>
           </section>
           <div className="w-full p-6 sm:p-9">
@@ -584,9 +610,10 @@ function ServerRow(props: {
           <button
             onClick={props.onForget}
             title="Forget this workspace"
-            className="mr-2 hidden rounded px-2 py-1 text-xs text-ink-faint hover:text-alert group-hover:block"
+            aria-label="Forget this workspace"
+            className="mr-2 hidden rounded p-1 text-ink-faint hover:text-alert group-hover:block"
           >
-            ✕
+            <Icon name="close" size={12} />
           </button>
         )}
       </div>
@@ -713,9 +740,10 @@ function AuthCard(props: {
     <div className="rounded-xl border border-edge bg-raised p-6">
       <button
         onClick={props.onBack}
-        className="mb-4 text-sm text-ink-dim transition-colors hover:text-ink"
+        className="mb-4 flex items-center gap-1.5 text-sm text-ink-dim transition-colors hover:text-ink"
       >
-        ← All workspaces
+        <Icon name="arrow" size={14} style={{ transform: "rotate(180deg)" }} />
+        All workspaces
       </button>
       <h2 className="text-xl font-bold">{props.info.workspaceName}</h2>
       <p className="mb-5 mt-0.5 font-mono text-xs text-ink-faint">

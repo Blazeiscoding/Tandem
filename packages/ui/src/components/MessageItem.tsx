@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { useCopy } from "../lib/useCopy.js";
 import { browserLink } from "../lib/deeplink.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
@@ -9,6 +9,7 @@ import { MessageAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { MessageEditor } from "./MessageEditor.js";
 import { useShareableServer } from "./ShareableServer.js";
+import { Icon } from "./Icon.js";
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
 
@@ -77,9 +78,19 @@ export const MessageItem = memo(function MessageItem({
         </div>
         <div className="min-w-0 flex-1">
           {(message.pinned || isSaved) && (
-            <div className="mb-0.5 flex items-center gap-2 text-[11px] text-ink-faint">
-              {message.pinned && <span className="text-copper">📌 Pinned to this channel</span>}
-              {isSaved && <span>🔖 Saved for later</span>}
+            <div className="mb-0.5 flex items-center gap-3 text-[11px] text-ink-faint">
+              {message.pinned && (
+                <span className="flex items-center gap-1 text-copper">
+                  <Icon name="pin" size={12} />
+                  Pinned to this channel
+                </span>
+              )}
+              {isSaved && (
+                <span className="flex items-center gap-1">
+                  <Icon name="bookmark" size={12} />
+                  Saved for later
+                </span>
+              )}
             </div>
           )}
           {!compact && (
@@ -153,7 +164,10 @@ export const MessageItem = memo(function MessageItem({
               className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] text-ink-faint transition-colors hover:border-edge hover:bg-raised hover:text-ink"
             >
               Also sent to the channel from a thread
-              <span className="text-copper">View thread →</span>
+              <span className="inline-flex items-center gap-1 text-copper">
+                View thread
+                <Icon name="arrow" size={13} />
+              </span>
             </button>
           )}
 
@@ -163,7 +177,7 @@ export const MessageItem = memo(function MessageItem({
               className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] font-medium text-copper transition-colors hover:border-edge hover:bg-raised"
             >
               {message.replyCount} {message.replyCount === 1 ? "reply" : "replies"}
-              <span className="text-ink-faint">→</span>
+              <Icon name="arrow" size={13} className="text-ink-faint" />
             </button>
           )}
         </div>
@@ -176,13 +190,19 @@ export const MessageItem = memo(function MessageItem({
           ))}
           {!inThread && (
             <ToolbarButton
-              label="↩"
+              label={<Icon name="thread" size={15} />}
               title="Reply in thread"
               onClick={() => onOpenThread?.(message.id)}
             />
           )}
           <ToolbarButton
-            label={copied ? (copied.ok ? "✓" : "✕") : "🔗"}
+            label={
+              copied ? (
+                <Icon name={copied.ok ? "check" : "alert"} size={15} />
+              ) : (
+                <Icon name="link" size={15} />
+              )
+            }
             title={copied && !copied.ok ? "Could not copy the link" : "Copy link to message"}
             onClick={() =>
               // A browser link opens anywhere: in a browser at the web client,
@@ -197,13 +217,13 @@ export const MessageItem = memo(function MessageItem({
             }
           />
           <ToolbarButton
-            label="🔖"
+            label={<Icon name="bookmark" size={15} />}
             title={isSaved ? "Remove from Later" : "Save for later"}
             active={isSaved}
             onClick={() => client.toggleSaved(message.id)}
           />
           <ToolbarButton
-            label="◍"
+            label={<Icon name="markUnread" size={15} />}
             title={inThread ? "Mark unread from this reply" : "Mark unread from this message"}
             onClick={() =>
               // Inside a thread this is the thread's own unread state, and the
@@ -214,14 +234,14 @@ export const MessageItem = memo(function MessageItem({
             }
           />
           <ToolbarButton
-            label="📌"
+            label={<Icon name="pin" size={15} />}
             title={message.pinned ? "Unpin from channel" : "Pin to channel"}
             active={message.pinned}
             onClick={() => client.togglePin(message)}
           />
           {mine && (
             <ToolbarButton
-              label="✎"
+              label={<Icon name="edit" size={15} />}
               title="Edit message"
               onClick={() => {
                 setEditing(true);
@@ -230,7 +250,7 @@ export const MessageItem = memo(function MessageItem({
           )}
           {canDelete && (
             <ToolbarButton
-              label="🗑"
+              label={<Icon name="trash" size={15} />}
               title="Delete message"
               onClick={() => {
                 if (confirm("Delete this message?")) void client.api.deleteMessage(message.id);
@@ -244,7 +264,7 @@ export const MessageItem = memo(function MessageItem({
 });
 
 function ToolbarButton(props: {
-  label: string;
+  label: ReactNode;
   title?: string;
   active?: boolean;
   onClick: () => void;
@@ -253,7 +273,8 @@ function ToolbarButton(props: {
     <button
       onClick={props.onClick}
       title={props.title}
-      className={`px-2 py-1.5 text-[14px] transition-colors hover:bg-copper/20 ${
+      aria-label={props.title}
+      className={`flex items-center justify-center px-2 py-1.5 text-[14px] transition-colors hover:bg-copper/20 ${
         props.active ? "bg-copper/25" : ""
       }`}
     >

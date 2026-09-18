@@ -646,8 +646,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                   </>
                 ) : (
                   <>
-                    <span className="flex size-[22px] items-center justify-center rounded bg-copper/25 text-[11px] font-bold text-copper">
-                      @
+                    <span className="flex size-[22px] items-center justify-center rounded bg-copper/25 text-copper">
+                      <Icon name="at" size={14} />
                     </span>
                     <span className="font-medium">@{c.token}</span>
                     <span className="text-xs text-ink-faint">{c.description}</span>
@@ -764,9 +764,9 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                 <button
                   onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
                   aria-label={`Remove ${f.name}`}
-                  className="rounded px-1 text-ink-faint transition-colors hover:text-alert"
+                  className="rounded p-0.5 text-ink-faint transition-colors hover:text-alert"
                 >
-                  ✕
+                  <Icon name="close" size={14} />
                 </button>
               </li>
             ))}

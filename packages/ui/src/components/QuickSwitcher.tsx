@@ -8,15 +8,16 @@ import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { formatTime } from "../lib/format.js";
 import { isImeKey } from "../lib/textInput.js";
+import { Icon } from "./Icon.js";
 
 type SwitcherRow =
   | { kind: "public" | "private" | "conversation"; id: ID; label: string }
   /** `channelId` is set when a direct conversation with this person already exists. */
   | { kind: "person"; id: ID; label: string; channelId?: ID };
 
-const SWITCHER_ICON: Record<SwitcherRow["kind"], string> = {
+const SWITCHER_ICON: Record<SwitcherRow["kind"], React.ReactNode> = {
   public: "#",
-  private: "🔒",
+  private: <Icon name="lock" size={13} />,
   conversation: "@",
   person: "@",
 };
@@ -110,7 +111,7 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
                 i === index ? "bg-copper/15 text-copper" : "text-ink-dim"
               }`}
             >
-              <span aria-hidden className="w-4 text-center text-ink-faint">
+              <span aria-hidden className="flex w-4 justify-center text-ink-faint">
                 {SWITCHER_ICON[r.kind]}
               </span>
               {r.label}
@@ -411,10 +412,10 @@ export function SearchDialog(props: {
                   <button
                     disabled={recent.busy}
                     aria-label={`Remove recent search: ${entry.query || "All messages"} (${scopeLabel})`}
-                    className="rounded px-2 py-1 text-ink-faint hover:bg-lifted disabled:opacity-40"
+                    className="rounded p-1.5 text-ink-faint hover:bg-lifted hover:text-ink disabled:opacity-40"
                     onClick={() => recent.remove(entry)}
                   >
-                    ×
+                    <Icon name="close" size={14} />
                   </button>
                 </li>
               );

@@ -4,6 +4,7 @@ import { useClient, useWorkspace } from "../context.js";
 import { Composer } from "./Composer.js";
 import { MessageItem } from "./MessageItem.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
+import { Icon } from "./Icon.js";
 
 interface Props {
   channelId: ID;
@@ -153,9 +154,9 @@ export function ThreadPanel({
         <button
           onClick={onClose}
           aria-label="Close thread"
-          className="rounded-lg px-2 py-1 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
         >
-          ✕
+          <Icon name="close" size={16} />
         </button>
       </header>
       <div
@@ -201,7 +202,11 @@ export function ThreadPanel({
           </div>
         )}
         {page?.loading && (
-          <p role="status" className="px-5 py-2 text-sm text-ink-faint">
+          <p role="status" className="flex items-center gap-2 px-5 py-2 text-sm text-ink-faint">
+            <span
+              className="size-3 shrink-0 animate-spin rounded-full border border-edge border-t-copper"
+              aria-hidden="true"
+            />
             Loading replies…
           </p>
         )}

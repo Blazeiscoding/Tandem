@@ -1,4 +1,5 @@
 import { Modal } from "./Modal.js";
+import { Icon } from "./Icon.js";
 
 interface Props {
   title: string;
@@ -27,9 +28,9 @@ export function Dialog({ title, onClose, children, width = 440, dismissible = tr
           }}
           disabled={!dismissible}
           aria-label="Close"
-          className="rounded-lg px-2 py-1 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
         >
-          ✕
+          <Icon name="close" size={16} />
         </button>
       </div>
       {children}

@@ -6,6 +6,7 @@ import { parseDeepLink } from "./lib/deeplink.js";
 import { JoinScreen } from "./screens/JoinScreen.js";
 import { WorkspaceScreen } from "./screens/WorkspaceScreen.js";
 import { Dialog, primaryBtnCls } from "./components/Dialog.js";
+import { Icon } from "./components/Icon.js";
 import { HostDialog, useHostingStatus, useLastHosted } from "./components/HostDialog.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { parseSavedServers } from "./lib/savedServers.js";
@@ -292,30 +293,42 @@ export function App({ platform }: { platform: Platform }) {
           )}
           <div className="min-h-0 flex-1">
             {session.view === "loading" && (
-              <div className="flex h-full items-center justify-center font-mono text-sm text-ink-faint">
-                starting…
+              <div className="flex h-full flex-col items-center justify-center gap-4">
+                <span
+                  className="flex size-9 animate-spin rounded-full border-2 border-edge border-t-copper"
+                  aria-hidden="true"
+                />
+                <span className="font-mono text-sm text-ink-faint">starting…</span>
               </div>
             )}
             {session.view === "restore_failed" && (
               <div className="flex h-full items-center justify-center bg-ground p-6">
-                <div className="max-w-md space-y-4 text-center text-ink">
-                  <h1 className="text-xl font-semibold">Saved sign-ins could not be opened</h1>
-                  <p role="alert" className="text-sm text-ink-dim">
+                <div className="w-full max-w-md rounded-3xl border border-edge bg-raised p-8 text-center text-ink shadow-sm">
+                  <span
+                    className="mx-auto mb-5 flex size-12 items-center justify-center rounded-2xl bg-alert/10 text-alert"
+                    aria-hidden="true"
+                  >
+                    <Icon name="alert" size={22} />
+                  </span>
+                  <h1 className="text-xl font-semibold tracking-tight">
+                    Saved sign-ins could not be opened
+                  </h1>
+                  <p role="alert" className="mt-3 text-sm leading-relaxed text-ink-dim">
                     {platform.kind === "desktop"
-                      ? "Unlock your system key store, or use the OS account that saved these sign-ins, and retry. The saved data is still on this device."
-                      : "Browser storage could not be read. The saved data is kept; retry after resolving the storage problem."}
+                      ? "Unlock your system key store, or use the OS account that saved these sign-ins, and try again. The saved data is still on this device."
+                      : "Browser storage could not be read. The saved data is kept; try again after resolving the storage problem."}
                   </p>
-                  <div className="flex flex-wrap justify-center gap-2">
+                  <div className="mt-7 flex flex-wrap justify-center gap-2">
                     <button
                       type="button"
                       className={primaryBtnCls}
                       onClick={() => void restoreServers()}
                     >
-                      Retry
+                      Try again
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg px-3 py-2 text-sm hover:bg-lifted"
+                      className="rounded-lg border border-edge px-3 py-2 text-sm hover:bg-lifted"
                       onClick={() => {
                         setForgetError(false);
                         setForgetConfirm(true);

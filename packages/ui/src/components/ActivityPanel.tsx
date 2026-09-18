@@ -3,6 +3,7 @@ import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle, formatTime } from "../lib/format.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { Icon } from "./Icon.js";
 
 export function ActivityPanel({
   onClose,
@@ -71,10 +72,10 @@ export function ActivityPanel({
         </button>
         <button
           aria-label="Close activity"
-          className="rounded-lg px-2 py-1 text-ink-dim hover:bg-lifted"
+          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
           onClick={onClose}
         >
-          ✕
+          <Icon name="close" size={16} />
         </button>
       </header>
       <div
@@ -103,7 +104,14 @@ export function ActivityPanel({
             : "Direct and room-wide mentions in conversations you joined."}
         </p>
         {loading && (
-          <p role="status" className="py-6 text-center text-sm text-ink-faint">
+          <p
+            role="status"
+            className="flex items-center justify-center gap-2 py-6 text-sm text-ink-faint"
+          >
+            <span
+              className="size-3 animate-spin rounded-full border border-edge border-t-copper"
+              aria-hidden="true"
+            />
             Loading activity…
           </p>
         )}

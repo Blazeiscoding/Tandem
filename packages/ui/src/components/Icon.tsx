@@ -15,21 +15,58 @@ const paths = {
   send: "m22 2-7 20-4-9-9-4zM22 2 11 13",
   headphones: "M3 14v-3a9 9 0 0 1 18 0v3M3 13h4v8H3zM17 13h4v8h-4z",
   arrow: "M4 12h16m-6-6 6 6-6 6",
+  link: "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
   thread: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 8h8M8 12h5",
+  /** Triangle with an exclamation mark, for failure states. */
+  alert: "M12 3 2.5 20h19zM12 10v4M12 17.5h.01",
   /** Three dots, drawn by a round stroke through three points. */
   dots: "M12 5h.01M12 12h.01M12 19h.01",
+  check: "m4 12 5 5L20 7",
+  plus: "M12 5v14M5 12h14",
+  edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
+  trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6",
+  lock: "M6 11h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM8 11V7a4 4 0 0 1 8 0v4",
+  at: "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8",
+  smile: "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01",
+  bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0",
+  /** Notifications paused: the pause control, and a muted channel. */
+  bellOff:
+    "M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7M10.3 21a1.94 1.94 0 0 0 3.4 0M2 2l20 20",
+  /** A message with a dot on it: read from here on again. */
+  markUnread:
+    "M11.7 3H5a2 2 0 0 0-2 2v16l4-4h12a2 2 0 0 0 2-2v-2.7M21 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6",
+  fileText:
+    "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  fileCode:
+    "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M10 12l-2 2.5 2 2.5M14 12l2 2.5-2 2.5",
+  fileArchive:
+    "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M10 6h1M10 9h1M10 12h1M9 15h3v3H9z",
+  film: "M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM7 3v18M17 3v18M3 12h18M3 7.5h4M3 16.5h4M17 7.5h4M17 16.5h4",
+  music: "M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  mic: "M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4",
+  micOff:
+    "M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.9-.7M19 10v1a7 7 0 0 1-10.8 5.9M5 11a7 7 0 0 0 10 6.3M12 18v4M3 3l18 18",
+  camera:
+    "M15 10l4.5-2.7a.6.6 0 0 1 .9.5v8.4a.6.6 0 0 1-.9.5L15 14M4 6h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z",
+  screen: "M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 21h6M12 16v5",
+  leave: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
 } as const;
+
+export type IconName = keyof typeof paths;
 
 /** Small inline vectors: no icon font, network request, or runtime dependency. */
 export function Icon({
   name,
   size = 18,
   style,
+  className,
   strokeWidth = 1.7,
 }: {
-  name: keyof typeof paths;
+  name: IconName;
   size?: number;
   style?: CSSProperties;
+  className?: string;
   strokeWidth?: number;
 }) {
   return (
@@ -43,7 +80,7 @@ export function Icon({
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      className="shrink-0"
+      className={"shrink-0" + (className ? ` ${className}` : "")}
       style={style}
     >
       <path d={paths[name]} />
