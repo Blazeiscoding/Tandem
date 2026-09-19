@@ -1,10 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  scheduleMessageBody,
-  type ID,
-  type User,
-  type ScheduleMessageBody,
-} from "@slackoss/protocol";
+import type { ID, User, ScheduleMessageBody } from "@slackoss/protocol";
 import { ApiError } from "@slackoss/client-core";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
@@ -125,9 +120,16 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setScheduleLoadedKey(null);
     if (!scheduleStorageKey) return;
     void readWorkspaceStorage<unknown>(platform, scheduleStorageKey)
-      .then((value) => {
+      .then(async (value) => {
         if (!active) return;
-        const parsed = value == null ? null : scheduleMessageBody.safeParse(value);
+        // The request schemas bring their validation library with them, which
+        // is most of a tenth of the app. A saved request is rare, so they load
+        // only when there is one to check.
+        const parsed =
+          value == null
+            ? null
+            : (await import("@slackoss/protocol/rest")).scheduleMessageBody.safeParse(value);
+        if (!active) return;
         if (
           parsed &&
           (!parsed.success ||

@@ -2,6 +2,8 @@
 
 Written September 15, 2026, against `main` at `b36fec5`, the merge of PR #48, plus the uncommitted modal work on the `fix/modal-keyboard-ownership` branch.
 
+Updated September 19, 2026: phase 0 is done, in PRs #50 to #58. The status rows, the phase 0 steps and the release criteria below say what each PR settled. The counts in the next two sections are still September 15's. Today there are 573 unit and integration tests, 12 browser scenarios and 2 packaged Windows scenarios.
+
 `IMPROVEMENT-PLAN-2026-09.md` holds the original assessment and a log of everything built since. This document looks forward. For every item it says what is still open, what I would do first, and how I would do each piece. It draws on four sources.
 
 - The plan's item tables and every progress entry in its log.
@@ -51,32 +53,32 @@ Done means the acceptance criteria are met. Mostly means a small remainder. Part
 
 ### U, interface, onboarding and accessibility
 
-| Item                            | Status  | What is left                                                                                                                                                                                                                                                                                  |
-| ------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| U01 joining                     | Mostly  | Invite links open only in the desktop app, as `slackoss://join`. A browser link with the code filled in is missing, and so is a message link a browser can open                                                                                                                               |
-| U02 navigation                  | Partial | Screens have no URLs, so Back leaves the app and reload forgets the channel. Seven account and admin controls are stacked in the sidebar footer                                                                                                                                               |
-| U03 shared components           | Partial | No shared menu, tooltip, toast, confirmation or skeleton. Each dialog builds its own                                                                                                                                                                                                          |
-| U04 keyboard and screen readers | Partial | Modal ownership is in progress. Every message is its own Tab stop. The switcher and emoji chooser have no combobox semantics. Channel details and the sign-in card use buttons as tabs with no selected state. A reaction is read as its emoji and count only. Nothing announces new messages |
-| U05 responsive behaviour        | Partial | The stylesheet has one layout breakpoint, at 760 px. Image previews run off a phone screen, the newest message slips under the composer when a panel opens, and message actions need a hover                                                                                                  |
-| U06 visual consistency          | Partial | Dark theme only. The slate and periwinkle palette has its colour roles written down and held to 4.5:1 by a test, and line icons replaced the glyphs. Mixed label styles, and no spacing or type scale                                                                                         |
-| U07 motion and input methods    | Done    |                                                                                                                                                                                                                                                                                               |
-| U08 onboarding and help         | Open    | No first-run path. The shortcut sheet opens only with Ctrl+/, and nothing on screen says so. There is no diagnostics entry                                                                                                                                                                    |
+| Item                            | Status  | What is left                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| U01 joining                     | Done    | Invite and message links open in a browser since #52, and copy on a page served over plain http since #53                                                                                                                                                                                                                                       |
+| U02 navigation                  | Partial | Screens have no URLs, so Back leaves the app and reload forgets the channel. The sidebar footer's account and admin controls became one Workspace menu in #54                                                                                                                                                                                   |
+| U03 shared components           | Partial | A menu on the modal layer since #54, used for People and the Workspace menu. No tooltip, toast, confirmation or skeleton, so each dialog still builds its own                                                                                                                                                                                   |
+| U04 keyboard and screen readers | Partial | Modal ownership landed in #50, and labelled sign-in and account fields with real sign-in tabs in #54. Every message is its own Tab stop. The switcher and emoji chooser have no combobox semantics. Channel details uses buttons as tabs with no selected state. A reaction is read as its emoji and count only. Nothing announces new messages |
+| U05 responsive behaviour        | Partial | The stylesheet has one layout breakpoint, at 760 px, and message actions need a hover. Image previews fit a phone and the newest message stays in view when a panel opens since #51                                                                                                                                                             |
+| U06 visual consistency          | Partial | Dark theme only. The slate and periwinkle palette has its colour roles written down and held to 4.5:1 by a test, and line icons replaced the glyphs. Mixed label styles, and no spacing or type scale                                                                                                                                           |
+| U07 motion and input methods    | Done    |                                                                                                                                                                                                                                                                                                                                                 |
+| U08 onboarding and help         | Open    | No first-run path. The shortcut sheet opens only with Ctrl+/, and nothing on screen says so. There is no diagnostics entry                                                                                                                                                                                                                      |
 
 ### C, messaging, search, files and organization
 
-| Item                                  | Status  | What is left                                                                                                                                            |
-| ------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C01 composition and editing           | Mostly  | Lists, quotes and labelled links, in the renderer and the toolbar                                                                                       |
-| C02 durable drafts and outbox         | Done    | Outbox entries with attachments stop after a restart instead of resending, by design                                                                    |
-| C03 threads                           | Mostly  | Per-thread mute, remembered thread scroll, mention counts scoped to one thread                                                                          |
-| C04 unread and notifications          | Mostly  | The browser asks for notification permission on the first click anywhere, usually the Sign in button. Clicking a notification does not open its message |
-| C05 search                            | Mostly  | Relevance sort; files as results                                                                                                                        |
-| C06 channel management                | Done    |                                                                                                                                                         |
-| C07 file transfers                    | Mostly  | Per-account quotas; resumable downloads                                                                                                                 |
-| C08 finding files                     | Open    |                                                                                                                                                         |
-| C09 personal organization             | Partial | Sidebar sections and favourites, notes on saved items, reminders, a drafts view                                                                         |
-| C10 quotes, forwarding, link previews | Open    |                                                                                                                                                         |
-| C11 profiles and presence             | Open    | Avatar upload, time zone, timed status. The protocol has an `away` presence value that nothing sets                                                     |
+| Item                                  | Status  | What is left                                                                                         |
+| ------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| C01 composition and editing           | Mostly  | Lists, quotes and labelled links, in the renderer and the toolbar                                    |
+| C02 durable drafts and outbox         | Done    | Outbox entries with attachments stop after a restart instead of resending, by design                 |
+| C03 threads                           | Mostly  | Per-thread mute, remembered thread scroll, mention counts scoped to one thread                       |
+| C04 unread and notifications          | Done    | Permission is asked for from a banner after sign-in, and a notification opens its message, since #55 |
+| C05 search                            | Mostly  | Relevance sort; files as results                                                                     |
+| C06 channel management                | Done    |                                                                                                      |
+| C07 file transfers                    | Mostly  | Per-account quotas; resumable downloads                                                              |
+| C08 finding files                     | Open    |                                                                                                      |
+| C09 personal organization             | Partial | Sidebar sections and favourites, notes on saved items, reminders, a drafts view                      |
+| C10 quotes, forwarding, link previews | Open    |                                                                                                      |
+| C11 profiles and presence             | Open    | Avatar upload, time zone, timed status. The protocol has an `away` presence value that nothing sets  |
 
 ### H, huddles and media
 
@@ -85,45 +87,45 @@ Done means the acceptance criteria are met. Mostly means a small remainder. Part
 | H01 device settings        | Open     | There is no device picker, and nothing calls `enumerateDevices`                                                                                                                                                     |
 | H02 call recovery          | Open     | No reconnecting state, no ICE restart, no rejoin after the socket reconnects                                                                                                                                        |
 | H03 screen sharing         | Partial  | A share takes the main view, any tile can be pinned, the stage expands and goes full screen, and the presenter sees a preview and a way to stop. The desktop app still lists screens by name, with no window choice |
-| H04 deployment diagnostics | Partial  | `SLACKOSS_ICE_SERVERS` and `/api/rtc-config` exist. No connectivity check, no expiring TURN credentials                                                                                                             |
+| H04 deployment diagnostics | Partial  | `GATHERLINE_ICE_SERVERS` and `/api/rtc-config` exist. No connectivity check, no expiring TURN credentials                                                                                                           |
 | H05 mesh limits            | Open     |                                                                                                                                                                                                                     |
 | H06 SFU                    | Deferred |                                                                                                                                                                                                                     |
 
 ### O, hosting, administration and operation
 
-| Item                         | Status  | What is left                                                                                                                                                                                                                                              |
-| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| O01 backup and restore       | Mostly  | Command line only, through `backup`, `verify-backup` and `restore`. Nothing in the desktop app                                                                                                                                                            |
-| O02 safe upgrades            | Mostly  | Historical fixtures beyond v8; a disk that fills during the migration itself                                                                                                                                                                              |
-| O03 hosting control center   | Partial | One workspace at a time, found by the folder its name maps to. No list, rename, port choice, open-folder button, backup status or count of who is connected                                                                                               |
-| O04 desktop lifecycle        | Mostly  | The app saves `lastHosted` and never reads it, so after a restart the saved workspace shows as reconnecting until someone starts hosting by hand. Also start at login, sleep and network changes, and the server still running in Electron's main process |
-| O05 workspace administration | Mostly  | Workspace name and icon; a default invite expiry; paging and search for members and apps                                                                                                                                                                  |
-| O06 operational visibility   | Open    | `/api/health` is the only check                                                                                                                                                                                                                           |
-| O07 deployment recipes       | Partial | Settings are validated at startup. Nobody has followed the walkthroughs from a clean machine                                                                                                                                                              |
-| O08 export and import        | Open    |                                                                                                                                                                                                                                                           |
+| Item                         | Status  | What is left                                                                                                                                                                                     |
+| ---------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| O01 backup and restore       | Mostly  | Command line only, through `backup`, `verify-backup` and `restore`. Nothing in the desktop app                                                                                                   |
+| O02 safe upgrades            | Mostly  | Historical fixtures beyond v8; a disk that fills during the migration itself                                                                                                                     |
+| O03 hosting control center   | Partial | One workspace at a time, found by the folder its name maps to. No list, rename, port choice, open-folder button, backup status or count of who is connected                                      |
+| O04 desktop lifecycle        | Mostly  | A restart offers to host the last workspace again since #55. Left: an opt-in start on launch, start at login, sleep and network changes, and the server still running in Electron's main process |
+| O05 workspace administration | Mostly  | Workspace name and icon; a default invite expiry; paging and search for members and apps                                                                                                         |
+| O06 operational visibility   | Open    | `/api/health` is the only check                                                                                                                                                                  |
+| O07 deployment recipes       | Partial | Settings are validated at startup. Nobody has followed the walkthroughs from a clean machine                                                                                                     |
+| O08 export and import        | Open    |                                                                                                                                                                                                  |
 
 ### I, integrations
 
-| Item                        | Status  | What is left                                                                                                                                           |
-| --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| I01 durable delivery        | Done    | A configurable retry policy and a delivery history would be extras                                                                                     |
-| I02 lifecycle authorization | Mostly  | Scopes for bot tokens; a count limit on the trigger and `response_url` maps                                                                            |
-| I03 Block Kit inputs        | Open    | Inputs are plain text and static select only, and there is no `views.update`                                                                           |
-| I04 API contract            | Mostly  | The Apps dialog still says most integrations work by changing the URL, which the I04 work showed was untrue. The native API has no OpenAPI description |
-| I05 app management          | Partial | Testing a connection, bot channel controls, trying a command, starter bots                                                                             |
+| Item                        | Status  | What is left                                                                                                        |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| I01 durable delivery        | Done    | A configurable retry policy and a delivery history would be extras                                                  |
+| I02 lifecycle authorization | Mostly  | Scopes for bot tokens; a count limit on the trigger and `response_url` maps                                         |
+| I03 Block Kit inputs        | Open    | Inputs are plain text and static select only, and there is no `views.update`                                        |
+| I04 API contract            | Mostly  | The native API has no OpenAPI description. The Apps dialog stopped promising that changing the URL is enough in #54 |
+| I05 app management          | Partial | Testing a connection, bot channel controls, trying a command, starter bots                                          |
 
 ### E, architecture, tests and releases
 
-| Item                       | Status  | What is left                                                                                        |
-| -------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
-| E01 domain modules         | Open    | `server.ts` is 3,615 lines, `store.ts` 2,894 and the client's `workspace.ts` 2,006                  |
-| E02 typing and lint        | Open    | There is no ESLint, and nothing typechecks `tests/`                                                 |
-| E03 testing gaps           | Partial | See phase 2                                                                                         |
-| E04 UI validation          | Partial | DOM and axe tests cover three components. No visual fixtures; Chromium only                         |
-| E05 client memory and work | Partial | The main renderer chunk is 540 kB, 157 kB gzipped, back over Vite's 500 kB warning                  |
-| E06 server capacity        | Open    |                                                                                                     |
-| E07 CI and releases        | Partial | CI runs on Linux and Windows. No release workflow, no macOS or Linux packages, no checksums or SBOM |
-| E08 performance evidence   | Partial | The September 5 measurements only                                                                   |
+| Item                       | Status  | What is left                                                                                                                                                                                  |
+| -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E01 domain modules         | Open    | `server.ts` is 3,615 lines, `store.ts` 2,894 and the client's `workspace.ts` 2,006                                                                                                            |
+| E02 typing and lint        | Open    | There is no ESLint, and nothing typechecks `tests/`                                                                                                                                           |
+| E03 testing gaps           | Partial | See phase 2                                                                                                                                                                                   |
+| E04 UI validation          | Partial | DOM and axe tests cover the modal layer, dialogs, menus, the sidebar, sign-in fields and several panels. No visual fixtures; Chromium only                                                    |
+| E05 client memory and work | Partial | The entry chunk is back under 500 kB, 430.9 kB and 129 kB gzipped, and CI fails a build over it. No budget for decoded images, and message rows subscribe to more of the store than they draw |
+| E06 server capacity        | Open    |                                                                                                                                                                                               |
+| E07 CI and releases        | Partial | CI runs on Linux and Windows. No release workflow, no macOS or Linux packages, no checksums or SBOM                                                                                           |
+| E08 performance evidence   | Partial | The September 5 measurements only                                                                                                                                                             |
 
 X01 to X07 stay conditional, as the plan intended.
 
@@ -131,25 +133,25 @@ X01 to X07 stay conditional, as the plan intended.
 
 Letting someone try the app with their team comes first. Accessibility and polish come next, then hosting and calls, then the engineering foundations, then depth. Test debt runs alongside every phase instead of waiting for the end.
 
-### Phase 0. Finish what is open
+### Phase 0. Finish what is open, done
 
-A few days of work.
+Done September 19, in PRs #50 to #58.
 
-1. **Finish the modal branch.** Codex's uncommitted work on `fix/modal-keyboard-ownership` gives every dialog and the image viewer one owner for the keyboard and focus. It marks the rest of the page `inert` while a dialog is open and stops workspace shortcuts from firing underneath one. Its nine DOM tests pass. Before it merges, run the browser scenario it changed against a fresh build, measure what its two MutationObservers cost on a busy dialog, and check that nothing else appended to `document.body`, a later toast container for instance, is left inert. Then the docs, a PR and CI.
-2. **Fix what the walkthrough found.** Small PRs, each with a DOM or browser test.
-   - Show a browser invite link, `http(s)://<host>/?invite=<code>`, next to the `slackoss://` one, and have the join screen read the code from the address. Do the same for links to a message.
-   - Keep the timeline pinned to the bottom when its box changes size. A ResizeObserver on the scroller that re-pins a view already at the bottom stops the newest message slipping under the composer when a thread or Activity opens.
-   - Fit image previews to the width available, keeping their aspect ratio.
-   - List a direct message once in the switcher, as a person, instead of a `#` row plus an `@` row.
-   - Drop the blank line after a code block. The renderer strips the newline after the opening fence but not the one before the closing fence.
-   - Correct the Apps dialog copy and link to `docs/INTEGRATIONS.md`.
-   - Replace the five buttons on every row of People with one menu per person. Today they squeeze names down to "Alex ...".
-   - Put Invite people, People, Apps and integrations, Switch workspace and Account settings behind one workspace menu. On a 600 px tall window the footer takes 270 px and leaves room for about four channel rows.
-   - When the desktop app opens a saved workspace that this computer hosts and hosting is stopped, offer "Start hosting Rocket Team" from `lastHosted` instead of reconnecting forever.
-   - Ask for browser notification permission from a banner after sign-in, and make clicking a notification open its message.
-   - Give the sign-in and account fields real labels. The join screen's username and password fields have only placeholders.
-   - Lazy-load channel details, the scheduled panel and search to bring the main chunk back under 500 kB.
-3. **Make it easy to try.** Turn the walkthrough's seeding into `scripts/seed-demo.mjs`, which creates people, channels, a thread, reactions and an image through the public API of a running server. Add a short section to the README with the ways to run it and a checklist of journeys worth trying.
+1. **Finish the modal branch.** Done in #50. Codex's uncommitted work on `fix/modal-keyboard-ownership` gives every dialog and the image viewer one owner for the keyboard and focus. It marks the rest of the page `inert` while a dialog is open and stops workspace shortcuts from firing underneath one. Its nine DOM tests pass. Before it merges, run the browser scenario it changed against a fresh build, measure what its two MutationObservers cost on a busy dialog, and check that nothing else appended to `document.body`, a later toast container for instance, is left inert. Then the docs, a PR and CI.
+2. **Fix what the walkthrough found.** Small PRs, each with a DOM or browser test. All done.
+   - Show a browser invite link next to the `slackoss://` one, and have the join screen read the code from the address. Do the same for links to a message. Done in #52 as `<server>/#/join/<code>` and `<server>/#/c/<channel>/m/<message>`, with the code in the fragment rather than a query string so it never reaches the server's logs; #53 made copying them work over plain http.
+   - Keep the timeline pinned to the bottom when its box changes size. A ResizeObserver on the scroller that re-pins a view already at the bottom stops the newest message slipping under the composer when a thread or Activity opens. Done in #51.
+   - Fit image previews to the width available, keeping their aspect ratio. Done in #51.
+   - List a direct message once in the switcher, as a person, instead of a `#` row plus an `@` row. Done in #51.
+   - Drop the blank line after a code block. The renderer strips the newline after the opening fence but not the one before the closing fence. Done in #51.
+   - Correct the Apps dialog copy and link to `docs/INTEGRATIONS.md`. Done in #54.
+   - Replace the five buttons on every row of People with one menu per person. Today they squeeze names down to "Alex ...". Done in #54.
+   - Put Invite people, People, Apps and integrations, Switch workspace and Account settings behind one workspace menu. On a 600 px tall window the footer takes 270 px and leaves room for about four channel rows. Done in #54.
+   - When the desktop app opens a saved workspace that this computer hosts and hosting is stopped, offer "Start hosting Rocket Team" from `lastHosted` instead of reconnecting forever. Done in #55.
+   - Ask for browser notification permission from a banner after sign-in, and make clicking a notification open its message. Done in #55.
+   - Give the sign-in and account fields real labels. The join screen's username and password fields have only placeholders. Done in #54.
+   - Lazy-load channel details, the scheduled panel and search to bring the main chunk back under 500 kB. Done in #57.
+3. **Make it easy to try.** Turn the walkthrough's seeding into `scripts/seed-demo.mjs`, which creates people, channels, a thread, reactions and an image through the public API of a running server. Add a short section to the README with the ways to run it and a checklist of journeys worth trying. Done in #58: the seed also sets statuses, a mention and a direct message, and refuses a workspace that already has accounts.
 
 ### Phase 1. Accessibility and interface polish
 
@@ -209,7 +211,7 @@ A few weeks.
 1. **E02, lint as a CI gate.** An ESLint flat config with typescript-eslint's `no-floating-promises` and `no-misused-promises`, react-hooks and jsx-a11y. Fix the findings one package per PR, and typecheck `tests/` and `scripts/`.
 2. **E01, split the server.** Move route groups out of `server.ts` one PR at a time with no change in behaviour: auth, channels and messages, files, scheduling, administration and integrations. The 347 server tests are the safety net. Split `store.ts` along the same lines afterwards.
 3. **E07, releases.** A workflow triggered by a tag that builds the Windows installer, a macOS dmg, a Linux AppImage, the server bundle and the Docker image, smoke-tests each, and publishes checksums and an SBOM. Sign once certificates exist. Routine CI keeps build output out of its artifacts, as `CONTRIBUTING.md` already requires.
-4. **E05, client budgets.** A budget for decoded images, narrower store subscriptions for message rows, and a bundle-size check in CI.
+4. **E05, client budgets.** A budget for decoded images and narrower store subscriptions for message rows. The bundle-size check in CI came with phase 0.
 
 ### Phase 6. Depth, chosen by demand
 
@@ -230,40 +232,24 @@ The X items stay conditional.
 
 ## The release criteria, checked
 
-| Criterion from the plan                                                                                  | Today                                                                                          |
-| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| A network interruption or lost acknowledgement loses and duplicates nothing                              | Met                                                                                            |
-| Revocation removes live access and call participation                                                    | Met                                                                                            |
-| Drafts and the outbox survive and stay separate per account                                              | Met                                                                                            |
-| Search, threads, files and saved items page past the first page                                          | Met, apart from the missing file browser                                                       |
-| A first-time host can claim, invite, stop and reopen, back up, restore and upgrade using the UI and docs | Not yet. Browser invite links, resuming hosting, and backup and restore in the app are missing |
-| Core journeys work by keyboard alone and in narrow layouts, and media failures are understandable        | Not yet. Phases 1 and 4                                                                        |
-| Upgrades are tested against historical fixtures, and release artifacts start and keep legacy data paths  | Partly. There is one fixture, v8, and one packaged platform, Windows                           |
-| Capacity claims state their workload, hardware and limits                                                | Met for what `VALIDATION.md` claims. There is no soak test yet                                 |
+| Criterion from the plan                                                                                  | Today                                                                                                              |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| A network interruption or lost acknowledgement loses and duplicates nothing                              | Met                                                                                                                |
+| Revocation removes live access and call participation                                                    | Met                                                                                                                |
+| Drafts and the outbox survive and stay separate per account                                              | Met                                                                                                                |
+| Search, threads, files and saved items page past the first page                                          | Met, apart from the missing file browser                                                                           |
+| A first-time host can claim, invite, stop and reopen, back up, restore and upgrade using the UI and docs | Not yet. Browser invite links (#52) and resuming hosting (#55) are done; backup and restore in the app are missing |
+| Core journeys work by keyboard alone and in narrow layouts, and media failures are understandable        | Not yet. Phases 1 and 4                                                                                            |
+| Upgrades are tested against historical fixtures, and release artifacts start and keep legacy data paths  | Partly. There is one fixture, v8, and one packaged platform, Windows                                               |
+| Capacity claims state their workload, hardware and limits                                                | Met for what `VALIDATION.md` claims. There is no soak test yet                                                     |
 
 ## How to try it today
 
-The quickest way is the browser client, served by the standalone server.
+The README's [Try it](../README.md#try-it) section has the three ways to run it, `scripts/seed-demo.mjs` to fill a new workspace with a demo team, and a checklist of journeys worth trying.
 
-```sh
-pnpm install
-pnpm build
-node apps/server-cli/dist/slackoss-server.js --data ./data --name "My Team"
-```
+To work on the desktop app, run `pnpm --filter @slackoss/desktop dev`. A terminal inside an Electron-based tool can export `ELECTRON_RUN_AS_NODE=1`, which stops Electron starting, so unset it first.
 
-Open `http://localhost:8543` and create the first account, which becomes the owner. Opened from any other address, the server asks for the claim code it printed at startup. A second browser profile or a private window can sign up a second person. People on your network use `http://<your-ip>:8543`.
-
-For the desktop app, run `pnpm --filter @slackoss/desktop dev`, or package it with `pnpm --filter @slackoss/desktop package --win` and install `apps/desktop/release/Gatherline Setup 0.1.0.exe`. Choose **Host a workspace on this computer**. A terminal inside an Electron-based tool can export `ELECTRON_RUN_AS_NODE=1`, which stops Electron starting, so unset it first.
-
-With Docker, run `docker compose -f docker/docker-compose.yml up -d --build`.
-
-Until phase 0 lands, expect these rough edges.
-
-- Invite links open only in the desktop app. Share the address and an invite code instead.
-- Opening a thread or Activity can hide the newest message under the composer until you scroll.
-- On a phone, image previews run off the right edge of the screen.
-- After the desktop app restarts, a workspace it hosts shows as reconnecting. Use **Switch workspace**, then host it again under the same name.
-- The browser asks for notification permission on your first click, often on Sign in.
+The rough edges this section used to list were phase 0's, and are gone: invite links open in a browser, the newest message stays in view when a panel opens, images fit a phone, a restarted desktop app offers to host its workspace again, and notification permission is asked for after sign-in.
 
 ## How the work gets done
 
