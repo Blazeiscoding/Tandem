@@ -32,6 +32,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @slackoss/web build
+      # What every visit downloads stays under the size Vite warns about.
+      - run: node scripts/check-web-bundle.mjs
       - run: pnpm --filter slackoss-server build
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
@@ -67,6 +69,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @slackoss/desktop package --win
+      - run: node scripts/check-web-bundle.mjs apps/desktop/out/renderer
       # Packaging still has to succeed here, and test:desktop then launches the
       # unpacked app it produced. What is no longer kept is the installer that
       # same step writes beside it: uploading a 107 MB file on every push and

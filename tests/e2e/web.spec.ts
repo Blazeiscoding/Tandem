@@ -554,6 +554,27 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await composer.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
   await expect(composer).toHaveValue("A calmer space for our next big idea.");
 
+  // Search, scheduled messages and channel details are downloaded the first
+  // time they open, so each has to arrive, past the content security policy,
+  // and work.
+  await page.getByRole("button", { name: "Search messages", exact: true }).click();
+  const search = page.getByRole("dialog", { name: "Search messages", exact: true });
+  await expect(search.getByRole("textbox", { name: "Search messages", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(search).toHaveCount(0);
+  const scheduledToggle = page.getByRole("button", { name: "Scheduled messages", exact: true });
+  await scheduledToggle.click();
+  const scheduled = page.getByRole("complementary", { name: "Scheduled messages", exact: true });
+  await expect(scheduled.getByRole("heading", { name: "Scheduled", exact: true })).toBeVisible();
+  await scheduledToggle.click();
+  await expect(scheduled).toHaveCount(0);
+  await page.getByRole("heading", { name: "#design-studio", exact: true }).click();
+  const details = page.getByRole("dialog", { name: "#design-studio", exact: true });
+  await expect(details).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(details).toHaveCount(0);
+  await expect(composer).toHaveValue("A calmer space for our next big idea.");
+
   // Completing a mention rewrites the whole field, and typing straight after
   // has to carry on from where the completion left off.
   await composer.fill("");

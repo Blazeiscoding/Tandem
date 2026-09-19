@@ -114,16 +114,16 @@ Done means the acceptance criteria are met. Mostly means a small remainder. Part
 
 ### E, architecture, tests and releases
 
-| Item                       | Status  | What is left                                                                                        |
-| -------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
-| E01 domain modules         | Open    | `server.ts` is 3,615 lines, `store.ts` 2,894 and the client's `workspace.ts` 2,006                  |
-| E02 typing and lint        | Open    | There is no ESLint, and nothing typechecks `tests/`                                                 |
-| E03 testing gaps           | Partial | See phase 2                                                                                         |
-| E04 UI validation          | Partial | DOM and axe tests cover three components. No visual fixtures; Chromium only                         |
-| E05 client memory and work | Partial | The main renderer chunk is 540 kB, 157 kB gzipped, back over Vite's 500 kB warning                  |
-| E06 server capacity        | Open    |                                                                                                     |
-| E07 CI and releases        | Partial | CI runs on Linux and Windows. No release workflow, no macOS or Linux packages, no checksums or SBOM |
-| E08 performance evidence   | Partial | The September 5 measurements only                                                                   |
+| Item                       | Status  | What is left                                                                                                                                                                                  |
+| -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E01 domain modules         | Open    | `server.ts` is 3,615 lines, `store.ts` 2,894 and the client's `workspace.ts` 2,006                                                                                                            |
+| E02 typing and lint        | Open    | There is no ESLint, and nothing typechecks `tests/`                                                                                                                                           |
+| E03 testing gaps           | Partial | See phase 2                                                                                                                                                                                   |
+| E04 UI validation          | Partial | DOM and axe tests cover three components. No visual fixtures; Chromium only                                                                                                                   |
+| E05 client memory and work | Partial | The entry chunk is back under 500 kB, 430.9 kB and 129 kB gzipped, and CI fails a build over it. No budget for decoded images, and message rows subscribe to more of the store than they draw |
+| E06 server capacity        | Open    |                                                                                                                                                                                               |
+| E07 CI and releases        | Partial | CI runs on Linux and Windows. No release workflow, no macOS or Linux packages, no checksums or SBOM                                                                                           |
+| E08 performance evidence   | Partial | The September 5 measurements only                                                                                                                                                             |
 
 X01 to X07 stay conditional, as the plan intended.
 
@@ -209,7 +209,7 @@ A few weeks.
 1. **E02, lint as a CI gate.** An ESLint flat config with typescript-eslint's `no-floating-promises` and `no-misused-promises`, react-hooks and jsx-a11y. Fix the findings one package per PR, and typecheck `tests/` and `scripts/`.
 2. **E01, split the server.** Move route groups out of `server.ts` one PR at a time with no change in behaviour: auth, channels and messages, files, scheduling, administration and integrations. The 347 server tests are the safety net. Split `store.ts` along the same lines afterwards.
 3. **E07, releases.** A workflow triggered by a tag that builds the Windows installer, a macOS dmg, a Linux AppImage, the server bundle and the Docker image, smoke-tests each, and publishes checksums and an SBOM. Sign once certificates exist. Routine CI keeps build output out of its artifacts, as `CONTRIBUTING.md` already requires.
-4. **E05, client budgets.** A budget for decoded images, narrower store subscriptions for message rows, and a bundle-size check in CI.
+4. **E05, client budgets.** A budget for decoded images and narrower store subscriptions for message rows. The bundle-size check in CI came with phase 0.
 
 ### Phase 6. Depth, chosen by demand
 
