@@ -10,6 +10,9 @@ export interface SlackossBridge {
   hostingLastHosted: () => Promise<unknown>;
   hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<unknown>;
   hostingStop: () => Promise<void>;
+  hostingOpenToAll: (opts: { inviteOnly: boolean }) => Promise<unknown>;
+  hostingEndOpenToAll: () => Promise<unknown>;
+  hostingSetInviteOnly: (inviteOnly: boolean) => Promise<unknown>;
   onHostingStatus: (cb: (status: unknown) => void) => () => void;
   /** A gatherline:// (or legacy slackoss://) link that launched the app, if any. */
   consumeDeepLink: () => Promise<string | null>;
@@ -32,6 +35,9 @@ const bridge: SlackossBridge = {
   hostingLastHosted: () => ipcRenderer.invoke("hosting:lastHosted"),
   hostingStart: (opts) => ipcRenderer.invoke("hosting:start", opts),
   hostingStop: () => ipcRenderer.invoke("hosting:stop"),
+  hostingOpenToAll: (opts) => ipcRenderer.invoke("hosting:openToAll", opts),
+  hostingEndOpenToAll: () => ipcRenderer.invoke("hosting:endOpenToAll"),
+  hostingSetInviteOnly: (inviteOnly) => ipcRenderer.invoke("hosting:setInviteOnly", inviteOnly),
   onHostingStatus: (cb) => {
     const listener = (_e: unknown, status: unknown) => cb(status);
     ipcRenderer.on("hosting:changed", listener);

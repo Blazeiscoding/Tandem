@@ -18,6 +18,7 @@ import { DEEP_LINK_PROTOCOLS, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/
 import { createWorkspaceServer } from "@slackoss/server";
 import { createSettingsStorage } from "./settings.js";
 import { createHostingController, parseLastHosted } from "./hosting.js";
+import { findCloudflared, openQuickTunnel } from "./tunnel.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 /** Gatherline name first, previous SLACKOSS_ name still read. */
@@ -200,22 +201,54 @@ function hostingStatus() {
   return { ...hosting.status(), backgroundAvailable: !!tray && !tray.isDestroyed() };
 }
 
+/** Looked up again at most every few seconds, so installing it takes effect without a restart. */
+let cloudflaredLookup: { at: number; path: string | null } | null = null;
+function cloudflared(): string | null {
+  if (!cloudflaredLookup || Date.now() - cloudflaredLookup.at > 5_000)
+    cloudflaredLookup = { at: Date.now(), path: findCloudflared() };
+  return cloudflaredLookup.path;
+}
+
 const hosting = createHostingController({
   dataRoot: join(app.getPath("userData"), "hosted"),
   defaultPort: DEFAULT_PORT,
   lanUrls,
   saveLastHosted: (value) => writeSetting("lastHosted", value),
   onChange: publishHostingStatus,
-  startServer: ({ dataDir, port, workspaceName }) =>
-    createWorkspaceServer({
+  startServer: async ({ dataDir, port, workspaceName }) => {
+    const server = await createWorkspaceServer({
       dataDir,
       port,
       workspaceName,
       mdns: true,
+      // cloudflared reaches this embedded server from loopback. Trust only
+      // that peer's client-address headers so public visitors do not all share
+      // one authentication and WebSocket rate-limit bucket.
+      trustedClientProxy: "loopback",
       webDistPath: app.isPackaged
         ? join(process.resourcesPath, "web")
         : join(import.meta.dirname, "../../../web/dist"),
-    }),
+    });
+    return {
+      port: server.port,
+      stop: () => server.stop(),
+      setPublicUrl: (url) => server.setPublicUrl(url),
+      setIceServers: (servers) => server.setIceServers(servers),
+      inviteOnly: () => server.inviteOnly(),
+      setInviteOnly: (value) => server.setInviteOnly(value),
+      accountCount: () => server.store.userCount(),
+    };
+  },
+  tunnelAvailable: () => cloudflared() !== null,
+  openTunnel: (port, signal) => {
+    cloudflaredLookup = null;
+    const command = cloudflared();
+    if (!command)
+      throw new Error(
+        "Open to all needs Cloudflare's free cloudflared tool. Install it, then try again.",
+      );
+    return openQuickTunnel({ command, port, signal });
+  },
 });
 
 ipcMain.handle("hosting:status", () => hostingStatus());
@@ -233,6 +266,19 @@ ipcMain.handle("hosting:start", async (_e, opts: unknown) => {
   return hostingStatus();
 });
 ipcMain.handle("hosting:stop", () => hosting.stop());
+ipcMain.handle("hosting:openToAll", async (_e, opts: unknown) => {
+  if (quitting) throw new Error("Gatherline is shutting down.");
+  await hosting.openToAll(opts);
+  return hostingStatus();
+});
+ipcMain.handle("hosting:endOpenToAll", async () => {
+  await hosting.endOpenToAll();
+  return hostingStatus();
+});
+ipcMain.handle("hosting:setInviteOnly", async (_e, value: unknown) => {
+  await hosting.setInviteOnly(value);
+  return hostingStatus();
+});
 
 function publishHostingStatus(): void {
   const status = hostingStatus();
@@ -296,7 +342,7 @@ function updateTray(): void {
       : status.phase === "stopping"
         ? "Stopping workspace…"
         : status.running
-          ? `Hosting ${status.workspaceName} · port ${status.port}`
+          ? `Hosting ${status.workspaceName} · ${status.openToAll?.phase === "open" ? "open to all" : `port ${status.port}`}`
           : "Not hosting";
   tray.setToolTip(`Gatherline — ${label}`.slice(0, 127));
   tray.setContextMenu(
