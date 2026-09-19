@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 /**
  * What the server may believe about where a request came from.
  *
@@ -58,4 +60,56 @@ export function firstHeaderValue(raw: string | string[] | undefined): string {
       .split(",")[0]
       ?.trim() ?? ""
   );
+}
+
+export interface ClientAddressHeaders {
+  readonly [name: string]: string | string[] | undefined;
+  readonly "cf-connecting-ip"?: string | string[];
+  readonly "x-forwarded-for"?: string | string[];
+}
+
+/** A valid IP in one stable form, or null rather than an attacker-chosen key. */
+function normalizedIp(raw: string | undefined): string | null {
+  const value = (raw ?? "").trim().replace(/^::ffff:/i, "");
+  return isIP(value) ? value.toLowerCase() : null;
+}
+
+function isLoopbackAddress(address: string): boolean {
+  if (address === "::1") return true;
+  if (isIP(address) !== 4) return false;
+  return address.split(".")[0] === "127";
+}
+
+/**
+ * The address used for unauthenticated rate limits.
+ *
+ * Normally only the socket peer is believed. The desktop's cloudflared
+ * connector is the one exception: it reaches the embedded server over
+ * loopback, so every visitor would otherwise share 127.0.0.1's allowance.
+ * Even in that mode, forwarded headers from a LAN peer remain untrusted.
+ */
+export function resolveClientAddress(
+  remoteAddress: string | undefined,
+  headers: ClientAddressHeaders,
+  trustedProxy?: "loopback",
+): string {
+  const peer = normalizedIp(remoteAddress) ?? "unknown";
+  if (trustedProxy !== "loopback" || !isLoopbackAddress(peer)) return peer;
+
+  // Cloudflare owns this header at its edge, so prefer it to the conventional
+  // forwarding chain. Duplicate/comma-separated values are ambiguous and are
+  // deliberately rejected rather than becoming attacker-selected bucket keys.
+  const cloudflareRaw = headers["cf-connecting-ip"];
+  const cloudflare =
+    typeof cloudflareRaw === "string" && !cloudflareRaw.includes(",")
+      ? normalizedIp(cloudflareRaw)
+      : null;
+  if (cloudflare) return cloudflare;
+
+  // The trusted proxy is the rightmost hop in X-Forwarded-For. Choosing that
+  // value keeps an earlier, client-supplied entry from deciding the identity.
+  const forwardedRaw = headers["x-forwarded-for"];
+  const forwarded = Array.isArray(forwardedRaw) ? forwardedRaw.join(",") : forwardedRaw;
+  const lastHop = forwarded?.split(",").at(-1);
+  return normalizedIp(lastHop) ?? peer;
 }

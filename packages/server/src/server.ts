@@ -69,9 +69,15 @@ import { imageSize } from "./imageSize.js";
 import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { parsePort, parsePublicUrl } from "./config.js";
+import { iceServersSchema } from "./rtc.js";
 import { DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
 import { LOGGER_OPTIONS } from "./redact.js";
-import { firstHeaderValue, isLoopbackOrigin, originFromConnection } from "./netTrust.js";
+import {
+  firstHeaderValue,
+  isLoopbackOrigin,
+  originFromConnection,
+  resolveClientAddress,
+} from "./netTrust.js";
 import { SECURITY_HEADERS } from "./securityHeaders.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
@@ -134,6 +140,13 @@ export interface ServerOptions {
    */
   trustProxy?: boolean;
   /**
+   * Believe Cloudflare's client-address header, falling back to the final
+   * X-Forwarded-For hop, only when the socket peer is loopback. This is for the
+   * desktop's local cloudflared connector; normal LAN and standalone servers
+   * leave it unset and key limits on the socket peer.
+   */
+  trustedClientProxy?: "loopback";
+  /**
    * Lets slash commands and event subscriptions call private addresses
    * (192.168.x, 10.x, localhost…). Off by default: the server can reach the
    * host's whole LAN, and an admin-typed URL should not become a probe of it.
@@ -195,6 +208,18 @@ export interface WorkspaceServer {
   applyRetention: () => number;
   /** Delivers a bounded batch of committed integration events. */
   flushEventDeliveries: () => Promise<void>;
+  /**
+   * Changes the address others reach this server on while it runs, or clears
+   * it with null. A desktop host that opens a tunnel learns the address only
+   * after starting, and loses it when the tunnel closes. While one is set, as
+   * with `publicUrl`, no request counts as coming from this machine.
+   */
+  setPublicUrl: (url: string | null) => void;
+  /** Replaces the STUN and TURN servers that calls started from now on are given. */
+  setIceServers: (servers: NonNullable<ServerOptions["iceServers"]>) => void;
+  /** Whether an account after the first needs an invite code. */
+  inviteOnly: () => boolean;
+  setInviteOnly: (inviteOnly: boolean) => void;
   stop: () => Promise<void>;
 }
 
@@ -233,8 +258,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   // Checked here as well as by the CLI, so the desktop app's embedded server
   // and anyone calling this directly get the same refusal.
   if (opts.port !== undefined) parsePort(opts.port, "port");
-  const publicUrl =
+  let publicUrl =
     opts.publicUrl === undefined ? undefined : parsePublicUrl(opts.publicUrl, "publicUrl");
+  let iceServers = opts.iceServers ?? [];
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
   let upgradeBackup: string | null = null;
   const db = openDb(dbPath, undefined, {
@@ -312,7 +338,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   /** The address a request came from, as the limiter keys on it. */
   const callerAddress = (req: FastifyRequest): string =>
-    (req.ip || "unknown").replace(/^::ffff:/, "");
+    resolveClientAddress(req.socket.remoteAddress, req.headers, opts.trustedClientProxy);
 
   /**
    * Clears what a handle has spent on authentication. Called when a password
@@ -337,7 +363,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     );
   };
 
-  const gateway = new Gateway(store, workspaceName, limiter);
+  const gateway = new Gateway(store, workspaceName, limiter, (req) =>
+    resolveClientAddress(req.socket.remoteAddress, req.headers, opts.trustedClientProxy),
+  );
 
   const recordEvent = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
     const envelope = store.appendEvent(event, channelId);
@@ -943,7 +971,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   app.get("/api/rtc-config", async (req, reply) => {
     requireUser(req);
     reply.header("Cache-Control", "no-store");
-    return { iceServers: opts.iceServers ?? [] };
+    return { iceServers };
   });
 
   // Bound simultaneous password derivations; each scrypt job uses substantial
@@ -3592,6 +3620,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     expireAbandonedUploads,
     applyRetention,
     flushEventDeliveries,
+    setPublicUrl: (url) => {
+      // Checked before anything changes, so a refused address leaves the old one.
+      publicUrl = url === null ? undefined : parsePublicUrl(url, "publicUrl");
+    },
+    setIceServers: (servers) => {
+      iceServers = iceServersSchema.parse(servers);
+    },
+    inviteOnly,
+    setInviteOnly: (value) => {
+      if (typeof value !== "boolean") throw new TypeError("inviteOnly must be a boolean");
+      store.setMeta("invite_only", value ? "1" : "0");
+    },
     stop: () => {
       if (stopping) return stopping;
       closing = true;
