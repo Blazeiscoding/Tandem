@@ -1419,3 +1419,110 @@ test("notifications are offered after sign-in, and one opens its message", async
     await bobCtx.close().catch(() => {});
   }
 });
+
+test("the demo seed fills a new workspace with something to try, and leaves one in use alone", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  // A workspace of its own, invite-only and with the usual limits, so the seed
+  // has to let its people in with a code and stay inside the rationing.
+  const port = 18545;
+  const origin = `http://127.0.0.1:${port}`;
+  const demoData = mkdtempSync(join(tmpdir(), "slackoss-e2e-demo-"));
+  const demoServer = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      demoData,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Demo Team",
+      "--invite-only",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  const seed = () =>
+    new Promise<{ code: number | null; output: string }>((resolve) => {
+      const child = spawn(
+        process.execPath,
+        ["scripts/seed-demo.mjs", origin, "--password", "password123"],
+        { windowsHide: true, stdio: "pipe" },
+      );
+      let output = "";
+      child.stdout!.on("data", (chunk) => (output += String(chunk)));
+      child.stderr!.on("data", (chunk) => (output += String(chunk)));
+      child.once("exit", (code) => resolve({ code, output }));
+    });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  try {
+    await expect
+      .poll(async () => {
+        try {
+          return (await fetch(`${origin}/api/health`)).status;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(200);
+
+    const first = await seed();
+    expect(first.code, first.output).toBe(0);
+    expect(first.output).toContain("They all use the password password123");
+    // A second run would be adding strangers to a workspace people now use.
+    const again = await seed();
+    expect(again.code, again.output).toBe(1);
+    expect(again.output).toContain("Demo Team already has 4 accounts");
+
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.getByRole("tab", { name: "Sign in", exact: true }).click();
+    await page.getByLabel("Username", { exact: true }).fill("maya");
+    await page.getByLabel("Password", { exact: true }).fill("password123");
+    await page.getByLabel("Password", { exact: true }).press("Enter");
+    const sidebar = page.getByRole("navigation");
+    await expect(page.getByText(/^Welcome to Gatherline, everyone!/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "🎉 3", exact: true })).toBeVisible();
+
+    // The image arrived whole, with its thread beside it.
+    await sidebar.getByRole("button", { name: /^#\s*design\b/ }).click();
+    const mockup = page.getByRole("img", { name: "sign-in-mockup.png", exact: true });
+    await expect(mockup).toBeVisible();
+    await expect
+      .poll(() => mockup.evaluate((image: HTMLImageElement) => image.naturalWidth))
+      .toBe(640);
+    await page.getByRole("button", { name: /^3 replies/ }).click();
+    const thread = page.getByRole("complementary", { name: "Thread" });
+    await expect(
+      thread.getByText("Could the button be a little bigger?", { exact: false }),
+    ).toBeVisible();
+
+    // The checklist is pinned, and its code block is drawn as one.
+    await sidebar.getByRole("button", { name: /^#\s*engineering\b/ }).click();
+    await expect(page.getByText("📌 Pinned to this channel", { exact: true })).toBeVisible();
+    await expect(
+      page.locator("code").filter({ hasText: "[ ] Smoke test on a clean machine" }),
+    ).toBeVisible();
+    await expect(page.getByText("@Maya Chen", { exact: true })).toBeVisible();
+
+    // And a direct message is waiting for her.
+    await sidebar.getByRole("button", { name: /Sam Rivera/ }).click();
+    await expect(
+      page.getByText("Morning! Could you look over the release checklist before Thursday?", {
+        exact: true,
+      }),
+    ).toBeVisible();
+  } finally {
+    await context.close().catch(() => {});
+    if (demoServer.exitCode === null) {
+      const exited = new Promise((resolve) => demoServer.once("exit", resolve));
+      demoServer.kill();
+      await exited;
+    }
+    rmSync(demoData, { recursive: true, force: true });
+  }
+});
