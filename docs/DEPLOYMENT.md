@@ -11,9 +11,11 @@ owner account. Allow incoming TCP on the displayed port through the host firewal
 Other desktop users can discover the workspace on the same LAN or connect using
 `192.168.1.42:8543`. Browsers can use the same address for chat.
 
-The host computer must stay running and awake. Internet users need a reachable
-public IP with port forwarding, a VPN such as Tailscale, or a VPS. An IP address
-alone does not bypass NAT, CGNAT, or firewalls. LAN discovery does not cross routers.
+The host computer must stay running and awake. For temporary internet sharing,
+use **Open to all** and Cloudflare Tunnel as described below. A VPN such as
+Tailscale, a VPS, or a public IP with port forwarding are alternatives. An IP
+address alone does not bypass NAT, CGNAT, or firewalls. LAN discovery does not
+cross routers.
 
 Data is under the app's user-data folder in `hosted/<workspace-name>/`. Advanced
 deployments can set `GATHERLINE_USER_DATA_DIR` (`SLACKOSS_USER_DATA_DIR` still
@@ -55,6 +57,138 @@ reads the tray menu, stops through the confirmation and quits with nothing
 hosted; the confirmations the tray and quitting show are not exercised. Whether a
 tray appears on Linux depends on the desktop environment, and macOS has not been
 run.
+
+## Temporary internet sharing with Cloudflare Tunnel
+
+Gatherline's **Open to all** button creates a
+[Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
+from a random `https://…trycloudflare.com` address to the workspace on this
+computer. It needs no Cloudflare account, domain, inbound firewall rule, port
+forward, or public IP. `cloudflared` makes an outbound connection to Cloudflare;
+friends use the public address while that connector is already running.
+
+### Install cloudflared
+
+Use Cloudflare's [official downloads](https://developers.cloudflare.com/tunnel/downloads/),
+then check the installed version. On Windows, run these commands in PowerShell:
+
+```powershell
+$msi = Join-Path $env:TEMP "cloudflared-windows-amd64.msi"
+Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.msi" -OutFile $msi
+Start-Process msiexec.exe -Verb RunAs -Wait -ArgumentList @("/i", "`"$msi`"")
+```
+
+Open a new PowerShell window and verify the installation:
+
+```powershell
+cloudflared --version
+```
+
+On macOS with Homebrew:
+
+```sh
+brew install cloudflared
+cloudflared --version
+```
+
+On Debian, Ubuntu, or another Debian-based distribution, use
+[Cloudflare's package repository](https://pkg.cloudflare.com/):
+
+```sh
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt-get update && sudo apt-get install cloudflared
+cloudflared --version
+```
+
+If `cloudflared` is elsewhere, set `GATHERLINE_CLOUDFLARED` to its full path
+before starting Gatherline. The previous `SLACKOSS_CLOUDFLARED` name also works.
+
+### Open and share the desktop workspace
+
+1. In Gatherline, choose **Host a workspace on this computer**, open it, and
+   create its owner account while it is still local.
+2. Open **Manage hosting** and select **Open to all**. Leave **Require an invite
+   link to create an account** selected unless everyone who learns the public
+   address should be able to create an account.
+3. Wait for Gatherline to show the `https://…trycloudflare.com` address. The app
+   starts and monitors `cloudflared`; a Cloudflare account is not required.
+4. Open **Workspace → Invite people**, generate an invite, then choose **Copy
+   link** under **Browser link**. Send that complete link to a friend. It opens
+   the browser client with the invite code filled in; the friend does not
+   install `cloudflared`.
+5. Keep the host computer awake and keep Gatherline running. **Close public
+   link**, **Stop hosting**, or quitting Gatherline ends the connector and makes
+   that address unusable. Opening it again creates a different address, so send
+   a new invite link.
+
+The public HTTPS address carries the browser client, API requests, and
+WebSockets used for chat. Opening the invite link on another computer sends the
+request to Cloudflare's edge, which forwards it through the tunnel that the host
+already opened. A click cannot open a tunnel on a host that is offline.
+
+**Open to all** adds Cloudflare's STUN service for peer-to-peer huddles, but it
+does not add a TURN relay. Chat and invites can work while audio, camera, or
+screen sharing fails between restrictive or symmetric NATs. A deployment that
+needs reliable internet huddles should supply its own TURN service through
+`GATHERLINE_ICE_SERVERS`, as described under [Voice and huddles](#voice-and-huddles).
+
+### Run a Quick Tunnel with the standalone server
+
+Build the server first, start it only on the local interface, and create the
+owner account before exposing it:
+
+```sh
+pnpm install
+pnpm build
+node apps/server-cli/dist/slackoss-server.js --data ./data --name "My Team" --host 127.0.0.1 --invite-only
+```
+
+Open `http://127.0.0.1:8543`, create the owner, then stop the server with
+Ctrl+C. In one terminal, start a Quick Tunnel and keep it running:
+
+```sh
+cloudflared tunnel --url http://127.0.0.1:8543
+```
+
+Copy the `https://…trycloudflare.com` address it prints. In a second terminal,
+set the STUN configuration and restart the same data directory with that exact
+address. On macOS or Linux:
+
+```sh
+export GATHERLINE_ICE_SERVERS='[{"urls":"stun:stun.cloudflare.com:3478"}]'
+node apps/server-cli/dist/slackoss-server.js --data ./data --name "My Team" --host 127.0.0.1 --invite-only --public-url https://YOUR-RANDOM-NAME.trycloudflare.com
+```
+
+Or in PowerShell:
+
+```powershell
+$env:GATHERLINE_ICE_SERVERS='[{"urls":"stun:stun.cloudflare.com:3478"}]'
+node apps/server-cli/dist/slackoss-server.js --data ./data --name "My Team" --host 127.0.0.1 --invite-only --public-url https://YOUR-RANDOM-NAME.trycloudflare.com
+```
+
+Sign in through the public address, open **Workspace → Invite people**, and send
+the copied browser invite link. Stop the server and `cloudflared` with Ctrl+C
+when finished. The STUN setting is optional for chat; it has the same no-TURN
+limitation described above.
+
+### Quick Tunnel limits
+
+Cloudflare describes Quick Tunnels as a testing and development feature. They
+have no SLA, give a random address for the life of the process, and are limited
+to 200 concurrent in-flight requests. WebSockets work, which is what Gatherline
+chat uses, but Server-Sent Events do not. See Cloudflare's
+[Quick Tunnel documentation](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
+and [Tunnel FAQ](https://developers.cloudflare.com/cloudflare-one/faq/cloudflare-tunnels-faq/)
+for the current limits. Use a named tunnel, your own domain, and a supervised
+server process for a stable deployment; Cloudflare documents that flow under
+[Create a locally-managed tunnel](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/create-local-tunnel/).
+
+Cloudflare also says Quick Tunnels are unsupported while a
+`.cloudflared/config.yaml` file is present. If `cloudflared` refuses to create
+the temporary link for that reason, temporarily move that file aside, retry,
+and restore it before using its named-tunnel configuration again.
 
 ## Docker and VPS
 
