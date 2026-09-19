@@ -69,6 +69,15 @@ Browser checks: `pnpm exec playwright install chromium`, then `pnpm test:e2e`
 after building. Windows checks: `pnpm --filter @slackoss/desktop package --win`,
 then `pnpm test:desktop`. These tests use temporary workspaces and fake media.
 
+The script every visit to the client downloads has a 500 kB budget. After
+building, `node scripts/check-web-bundle.mjs` measures the browser client and
+`node scripts/check-web-bundle.mjs apps/desktop/out/renderer` the desktop
+renderer; CI runs both. A workspace package that others import declares
+`"sideEffects": false`, or the bundler keeps every module in it, used or not.
+A view opened now and then loads with `lazy()` inside `LazyPanel` or
+`LazyDialog`, which say what is loading and offer a way out if it fails, and a
+large library needed on one rare path loads with `import()` on that path.
+
 A browser test that passes on Windows can still fail on Linux CI, where fonts
 and line breaks differ. Moving the pointer onto a message raises its toolbar over
 the top right of that message, so a click aimed at the middle of something long
