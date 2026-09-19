@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, useCallback, useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss/client-core";
 import { ClientContext, OpenMessageContext, useClient, useWorkspace } from "../context.js";
@@ -14,15 +14,12 @@ import {
   NewChannelDialog,
   NewDmDialog,
 } from "../components/dialogs.js";
-import { QuickSwitcher, SearchDialog } from "../components/QuickSwitcher.js";
+import { QuickSwitcher } from "../components/QuickSwitcher.js";
 import { LaterPanel, PinsPanel, ThreadsPanel } from "../components/MessageListPanel.js";
-import { ScheduledPanel } from "../components/ScheduledPanel.js";
 import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
-import { ChannelDetailsDialog } from "../components/ChannelDetailsDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
-import { Dialog } from "../components/Dialog.js";
-import { ErrorBoundary } from "../components/ErrorBoundary.js";
+import { LazyDialog, LazyPanel } from "../components/LazyView.js";
 import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
@@ -44,6 +41,19 @@ const PeopleDialog = lazy(() =>
 );
 const AccountDialog = lazy(() =>
   import("../components/AccountDialog.js").then((module) => ({ default: module.AccountDialog })),
+);
+// Opened now and then rather than on every visit, so they load on first use
+// and keep what every visit downloads under half a megabyte.
+const ScheduledPanel = lazy(() =>
+  import("../components/ScheduledPanel.js").then((module) => ({ default: module.ScheduledPanel })),
+);
+const SearchDialog = lazy(() =>
+  import("../components/SearchDialog.js").then((module) => ({ default: module.SearchDialog })),
+);
+const ChannelDetailsDialog = lazy(() =>
+  import("../components/ChannelDetailsDialog.js").then((module) => ({
+    default: module.ChannelDetailsDialog,
+  })),
 );
 
 interface Props {
@@ -569,41 +579,14 @@ function WorkspaceInner({
         <ThreadsPanel onClose={() => setPanel({ kind: "none" })} onJump={openThreadInChannel} />
       )}
       {panel.kind === "activity" && (
-        <ErrorBoundary
-          fallback={
-            <aside
-              aria-label="Activity unavailable"
-              className="w-[420px] max-w-full border-l border-edge bg-ground p-5 text-sm"
-            >
-              <p role="alert">
-                Activity could not load. Close it to keep chatting, or reload the app to try again.
-              </p>
-              <div className="mt-3 flex gap-4 text-copper">
-                <button onClick={() => setPanel({ kind: "none" })}>Close activity</button>
-                <button onClick={() => window.location.reload()}>Reload app</button>
-              </div>
-            </aside>
-          }
-        >
-          <Suspense
-            fallback={
-              <aside
-                role="status"
-                className="w-[420px] max-w-full border-l border-edge bg-ground p-5 text-sm text-ink-faint"
-              >
-                Loading activity…
-                <button className="ml-3 text-copper" onClick={() => setPanel({ kind: "none" })}>
-                  Close
-                </button>
-              </aside>
-            }
-          >
-            <ActivityPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
-          </Suspense>
-        </ErrorBoundary>
+        <LazyPanel name="Activity" onClose={() => setPanel({ kind: "none" })}>
+          <ActivityPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+        </LazyPanel>
       )}
       {panel.kind === "scheduled" && (
-        <ScheduledPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />
+        <LazyPanel name="Scheduled messages" onClose={() => setPanel({ kind: "none" })}>
+          <ScheduledPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />
+        </LazyPanel>
       )}
 
       {dialog.kind === "new-channel" && (
@@ -622,39 +605,19 @@ function WorkspaceInner({
       {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
       {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
       {dialog.kind === "search" && (
-        <SearchDialog channelId={activeChannelId} onClose={closeDialog} onJump={jumpToMessage} />
+        <LazyDialog loading="Loading search" onClose={closeDialog}>
+          <SearchDialog channelId={activeChannelId} onClose={closeDialog} onJump={jumpToMessage} />
+        </LazyDialog>
       )}
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
       {(dialog.kind === "apps" || dialog.kind === "people" || dialog.kind === "account") && (
-        <ErrorBoundary
-          key={dialog.kind}
-          fallback={
-            <Dialog title="This view could not load" onClose={closeDialog}>
-              <p className="text-sm text-ink-dim">
-                Close this view to keep chatting, or reload the app to try again.
-              </p>
-              <button className="mt-3 text-sm text-copper" onClick={() => window.location.reload()}>
-                Reload app
-              </button>
-            </Dialog>
-          }
-        >
-          <Suspense
-            fallback={
-              <Dialog title="Loading settings" onClose={closeDialog}>
-                <p role="status" className="text-sm text-ink-faint">
-                  Opening this view…
-                </p>
-              </Dialog>
-            }
-          >
-            {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
-            {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}
-            {dialog.kind === "account" && (
-              <AccountDialog onClose={closeDialog} onSignedOut={onSignedOut} />
-            )}
-          </Suspense>
-        </ErrorBoundary>
+        <LazyDialog key={dialog.kind} loading="Loading settings" onClose={closeDialog}>
+          {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
+          {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}
+          {dialog.kind === "account" && (
+            <AccountDialog onClose={closeDialog} onSignedOut={onSignedOut} />
+          )}
+        </LazyDialog>
       )}
       {/* Not one of the workspace's own dialogs: an app asked for this one, so
           it shows itself whenever one arrives. */}
@@ -670,18 +633,20 @@ function WorkspaceInner({
         <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />
       )}
       {dialog.kind === "channel-details" && activeChannelId && (
-        <ChannelDetailsDialog
-          channelId={activeChannelId}
-          onChangeParticipants={(memberIds) =>
-            setDialog({ kind: "new-dm", initialMemberIds: memberIds })
-          }
-          onClose={closeDialog}
-          onLeft={() => {
-            closeDialog();
-            setActiveChannelId(null);
-          }}
-          onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
-        />
+        <LazyDialog loading="Loading channel details" onClose={closeDialog}>
+          <ChannelDetailsDialog
+            channelId={activeChannelId}
+            onChangeParticipants={(memberIds) =>
+              setDialog({ kind: "new-dm", initialMemberIds: memberIds })
+            }
+            onClose={closeDialog}
+            onLeft={() => {
+              closeDialog();
+              setActiveChannelId(null);
+            }}
+            onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
+          />
+        </LazyDialog>
       )}
     </div>
   );
