@@ -7,6 +7,7 @@ import { channelTitle, formatTime } from "../lib/format.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { isImeKey } from "../lib/textInput.js";
+import { Icon } from "./Icon.js";
 
 const MODIFIER_HELP = [
   { token: "from:@name", what: "by one person" },
@@ -297,10 +298,10 @@ export function SearchDialog(props: {
                   <button
                     disabled={recent.busy}
                     aria-label={`Remove recent search: ${entry.query || "All messages"} (${scopeLabel})`}
-                    className="rounded px-2 py-1 text-ink-faint hover:bg-lifted disabled:opacity-40"
+                    className="rounded p-1.5 text-ink-faint hover:bg-lifted hover:text-ink disabled:opacity-40"
                     onClick={() => recent.remove(entry)}
                   >
-                    ×
+                    <Icon name="close" size={14} />
                   </button>
                 </li>
               );

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Icon } from "./Icon.js";
 
 export const MESSAGE_LIMIT = 12_000;
 export const formattingShortcut = (key: string) => ({ b: "*", i: "_", e: "`" })[key.toLowerCase()];
@@ -142,15 +143,16 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
           ref={trigger}
           type="button"
           aria-label="Insert emoji"
+          title="Insert emoji"
           aria-expanded={open}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             setOpen((v) => !v);
             setQuery("");
           }}
-          className="rounded px-2 py-1 hover:bg-lifted"
+          className="flex items-center rounded px-2 py-1 hover:bg-lifted"
         >
-          ☺
+          <Icon name="smile" size={15} />
         </button>
         <button
           type="button"

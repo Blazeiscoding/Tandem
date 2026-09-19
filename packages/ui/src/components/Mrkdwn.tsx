@@ -131,7 +131,9 @@ function renderInline(
       out.push(
         <span
           key={key++}
-          className={`rounded px-1 font-medium ${isMe ? "bg-copper/30 text-copper" : "bg-mention text-copper"}`}
+          // Addressed to you: a stronger fill, so the text turns to ink. The
+          // accent on the accent at 30% is under 4.5:1.
+          className={`rounded px-1 font-medium ${isMe ? "bg-copper/30 text-ink" : "bg-mention text-copper"}`}
         >
           @{user?.displayName ?? "unknown"}
         </span>,
@@ -154,7 +156,7 @@ function renderInline(
       out.push(
         <span
           key={key++}
-          className="rounded bg-copper/30 px-1 font-medium text-copper"
+          className="rounded bg-copper/30 px-1 font-medium text-ink"
           title={
             tok === "<!here>"
               ? "Everyone in this channel who is around now"

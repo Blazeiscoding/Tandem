@@ -4,11 +4,11 @@ import { avatarColor, initials } from "../lib/format.js";
 export function Avatar({ user, size = 36 }: { user: User | undefined; size?: number }) {
   return (
     <div
-      className="flex shrink-0 select-none items-center justify-center rounded-lg font-semibold text-white/90"
+      className="flex shrink-0 select-none items-center justify-center rounded-lg font-semibold text-white"
       style={{
         width: size,
         height: size,
-        background: user ? avatarColor(user.id) : "#444",
+        background: user ? avatarColor(user.id) : "var(--color-lifted)",
         fontSize: size * 0.38,
       }}
     >

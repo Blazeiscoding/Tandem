@@ -1,0 +1,90 @@
+import { useState } from "react";
+import { useClient, useWorkspace } from "../context.js";
+import { Icon } from "./Icon.js";
+
+/**
+ * Microphone, camera, screen and Leave. The huddle bar shows them, and so does
+ * the stage in full screen, where the bar is out of sight.
+ *
+ * A toggle names what it controls, and aria-pressed, not the name, says whether
+ * it is on: a screen reader hears the same button before and after a press.
+ */
+export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
+  const client = useClient();
+  const huddle = useWorkspace((s) => s.huddle);
+  const [busy, setBusy] = useState<"screen" | "camera" | null>(null);
+  if (!huddle) return null;
+
+  /** Device pickers can be dismissed, and that is not an error worth showing. */
+  const guarded = async (which: "screen" | "camera", run: () => Promise<void>) => {
+    setBusy(which);
+    try {
+      await run();
+    } catch {
+      /* permission refused or the picker was closed */
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const off = overlay
+    ? "border-white/15 bg-black/45 text-white hover:bg-black/65"
+    : "border-edge text-ink-dim hover:border-ink-faint hover:text-ink";
+  const toggleCls = (on: boolean, onCls: string) =>
+    `flex size-11 items-center justify-center rounded-xl border transition-colors disabled:opacity-50 ${
+      on ? onCls : off
+    }`;
+  const lit = overlay ? "border-copper bg-black/45 text-copper" : "border-copper text-copper";
+
+  return (
+    <div
+      role="group"
+      aria-label="Huddle controls"
+      className={`flex shrink-0 items-center gap-2 ${
+        overlay ? "rounded-2xl bg-black/35 p-2 backdrop-blur" : "ml-auto"
+      }`}
+    >
+      <button
+        aria-label="Mute microphone"
+        aria-pressed={huddle.micMuted}
+        onClick={() => client.toggleMic()}
+        title={huddle.micMuted ? "Unmute" : "Mute"}
+        className={toggleCls(
+          huddle.micMuted,
+          overlay ? "border-alert bg-black/45 text-alert" : "border-alert text-alert",
+        )}
+      >
+        <Icon name={huddle.micMuted ? "micOff" : "mic"} />
+      </button>
+      <button
+        aria-label="Camera"
+        aria-pressed={huddle.cameraOn}
+        onClick={() => void guarded("camera", () => client.toggleCamera())}
+        disabled={busy !== null}
+        title={huddle.cameraOn ? "Turn your camera off" : "Turn your camera on"}
+        className={toggleCls(huddle.cameraOn, lit)}
+      >
+        <Icon name="camera" />
+      </button>
+      <button
+        aria-label="Share screen"
+        aria-pressed={huddle.sharingScreen}
+        onClick={() => void guarded("screen", () => client.toggleScreenShare())}
+        disabled={busy !== null}
+        title={huddle.sharingScreen ? "Stop sharing" : "Share your screen"}
+        className={toggleCls(huddle.sharingScreen, lit)}
+      >
+        <Icon name="screen" />
+      </button>
+      {/* Leave keeps its word: an arrow out of a door reads as signing out just as easily. */}
+      <button
+        onClick={() => client.leaveHuddle()}
+        title="Leave the huddle"
+        className="flex h-11 items-center gap-2 rounded-xl bg-alert px-4 text-sm font-semibold text-ground transition-colors hover:bg-alert/85"
+      >
+        <Icon name="leave" size={16} />
+        Leave
+      </button>
+    </div>
+  );
+}

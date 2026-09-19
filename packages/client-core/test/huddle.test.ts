@@ -175,6 +175,24 @@ describe("HuddleSession", () => {
     },
   );
 
+  it("shares a screen as detail, keeping text sharp, and at no more than 1080p", async () => {
+    const { session } = makeSession("A");
+    const track: { kind: string; stop(): void; contentHint?: string } = {
+      kind: "video",
+      stop() {},
+    };
+    const capture = vi
+      .spyOn(navigator.mediaDevices, "getDisplayMedia")
+      .mockResolvedValue(new FakeMediaStream([track]) as unknown as MediaStream);
+    await session.toggleScreenShare();
+    // Without the hint, an encoder short of bandwidth blurs a screen like a face.
+    expect(track.contentHint).toBe("detail");
+    const video = capture.mock.calls[0]![0]!.video as MediaTrackConstraints;
+    expect(video.width).toEqual({ max: 1920 });
+    expect(video.height).toEqual({ max: 1080 });
+    session.destroy();
+  });
+
   it("deduplicates camera permission requests", async () => {
     const { session } = makeSession("A");
     const capture = vi.spyOn(navigator.mediaDevices, "getUserMedia");

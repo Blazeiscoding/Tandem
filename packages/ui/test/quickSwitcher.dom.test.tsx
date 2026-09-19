@@ -75,7 +75,7 @@ describe("jumping to a conversation", () => {
     const { options } = switcherWith();
     expect(options()).toEqual([
       "#design",
-      "🔒leads",
+      "leads",
       "@Dana Old",
       "@Alex Chen, Priya Natarajan",
       "@Alex Chen",

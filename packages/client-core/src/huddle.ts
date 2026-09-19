@@ -399,9 +399,11 @@ export class HuddleSession {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 360, max: 720 },
-          frameRate: { ideal: 20, max: 24 },
+          // 360p went soft as soon as a tile was bigger than a thumbnail. The
+          // encoder still steps down on its own when the network cannot keep up.
+          width: { ideal: 960, max: 1280 },
+          height: { ideal: 540, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
         },
         audio: false,
       });
@@ -439,7 +441,13 @@ export class HuddleSession {
     let display: MediaStream;
     try {
       display = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 10, max: 15 } },
+        // Each viewer is encoded separately in a mesh, so a 4K screen is sent
+        // at no more than 1080p. That is still sharp text.
+        video: {
+          width: { max: 1920 },
+          height: { max: 1080 },
+          frameRate: { ideal: 15, max: 15 },
+        },
         audio: false,
       });
     } finally {
@@ -451,6 +459,10 @@ export class HuddleSession {
     }
     const track = display.getVideoTracks()[0];
     if (!track) return;
+    // Screen content: when bandwidth runs short, keep the resolution and drop
+    // frames. Without the hint the encoder treats a screen like a camera and
+    // blurs the text first.
+    track.contentHint = "detail";
     this.screenTrack = track;
     this.localScreenStream = display;
     // Stopping from the browser's own bar must clean up too.
