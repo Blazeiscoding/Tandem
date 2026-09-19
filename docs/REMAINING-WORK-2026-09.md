@@ -80,14 +80,14 @@ Done means the acceptance criteria are met. Mostly means a small remainder. Part
 
 ### H, huddles and media
 
-| Item                       | Status   | What is left                                                                                            |
-| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| H01 device settings        | Open     | There is no device picker, and nothing calls `enumerateDevices`                                         |
-| H02 call recovery          | Open     | No reconnecting state, no ICE restart, no rejoin after the socket reconnects                            |
-| H03 screen sharing         | Partial  | The desktop app lists screens by name. No window choice, preview, pinning or fullscreen                 |
-| H04 deployment diagnostics | Partial  | `SLACKOSS_ICE_SERVERS` and `/api/rtc-config` exist. No connectivity check, no expiring TURN credentials |
-| H05 mesh limits            | Open     |                                                                                                         |
-| H06 SFU                    | Deferred |                                                                                                         |
+| Item                       | Status   | What is left                                                                                                                                                                                                        |
+| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| H01 device settings        | Open     | There is no device picker, and nothing calls `enumerateDevices`                                                                                                                                                     |
+| H02 call recovery          | Open     | No reconnecting state, no ICE restart, no rejoin after the socket reconnects                                                                                                                                        |
+| H03 screen sharing         | Partial  | A share takes the main view, any tile can be pinned, the stage expands and goes full screen, and the presenter sees a preview and a way to stop. The desktop app still lists screens by name, with no window choice |
+| H04 deployment diagnostics | Partial  | `SLACKOSS_ICE_SERVERS` and `/api/rtc-config` exist. No connectivity check, no expiring TURN credentials                                                                                                             |
+| H05 mesh limits            | Open     |                                                                                                                                                                                                                     |
+| H06 SFU                    | Deferred |                                                                                                                                                                                                                     |
 
 ### O, hosting, administration and operation
 
