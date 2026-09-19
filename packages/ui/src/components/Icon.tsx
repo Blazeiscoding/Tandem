@@ -51,6 +51,17 @@ const paths = {
     "M15 10l4.5-2.7a.6.6 0 0 1 .9.5v8.4a.6.6 0 0 1-.9.5L15 14M4 6h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z",
   screen: "M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 21h6M12 16v5",
   leave: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
+  grid: "M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z",
+  /** Arrows out to the corners: make this bigger. */
+  expand: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7",
+  /** Arrows in from the corners: make this smaller again. */
+  shrink: "M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7",
+  fullscreen:
+    "M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3",
+  fullscreenExit:
+    "M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3",
+  chevronDown: "m6 9 6 6 6-6",
+  chevronUp: "m18 15-6-6-6 6",
 } as const;
 
 export type IconName = keyof typeof paths;

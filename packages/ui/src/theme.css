@@ -8,6 +8,7 @@
  * keeps the colours the window, the pages and the icons repeat equal to these.
  */
 @theme {
+  --color-deep: #11141c; /* the huddle stage, behind video */
   --color-ground: #191d29; /* app background, the timeline */
   --color-raised: #222737; /* sidebar, panels, cards */
   --color-lifted: #30374b; /* hover, menus, chips */
