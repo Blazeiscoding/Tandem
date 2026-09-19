@@ -60,6 +60,7 @@ describe("the colour tokens", () => {
   it("are all declared", () => {
     expect(Object.keys(colourTokens())).toEqual(
       expect.arrayContaining([
+        "deep",
         "ground",
         "raised",
         "lifted",
@@ -77,7 +78,7 @@ describe("the colour tokens", () => {
 
   it("keep every ink readable on every surface", () => {
     const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert"];
-    const surfaces = ["ground", "raised", "lifted"];
+    const surfaces = ["deep", "ground", "raised", "lifted"];
     expect(
       unreadable(inks.flatMap((ink) => surfaces.map((s): [string, string] => [ink, s]))),
     ).toEqual([]);
