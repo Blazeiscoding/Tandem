@@ -2,7 +2,7 @@
 
 Written September 15, 2026, against `main` at `b36fec5`, the merge of PR #48, plus the uncommitted modal work on the `fix/modal-keyboard-ownership` branch.
 
-Updated September 19, 2026: phase 0 is done, in PRs #50 to #58. The status rows, the phase 0 steps and the release criteria below say what each PR settled. The counts in the next two sections are still September 15's. Today there are 573 unit and integration tests, 12 browser scenarios and 2 packaged Windows scenarios.
+Updated September 20, 2026: phase 0 is done, in PRs #50 to #58. The counts in the next two sections are still September 15's. Today there are 637 unit and integration tests, 12 browser scenarios and 2 packaged Windows scenarios.
 
 `IMPROVEMENT-PLAN-2026-09.md` holds the original assessment and a log of everything built since. This document looks forward. For every item it says what is still open, what I would do first, and how I would do each piece. It draws on four sources.
 
@@ -13,7 +13,7 @@ Updated September 19, 2026: phase 0 is done, in PRs #50 to #58. The status rows,
 
 ## Where things stand
 
-47 pull requests have merged. The first two milestones, a reliable core and protected accounts and data, are essentially complete. The P0 findings F01 to F09 are fixed and held by regression tests. Accounts, sessions, recovery, retention, backups and pre-upgrade copies all exist. The remaining work sits in three places.
+The first two milestones, a reliable core and protected accounts and data, are essentially complete. The P0 findings F01 to F09 are fixed and held by regression tests. Accounts, sessions, recovery, retention, backups and pre-upgrade copies all exist. The remaining work sits in three places.
 
 1. **The interface.** Navigation, shared components, keyboard and screen-reader access, responsive layouts, visual consistency and onboarding make up U02 to U06 and U08. It is the largest open area and the first thing anyone trying the app notices.
 2. **Test debt.** More than twenty features from the September 7 to 13 phases shipped with their permanent tests deferred, several at the user's request. Most of the UI ones can now be written as component tests, since PR #48 added a DOM test environment.
@@ -87,22 +87,22 @@ Done means the acceptance criteria are met. Mostly means a small remainder. Part
 | H01 device settings        | Open     | There is no device picker, and nothing calls `enumerateDevices`                                                                                                                                                     |
 | H02 call recovery          | Open     | No reconnecting state, no ICE restart, no rejoin after the socket reconnects                                                                                                                                        |
 | H03 screen sharing         | Partial  | A share takes the main view, any tile can be pinned, the stage expands and goes full screen, and the presenter sees a preview and a way to stop. The desktop app still lists screens by name, with no window choice |
-| H04 deployment diagnostics | Partial  | `GATHERLINE_ICE_SERVERS` and `/api/rtc-config` exist. No connectivity check, no expiring TURN credentials                                                                                                           |
+| H04 deployment diagnostics | Partial  | Open to all supplies Cloudflare STUN, and `GATHERLINE_ICE_SERVERS` plus `/api/rtc-config` support custom servers. No connectivity check, TURN relay or expiring TURN credentials                                    |
 | H05 mesh limits            | Open     |                                                                                                                                                                                                                     |
 | H06 SFU                    | Deferred |                                                                                                                                                                                                                     |
 
 ### O, hosting, administration and operation
 
-| Item                         | Status  | What is left                                                                                                                                                                                     |
-| ---------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| O01 backup and restore       | Mostly  | Command line only, through `backup`, `verify-backup` and `restore`. Nothing in the desktop app                                                                                                   |
-| O02 safe upgrades            | Mostly  | Historical fixtures beyond v8; a disk that fills during the migration itself                                                                                                                     |
-| O03 hosting control center   | Partial | One workspace at a time, found by the folder its name maps to. No list, rename, port choice, open-folder button, backup status or count of who is connected                                      |
-| O04 desktop lifecycle        | Mostly  | A restart offers to host the last workspace again since #55. Left: an opt-in start on launch, start at login, sleep and network changes, and the server still running in Electron's main process |
-| O05 workspace administration | Mostly  | Workspace name and icon; a default invite expiry; paging and search for members and apps                                                                                                         |
-| O06 operational visibility   | Open    | `/api/health` is the only check                                                                                                                                                                  |
-| O07 deployment recipes       | Partial | Settings are validated at startup. Nobody has followed the walkthroughs from a clean machine                                                                                                     |
-| O08 export and import        | Open    |                                                                                                                                                                                                  |
+| Item                         | Status  | What is left                                                                                                                                                                                                                                    |
+| ---------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| O01 backup and restore       | Mostly  | Command line only, through `backup`, `verify-backup` and `restore`. Nothing in the desktop app                                                                                                                                                  |
+| O02 safe upgrades            | Mostly  | Historical fixtures beyond v8; a disk that fills during the migration itself                                                                                                                                                                    |
+| O03 hosting control center   | Partial | Manage hosting can open and close a public HTTPS address and control who may join. Still one workspace at a time, found by the folder its name maps to; no list, rename, port choice, open-folder button, backup status or connected-user count |
+| O04 desktop lifecycle        | Mostly  | A restart offers to host the last workspace again since #55. Left: an opt-in start on launch, start at login, sleep and network changes, and the server still running in Electron's main process                                                |
+| O05 workspace administration | Mostly  | Workspace name and icon; a default invite expiry; paging and search for members and apps                                                                                                                                                        |
+| O06 operational visibility   | Open    | `/api/health` is the only check                                                                                                                                                                                                                 |
+| O07 deployment recipes       | Partial | The desktop and standalone Quick Tunnel paths are documented, and the packaged Windows flow was exercised against Cloudflare. LAN, VPS/Caddy, TURN, clean-machine and service-manager drills remain                                             |
+| O08 export and import        | Open    |                                                                                                                                                                                                                                                 |
 
 ### I, integrations
 
@@ -194,10 +194,10 @@ In client-core and the UI:
 
 A few weeks.
 
-1. **O04, finished.** An opt-in "Start hosting when Gatherline opens" that reads `lastHosted`. Start at login through `app.setLoginItemSettings`. Fresh addresses and a new mDNS announcement after `powerMonitor` reports a resume or the network changes. Then measure whether database work stalls the window, for example a backup or a retention sweep on a 50,000-message workspace. If it does, move the server into an Electron `utilityProcess` behind the hosting controller, which already owns start, stop and status and is the natural boundary.
+1. **Finish O04.** An opt-in "Start hosting when Gatherline opens" that reads `lastHosted`. Start at login through `app.setLoginItemSettings`. Fresh addresses and a new mDNS announcement after `powerMonitor` reports a resume or the network changes. Then measure whether database work stalls the window, for example a backup or a retention sweep on a 50,000-message workspace. If it does, move the server into an Electron `utilityProcess` behind the hosting controller, which already owns start, stop and status and is the natural boundary.
 2. **O03, a hosting control center.** A registry of local workspaces keyed by the workspace ID the database already stores, with name, folder and port. From it, list, start and stop workspaces, rename the display name without moving the folder, open the data folder, back up now, and see how many people are connected.
-3. **O05 and O01, administration and backups in the app.** Workspace name and icon, invite-only mode and a default invite expiry. Paging and search in People and Apps. Backup to a chosen folder, and an offline restore wizard that reuses the command line's verification.
-4. **O07, recipes followed from clean machines.** LAN, the desktop host, Docker on a VPS behind Caddy for HTTPS, and coturn for TURN. Follow each on a fresh VM, record the result in `VALIDATION.md`, and add systemd and Windows service examples.
+3. **O05 and O01, administration and backups in the app.** Workspace name and icon, and a default invite expiry. Paging and search in People and Apps. Backup to a chosen folder, and an offline restore wizard that reuses the command line's verification.
+4. **Finish O07's deployment drills.** Temporary Cloudflare sharing is documented and validated on packaged Windows. Follow LAN, desktop-host, Docker/VPS/Caddy and coturn recipes on fresh machines, record the results in `VALIDATION.md`, and add systemd and Windows service examples.
 
 ### Phase 4. Calls on real networks
 
@@ -232,20 +232,20 @@ The X items stay conditional.
 
 ## The release criteria, checked
 
-| Criterion from the plan                                                                                  | Today                                                                                                              |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| A network interruption or lost acknowledgement loses and duplicates nothing                              | Met                                                                                                                |
-| Revocation removes live access and call participation                                                    | Met                                                                                                                |
-| Drafts and the outbox survive and stay separate per account                                              | Met                                                                                                                |
-| Search, threads, files and saved items page past the first page                                          | Met, apart from the missing file browser                                                                           |
-| A first-time host can claim, invite, stop and reopen, back up, restore and upgrade using the UI and docs | Not yet. Browser invite links (#52) and resuming hosting (#55) are done; backup and restore in the app are missing |
-| Core journeys work by keyboard alone and in narrow layouts, and media failures are understandable        | Not yet. Phases 1 and 4                                                                                            |
-| Upgrades are tested against historical fixtures, and release artifacts start and keep legacy data paths  | Partly. There is one fixture, v8, and one packaged platform, Windows                                               |
-| Capacity claims state their workload, hardware and limits                                                | Met for what `VALIDATION.md` claims. There is no soak test yet                                                     |
+| Criterion from the plan                                                                                  | Today                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A network interruption or lost acknowledgement loses and duplicates nothing                              | Met                                                                                                                                                                                            |
+| Revocation removes live access and call participation                                                    | Met                                                                                                                                                                                            |
+| Drafts and the outbox survive and stay separate per account                                              | Met                                                                                                                                                                                            |
+| Search, threads, files and saved items page past the first page                                          | Met, apart from the missing file browser                                                                                                                                                       |
+| A first-time host can claim, invite, stop and reopen, back up, restore and upgrade using the UI and docs | Not yet. Claiming, inviting, temporary public sharing, stopping and reopening work through the desktop UI and docs; backup and restore remain command-line only, with no restore or upgrade UI |
+| Core journeys work by keyboard alone and in narrow layouts, and media failures are understandable        | Not yet. Phases 1 and 4                                                                                                                                                                        |
+| Upgrades are tested against historical fixtures, and release artifacts start and keep legacy data paths  | Partly. There is one fixture, v8, and one packaged platform, Windows                                                                                                                           |
+| Capacity claims state their workload, hardware and limits                                                | Met for what `VALIDATION.md` claims. There is no soak test yet                                                                                                                                 |
 
 ## How to try it today
 
-The README's [Try it](../README.md#try-it) section has the three ways to run it, `scripts/seed-demo.mjs` to fill a new workspace with a demo team, and a checklist of journeys worth trying.
+The README's [Try it](../README.md#try-it) section has the three ways to run Gatherline, temporary internet sharing through Open to all, `scripts/seed-demo.mjs`, and a checklist of journeys worth trying.
 
 To work on the desktop app, run `pnpm --filter @slackoss/desktop dev`. A terminal inside an Electron-based tool can export `ELECTRON_RUN_AS_NODE=1`, which stops Electron starting, so unset it first.
 
