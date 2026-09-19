@@ -8,6 +8,7 @@ import { accessibilityProblems } from "./accessibility.js";
 type Hosting = NonNullable<Platform["hosting"]>;
 
 const stopped: HostingStatus = { running: false, phase: "stopped" };
+const publicUrl = "https://rocket-team.trycloudflare.com";
 const running: HostingStatus = {
   running: true,
   phase: "running",
@@ -30,6 +31,24 @@ function fakeHosting(initial: HostingStatus) {
     }),
     stop: vi.fn(async () => {
       current = stopped;
+    }),
+    openToAll: vi.fn(async ({ inviteOnly }: { inviteOnly: boolean }) => {
+      current = {
+        ...current,
+        openToAll: { phase: "open", url: publicUrl },
+        tunnelAvailable: true,
+        inviteOnly,
+      };
+      return current;
+    }),
+    endOpenToAll: vi.fn(async () => {
+      delete current.openToAll;
+      current = { ...current, openToAllError: undefined };
+      return current;
+    }),
+    setInviteOnly: vi.fn(async (inviteOnly: boolean) => {
+      current = { ...current, inviteOnly };
+      return current;
     }),
     subscribe: (listener: (status: HostingStatus) => void) => {
       listeners.add(listener);
@@ -120,6 +139,84 @@ describe("hosting a workspace from the host dialog", () => {
       within(dialog).getByText(/keeps the workspace running in the system tray/),
     ).toBeVisible();
     expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+
+  it("opens, copies, secures, and closes a public Cloudflare address", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({ ...running, tunnelAvailable: true });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    const inviteRequired = within(dialog).getByRole("checkbox", {
+      name: /Require an invite link to create an account/,
+    });
+    expect(inviteRequired).toBeChecked();
+
+    await user.click(within(dialog).getByRole("button", { name: "Open to all" }));
+    expect(hosting.openToAll).toHaveBeenCalledWith({ inviteOnly: true });
+    expect(await within(dialog).findByRole("link", { name: publicUrl })).toHaveAttribute(
+      "href",
+      publicUrl,
+    );
+    expect(within(dialog).getByText("Public")).toBeVisible();
+    expect(within(dialog).getByText(/Workspace → Invite people/)).toBeVisible();
+
+    await user.click(within(dialog).getByRole("button", { name: "Copy address" }));
+    expect(await navigator.clipboard.readText()).toBe(publicUrl);
+    expect(within(dialog).getByRole("button", { name: "Copied" })).toBeVisible();
+
+    await user.click(
+      within(dialog).getByRole("checkbox", {
+        name: /Require an invite link to create an account/,
+      }),
+    );
+    expect(hosting.setInviteOnly).toHaveBeenCalledWith(false);
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("checkbox", {
+          name: /Require an invite link to create an account/,
+        }),
+      ).not.toBeChecked(),
+    );
+    expect(
+      within(dialog).getByText(/Anyone with this address can create an account/),
+    ).toBeVisible();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+
+    await user.click(within(dialog).getByRole("button", { name: "Close public link" }));
+    expect(hosting.endOpenToAll).toHaveBeenCalledOnce();
+    expect(await within(dialog).findByRole("button", { name: "Open to all" })).toBeEnabled();
+    expect(within(dialog).queryByRole("link", { name: publicUrl })).not.toBeInTheDocument();
+  });
+
+  it("explains when cloudflared is unavailable and can check again", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({ ...running, tunnelAvailable: false });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByText(/Install Cloudflare’s cloudflared tool/)).toBeVisible();
+    expect(within(dialog).queryByRole("button", { name: "Open to all" })).not.toBeInTheDocument();
+    const callsBeforeCheck = hosting.status.mock.calls.length;
+    await user.click(within(dialog).getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(hosting.status).toHaveBeenCalledTimes(callsBeforeCheck + 1));
+  });
+
+  it("keeps hosting and reports an error when opening the public address fails", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({ ...running, tunnelAvailable: true });
+    hosting.openToAll.mockRejectedValueOnce(new Error("cloudflared could not reach the edge"));
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    await user.click(within(dialog).getByRole("button", { name: "Open to all" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /public link could not be opened/,
+    );
+    expect(within(dialog).getByText("Rocket Team")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Open to all" })).toBeEnabled();
+    expect(hosting.stop).not.toHaveBeenCalled();
   });
 
   it("offers to open the hosted workspace only when it is not the one already on screen", async () => {

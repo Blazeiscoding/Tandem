@@ -134,6 +134,25 @@ describe("inviting someone", () => {
     ).toBeVisible();
   });
 
+  it("builds browser and desktop invites on the host's live Cloudflare address", async () => {
+    const { dialog } = await inviteWith({
+      baseUrl: "http://localhost:8543",
+      hosting: {
+        ...hostingHere,
+        tunnelAvailable: true,
+        openToAll: { phase: "open", url: "https://rocket-team.trycloudflare.com" },
+      },
+    });
+    expect(
+      await dialog.findByText("https://rocket-team.trycloudflare.com/#/join/ABCD1234"),
+    ).toBeVisible();
+    expect(
+      dialog.getByText(
+        "gatherline://join?host=https://rocket-team.trycloudflare.com&code=ABCD1234",
+      ),
+    ).toBeVisible();
+  });
+
   it("keeps a workspace on https on https, in the desktop app's link too", async () => {
     const { dialog } = await inviteWith({ baseUrl: "https://rocket.example.dev" });
     expect(dialog.getByText("https://rocket.example.dev/#/join/ABCD1234")).toBeVisible();

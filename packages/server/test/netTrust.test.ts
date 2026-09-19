@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkspaceServer, type WorkspaceServer } from "../src/index.js";
-import { isLoopbackOrigin, originFromConnection } from "../src/netTrust.js";
+import { isLoopbackOrigin, originFromConnection, resolveClientAddress } from "../src/netTrust.js";
 
 describe("where the server thinks it is", () => {
   it("uses the address the connection arrived on", () => {
@@ -44,6 +44,43 @@ describe("recognising this machine's own browser", () => {
   it("rejects what is not a URL at all", () => {
     expect(isLoopbackOrigin("null", 8543)).toBe(false);
     expect(isLoopbackOrigin("", 8543)).toBe(false);
+  });
+});
+
+describe("resolving a rate-limit identity", () => {
+  it("uses Cloudflare's address only for an explicitly trusted loopback proxy", () => {
+    const headers = {
+      "cf-connecting-ip": "203.0.113.7",
+      "x-forwarded-for": "198.51.100.4",
+    };
+    expect(resolveClientAddress("::ffff:127.0.0.1", headers, "loopback")).toBe("203.0.113.7");
+    expect(resolveClientAddress("::ffff:127.0.0.1", headers)).toBe("127.0.0.1");
+  });
+
+  it("never trusts forwarding headers sent by a direct LAN client", () => {
+    expect(
+      resolveClientAddress(
+        "192.168.1.40",
+        { "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.4" },
+        "loopback",
+      ),
+    ).toBe("192.168.1.40");
+  });
+
+  it("falls back to the proxy-added end of X-Forwarded-For", () => {
+    expect(
+      resolveClientAddress("127.0.0.2", { "x-forwarded-for": "spoofed, 2001:db8::5" }, "loopback"),
+    ).toBe("2001:db8::5");
+  });
+
+  it("falls back to the socket peer for malformed forwarded addresses", () => {
+    expect(
+      resolveClientAddress(
+        "::1",
+        { "cf-connecting-ip": "not-an-ip", "x-forwarded-for": "also-invalid" },
+        "loopback",
+      ),
+    ).toBe("::1");
   });
 });
 
