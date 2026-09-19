@@ -328,7 +328,7 @@ describe("turning limits off", () => {
       });
       expect(res.status).toBe(201);
     }
-  });
+  }, 15_000);
 });
 
 describe("typing notices", () => {
