@@ -26,6 +26,51 @@ discover your workspace automatically; anyone else connects by `ip:port` or an
 invite link. Every message, file, and account lives in a single folder on the
 host's machine. Keep backups of that folder.
 
+## Try it
+
+Any of these gives you a workspace at `http://localhost:8543`. From a clone, with
+Node 24+ and pnpm 10:
+
+- **In a browser**, served by the standalone server:
+
+  ```sh
+  pnpm install
+  pnpm build
+  node apps/server-cli/dist/slackoss-server.js --data ./demo-data --name "Demo Team"
+  ```
+
+- **In the desktop app** on Windows: `pnpm --filter @slackoss/desktop package --win`,
+  install `apps/desktop/release/Gatherline Setup 0.1.0.exe`, and choose
+  **Host a workspace on this computer**.
+- **With Docker**: `docker compose -f docker/docker-compose.yml up -d --build`.
+
+A new workspace is empty. To have a team to look at, run this in another
+terminal before anyone signs up:
+
+```sh
+node scripts/seed-demo.mjs
+```
+
+It adds four people, `maya` (the owner), `sam`, `priya` and `alex`, who share the
+password it prints, with channels, a thread, reactions, a mention, a pinned
+checklist, an image, statuses and a direct message. It leaves a workspace that
+already has accounts alone. Give it another address as its first argument, your
+own `--password`, and, from another computer, the `--claim-code` the server printed.
+Because the accounts share a password, keep them out of a workspace other people
+can reach.
+
+Then open `http://localhost:8543`, sign in as `maya`, and try:
+
+- [ ] Reply to Sam's direct message, and find alex's mention of you in **Activity**.
+- [ ] In #design, open the thread on Priya's mockup, reply, react, and click the image to see it full size.
+- [ ] Find the pinned checklist in #engineering with the pin button in the channel header.
+- [ ] Press **Ctrl+K** to jump to a channel or a person, and **Search** for `checklist`.
+- [ ] Choose **Send later** beside Send, then find the message under **Scheduled**.
+- [ ] Sign in as `sam` in a private window, message each other, and start a **Huddle** from both.
+- [ ] Open **Workspace → Invite people** for a link that opens in any browser.
+- [ ] As the owner, change someone's role in **Workspace → People**, or add an incoming webhook in **Apps and integrations**.
+- [ ] Narrow the window to a phone's width and keep chatting.
+
 ## How people join
 
 - **Same network** — the desktop app's Join screen lists every workspace
