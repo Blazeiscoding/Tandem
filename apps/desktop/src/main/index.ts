@@ -405,11 +405,13 @@ function createWindow(): void {
     height: 820,
     minWidth: 760,
     minHeight: 480,
-    backgroundColor: "#111820",
+    // The ground and ink-dim colours of packages/ui/src/theme.css: the window
+    // shows this before the page paints, and the overlay sits on top of the page.
+    backgroundColor: "#191d29",
     titleBarStyle: "hidden",
     titleBarOverlay: {
-      color: "#111820",
-      symbolColor: "#b1c0cd",
+      color: "#191d29",
+      symbolColor: "#c1c8db",
       height: 40,
     },
     webPreferences: {

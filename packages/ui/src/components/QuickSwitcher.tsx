@@ -4,15 +4,16 @@ import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { isImeKey } from "../lib/textInput.js";
+import { Icon } from "./Icon.js";
 
 type SwitcherRow =
   | { kind: "public" | "private" | "conversation"; id: ID; label: string }
   /** `channelId` is set when a direct conversation with this person already exists. */
   | { kind: "person"; id: ID; label: string; channelId?: ID };
 
-const SWITCHER_ICON: Record<SwitcherRow["kind"], string> = {
+const SWITCHER_ICON: Record<SwitcherRow["kind"], React.ReactNode> = {
   public: "#",
-  private: "🔒",
+  private: <Icon name="lock" size={13} />,
   conversation: "@",
   person: "@",
 };
@@ -106,7 +107,7 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
                 i === index ? "bg-copper/15 text-copper" : "text-ink-dim"
               }`}
             >
-              <span aria-hidden className="w-4 text-center text-ink-faint">
+              <span aria-hidden className="flex w-4 justify-center text-ink-faint">
                 {SWITCHER_ICON[r.kind]}
               </span>
               {r.label}

@@ -8,6 +8,7 @@ import { Sidebar } from "../components/Sidebar.js";
 import { JumpToLatestBar, MessageTimeline } from "../components/MessageTimeline.js";
 import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
+import { huddleHasVideo, type HuddleView } from "../components/HuddleStage.js";
 import {
   BrowseChannelsDialog,
   InviteDialog,
@@ -153,6 +154,14 @@ function WorkspaceInner({
   const [panel, setPanel] = useState<SidePanel>({ kind: "none" });
   const [dialog, setDialog] = useState<DialogKind>({ kind: "none" });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [huddleView, setHuddleView] = useState<HuddleView>("docked");
+  const huddleVideo = useWorkspace((s) => huddleHasVideo(s.huddle));
+  // Once the video is gone, the next video starts in view again, above the chat.
+  useEffect(() => {
+    if (!huddleVideo) setHuddleView("docked");
+  }, [huddleVideo]);
+  /** The video covers the chat, which stays mounted underneath so it keeps its place. */
+  const chatCovered = huddleView === "expanded" && huddleVideo;
   const clientFromCtx = useClient();
   const navigation = useRef(0);
   const [navigationError, setNavigationError] = useState<string | null>(null);
@@ -527,25 +536,34 @@ function WorkspaceInner({
 
         {activeChannelId ? (
           <>
-            <MessageTimeline
-              readActive={dialog.kind === "none" && panel.kind === "none" && !sidebarOpen}
-              channelId={activeChannelId}
-              highlightMessageId={highlightMessageId}
-              onOpenThread={openThread}
-              onChannelClick={openChannel}
-              onOpenProfile={openProfile}
-            />
-            <HuddleStage />
-            <HuddleBar />
-            <JumpToLatestBar
-              channelId={activeChannelId}
-              onJump={() => setHighlightMessageId(null)}
-            />
-            <Composer
-              channelId={activeChannelId}
-              placeholder={isRoom ? `Message #${title}` : `Message ${title}`}
-              autoFocus
-            />
+            {/* The stage sits above the chat, and when expanded, over it. */}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <HuddleStage view={huddleView} onViewChange={setHuddleView} />
+              <div inert={chatCovered} className="flex min-h-0 flex-1 flex-col">
+                <MessageTimeline
+                  readActive={
+                    dialog.kind === "none" && panel.kind === "none" && !sidebarOpen && !chatCovered
+                  }
+                  channelId={activeChannelId}
+                  highlightMessageId={highlightMessageId}
+                  onOpenThread={openThread}
+                  onChannelClick={openChannel}
+                  onOpenProfile={openProfile}
+                />
+              </div>
+            </div>
+            <HuddleBar view={huddleView} onViewChange={setHuddleView} />
+            <div hidden={chatCovered} className="contents">
+              <JumpToLatestBar
+                channelId={activeChannelId}
+                onJump={() => setHighlightMessageId(null)}
+              />
+              <Composer
+                channelId={activeChannelId}
+                placeholder={isRoom ? `Message #${title}` : `Message ${title}`}
+                autoFocus
+              />
+            </div>
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center text-ink-faint">

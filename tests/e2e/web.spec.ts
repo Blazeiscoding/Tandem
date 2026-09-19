@@ -145,7 +145,7 @@ test("a browser served by a workspace offers that workspace without being asked"
   await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toHaveCount(0);
 
   // The way back to the full list is still there for a second workspace.
-  await page.getByRole("button", { name: "← All workspaces" }).click();
+  await page.getByRole("button", { name: "All workspaces", exact: true }).click();
   await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toBeVisible();
   await expect(page.getByText("serving this page")).toBeVisible();
 });
@@ -251,10 +251,14 @@ test("two people register, chat, become friends, reconnect, and exchange real We
           .evaluateAll((videos) => videos.some((v) => (v as HTMLVideoElement).videoWidth > 0)),
       )
       .toBe(true);
+    // The video gets a stage of its own above the chat, with Alice named on it.
+    const bobStage = bob.getByRole("region", { name: "Huddle video" });
+    await expect(bobStage.getByRole("group", { name: "alice", exact: true })).toBeVisible();
     await alice.getByTitle("Mute", { exact: true }).click();
     await expect(alice.getByTitle("Unmute", { exact: true })).toBeVisible();
     // Muting is signalled, not guessed: Bob's copy of Alice says so.
     await expect(bob.getByTitle("alice (muted)")).toBeVisible();
+    await expect(bobStage.getByRole("group", { name: "alice, muted", exact: true })).toBeVisible();
     await alice.screenshot({ path: info.outputPath("workspace.png") });
     await alice.getByRole("button", { name: "Leave", exact: true }).click();
     await bob.getByRole("button", { name: "Leave", exact: true }).click();
@@ -1503,7 +1507,7 @@ test("the demo seed fills a new workspace with something to try, and leaves one 
 
     // The checklist is pinned, and its code block is drawn as one.
     await sidebar.getByRole("button", { name: /^#\s*engineering\b/ }).click();
-    await expect(page.getByText("📌 Pinned to this channel", { exact: true })).toBeVisible();
+    await expect(page.getByText("Pinned to this channel", { exact: true })).toBeVisible();
     await expect(
       page.locator("code").filter({ hasText: "[ ] Smoke test on a clean machine" }),
     ).toBeVisible();

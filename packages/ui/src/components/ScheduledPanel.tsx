@@ -6,6 +6,7 @@ import { channelTitle } from "../lib/format.js";
 import { formatScheduleTime, localDateTime } from "../lib/schedule.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { MESSAGE_LIMIT } from "./FormattingToolbar.js";
+import { Icon } from "./Icon.js";
 
 function draftText(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -165,9 +166,9 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
         <button
           onClick={props.onClose}
           aria-label="Close scheduled messages"
-          className="rounded-lg px-2 py-1 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
         >
-          ✕
+          <Icon name="close" size={16} />
         </button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={loading}>
@@ -188,7 +189,9 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
         )}
         {items?.length === 0 && (
           <p className="px-2 py-6 text-center text-sm text-ink-faint">
-            Nothing queued. Write a message and pick 🕘 to send it later.
+            Nothing queued. Write a message, then choose{" "}
+            <Icon name="clock" size={13} className="inline align-[-2px]" /> Send later beside the
+            attach button.
           </p>
         )}
         {editing && (

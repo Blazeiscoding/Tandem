@@ -4,7 +4,7 @@ import { useClient, useWorkspace } from "../context.js";
 import { unreadThreadCount } from "@slackoss/client-core";
 import { channelTitle } from "../lib/format.js";
 import { Avatar, PresenceDot } from "./Avatar.js";
-import { BrandMark, Icon } from "./Icon.js";
+import { BrandMark, Icon, type IconName } from "./Icon.js";
 import { Menu, type MenuItem } from "./Menu.js";
 
 interface Props {
@@ -185,7 +185,7 @@ export function Sidebar(props: Props) {
           label="Channels"
           actions={[
             { label: "Browse", onClick: props.onBrowseChannels },
-            { label: "+", onClick: props.onNewChannel, title: "New channel" },
+            { label: "New channel", icon: "plus", onClick: props.onNewChannel },
           ]}
         />
         <ul className="mb-4">
@@ -199,7 +199,15 @@ export function Sidebar(props: Props) {
               huddle={huddleCount(ch.id)}
               mentions={mentions(ch.id)}
               onClick={() => props.onSelect(ch.id)}
-              icon={ch.type === "private" ? "🔒" : "#"}
+              icon={
+                ch.type === "private" ? (
+                  <span role="img" aria-label="Private channel" title="Private channel">
+                    <Icon name="lock" size={13} />
+                  </span>
+                ) : (
+                  "#"
+                )
+              }
               label={ch.name}
             />
           ))}
@@ -207,7 +215,7 @@ export function Sidebar(props: Props) {
 
         <SectionHeader
           label="Direct messages"
-          actions={[{ label: "+", onClick: props.onNewDm, title: "New message" }]}
+          actions={[{ label: "New message", icon: "plus", onClick: props.onNewDm }]}
         />
         <ul>
           {dms.map((ch) => {
@@ -235,7 +243,10 @@ export function Sidebar(props: Props) {
             className="mx-2 mt-2 rounded-lg border border-dashed border-edge p-3 text-left text-xs leading-relaxed text-ink-faint hover:border-ink-faint hover:text-ink"
           >
             Good conversations start here.
-            <span className="mt-1 block text-copper">Send someone a message →</span>
+            <span className="mt-1 flex items-center gap-1 text-copper">
+              Send someone a message
+              <Icon name="arrow" size={12} />
+            </span>
           </button>
         )}
       </div>
@@ -322,7 +333,9 @@ function SnoozeControl({ snoozed, until }: { snoozed: boolean; until: number | n
     });
     return (
       <div className="mb-1 flex items-center gap-2 rounded-lg border border-copper/40 bg-copper/10 px-2.5 py-1.5">
-        <span className="text-[13px]">🔕</span>
+        <span className="text-copper">
+          <Icon name="bellOff" size={14} />
+        </span>
         <span className="min-w-0 flex-1 text-[11px] text-copper">Paused until {resumesAt}</span>
         <button
           onClick={() => client.snoozeNotifications(null)}
@@ -338,9 +351,10 @@ function SnoozeControl({ snoozed, until }: { snoozed: boolean; until: number | n
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="mb-1 w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+        className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
       >
-        🔔 Pause notifications
+        <Icon name="bellOff" size={14} />
+        Pause notifications
       </button>
       {open && (
         <ul className="absolute bottom-full left-0 z-10 mb-1 w-full overflow-hidden rounded-lg border border-edge bg-lifted shadow-xl">
@@ -365,22 +379,24 @@ function SnoozeControl({ snoozed, until }: { snoozed: boolean; until: number | n
 
 function SectionHeader(props: {
   label: string;
-  actions: { label: string; onClick: () => void; title?: string }[];
+  /** An action with an icon shows only the icon, and its label names it. */
+  actions: { label: string; icon?: IconName; onClick: () => void }[];
 }) {
   return (
     <div className="mb-1 flex items-center justify-between px-2">
       <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-faint">
         {props.label}
       </span>
-      <span className="flex gap-1">
+      <span className="flex items-center gap-1">
         {props.actions.map((a) => (
           <button
             key={a.label}
             onClick={a.onClick}
-            title={a.title}
-            className="rounded px-1.5 py-0.5 text-xs text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+            title={a.icon ? a.label : undefined}
+            aria-label={a.icon ? a.label : undefined}
+            className="flex items-center rounded px-1.5 py-0.5 text-xs text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
           >
-            {a.label}
+            {a.icon ? <Icon name={a.icon} size={14} /> : a.label}
           </button>
         ))}
       </span>
@@ -418,7 +434,7 @@ function ChannelRow(props: {
       >
         <span className="flex w-4 shrink-0 items-center justify-center text-ink-faint">
           {props.icon}
-        </span>
+        </span>{" "}
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
         {props.mentions > 0 && (
           <span
@@ -431,14 +447,23 @@ function ChannelRow(props: {
           </span>
         )}
         {props.huddle > 0 && (
-          <span className="shrink-0 text-[10px] text-online" title="Huddle in progress">
-            🎧
+          <span
+            role="img"
+            aria-label="Huddle in progress"
+            title="Huddle in progress"
+            className="shrink-0 text-online"
+          >
+            <Icon name="headphones" size={12} />
           </span>
         )}
         {props.draft && !props.active && (
           <span className="shrink-0 font-mono text-[10px] text-ink-faint">draft</span>
         )}
-        {props.muted && <span className="shrink-0 text-[10px] text-ink-faint">🔕</span>}
+        {props.muted && (
+          <span role="img" aria-label="Muted" title="Muted" className="shrink-0 text-ink-faint">
+            <Icon name="bellOff" size={12} />
+          </span>
+        )}
         {props.unread && !props.active && !props.muted && (
           <span className="size-2 shrink-0 rounded-full bg-copper" />
         )}

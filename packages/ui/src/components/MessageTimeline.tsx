@@ -403,10 +403,11 @@ function EphemeralRow({ message, channelId }: { message: EphemeralMessage; chann
           </span>
           <button
             onClick={() => client.dismissEphemeral(channelId, message.id)}
-            className="ml-auto text-[11px] text-ink-faint opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
+            className="ml-auto rounded p-1 text-ink-faint opacity-0 transition-opacity hover:bg-lifted hover:text-ink group-hover:opacity-100"
             title="Dismiss"
+            aria-label="Dismiss"
           >
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </div>
         <div className="text-[15px] leading-relaxed text-ink-dim">
@@ -463,11 +464,19 @@ export function JumpToLatestBar({ channelId, onJump }: { channelId: ID; onJump?:
         onClick={() => void jump()}
         className="rounded-full border border-copper/50 bg-copper/15 px-3 py-1 text-[12px] font-medium text-copper transition-colors hover:bg-copper/25"
       >
-        {busy
-          ? "Loading latest messages…"
-          : error
-            ? "Retry jump to latest ↓"
-            : "You're viewing older messages · Jump to latest ↓"}
+        {busy ? (
+          "Loading latest messages…"
+        ) : (
+          <>
+            {error ? "Retry jump to latest" : "You're viewing older messages · Jump to latest"}
+            <Icon
+              name="arrow"
+              size={14}
+              style={{ transform: "rotate(90deg)" }}
+              className="ml-1 inline"
+            />
+          </>
+        )}
       </button>
     </div>
   );
