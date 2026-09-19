@@ -158,6 +158,12 @@ describe("shareableServer", () => {
     expect(
       shareableServer({ baseUrl: "http://localhost:8543", publicUrl: "https://chat.team.dev" }),
     ).toEqual({ serverUrl: "https://chat.team.dev", alternatives: [], localOnly: false });
+    expect(
+      shareableServer({
+        baseUrl: "http://192.168.1.20:8543",
+        publicUrl: "https://chat.team.dev",
+      }),
+    ).toEqual({ serverUrl: "https://chat.team.dev", alternatives: [], localOnly: false });
     // Clients reach servers at their root, so an address under a path is no use.
     expect(
       shareableServer({ baseUrl: "http://localhost:8543", publicUrl: "https://example.com/chat" }),

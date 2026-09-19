@@ -125,7 +125,7 @@ describe("inviting someone", () => {
 
   it("uses the address the host published, whatever this app is connected through", async () => {
     const { dialog } = await inviteWith({
-      baseUrl: "http://localhost:8543",
+      baseUrl: "http://192.168.1.20:8543",
       publicUrl: "https://chat.team.dev",
     });
     expect(await dialog.findByText("https://chat.team.dev/#/join/ABCD1234")).toBeVisible();
