@@ -27,6 +27,7 @@ function harness(
   options: {
     publicAccess?: boolean;
     publicAddress?: () => { setting?: string; url?: string; managed?: boolean; error?: string };
+    savePublicAddress?: (address: string | null) => Promise<void> | void;
   } = {},
 ) {
   type FakeTunnel = Tunnel & { close: Mock<() => Promise<void>>; drop(reason: string): void };
@@ -44,6 +45,7 @@ function harness(
     policyCalls: [] as boolean[],
     proxyTrust: [] as boolean[],
     publicUrls: [] as (string | null)[],
+    savedPublicAddresses: [] as (string | null)[],
     iceServers: [] as { urls: string }[][],
     tunnelStarts: [] as { port: number; signal: AbortSignal; instanceId?: string }[],
     tunnels: [] as FakeTunnel[],
@@ -110,6 +112,10 @@ function harness(
         }
       : {}),
     ...(options.publicAddress ? { publicAddress: options.publicAddress } : {}),
+    savePublicAddress: async (address: string | null) => {
+      await options.savePublicAddress?.(address);
+      h.savedPublicAddresses.push(address);
+    },
   });
   return h;
 }
@@ -639,6 +645,71 @@ describe("a stable public address configured for this computer", () => {
     // The connector is told which run to confirm, so the saved address cannot
     // publish a link to a workspace other than this one.
     expect(h.tunnelStarts.at(-1)).toMatchObject({ port: 8543, instanceId: "workspace-run-1" });
+    // A carrier Gatherline does not own is not trusted to sanitize Cloudflare's
+    // client-address header before forwarding it from loopback.
+    expect(h.proxyTrust).toEqual([]);
+
+    await h.controller.setInviteOnly(false);
+    h.tunnels[0]!.drop("external route stopped answering");
+    expect(h.controller.status()).toMatchObject({
+      inviteOnly: true,
+      openToAllError: expect.stringMatching(/same address/),
+    });
+    expect(h.controller.status().openToAllError).not.toMatch(/new link/);
+  });
+
+  it("trusts the loopback visitor header for a Cloudflare connector it owns", async () => {
+    const h = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, managed: true }),
+    });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.openToAll({ inviteOnly: true });
+    expect(h.proxyTrust).toEqual([true]);
+  });
+
+  it("secures registration when it stops publishing an externally carried address", async () => {
+    const h = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, setting: configured }),
+    });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.openToAll({ inviteOnly: false });
+    expect(h.controller.status().inviteOnly).toBe(false);
+
+    await h.controller.endOpenToAll();
+    expect(h.controller.status().inviteOnly).toBe(true);
+    expect(h.publicUrls.at(-1)).toBeNull();
+  });
+
+  it("secures and saves a replacement address, clearing the previous carrier's error", async () => {
+    const h = harness({ publicAccess: true });
+    h.beforeTunnel = () => {
+      throw new Error("old carrier failed");
+    };
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await expect(h.controller.openToAll({ inviteOnly: false })).rejects.toThrow(/old carrier/);
+    expect(h.controller.status().openToAllError).toMatch(/old carrier/);
+
+    await h.controller.setPublicAddress(configured);
+    expect(h.savedPublicAddresses).toEqual([configured]);
+    expect(h.controller.status().inviteOnly).toBe(true);
+    expect(h.controller.status().openToAllError).toBeUndefined();
+  });
+
+  it("keeps registration secured if saving a replacement address fails", async () => {
+    const h = harness({
+      publicAccess: true,
+      savePublicAddress: () => {
+        throw new Error("settings unavailable");
+      },
+    });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.setInviteOnly(false);
+
+    await expect(h.controller.setPublicAddress(configured)).rejects.toThrow(/settings unavailable/);
+    expect(h.controller.status().inviteOnly).toBe(true);
+    expect(h.savedPublicAddresses).toEqual([]);
   });
 
   it("refuses to open a link, and changes nothing, while its configuration is unusable", async () => {

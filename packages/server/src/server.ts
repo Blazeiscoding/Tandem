@@ -319,9 +319,14 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const isLocalRequest = (req: FastifyRequest) => {
     if (publicUrl) return false;
     if (
-      ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip"].some(
-        (name) => req.headers[name] !== undefined,
-      )
+      [
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "x-real-ip",
+        "cf-connecting-ip",
+      ].some((name) => req.headers[name] !== undefined)
     )
       return false;
     const origin = req.headers.origin;

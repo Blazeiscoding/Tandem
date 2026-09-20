@@ -278,6 +278,11 @@ const hosting = createHostingController({
         ? join(process.resourcesPath, "web")
         : join(import.meta.dirname, "../../../web/dist"),
     });
+    const configured = publicAddressConfig();
+    // An external carrier may already be forwarding this port, and an app-owned
+    // connector may have survived an ungraceful exit. Never leave registration
+    // open while any stable public address is configured.
+    if (configured && !("error" in configured)) server.setInviteOnly(true);
     return {
       port: server.port,
       instanceId: server.instanceId,
@@ -294,6 +299,19 @@ const hosting = createHostingController({
   },
   tunnelAvailable: () => cloudflared() !== null || publicAddressCarriedElsewhere(),
   publicAddress: publicAddressStatus,
+  savePublicAddress: async (address) => {
+    try {
+      await writeSetting("publicAddress", address);
+    } catch {
+      // Filesystem errors can contain the Windows account name and profile
+      // path. Give the renderer a useful message without leaking either.
+      throw new Error(
+        "Gatherline could not save the public address. Check that its settings folder is writable, then try again.",
+      );
+    }
+    savedPublicAddress = address;
+    publicAddressLookup = null;
+  },
   openTunnel: (port, signal, instanceId) => {
     cloudflaredLookup = null;
     publicAddressLookup = null;
@@ -350,14 +368,10 @@ ipcMain.handle("hosting:setPublicAddress", async (_e, value: unknown) => {
   // Refuse here rather than saving something Open to all would only reject
   // later, when the setting is out of sight.
   const saving = address ? validatePublicAddress(address) : null;
-  // Changing it under an open link would leave the setting describing an
-  // address that is not the one people were given.
-  if (hosting.status().openToAll)
-    throw new Error("Close the public link before changing its address.");
-  await writeSetting("publicAddress", saving);
-  savedPublicAddress = saving;
-  publicAddressLookup = null;
-  publishHostingStatus();
+  // The controller serializes this with opening/closing, secures registration
+  // before an external carrier can be trusted, and clears errors from the old
+  // carrier only after persistence succeeds.
+  await hosting.setPublicAddress(saving);
   return hostingStatus();
 });
 
