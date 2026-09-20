@@ -122,7 +122,11 @@ describe("self-hosted product", () => {
   });
   it("keeps relay credentials authenticated and exposes a lightweight health check", async () => {
     const base = await start();
-    expect((await request(base, "/api/health")).data).toEqual({ status: "ok" });
+    // The identifier lets a public address be confirmed to reach this run,
+    // so it is the same for every check while the server stays up.
+    const health = (await request(base, "/api/health")).data;
+    expect(health).toEqual({ status: "ok", instanceId: expect.any(String) });
+    expect((await request(base, "/api/health")).data.instanceId).toBe(health.instanceId);
     expect((await request(base, "/api/rtc-config")).status).toBe(401);
     const owner = await register(base, "owner");
     expect(

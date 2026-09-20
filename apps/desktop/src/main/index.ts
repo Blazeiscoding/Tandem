@@ -18,7 +18,12 @@ import { DEEP_LINK_PROTOCOLS, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/
 import { createWorkspaceServer } from "@slackoss/server";
 import { createSettingsStorage } from "./settings.js";
 import { createHostingController, parseLastHosted } from "./hosting.js";
-import { findCloudflared, openQuickTunnel } from "./tunnel.js";
+import {
+  findCloudflared,
+  openNamedTunnel,
+  openQuickTunnel,
+  readNamedTunnelConfig,
+} from "./tunnel.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 /** Gatherline name first, previous SLACKOSS_ name still read. */
@@ -209,6 +214,15 @@ function cloudflared(): string | null {
   return cloudflaredLookup.path;
 }
 
+/** Read again on the same schedule, so a corrected setting needs no restart. */
+let namedTunnelLookup: { at: number; config: ReturnType<typeof readNamedTunnelConfig> } | null =
+  null;
+function namedTunnel(): ReturnType<typeof readNamedTunnelConfig> {
+  if (!namedTunnelLookup || Date.now() - namedTunnelLookup.at > 5_000)
+    namedTunnelLookup = { at: Date.now(), config: readNamedTunnelConfig() };
+  return namedTunnelLookup.config;
+}
+
 const hosting = createHostingController({
   dataRoot: join(app.getPath("userData"), "hosted"),
   defaultPort: DEFAULT_PORT,
@@ -227,6 +241,7 @@ const hosting = createHostingController({
     });
     return {
       port: server.port,
+      instanceId: server.instanceId,
       stop: () => server.stop(),
       setPublicUrl: (url) => server.setPublicUrl(url),
       // cloudflared reaches this embedded server from loopback. Believe its
@@ -239,14 +254,23 @@ const hosting = createHostingController({
     };
   },
   tunnelAvailable: () => cloudflared() !== null,
-  openTunnel: (port, signal) => {
+  namedTunnel,
+  openTunnel: (port, signal, instanceId) => {
     cloudflaredLookup = null;
+    namedTunnelLookup = null;
     const command = cloudflared();
     if (!command)
       throw new Error(
         "Open to all needs Cloudflare's free cloudflared tool. Install it, then try again.",
       );
-    return openQuickTunnel({ command, port, signal });
+    const configured = namedTunnel();
+    if (configured && "error" in configured) throw new Error(configured.error);
+    if (configured) {
+      if (!instanceId)
+        throw new Error("The hosted workspace cannot verify its public address. Restart hosting.");
+      return openNamedTunnel({ ...configured, command, port, signal, instanceId });
+    }
+    return openQuickTunnel({ command, port, signal, instanceId });
   },
 });
 

@@ -23,7 +23,12 @@ const inUse = () =>
   Object.assign(new Error("listen EADDRINUSE: address already in use"), { code: "EADDRINUSE" });
 
 /** A controller over fake servers, with hooks to hold or fail each step. */
-function harness(options: { publicAccess?: boolean } = {}) {
+function harness(
+  options: {
+    publicAccess?: boolean;
+    namedTunnel?: () => { publicUrl: string } | { error: string } | null;
+  } = {},
+) {
   type FakeTunnel = Tunnel & { close: Mock<() => Promise<void>>; drop(reason: string): void };
   const h = {
     starts: [] as StartRequest[],
@@ -40,7 +45,7 @@ function harness(options: { publicAccess?: boolean } = {}) {
     proxyTrust: [] as boolean[],
     publicUrls: [] as (string | null)[],
     iceServers: [] as { urls: string }[][],
-    tunnelStarts: [] as { port: number; signal: AbortSignal }[],
+    tunnelStarts: [] as { port: number; signal: AbortSignal; instanceId?: string }[],
     tunnels: [] as FakeTunnel[],
     events: [] as string[],
     beforeTunnel: (_port: number, _signal: AbortSignal): Promise<void> | void => {},
@@ -59,6 +64,7 @@ function harness(options: { publicAccess?: boolean } = {}) {
       await h.beforeBind(request.port);
       const server = {
         port: request.port === 0 ? 50123 : request.port,
+        instanceId: "workspace-run-1",
         stop: vi.fn(async () => {}),
         ...(options.publicAccess
           ? {
@@ -85,9 +91,9 @@ function harness(options: { publicAccess?: boolean } = {}) {
     ...(options.publicAccess
       ? {
           tunnelAvailable: () => true,
-          openTunnel: async (port: number, signal: AbortSignal) => {
+          openTunnel: async (port: number, signal: AbortSignal, instanceId?: string) => {
             h.events.push("tunnel:open");
-            h.tunnelStarts.push({ port, signal });
+            h.tunnelStarts.push({ port, signal, instanceId });
             await h.beforeTunnel(port, signal);
             let listener: ((reason: string) => void) | undefined;
             const tunnel: FakeTunnel = {
@@ -103,6 +109,7 @@ function harness(options: { publicAccess?: boolean } = {}) {
           },
         }
       : {}),
+    ...(options.namedTunnel ? { namedTunnel: options.namedTunnel } : {}),
   });
   return h;
 }
@@ -614,5 +621,42 @@ describe("remembering the last hosted workspace", () => {
       workspaceName: "Rocket Team",
       port: 0,
     });
+  });
+});
+
+describe("a stable public address configured for this computer", () => {
+  const configured = "https://chat.example.org";
+
+  it("shows the configured address and opens it for the running workspace", async () => {
+    const h = harness({ publicAccess: true, namedTunnel: () => ({ publicUrl: configured }) });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    expect(h.controller.status()).toMatchObject({ namedTunnelUrl: configured });
+
+    await h.controller.openToAll({ inviteOnly: true });
+    // The connector is told which run to confirm, so the saved address cannot
+    // publish a link to a workspace other than this one.
+    expect(h.tunnelStarts.at(-1)).toMatchObject({ port: 8543, instanceId: "workspace-run-1" });
+  });
+
+  it("refuses to open a link, and changes nothing, while its configuration is unusable", async () => {
+    const error = "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE.";
+    const h = harness({ publicAccess: true, namedTunnel: () => ({ error }) });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    expect(h.controller.status()).toMatchObject({ tunnelConfigurationError: error });
+    expect(h.controller.status()).not.toHaveProperty("namedTunnelUrl");
+
+    await expect(h.controller.openToAll({ inviteOnly: true })).rejects.toThrow(/Set both/);
+    expect(h.tunnelStarts).toEqual([]);
+    expect(h.policyCalls).toEqual([]);
+    expect(h.publicUrls).toEqual([]);
+  });
+
+  it("leaves a temporary address alone when nothing is configured", async () => {
+    const h = harness({ publicAccess: true, namedTunnel: () => null });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.openToAll({ inviteOnly: true });
+    expect(h.controller.status()).not.toHaveProperty("namedTunnelUrl");
+    expect(h.controller.status()).not.toHaveProperty("tunnelConfigurationError");
+    expect(h.publicUrls.at(-1)).toBe("https://rocket-team.trycloudflare.com");
   });
 });

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
 import { open, stat, unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
@@ -185,6 +186,8 @@ export interface ServerOptions {
 }
 
 export interface WorkspaceServer {
+  /** Identifies this running instance for public-route verification; changes on every start. */
+  instanceId: string;
   port: number;
   store: Store;
   gateway: Gateway;
@@ -238,6 +241,7 @@ class HttpError extends Error {
 }
 
 export async function createWorkspaceServer(opts: ServerOptions): Promise<WorkspaceServer> {
+  const instanceId = randomUUID();
   if (
     opts.maxStorageBytes !== undefined &&
     (!Number.isSafeInteger(opts.maxStorageBytes) || opts.maxStorageBytes < 0)
@@ -974,9 +978,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   // ---------- unauthenticated ----------
 
-  app.get("/api/health", async () => {
+  app.get("/api/health", async (_req, reply) => {
     db.prepare("SELECT 1").get();
-    return { status: "ok" };
+    reply.header("Cache-Control", "no-store");
+    return { status: "ok", instanceId };
   });
 
   app.get("/api/rtc-config", async (req, reply) => {
@@ -3621,6 +3626,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
 
   return {
     port: actualPort,
+    instanceId,
     store,
     gateway,
     /** Set only while the workspace still has no owner. */

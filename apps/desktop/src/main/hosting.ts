@@ -15,6 +15,10 @@ export interface HostingSnapshot {
   openToAllError?: string;
   /** Whether this computer has what opening to all needs. */
   tunnelAvailable?: boolean;
+  /** A configured address that stays the same each time the link is opened. */
+  namedTunnelUrl?: string;
+  /** Why a configured stable address cannot be used, and what to correct. */
+  tunnelConfigurationError?: string;
   /** Whether an account after the first needs an invite code. */
   inviteOnly?: boolean;
 }
@@ -53,6 +57,8 @@ export function parseLastHosted(value: unknown): LastHosted | null {
 
 interface HostedServer {
   port: number;
+  /** Identifies this run, so a public address can be confirmed to reach it. */
+  instanceId?: string;
   stop(): Promise<void>;
   /** How the running server is reached and joined; see `WorkspaceServer`. */
   setPublicUrl?(url: string | null): void;
@@ -76,9 +82,14 @@ interface HostingOptions {
   lanUrls(port: number): string[];
   onChange?(): void;
   /** Opens a tunnel to a port on this computer. Absent where there is none to open. */
-  openTunnel?(port: number, signal: AbortSignal): Promise<Tunnel>;
+  openTunnel?(port: number, signal: AbortSignal, instanceId?: string): Promise<Tunnel>;
   /** Whether a tunnel could be opened now. */
   tunnelAvailable?(): boolean;
+  /**
+   * A stable public address configured for this computer, what is wrong with
+   * that configuration, or null when only temporary addresses are available.
+   */
+  namedTunnel?(): { publicUrl: string } | { error: string } | null;
 }
 
 function startOptions(value: unknown): { workspaceName: string; port?: number } {
@@ -127,7 +138,21 @@ export function createHostingController(options: HostingOptions) {
     }
   }
 
+  /**
+   * Read for each snapshot, so correcting the configuration takes effect
+   * without a restart. Configuration that cannot be read at all leaves the
+   * temporary address available rather than failing the status call.
+   */
+  function namedTunnel(): { publicUrl: string } | { error: string } | null {
+    try {
+      return options.namedTunnel?.() ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   function status(): HostingSnapshot {
+    const named = namedTunnel();
     return {
       running: server !== null,
       phase,
@@ -141,6 +166,8 @@ export function createHostingController(options: HostingOptions) {
           : {}),
       ...(openError ? { openToAllError: openError } : {}),
       ...(options.tunnelAvailable ? { tunnelAvailable: options.tunnelAvailable() } : {}),
+      ...(named && "publicUrl" in named ? { namedTunnelUrl: named.publicUrl } : {}),
+      ...(named && "error" in named ? { tunnelConfigurationError: named.error } : {}),
       ...(warning ? { warning } : {}),
     };
   }
@@ -326,6 +353,11 @@ export function createHostingController(options: HostingOptions) {
       if (stopFailed)
         throw new Error("Finish stopping the workspace before changing its public access.");
       if (!options.openTunnel) throw new Error("Opening to all is not available in this app.");
+      // A configured stable address that cannot be used has to be corrected.
+      // Falling back would publish a temporary link nobody was given. An
+      // already open link keeps working, so its policy can still be changed.
+      const configured = namedTunnel();
+      if (!tunnel && configured && "error" in configured) throw new Error(configured.error);
       if (
         !target.setPublicUrl ||
         !target.setIceServers ||
@@ -351,7 +383,7 @@ export function createHostingController(options: HostingOptions) {
       changed();
       let opened: Tunnel;
       try {
-        opened = await options.openTunnel(target.port, attempt.signal);
+        opened = await options.openTunnel(target.port, attempt.signal, target.instanceId);
       } catch (error) {
         try {
           target.setInviteOnly(previousInviteOnly);

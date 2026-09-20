@@ -26,12 +26,16 @@ export interface HostingStatus {
   warning?: string;
   /** Whether closing the window can keep hosting through the system tray. */
   backgroundAvailable?: boolean;
-  /** A temporary public address, while Cloudflare Tunnel is opening or open. */
+  /** A public address, while Cloudflare Tunnel is opening or open. */
   openToAll?: { phase: "opening" } | { phase: "open"; url: string };
   /** Why the last attempt to open the public address failed or ended. */
   openToAllError?: string;
   /** Whether cloudflared is installed where the desktop app can find it. */
   tunnelAvailable?: boolean;
+  /** A configured stable public address. Tunnel credentials stay in the desktop main process. */
+  namedTunnelUrl?: string;
+  /** Safe setup instructions when the desktop's tunnel configuration is incomplete or invalid. */
+  tunnelConfigurationError?: string;
   /** Whether new accounts need an invite code. */
   inviteOnly?: boolean;
 }
@@ -71,7 +75,7 @@ export interface Platform {
     subscribe?: (cb: (status: HostingStatus) => void) => () => void;
     start: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
     stop: () => Promise<void>;
-    /** Open/close a temporary public Cloudflare Tunnel to the hosted workspace. */
+    /** Open/close this app's public Cloudflare Tunnel connection to the hosted workspace. */
     openToAll?: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
     endOpenToAll?: () => Promise<HostingStatus>;
     /** Change whether new accounts need an invite while the server is running. */

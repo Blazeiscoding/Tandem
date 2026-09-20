@@ -295,3 +295,63 @@ describe("hosting a workspace from the host dialog", () => {
     expect(within(dialog).getByRole("button", { name: "Stop hosting" })).toBeDisabled();
   });
 });
+
+describe("a stable public address configured for the desktop app", () => {
+  const configured = "https://chat.example.org";
+
+  it("offers the configured address, and where to route it, instead of a temporary one", async () => {
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      namedTunnelUrl: configured,
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByText(configured)).toBeVisible();
+    expect(within(dialog).getByText("http://127.0.0.1:8543")).toBeVisible();
+    expect(within(dialog).queryByText(/Create a temporary HTTPS address/)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Open to all" })).toBeEnabled();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+
+  it("says the open address will be the same one next time", async () => {
+    const open: HostingStatus = {
+      ...running,
+      tunnelAvailable: true,
+      namedTunnelUrl: configured,
+      openToAll: { phase: "open", url: configured },
+    };
+    const { hosting } = fakeHosting(open);
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(await within(dialog).findByRole("link", { name: configured })).toHaveAttribute(
+      "href",
+      configured,
+    );
+    expect(
+      within(dialog).getByText(/stays the same when you reopen the public link/),
+    ).toBeVisible();
+    expect(within(dialog).queryByText(/This temporary address/)).not.toBeInTheDocument();
+  });
+
+  it("says what to correct, and opens nothing, while the configuration is unusable", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      tunnelConfigurationError: "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE.",
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(/Set both GATHERLINE_TUNNEL_URL/);
+    const open = within(dialog).getByRole("button", { name: "Open to all" });
+    expect(open).toBeDisabled();
+
+    await user.click(open);
+    expect(hosting.openToAll).not.toHaveBeenCalled();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+});

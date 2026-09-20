@@ -1,9 +1,16 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { findCloudflared, openQuickTunnel, type Tunnel } from "../src/main/tunnel.js";
+import {
+  findCloudflared,
+  openNamedTunnel,
+  openQuickTunnel,
+  readNamedTunnelConfig,
+  validateNamedTunnelConfig,
+  type Tunnel,
+} from "../src/main/tunnel.js";
 
 const fake = resolve(import.meta.dirname, "../../../tests/fixtures/fake-cloudflared.mjs");
 const healthy = async () => true;
@@ -17,6 +24,12 @@ function launchAs(mode: string, extra: Record<string, string> = {}) {
       windowsHide: true,
     });
 }
+
+/** A token file the tests point at; its contents are never read by the app. */
+const workdir = mkdtempSync(join(tmpdir(), "gatherline-named-tunnel-"));
+const tokenFile = join(workdir, "tunnel-token.txt");
+writeFileSync(tokenFile, "eyJhIjoiSECRETtoken");
+afterAll(() => rmSync(workdir, { recursive: true, force: true }));
 
 const opened: Tunnel[] = [];
 afterEach(async () => {
@@ -170,5 +183,201 @@ describe("opening a quick tunnel", () => {
     await closed.close();
     await new Promise((r) => setTimeout(r, 100));
     expect(quiet).toEqual([]);
+  });
+});
+
+describe("a stable address configured for this app", () => {
+  it("accepts a plain public https origin with an absolute token file", () => {
+    expect(validateNamedTunnelConfig("https://chat.example.org", tokenFile)).toEqual({
+      publicUrl: "https://chat.example.org",
+      tokenFile,
+    });
+  });
+
+  it("refuses anything but a public address the workspace can be published at", () => {
+    for (const address of [
+      "http://chat.example.org",
+      "https://chat.example.org/team",
+      "https://sam:pass@chat.example.org",
+      "https://chat.example.org?ref=1",
+      "https://chat.example.org#top",
+      "https://chat.example.org ",
+      "https://localhost",
+      "https://gatherline",
+      "https://chat.example.local",
+      "https://office.internal",
+      "https://192.0.2.10",
+      "https://[2001:db8::1]",
+      42,
+    ])
+      expect(() => validateNamedTunnelConfig(address, tokenFile)).toThrow(/public HTTPS hostname/);
+  });
+
+  it("refuses a token file that is not an absolute path", () => {
+    for (const file of ["tunnel-token.txt", "", resolve(`token\u0000.txt`), 7])
+      expect(() => validateNamedTunnelConfig("https://chat.example.org", file)).toThrow(
+        /absolute path/,
+      );
+  });
+});
+
+describe("reading the configured stable address", () => {
+  const present =
+    (...paths: string[]) =>
+    (path: string) =>
+      paths.includes(path);
+
+  it("is absent until one of its settings is present", () => {
+    expect(readNamedTunnelConfig({}, present())).toBeNull();
+    expect(readNamedTunnelConfig({ GATHERLINE_TUNNEL_URL: "" }, present())).toBeNull();
+  });
+
+  it("takes both settings together, under either prefix", () => {
+    const expected = { publicUrl: "https://chat.example.org", tokenFile };
+    expect(
+      readNamedTunnelConfig(
+        {
+          GATHERLINE_TUNNEL_URL: "https://chat.example.org",
+          GATHERLINE_TUNNEL_TOKEN_FILE: tokenFile,
+        },
+        present(tokenFile),
+      ),
+    ).toEqual(expected);
+    expect(
+      readNamedTunnelConfig(
+        { SLACKOSS_TUNNEL_URL: "https://chat.example.org", SLACKOSS_TUNNEL_TOKEN_FILE: tokenFile },
+        present(tokenFile),
+      ),
+    ).toEqual(expected);
+  });
+
+  it("explains a half-configured pair rather than quietly opening a temporary address", () => {
+    expect(
+      readNamedTunnelConfig({ GATHERLINE_TUNNEL_URL: "https://chat.example.org" }, present()),
+    ).toEqual({ error: expect.stringMatching(/Set both/) });
+    expect(
+      readNamedTunnelConfig({ GATHERLINE_TUNNEL_TOKEN_FILE: tokenFile }, present(tokenFile)),
+    ).toEqual({ error: expect.stringMatching(/Set both/) });
+  });
+
+  it("reports a token file that is not there, and an address that cannot be used", () => {
+    expect(
+      readNamedTunnelConfig(
+        {
+          GATHERLINE_TUNNEL_URL: "https://chat.example.org",
+          GATHERLINE_TUNNEL_TOKEN_FILE: tokenFile,
+        },
+        present(),
+      ),
+    ).toEqual({ error: expect.stringMatching(/token file is not where/) });
+    expect(
+      readNamedTunnelConfig(
+        {
+          GATHERLINE_TUNNEL_URL: "http://chat.example.org",
+          GATHERLINE_TUNNEL_TOKEN_FILE: tokenFile,
+        },
+        present(tokenFile),
+      ),
+    ).toEqual({ error: expect.stringMatching(/public HTTPS hostname/) });
+  });
+});
+
+describe("opening a configured stable tunnel", () => {
+  const publicUrl = "https://chat.example.org";
+
+  it("runs the saved connector from its token file at the configured address", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gatherline-tunnel-"));
+    try {
+      const argsFile = join(dir, "args.json");
+      const tunnel = await openNamedTunnel({
+        command: "cloudflared",
+        port: 8543,
+        publicUrl,
+        tokenFile,
+        instanceId: "workspace-run-1",
+        launch: launchAs("named", { FAKE_CLOUDFLARED_ARGS: argsFile }),
+        healthProbe: healthy,
+      });
+      opened.push(tunnel);
+      expect(tunnel.url).toBe(publicUrl);
+      const args = JSON.parse(readFileSync(argsFile, "utf8")) as string[];
+      expect(args[0]).toBe("tunnel");
+      expect(args[2]).toMatch(/gatherline-cloudflared-.+[\\/]config\.yml$/);
+      // The token stays a file cloudflared reads; the app never handles it.
+      expect(args.slice(3)).toEqual(["--no-autoupdate", "run", "--token-file", tokenFile]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("waits for this workspace, rather than another, to answer at that address", async () => {
+    const probes: { url: string; instanceId?: string }[] = [];
+    const tunnel = await openNamedTunnel({
+      command: "cloudflared",
+      port: 8543,
+      publicUrl,
+      tokenFile,
+      instanceId: "workspace-run-1",
+      launch: launchAs("named"),
+      healthProbe: async (url, _signal, instanceId) => {
+        probes.push({ url, instanceId });
+        return instanceId === "workspace-run-1";
+      },
+    });
+    opened.push(tunnel);
+    expect(probes).toEqual([
+      { url: "https://chat.example.org/api/health", instanceId: "workspace-run-1" },
+    ]);
+  });
+
+  it("says which route to correct when the address reaches something else", async () => {
+    await expect(
+      openNamedTunnel({
+        command: "cloudflared",
+        port: 8543,
+        publicUrl,
+        tokenFile,
+        instanceId: "workspace-run-1",
+        timeoutMs: 1000,
+        launch: launchAs("named"),
+        healthProbe: async () => false,
+      }),
+    ).rejects.toThrow(/point its published application route to http:\/\/127\.0\.0\.1:8543/);
+  });
+
+  it("keeps the connector's own output, which can quote its token, out of what it reports", async () => {
+    const failure = await openNamedTunnel({
+      command: "cloudflared",
+      port: 8543,
+      publicUrl,
+      tokenFile,
+      instanceId: "workspace-run-1",
+      launch: launchAs("token-bad", { FAKE_CLOUDFLARED_TOKEN: "eyJhIjoiSECRETtoken" }),
+      healthProbe: healthy,
+    }).then(
+      () => null,
+      (reason: unknown) => reason as Error,
+    );
+    expect(failure?.message).toMatch(/Cloudflare could not connect the saved tunnel/);
+    expect(failure?.message).not.toMatch(/SECRET/);
+  });
+
+  it("refuses configuration it cannot use before starting a connector", async () => {
+    let started = false;
+    const launch = () => {
+      started = true;
+      throw new Error("no connector should be started");
+    };
+    const base = { command: "cloudflared", port: 8543, publicUrl, tokenFile, launch };
+    await expect(
+      openNamedTunnel({ ...base, publicUrl: "http://chat.example.org", instanceId: "run" }),
+    ).rejects.toThrow(/public HTTPS hostname/);
+    await expect(openNamedTunnel({ ...base, port: 70000, instanceId: "run" })).rejects.toThrow(
+      /valid listening port/,
+    );
+    await expect(openNamedTunnel({ ...base, instanceId: "" })).rejects.toThrow(
+      /cannot verify its public address/,
+    );
+    expect(started).toBe(false);
   });
 });

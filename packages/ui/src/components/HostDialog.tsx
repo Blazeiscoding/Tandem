@@ -94,7 +94,7 @@ export function HostDialog(props: {
     "starting" | "stopping" | "opening" | "closing" | "policy" | null
   >(null);
   const operationPending = useRef(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; tunnel?: boolean } | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
   // A public address is not authorization. Require an invite by default when
   // a previously LAN-only workspace is first put on the internet.
@@ -104,6 +104,7 @@ export function HostDialog(props: {
   const changing = phase === "starting" || phase === "stopping";
   const unavailable = loading || statusError || !status || changing || !!busy;
   const publicUrl = status?.openToAll?.phase === "open" ? status.openToAll.url : null;
+  const tunnelError = status?.tunnelConfigurationError ?? status?.openToAllError;
 
   // Opening management also refreshes shells without status subscriptions.
   useEffect(() => {
@@ -135,9 +136,10 @@ export function HostDialog(props: {
       if (next.running && next.phase !== "stopping" && next.port !== undefined)
         props.onStarted(next);
     } catch {
-      setError(
-        "The workspace could not start. Check that its data folder is writable and its port is available, then try again.",
-      );
+      setError({
+        message:
+          "The workspace could not start. Check that its data folder is writable and its port is available, then try again.",
+      });
       await refresh();
     } finally {
       operationPending.current = false;
@@ -154,9 +156,10 @@ export function HostDialog(props: {
       await props.hosting.stop();
       setConfirmStop(false);
     } catch {
-      setError(
-        "The workspace could not be stopped. Check its current status; Quit Gatherline offers recovery options if stopping keeps failing.",
-      );
+      setError({
+        message:
+          "The workspace could not be stopped. Check its current status; Quit Gatherline offers recovery options if stopping keeps failing.",
+      });
     } finally {
       await refresh();
       operationPending.current = false;
@@ -165,18 +168,27 @@ export function HostDialog(props: {
   }
 
   async function openToAll() {
-    if (operationPending.current || unavailable || !props.hosting.openToAll) return;
+    if (
+      operationPending.current ||
+      unavailable ||
+      !props.hosting.openToAll ||
+      status?.tunnelConfigurationError ||
+      status?.tunnelAvailable === false
+    )
+      return;
     operationPending.current = true;
     setBusy("opening");
     setError(null);
     try {
       await props.hosting.openToAll({ inviteOnly: requireInvite });
     } catch (err) {
-      setError(
-        err instanceof Error && /Create your own account/i.test(err.message)
-          ? "Open the workspace and create its owner account first, then try again."
-          : "The public link could not be opened. Check that cloudflared is installed and that this computer is online, then try again.",
-      );
+      setError({
+        tunnel: true,
+        message:
+          err instanceof Error && /Create your own account/i.test(err.message)
+            ? "Open the workspace and create its owner account first, then try again."
+            : "The public link could not be opened. Check that cloudflared is installed and that this computer is online, then try again.",
+      });
     } finally {
       await refresh();
       operationPending.current = false;
@@ -192,9 +204,11 @@ export function HostDialog(props: {
     try {
       await props.hosting.endOpenToAll();
     } catch {
-      setError(
-        "The public link could not be closed cleanly. Try again before quitting Gatherline.",
-      );
+      setError({
+        tunnel: true,
+        message:
+          "Gatherline’s Cloudflare connection could not be closed cleanly. Try again before quitting Gatherline.",
+      });
     } finally {
       await refresh();
       operationPending.current = false;
@@ -213,7 +227,9 @@ export function HostDialog(props: {
       await props.hosting.setInviteOnly(next);
     } catch {
       setRequireInvite(previous);
-      setError("Who may join could not be changed. The previous setting is still in use.");
+      setError({
+        message: "Who may join could not be changed. The previous setting is still in use.",
+      });
     } finally {
       await refresh();
       operationPending.current = false;
@@ -306,11 +322,17 @@ export function HostDialog(props: {
                   </span>
                 )}
               </div>
+              {tunnelError && (
+                <p role="alert" className="mb-2 text-xs text-alert">
+                  {tunnelError}
+                </p>
+              )}
               {publicUrl ? (
                 <>
                   <p className="mb-2 text-xs text-ink-dim">
-                    This temporary address works from anywhere while Gatherline and cloudflared stay
-                    running.
+                    {status.namedTunnelUrl
+                      ? "This configured address stays the same when you reopen the public link. Keep Gatherline and its Cloudflare connector running so teammates can connect."
+                      : "This temporary address works from anywhere while Gatherline and cloudflared stay running."}
                   </p>
                   <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-raised p-2">
                     <a
@@ -329,11 +351,6 @@ export function HostDialog(props: {
                       {copyLabel("Copy address", "Copied", "Copy failed", "public-address")}
                     </button>
                   </div>
-                  {status.openToAllError && (
-                    <p role="alert" className="mt-2 text-xs text-alert">
-                      {status.openToAllError}
-                    </p>
-                  )}
                   <label className="mt-3 flex items-start gap-2 text-xs text-ink-dim">
                     <input
                       type="checkbox"
@@ -363,13 +380,23 @@ export function HostDialog(props: {
                 </>
               ) : (
                 <>
-                  <p className="text-xs text-ink-dim">
-                    Create a temporary HTTPS address through Cloudflare Tunnel. No router setup or
-                    Cloudflare account is needed.
-                  </p>
-                  {status.openToAllError && (
-                    <p role="alert" className="mt-2 text-xs text-alert">
-                      {status.openToAllError}
+                  {status.namedTunnelUrl ? (
+                    <div className="space-y-2 text-xs text-ink-dim">
+                      <p>Open your configured Cloudflare Tunnel at this stable address:</p>
+                      <p className="break-all font-mono text-copper">{status.namedTunnelUrl}</p>
+                      {status.port !== undefined && (
+                        <p>
+                          In Cloudflare, route this address to{" "}
+                          <code className="break-all text-ink">{`http://127.0.0.1:${status.port}`}</code>
+                          .
+                        </p>
+                      )}
+                      <p>Keep Gatherline running so teammates can connect.</p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-ink-dim">
+                      Create a temporary HTTPS address through Cloudflare Tunnel. No router setup or
+                      Cloudflare account is needed.
                     </p>
                   )}
                   {status.tunnelAvailable === false ? (
@@ -401,7 +428,11 @@ export function HostDialog(props: {
                       </label>
                       <button
                         type="button"
-                        disabled={unavailable || status.openToAll?.phase === "opening"}
+                        disabled={
+                          unavailable ||
+                          !!status.tunnelConfigurationError ||
+                          status.openToAll?.phase === "opening"
+                        }
                         onClick={() => void openToAll()}
                         className={`${primaryBtnCls} mt-3 w-full`}
                       >
@@ -422,9 +453,9 @@ export function HostDialog(props: {
           {status.warning}
         </p>
       )}
-      {error && (
+      {error && !(error.tunnel && tunnelError) && (
         <p role="alert" className="mb-4 text-sm text-alert">
-          {error}
+          {error.message}
         </p>
       )}
       {!statusError && status && (status.running || changing) ? (
