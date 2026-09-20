@@ -167,6 +167,15 @@ with a reverse tunnel, or another tunnel can do this. Use the actual port
 **Manage hosting** shows for the workspace; it can differ from 8543 when that
 port was already occupied.
 
+Holding a port is not the same as owning it. On Windows a program already
+listening on `127.0.0.1:8543` does not stop Gatherline binding `0.0.0.0:8543`,
+and loopback requests then go to that program rather than the workspace, so a
+carrier forwarding there reaches the wrong thing. Gatherline checks this when
+hosting starts and says so in **Manage hosting**; stop the other program and
+start hosting again, or host on a different port. **Open to all** refuses
+either way, because the address has to answer as this workspace before it is
+published.
+
 #### With Tailscale Funnel
 
 [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel) gives a

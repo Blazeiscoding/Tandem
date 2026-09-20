@@ -105,6 +105,12 @@ interface HostingOptions {
   };
   /** Persists an address the host supplied, after the controller makes the change safe. */
   savePublicAddress?(address: string | null): Promise<void>;
+  /**
+   * Whether `http://127.0.0.1:<port>` answers as this run. Windows lets a
+   * wildcard bind succeed beside an existing loopback one, so holding the
+   * port does not prove the port reaches us. Absent where nothing can check.
+   */
+  verifyLoopback?(port: number, instanceId?: string): Promise<boolean>;
 }
 
 function startOptions(value: unknown): { workspaceName: string; port?: number } {
@@ -132,6 +138,11 @@ export function createHostingController(options: HostingOptions) {
   let workspace: { workspaceName: string; dataDir: string } | null = null;
   let phase: HostingSnapshot["phase"] = "stopped";
   let warning: string | undefined;
+  /**
+   * Kept apart from `warning`, which saving settings clears on its next
+   * success. Where this run is listening is true until it stops.
+   */
+  let portWarning: string | undefined;
   let metadataDirty = false;
   let stopFailed = false;
   let pending: Promise<unknown> = Promise.resolve();
@@ -188,7 +199,9 @@ export function createHostingController(options: HostingOptions) {
       ...(address.locked ? { publicAddressLocked: true } : {}),
       ...(address.managed ? { publicAddressManaged: true } : {}),
       ...(address.error ? { publicAddressError: address.error } : {}),
-      ...(warning ? { warning } : {}),
+      ...(portWarning || warning
+        ? { warning: [portWarning, warning].filter(Boolean).join(" ") }
+        : {}),
     };
   }
 
@@ -235,6 +248,21 @@ export function createHostingController(options: HostingOptions) {
     const next = pending.catch(() => {}).then(operation);
     pending = next;
     return next;
+  }
+
+  /**
+   * Whether loopback leads somewhere other than this run. Only a clear "no"
+   * counts: a probe that cannot be made, throws, or is slow says nothing
+   * about who owns the port, and a false alarm here would be worse than
+   * silence.
+   */
+  async function loopbackTaken(target: HostedServer): Promise<boolean> {
+    if (!options.verifyLoopback) return false;
+    try {
+      return !(await options.verifyLoopback(target.port, target.instanceId));
+    } catch {
+      return false;
+    }
   }
 
   async function saveMetadata(): Promise<void> {
@@ -287,7 +315,9 @@ export function createHostingController(options: HostingOptions) {
       };
       phase = "starting";
       warning = undefined;
+      portWarning = undefined;
       changed();
+      let movedFrom: number | undefined;
       try {
         try {
           server = await options.startServer({
@@ -302,6 +332,9 @@ export function createHostingController(options: HostingOptions) {
           )
             throw error;
           server = await options.startServer({ ...workspace, port: 0 });
+          // Whatever holds the usual port is still answering there. Anything
+          // aimed at it now reaches that program instead of this workspace.
+          movedFrom = options.defaultPort;
         }
       } catch (error) {
         // The caller reports the failure. A lasting warning would repeat it, and
@@ -312,6 +345,19 @@ export function createHostingController(options: HostingOptions) {
         throw error;
       }
       phase = "running";
+      // A carrier forwards to one port and keeps forwarding there. Say so
+      // while it can still be corrected, rather than letting Open to all
+      // fail later with only "did not answer as this workspace".
+      if (movedFrom !== undefined) {
+        const configured = publicAddress().url;
+        portWarning = configured
+          ? `Port ${movedFrom} was already in use, so this workspace is on ${server.port}. Point ${configured} at http://127.0.0.1:${server.port}, or it will reach whatever is using ${movedFrom}.`
+          : `Port ${movedFrom} was already in use, so this workspace is on ${server.port}. Links that name ${movedFrom} will not reach it.`;
+      } else if (await loopbackTaken(server)) {
+        portWarning =
+          `Another program is answering on http://127.0.0.1:${server.port}, so anything sent there reaches it and not this workspace. ` +
+          `Stop that program and start hosting again, or host on a different port. Teammates on this network can still use ${options.lanUrls(server.port)[0] ?? "this computer's network address"}.`;
+      }
       changed();
       // Binding succeeded. A settings failure is a warning, never a failed start.
       await saveMetadata();
@@ -347,6 +393,7 @@ export function createHostingController(options: HostingOptions) {
     workspace = null;
     phase = "stopped";
     warning = undefined;
+    portWarning = undefined;
     metadataDirty = false;
     stopFailed = false;
     changed();

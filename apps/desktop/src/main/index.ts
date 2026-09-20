@@ -20,6 +20,7 @@ import { createSettingsStorage } from "./settings.js";
 import { createHostingController, parseLastHosted } from "./hosting.js";
 import {
   findCloudflared,
+  gatherlineIsReachable,
   openConfiguredAddress,
   openNamedTunnel,
   openQuickTunnel,
@@ -297,6 +298,12 @@ const hosting = createHostingController({
       accountCount: () => server.store.userCount(),
     };
   },
+  verifyLoopback: (port, instanceId) =>
+    gatherlineIsReachable(
+      `http://127.0.0.1:${port}/api/health`,
+      AbortSignal.timeout(3_000),
+      instanceId,
+    ),
   tunnelAvailable: () => cloudflared() !== null || publicAddressCarriedElsewhere(),
   publicAddress: publicAddressStatus,
   savePublicAddress: async (address) => {

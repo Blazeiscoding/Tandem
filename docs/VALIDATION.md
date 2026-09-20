@@ -27,7 +27,7 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite                | Command                                   | Result                                                                                                                                                                                     | Last run   |
 | -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
 | Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed                                                                                                                                | 2026-09-20 |
-| Unit and integration | `pnpm test`                               | 683 tests: server 367, client-core 64, ui 167, protocol 12, desktop 73                                                                                                                     | 2026-09-20 |
+| Unit and integration | `pnpm test`                               | 688 tests: server 367, client-core 64, ui 167, protocol 12, desktop 78                                                                                                                     | 2026-09-20 |
 | Browser end to end   | `pnpm test:e2e`                           | 12 scenarios, passed; the demo seed fills an invite-only workspace the browser then shows                                                                                                  | 2026-09-20 |
 | Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again | 2026-09-20 |
 | Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 453.0 kB in the browser client and 453.4 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                        | 2026-09-20 |
@@ -237,6 +237,11 @@ own: `cloudflared tunnel --url http://127.0.0.1:8543`, giving
   not only in the dialog.
 - A rejected address showed the main process's own sentence, with Electron's
   `Error invoking remote method …` wrapper removed.
+- Holding `127.0.0.1:8543` with another program did **not** raise `EADDRINUSE`:
+  Gatherline bound `0.0.0.0:8543` beside it, `netstat` showed both listeners,
+  and `http://127.0.0.1:8543` answered from the other program while the LAN
+  address answered from the workspace. The loopback check catches this and
+  names it; with the port free the same start says nothing.
 
 What it does not cover: a **Tailscale Funnel**, which was not installed or run,
 and a **Cloudflare named tunnel**, which needs a zone and a connector token that

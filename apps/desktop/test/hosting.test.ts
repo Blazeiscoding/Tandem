@@ -28,6 +28,7 @@ function harness(
     publicAccess?: boolean;
     publicAddress?: () => { setting?: string; url?: string; managed?: boolean; error?: string };
     savePublicAddress?: (address: string | null) => Promise<void> | void;
+    verifyLoopback?: (port: number, instanceId?: string) => Promise<boolean>;
   } = {},
 ) {
   type FakeTunnel = Tunnel & { close: Mock<() => Promise<void>>; drop(reason: string): void };
@@ -112,6 +113,7 @@ function harness(
         }
       : {}),
     ...(options.publicAddress ? { publicAddress: options.publicAddress } : {}),
+    ...(options.verifyLoopback ? { verifyLoopback: options.verifyLoopback } : {}),
     savePublicAddress: async (address: string | null) => {
       await options.savePublicAddress?.(address);
       h.savedPublicAddresses.push(address);
@@ -186,6 +188,8 @@ describe("hosting a workspace from the desktop app", () => {
     const status = await automatic.controller.start({ workspaceName: "Rocket Team" });
     expect(automatic.starts.map((s) => s.port)).toEqual([8543, 0]);
     expect(status.port).toBe(50123);
+    // Whatever took 8543 is still answering there, so say where this went.
+    expect(status.warning).toMatch(/8543 was already in use.*on 50123/);
 
     const chosen = harness();
     chosen.beforeBind = (port) => {
@@ -227,6 +231,87 @@ describe("hosting a workspace from the desktop app", () => {
     expect(h.starts).toHaveLength(1);
     expect(h.saved).toEqual([{ workspaceName: "Rocket Team", port: 8543 }]);
     expect(again.warning).toBeUndefined();
+  });
+
+  it("says so when the port was bound but loopback reaches something else", async () => {
+    // Windows lets a wildcard bind succeed beside an existing 127.0.0.1 one,
+    // so there is no EADDRINUSE to catch: the port is held and still leads
+    // somewhere else.
+    const h = harness({ verifyLoopback: async () => false });
+
+    const status = await h.controller.start({ workspaceName: "Rocket Team" });
+
+    expect(status.port).toBe(8543);
+    expect(status.warning).toMatch(/Another program is answering on http:\/\/127\.0\.0\.1:8543/);
+    // The workspace is genuinely running, and still reachable where it is.
+    expect(status.running).toBe(true);
+    expect(status.warning).toContain("192.168.1.20:8543");
+  });
+
+  it("stays quiet when loopback reaches this run, or cannot be checked at all", async () => {
+    const reaches = harness({ verifyLoopback: async () => true });
+    expect(
+      (await reaches.controller.start({ workspaceName: "Rocket Team" })).warning,
+    ).toBeUndefined();
+
+    // A probe that throws knows nothing about who owns the port. Warning on
+    // that would cry wolf on every machine where the check cannot run.
+    const broken = harness({
+      verifyLoopback: async () => {
+        throw new Error("fetch is unavailable");
+      },
+    });
+    expect(
+      (await broken.controller.start({ workspaceName: "Rocket Team" })).warning,
+    ).toBeUndefined();
+
+    const unchecked = harness();
+    expect(
+      (await unchecked.controller.start({ workspaceName: "Rocket Team" })).warning,
+    ).toBeUndefined();
+  });
+
+  it("asks about the port it actually bound, and about this run", async () => {
+    const asked: { port: number; instanceId?: string }[] = [];
+    const h = harness({
+      verifyLoopback: async (port, instanceId) => {
+        asked.push({ port, instanceId });
+        return true;
+      },
+    });
+    h.beforeBind = (port) => {
+      if (port === 8543) throw inUse();
+    };
+
+    await h.controller.start({ workspaceName: "Rocket Team" });
+
+    // After a fallback the moved-port warning already says everything, so
+    // loopback is not asked about a port nobody was told to use.
+    expect(asked).toEqual([]);
+  });
+
+  it("keeps saying where the workspace moved to after the settings do save", async () => {
+    const h = harness();
+    h.saveFails = true;
+    h.beforeBind = (port) => {
+      if (port === 8543) throw inUse();
+    };
+
+    const status = await h.controller.start({ workspaceName: "Rocket Team" });
+    // Two independent things are wrong, and neither replaces the other.
+    expect(status.warning).toMatch(/8543 was already in use/);
+    expect(status.warning).toMatch(/could not be saved/);
+
+    // Saving succeeding says nothing about which port this run is listening
+    // on, so it must not take that notice away.
+    h.saveFails = false;
+    const again = await h.controller.start({ workspaceName: "Rocket Team" });
+    expect(again.warning).toMatch(/8543 was already in use/);
+    expect(again.warning).not.toMatch(/could not be saved/);
+
+    // Stopping ends the run the notice was about.
+    await h.controller.stop();
+    expect(h.controller.status().warning).toBeUndefined();
   });
 
   it("does not start a second server beside the one running", async () => {
@@ -632,6 +717,26 @@ describe("remembering the last hosted workspace", () => {
 
 describe("a stable public address configured for this computer", () => {
   const configured = "https://chat.example.org";
+
+  it("says where to repoint the carrier when the usual port was taken", async () => {
+    const h = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, setting: configured }),
+    });
+    h.beforeBind = (port) => {
+      if (port === 8543) throw inUse();
+    };
+
+    const status = await h.controller.start({ workspaceName: "Rocket Team" });
+
+    // The carrier keeps forwarding to 8543 whatever happens here, so the
+    // address would reach the program that took it. Opening to all would
+    // refuse, but only after the fact and without naming the cause.
+    expect(status.port).toBe(50123);
+    expect(status.warning).toContain(configured);
+    expect(status.warning).toContain("http://127.0.0.1:50123");
+    expect(status.warning).toMatch(/8543/);
+  });
 
   it("shows the configured address and opens it for the running workspace", async () => {
     const h = harness({
