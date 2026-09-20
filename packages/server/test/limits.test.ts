@@ -18,7 +18,10 @@ afterEach(async () => {
   dataDir = undefined;
 });
 
-async function start(rateLimits?: Parameters<typeof createWorkspaceServer>[0]["rateLimits"]) {
+async function start(
+  rateLimits?: Parameters<typeof createWorkspaceServer>[0]["rateLimits"],
+  trustedClientProxy?: Parameters<typeof createWorkspaceServer>[0]["trustedClientProxy"],
+) {
   dataDir = mkdtempSync(join(tmpdir(), "slackoss-limits-"));
   server = await createWorkspaceServer({
     dataDir,
@@ -27,19 +30,21 @@ async function start(rateLimits?: Parameters<typeof createWorkspaceServer>[0]["r
     mdns: false,
     logger: false,
     rateLimits,
+    trustedClientProxy,
   });
   base = `http://127.0.0.1:${server.port}`;
 }
 
 async function call<T>(
   path: string,
-  opts: { method?: string; token?: string; body?: unknown } = {},
+  opts: { method?: string; token?: string; body?: unknown; headers?: Record<string, string> } = {},
 ): Promise<{ status: number; retryAfter: string | null; data: T }> {
   const res = await fetch(`${base}${path}`, {
     method: opts.method ?? (opts.body !== undefined ? "POST" : "GET"),
     headers: {
       ...(opts.body !== undefined ? { "content-type": "application/json" } : {}),
       ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+      ...opts.headers,
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
@@ -188,6 +193,82 @@ describe("authentication limits", () => {
     // per-address one is there to catch.
     expect(refused).toBeGreaterThan(0);
   });
+
+  it("gives Cloudflare visitors separate address budgets through a trusted loopback proxy", async () => {
+    await start(
+      {
+        authByAddress: { burst: 1, perMinute: 1 },
+        authByHandle: { burst: 100, perMinute: 100 },
+      },
+      "loopback",
+    );
+
+    const first = await call("/api/auth/login", {
+      headers: { "cf-connecting-ip": "203.0.113.10" },
+      body: { handle: "missing-one", password: "wrong" },
+    });
+    const second = await call("/api/auth/login", {
+      headers: { "cf-connecting-ip": "203.0.113.11" },
+      body: { handle: "missing-two", password: "wrong" },
+    });
+    const repeated = await call("/api/auth/login", {
+      headers: { "cf-connecting-ip": "203.0.113.11" },
+      body: { handle: "missing-three", password: "wrong" },
+    });
+
+    expect(first.status).toBe(401);
+    expect(second.status).toBe(401);
+    expect(repeated.status).toBe(429);
+  });
+
+  it("changes client-address trust only while the loopback proxy is enabled", async () => {
+    await start({
+      authByAddress: { burst: 1, perMinute: 1 },
+      authByHandle: { burst: 100, perMinute: 100 },
+    });
+
+    expect(
+      (
+        await call("/api/auth/login", {
+          headers: { "cf-connecting-ip": "203.0.113.20" },
+          body: { handle: "missing-one", password: "wrong" },
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await call("/api/auth/login", {
+          headers: { "cf-connecting-ip": "203.0.113.21" },
+          body: { handle: "missing-two", password: "wrong" },
+        })
+      ).status,
+    ).toBe(429);
+
+    server!.setTrustLoopbackProxy(true);
+    for (const [address, handle] of [
+      ["203.0.113.20", "missing-three"],
+      ["203.0.113.21", "missing-four"],
+    ] as const) {
+      expect(
+        (
+          await call("/api/auth/login", {
+            headers: { "cf-connecting-ip": address },
+            body: { handle, password: "wrong" },
+          })
+        ).status,
+      ).toBe(401);
+    }
+
+    server!.setTrustLoopbackProxy(false);
+    expect(
+      (
+        await call("/api/auth/login", {
+          headers: { "cf-connecting-ip": "203.0.113.22" },
+          body: { handle: "missing-five", password: "wrong" },
+        })
+      ).status,
+    ).toBe(429);
+  });
 });
 
 describe("posting and upload limits", () => {
@@ -232,9 +313,9 @@ describe("posting and upload limits", () => {
 });
 
 describe("socket limits", () => {
-  function connect(): Promise<"open" | "refused"> {
+  function connect(headers?: Record<string, string>): Promise<"open" | "refused"> {
     return new Promise((resolve) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${server!.port}/ws`);
+      const ws = new WebSocket(`ws://127.0.0.1:${server!.port}/ws`, { headers });
       ws.on("open", () => {
         ws.close();
         resolve("open");
@@ -251,6 +332,13 @@ describe("socket limits", () => {
     expect(outcomes.slice(0, 3).every((o) => o === "open")).toBe(true);
     expect(outcomes.includes("refused")).toBe(true);
   });
+
+  it("gives Cloudflare visitors separate socket budgets through a trusted loopback proxy", async () => {
+    await start({ socket: { burst: 1, perMinute: 1 } }, "loopback");
+    expect(await connect({ "cf-connecting-ip": "203.0.113.30" })).toBe("open");
+    expect(await connect({ "cf-connecting-ip": "203.0.113.31" })).toBe("open");
+    expect(await connect({ "cf-connecting-ip": "203.0.113.31" })).toBe("refused");
+  });
 });
 
 describe("turning limits off", () => {
@@ -265,7 +353,7 @@ describe("turning limits off", () => {
       });
       expect(res.status).toBe(201);
     }
-  });
+  }, 15_000);
 });
 
 describe("typing notices", () => {

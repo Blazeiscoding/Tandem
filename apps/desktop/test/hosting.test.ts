@@ -5,6 +5,7 @@ import {
   parseLastHosted,
   type HostingSnapshot,
 } from "../src/main/hosting.js";
+import type { Tunnel } from "../src/main/tunnel.js";
 
 interface StartRequest {
   workspaceName: string;
@@ -22,7 +23,8 @@ const inUse = () =>
   Object.assign(new Error("listen EADDRINUSE: address already in use"), { code: "EADDRINUSE" });
 
 /** A controller over fake servers, with hooks to hold or fail each step. */
-function harness() {
+function harness(options: { publicAccess?: boolean } = {}) {
+  type FakeTunnel = Tunnel & { close: Mock<() => Promise<void>>; drop(reason: string): void };
   const h = {
     starts: [] as StartRequest[],
     servers: [] as { port: number; stop: Mock<() => Promise<void>> }[],
@@ -32,6 +34,16 @@ function harness() {
     beforeBind: (_port: number): Promise<void> | void => {},
     saveFails: false,
     notifyFails: false,
+    accountCount: 1,
+    inviteOnly: false,
+    policyCalls: [] as boolean[],
+    proxyTrust: [] as boolean[],
+    publicUrls: [] as (string | null)[],
+    iceServers: [] as { urls: string }[][],
+    tunnelStarts: [] as { port: number; signal: AbortSignal }[],
+    tunnels: [] as FakeTunnel[],
+    events: [] as string[],
+    beforeTunnel: (_port: number, _signal: AbortSignal): Promise<void> | void => {},
     controller: undefined as unknown as ReturnType<typeof createHostingController>,
   };
   h.controller = createHostingController({
@@ -48,6 +60,20 @@ function harness() {
       const server = {
         port: request.port === 0 ? 50123 : request.port,
         stop: vi.fn(async () => {}),
+        ...(options.publicAccess
+          ? {
+              setTrustLoopbackProxy: (enabled: boolean) => h.proxyTrust.push(enabled),
+              setPublicUrl: (url: string | null) => h.publicUrls.push(url),
+              setIceServers: (servers: { urls: string }[]) => h.iceServers.push(servers),
+              inviteOnly: () => h.inviteOnly,
+              setInviteOnly: (value: boolean) => {
+                h.events.push(`policy:${value}`);
+                h.policyCalls.push(value);
+                h.inviteOnly = value;
+              },
+              accountCount: () => h.accountCount,
+            }
+          : {}),
       };
       h.servers.push(server);
       return server;
@@ -56,6 +82,27 @@ function harness() {
       if (h.notifyFails) throw new Error("window already destroyed");
       h.changes.push(h.controller.status());
     },
+    ...(options.publicAccess
+      ? {
+          tunnelAvailable: () => true,
+          openTunnel: async (port: number, signal: AbortSignal) => {
+            h.events.push("tunnel:open");
+            h.tunnelStarts.push({ port, signal });
+            await h.beforeTunnel(port, signal);
+            let listener: ((reason: string) => void) | undefined;
+            const tunnel: FakeTunnel = {
+              url: "https://rocket-team.trycloudflare.com",
+              close: vi.fn(async () => {}),
+              onUnexpectedExit: (next) => {
+                listener = next;
+              },
+              drop: (reason) => listener?.(reason),
+            };
+            h.tunnels.push(tunnel);
+            return tunnel;
+          },
+        }
+      : {}),
   });
   return h;
 }
@@ -240,6 +287,254 @@ describe("hosting a workspace from the desktop app", () => {
     await h.controller.stop();
     expect(h.servers[0]!.stop).toHaveBeenCalledOnce();
     expect(h.controller.status()).toEqual({ running: false, phase: "stopped" });
+  });
+
+  describe("opening the hosted workspace to all", () => {
+    it("secures registration before opening, publishes the address, and closes cleanly", async () => {
+      const h = harness({ publicAccess: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+
+      const opened = await h.controller.openToAll({});
+      expect(h.events.slice(0, 2)).toEqual(["policy:true", "tunnel:open"]);
+      expect(h.tunnelStarts).toHaveLength(1);
+      expect(h.publicUrls).toEqual(["https://rocket-team.trycloudflare.com"]);
+      expect(h.proxyTrust).toEqual([true]);
+      expect(h.iceServers.at(-1)).toEqual([{ urls: "stun:stun.cloudflare.com:3478" }]);
+      expect(opened).toMatchObject({
+        running: true,
+        inviteOnly: true,
+        openToAll: {
+          phase: "open",
+          url: "https://rocket-team.trycloudflare.com",
+        },
+      });
+
+      // A repeated request changes the joining rule without launching a
+      // second connector.
+      await h.controller.openToAll({ inviteOnly: false });
+      expect(h.tunnelStarts).toHaveLength(1);
+      expect(h.controller.status().inviteOnly).toBe(false);
+
+      const closed = await h.controller.endOpenToAll();
+      expect(h.tunnels[0]!.close).toHaveBeenCalledOnce();
+      expect(h.publicUrls.at(-1)).toBeNull();
+      expect(h.proxyTrust).toEqual([true, false]);
+      expect(h.iceServers.at(-1)).toEqual([]);
+      expect(closed.openToAll).toBeUndefined();
+      expect(closed.inviteOnly).toBe(false);
+    });
+
+    it("restores the previous joining rule when Cloudflare cannot open", async () => {
+      const h = harness({ publicAccess: true });
+      h.beforeTunnel = () => {
+        throw new Error("Cloudflare is offline");
+      };
+      await h.controller.start({ workspaceName: "Rocket Team" });
+
+      await expect(h.controller.openToAll({ inviteOnly: true })).rejects.toThrow(
+        "Cloudflare is offline",
+      );
+      expect(h.policyCalls).toEqual([true, false]);
+      expect(h.controller.status()).toMatchObject({
+        running: true,
+        inviteOnly: false,
+        openToAllError: "Cloudflare is offline",
+      });
+    });
+
+    it("waits for the owner account before exposing an ownerless workspace", async () => {
+      const h = harness({ publicAccess: true });
+      h.accountCount = 0;
+      await h.controller.start({ workspaceName: "Rocket Team" });
+
+      await expect(h.controller.openToAll({ inviteOnly: true })).rejects.toThrow(
+        /Create your own account/,
+      );
+      expect(h.policyCalls).toEqual([]);
+      expect(h.tunnelStarts).toEqual([]);
+    });
+
+    it("cancels an open queued before stop instead of creating a late public link", async () => {
+      const h = harness({ publicAccess: true });
+      const bound = deferred();
+      h.beforeBind = () => bound.promise;
+      const starting = h.controller.start({ workspaceName: "Rocket Team" });
+      const opening = h.controller.openToAll({ inviteOnly: true });
+      const openingResult = expect(opening).rejects.toThrow("cancelled");
+      const stopping = h.controller.stop();
+
+      bound.resolve();
+      await starting;
+      await openingResult;
+      await stopping;
+      expect(h.tunnelStarts).toEqual([]);
+      expect(h.controller.status()).toEqual({
+        running: false,
+        phase: "stopped",
+        tunnelAvailable: true,
+      });
+    });
+
+    it("cancels every queued open when the app quits", async () => {
+      const h = harness({ publicAccess: true });
+      const bound = deferred();
+      h.beforeBind = () => bound.promise;
+      const starting = h.controller.start({ workspaceName: "Rocket Team" });
+      const firstOpen = expect(h.controller.openToAll({ inviteOnly: true })).rejects.toThrow(
+        "cancelled",
+      );
+      const secondOpen = expect(h.controller.openToAll({ inviteOnly: false })).rejects.toThrow(
+        "cancelled",
+      );
+      const quitting = h.controller.shutdown();
+
+      bound.resolve();
+      await starting;
+      await firstOpen;
+      await secondOpen;
+      await quitting;
+      expect(h.tunnelStarts).toEqual([]);
+      expect(h.controller.status()).toEqual({
+        running: false,
+        phase: "stopped",
+        tunnelAvailable: true,
+      });
+    });
+
+    it("aborts an active opening and restores the policy when the public link is closed", async () => {
+      const h = harness({ publicAccess: true });
+      h.beforeTunnel = (_port, signal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      const opening = h.controller.openToAll({ inviteOnly: true });
+      const openingResult = expect(opening).rejects.toThrow("aborted");
+      await vi.waitFor(() => expect(h.tunnelStarts).toHaveLength(1));
+
+      const closing = h.controller.endOpenToAll();
+      await openingResult;
+      await closing;
+      expect(h.policyCalls).toEqual([true, false]);
+      expect(h.controller.status()).not.toHaveProperty("openToAll");
+    });
+
+    it("calls off an opening in progress when the app quits", async () => {
+      const h = harness({ publicAccess: true });
+      h.beforeTunnel = (_port, signal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      const opening = expect(h.controller.openToAll({ inviteOnly: true })).rejects.toThrow(
+        "aborted",
+      );
+      await vi.waitFor(() => expect(h.tunnelStarts).toHaveLength(1));
+
+      // Quitting does not wait out a tunnel Cloudflare may take a minute over.
+      await h.controller.shutdown();
+      await opening;
+      expect(h.policyCalls).toEqual([true, false]);
+      expect(h.servers[0]!.stop).toHaveBeenCalledOnce();
+      expect(h.controller.status()).toEqual({
+        running: false,
+        phase: "stopped",
+        tunnelAvailable: true,
+      });
+    });
+
+    it("removes a dropped public address and reports why it ended", async () => {
+      const h = harness({ publicAccess: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.openToAll({ inviteOnly: true });
+
+      h.tunnels[0]!.drop("edge connection lost");
+      expect(h.publicUrls.at(-1)).toBeNull();
+      expect(h.proxyTrust).toEqual([true, false]);
+      expect(h.iceServers.at(-1)).toEqual([]);
+      expect(h.controller.status()).toMatchObject({
+        openToAllError: expect.stringMatching(/edge connection lost/),
+      });
+      expect(h.controller.status().openToAll).toBeUndefined();
+    });
+
+    it("does not re-expose a server after stopping it has failed", async () => {
+      const h = harness({ publicAccess: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      h.servers[0]!.stop.mockRejectedValueOnce(new Error("drain failed"));
+      await expect(h.controller.stop()).rejects.toThrow("drain failed");
+
+      await expect(h.controller.openToAll({ inviteOnly: true })).rejects.toThrow(/Finish stopping/);
+      await expect(h.controller.setInviteOnly(true)).rejects.toThrow(/Finish stopping/);
+      expect(h.tunnelStarts).toEqual([]);
+    });
+
+    it("keeps a public link visible when its process cannot be confirmed closed", async () => {
+      const h = harness({ publicAccess: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.openToAll({ inviteOnly: true });
+      h.tunnels[0]!.close.mockRejectedValueOnce(new Error("process still running"));
+
+      await expect(h.controller.endOpenToAll()).rejects.toThrow("process still running");
+      expect(h.controller.status()).toMatchObject({
+        openToAll: { phase: "open" },
+        openToAllError: expect.stringMatching(/could not finish closing/),
+      });
+
+      await expect(h.controller.endOpenToAll()).resolves.not.toHaveProperty("openToAll");
+    });
+
+    it("closes the public link before the workspace it points at stops", async () => {
+      const h = harness({ publicAccess: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.openToAll({ inviteOnly: true });
+
+      await h.controller.stop();
+      expect(h.tunnels[0]!.close).toHaveBeenCalledOnce();
+      expect(h.publicUrls).toEqual(["https://rocket-team.trycloudflare.com", null]);
+      // A link outliving its workspace would only show Cloudflare's error page.
+      expect(h.tunnels[0]!.close.mock.invocationCallOrder[0]!).toBeLessThan(
+        h.servers[0]!.stop.mock.invocationCallOrder[0]!,
+      );
+      expect(h.controller.status()).toEqual({
+        running: false,
+        phase: "stopped",
+        tunnelAvailable: true,
+      });
+    });
+
+    it("ends the public link when the app quits", async () => {
+      const h = harness({ publicAccess: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.openToAll({ inviteOnly: true });
+
+      await h.controller.shutdown();
+      expect(h.tunnels[0]!.close).toHaveBeenCalledOnce();
+      expect(h.publicUrls.at(-1)).toBeNull();
+      expect(h.servers[0]!.stop).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the workspace up when its public link will not close on the way to stopping", async () => {
+      const h = harness({ publicAccess: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.openToAll({ inviteOnly: true });
+      h.tunnels[0]!.close.mockRejectedValueOnce(new Error("process still running"));
+
+      await expect(h.controller.stop()).rejects.toThrow("process still running");
+      expect(h.servers[0]!.stop).not.toHaveBeenCalled();
+      expect(h.controller.status()).toMatchObject({
+        running: true,
+        phase: "running",
+        openToAll: { phase: "open", url: "https://rocket-team.trycloudflare.com" },
+        warning: expect.stringMatching(/could not finish closing/),
+      });
+
+      // Asked again, both the link and the workspace come down.
+      await h.controller.stop();
+      expect(h.tunnels[0]!.close).toHaveBeenCalledTimes(2);
+      expect(h.servers[0]!.stop).toHaveBeenCalledOnce();
+      expect(h.controller.status()).toMatchObject({ running: false, phase: "stopped" });
+    });
   });
 
   describe("when the app quits", () => {

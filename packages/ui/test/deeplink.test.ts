@@ -158,6 +158,12 @@ describe("shareableServer", () => {
     expect(
       shareableServer({ baseUrl: "http://localhost:8543", publicUrl: "https://chat.team.dev" }),
     ).toEqual({ serverUrl: "https://chat.team.dev", alternatives: [], localOnly: false });
+    expect(
+      shareableServer({
+        baseUrl: "http://192.168.1.20:8543",
+        publicUrl: "https://chat.team.dev",
+      }),
+    ).toEqual({ serverUrl: "https://chat.team.dev", alternatives: [], localOnly: false });
     // Clients reach servers at their root, so an address under a path is no use.
     expect(
       shareableServer({ baseUrl: "http://localhost:8543", publicUrl: "https://example.com/chat" }),
@@ -166,6 +172,37 @@ describe("shareableServer", () => {
 
   it("puts a network address in place of localhost when this app hosts the workspace", () => {
     expect(shareableServer({ baseUrl: "http://localhost:8543", hosting })).toEqual({
+      serverUrl: "http://192.168.1.20:8543",
+      alternatives: ["http://100.101.2.3:8543", "http://172.28.64.1:8543"],
+      localOnly: false,
+    });
+  });
+
+  it("uses only the live public address owned by this desktop host", () => {
+    const open: HostingStatus = {
+      ...hosting,
+      tunnelAvailable: true,
+      openToAll: { phase: "open", url: "https://fresh-link.trycloudflare.com" },
+    };
+    expect(
+      shareableServer({
+        baseUrl: "http://localhost:8543",
+        publicUrl: "https://stale-link.trycloudflare.com",
+        hosting: open,
+      }),
+    ).toEqual({
+      serverUrl: "https://fresh-link.trycloudflare.com",
+      alternatives: [],
+      localOnly: false,
+    });
+
+    expect(
+      shareableServer({
+        baseUrl: "http://localhost:8543",
+        publicUrl: "https://fresh-link.trycloudflare.com",
+        hosting: { ...open, openToAll: undefined },
+      }),
+    ).toEqual({
       serverUrl: "http://192.168.1.20:8543",
       alternatives: ["http://100.101.2.3:8543", "http://172.28.64.1:8543"],
       localOnly: false,

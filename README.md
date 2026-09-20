@@ -93,6 +93,20 @@ Join screen → _Host a workspace on this computer_ → name it → done. The sa
 server code runs inside the app; the workspace folder can later be moved to a
 VPS unchanged.
 
+To share that workspace outside your network without changing router settings,
+install Cloudflare's `cloudflared`, create the owner account, then open
+**Manage hosting → Open to all**. Gatherline starts a temporary Cloudflare Quick
+Tunnel and shows an HTTPS address. Leave **Require an invite link to create an
+account** selected (the default), then use
+**Workspace → Invite people** to generate and copy a browser invite link. Send
+that link to the people you want to join.
+
+The host opens the tunnel before sending the link. A visitor's click reaches the
+already-running tunnel; it does not start one on the visitor's computer. Keep
+Gatherline running until everyone is finished. Closing the public link, stopping
+hosting, or quitting invalidates the temporary address. See the
+[Cloudflare Tunnel setup and commands](docs/DEPLOYMENT.md#temporary-internet-sharing-with-cloudflare-tunnel).
+
 ### Standalone (VPS, spare machine)
 
 ```sh

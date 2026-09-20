@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { Tunnel } from "./tunnel.js";
 
 export interface HostingSnapshot {
   running: boolean;
@@ -8,7 +9,22 @@ export interface HostingSnapshot {
   dataDir?: string;
   lanUrls?: string[];
   warning?: string;
+  /** Reachable from anywhere through a tunnel, for as long as it lasts. */
+  openToAll?: { phase: "opening" } | { phase: "open"; url: string };
+  /** Why opening to all failed or ended, until it is tried again. */
+  openToAllError?: string;
+  /** Whether this computer has what opening to all needs. */
+  tunnelAvailable?: boolean;
+  /** Whether an account after the first needs an invite code. */
+  inviteOnly?: boolean;
 }
+
+/**
+ * Calls through a tunnel still go directly between people, so each side has
+ * to find its public address. Cloudflare already carries the tunnel, so its
+ * STUN server adds nobody new.
+ */
+export const OPEN_TO_ALL_ICE_SERVERS = [{ urls: "stun:stun.cloudflare.com:3478" }];
 
 /** What this computer hosted last, as remembered in its settings. */
 export interface LastHosted {
@@ -38,6 +54,14 @@ export function parseLastHosted(value: unknown): LastHosted | null {
 interface HostedServer {
   port: number;
   stop(): Promise<void>;
+  /** How the running server is reached and joined; see `WorkspaceServer`. */
+  setPublicUrl?(url: string | null): void;
+  setTrustLoopbackProxy?(enabled: boolean): void;
+  setIceServers?(servers: { urls: string }[]): void;
+  inviteOnly?(): boolean;
+  setInviteOnly?(inviteOnly: boolean): void;
+  /** How many accounts exist, so opening to all can wait for the owner's. */
+  accountCount?(): number;
 }
 
 interface HostingOptions {
@@ -51,6 +75,10 @@ interface HostingOptions {
   defaultPort: number;
   lanUrls(port: number): string[];
   onChange?(): void;
+  /** Opens a tunnel to a port on this computer. Absent where there is none to open. */
+  openTunnel?(port: number, signal: AbortSignal): Promise<Tunnel>;
+  /** Whether a tunnel could be opened now. */
+  tunnelAvailable?(): boolean;
 }
 
 function startOptions(value: unknown): { workspaceName: string; port?: number } {
@@ -83,6 +111,12 @@ export function createHostingController(options: HostingOptions) {
   let pending: Promise<unknown> = Promise.resolve();
   let closing = false;
   let shutdownPromise: Promise<void> | null = null;
+  let tunnel: Tunnel | null = null;
+  /** Set while a tunnel is opening, so stopping or quitting need not wait for it. */
+  let opening: AbortController | null = null;
+  let openError: string | undefined;
+  /** Invalidates public-open requests that were queued before a close or stop. */
+  let publicRequest = 0;
 
   function changed(): void {
     // A renderer/tray notification must never lose ownership of a live server.
@@ -99,8 +133,47 @@ export function createHostingController(options: HostingOptions) {
       phase,
       ...(workspace ?? {}),
       ...(server ? { port: server.port, lanUrls: options.lanUrls(server.port) } : {}),
+      ...(server?.inviteOnly ? { inviteOnly: server.inviteOnly() } : {}),
+      ...(opening
+        ? { openToAll: { phase: "opening" as const } }
+        : tunnel
+          ? { openToAll: { phase: "open" as const, url: tunnel.url } }
+          : {}),
+      ...(openError ? { openToAllError: openError } : {}),
+      ...(options.tunnelAvailable ? { tunnelAvailable: options.tunnelAvailable() } : {}),
       ...(warning ? { warning } : {}),
     };
+  }
+
+  /** Back to reachable only on this network: no public address, no STUN. */
+  function closeReach(target: HostedServer): void {
+    for (const clear of [
+      () => target.setTrustLoopbackProxy?.(false),
+      () => target.setPublicUrl?.(null),
+      () => target.setIceServers?.([]),
+    ]) {
+      try {
+        clear();
+      } catch {
+        // Keep clearing the other public state even if an implementation fails.
+      }
+    }
+  }
+
+  async function endTunnel(): Promise<void> {
+    const current = tunnel;
+    if (!current) return;
+    // Remove the public address from new links before asking the connector to
+    // drain. Keep its handle/status until exit is confirmed so closing can be
+    // retried if the child process refuses to stop.
+    if (server) closeReach(server);
+    await current.close();
+    if (tunnel === current) tunnel = null;
+  }
+
+  function cancelPublicOpen(): void {
+    publicRequest += 1;
+    opening?.abort();
   }
 
   function serialized<T>(operation: () => Promise<T>): Promise<T> {
@@ -195,6 +268,16 @@ export function createHostingController(options: HostingOptions) {
     if (!server) return;
     phase = "stopping";
     changed();
+    // A link to a server that is gone would only show Cloudflare's error page.
+    try {
+      await endTunnel();
+    } catch (error) {
+      phase = "running";
+      warning = "The public link could not finish closing. Try stopping the workspace again.";
+      changed();
+      throw error;
+    }
+    openError = undefined;
     try {
       await server.stop();
     } catch (error) {
@@ -215,13 +298,151 @@ export function createHostingController(options: HostingOptions) {
   }
 
   function stop(): Promise<void> {
+    cancelPublicOpen();
     return serialized(stopCurrent);
+  }
+
+  /**
+   * Opens the running workspace to all: a tunnel gives it an https address
+   * anyone can reach, links are built on that address, and calls look for a
+   * route across networks. Joining keeps its rule unless `inviteOnly` is given.
+   */
+  function openToAll(value: unknown = {}): Promise<HostingSnapshot> {
+    if (closing) return Promise.reject(new Error("The app is quitting."));
+    const inviteOnly =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? (value as { inviteOnly?: unknown }).inviteOnly
+        : undefined;
+    if (inviteOnly !== undefined && typeof inviteOnly !== "boolean")
+      return Promise.reject(
+        new Error("Say whether joining needs an invite code with true or false."),
+      );
+    const request = publicRequest;
+    return serialized(async () => {
+      if (closing || request !== publicRequest) throw new Error("Opening to all was cancelled.");
+      const target = server;
+      if (!target || phase !== "running")
+        throw new Error("Start hosting the workspace before opening it to all.");
+      if (stopFailed)
+        throw new Error("Finish stopping the workspace before changing its public access.");
+      if (!options.openTunnel) throw new Error("Opening to all is not available in this app.");
+      if (
+        !target.setPublicUrl ||
+        !target.setIceServers ||
+        !target.inviteOnly ||
+        !target.setInviteOnly
+      )
+        throw new Error("This hosted workspace cannot change its public access settings.");
+      // Through a tunnel nothing counts as this computer's own, so the owner
+      // would need the claim code to create their account. Theirs comes first.
+      if (target.accountCount && target.accountCount() === 0)
+        throw new Error("Create your own account in the workspace first, then open it to all.");
+      const previousInviteOnly = target.inviteOnly();
+      const requestedInviteOnly = inviteOnly ?? true;
+      openError = undefined;
+      target.setInviteOnly(requestedInviteOnly);
+      if (tunnel) {
+        changed();
+        return status();
+      }
+      const attempt = new AbortController();
+      opening = attempt;
+      openError = undefined;
+      changed();
+      let opened: Tunnel;
+      try {
+        opened = await options.openTunnel(target.port, attempt.signal);
+      } catch (error) {
+        try {
+          target.setInviteOnly(previousInviteOnly);
+        } catch {
+          // The original opening error remains the useful one to report.
+        }
+        // Called off by stopping, quitting or turning it off: nothing failed.
+        if (!attempt.signal.aborted)
+          openError = error instanceof Error ? error.message : String(error);
+        if (opening === attempt) opening = null;
+        changed();
+        throw error;
+      }
+      if (opening === attempt) opening = null;
+      if (attempt.signal.aborted || request !== publicRequest || closing) {
+        try {
+          target.setInviteOnly(previousInviteOnly);
+        } catch {
+          // Closing the newly opened connector still removes public access.
+        }
+        await opened.close().catch(() => {});
+        changed();
+        throw new Error("Opening to all was cancelled.");
+      }
+      try {
+        target.setTrustLoopbackProxy?.(true);
+        target.setPublicUrl(opened.url);
+        target.setIceServers(OPEN_TO_ALL_ICE_SERVERS);
+      } catch (error) {
+        closeReach(target);
+        try {
+          target.setInviteOnly(previousInviteOnly);
+        } catch {
+          // The public connector is still closed below.
+        }
+        await opened.close().catch(() => {});
+        openError = "The workspace could not take its public address. Try opening it to all again.";
+        changed();
+        throw error;
+      }
+      tunnel = opened;
+      opened.onUnexpectedExit((reason) => {
+        if (tunnel !== opened) return;
+        tunnel = null;
+        closeReach(target);
+        openError = `The public link stopped working (${reason}). Open to all again for a new link.`;
+        changed();
+      });
+      changed();
+      return status();
+    });
+  }
+
+  /** Back to this network only. Links go back to its addresses. */
+  function endOpenToAll(): Promise<HostingSnapshot> {
+    cancelPublicOpen();
+    return serialized(async () => {
+      openError = undefined;
+      try {
+        await endTunnel();
+      } catch (error) {
+        openError = "The public link could not finish closing. Try closing it again.";
+        changed();
+        throw error;
+      }
+      changed();
+      return status();
+    });
+  }
+
+  function setInviteOnly(value: unknown): Promise<HostingSnapshot> {
+    if (typeof value !== "boolean")
+      return Promise.reject(
+        new Error("Say whether joining needs an invite code with true or false."),
+      );
+    return serialized(async () => {
+      if (!server?.setInviteOnly || phase !== "running")
+        throw new Error("Start hosting the workspace before changing who can join.");
+      if (stopFailed)
+        throw new Error("Finish stopping the workspace before changing who can join.");
+      server.setInviteOnly(value);
+      changed();
+      return status();
+    });
   }
 
   function shutdown(): Promise<void> {
     if (shutdownPromise) return shutdownPromise;
     // Set before joining the queue: later IPC starts cannot outrun a pending quit.
     closing = true;
+    cancelPublicOpen();
     shutdownPromise = serialized(stopCurrent).catch((error: unknown) => {
       // The caller can cancel quitting and retry with the same owned server.
       closing = false;
@@ -231,5 +452,5 @@ export function createHostingController(options: HostingOptions) {
     return shutdownPromise;
   }
 
-  return { status, start, stop, shutdown };
+  return { status, start, stop, shutdown, openToAll, endOpenToAll, setInviteOnly };
 }

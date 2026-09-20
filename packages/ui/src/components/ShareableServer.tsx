@@ -8,8 +8,11 @@ const ShareableServerContext = createContext<ShareableServer | null>(null);
 
 /**
  * Works out, for the workspace on screen, which address the links people copy
- * should carry. Asked once rather than on each copy: a clipboard write has to
- * follow the click that asked for it, not a request to the server.
+ * should carry. Kept ready rather than fetched on copy: a clipboard write has
+ * to follow the click that asked for it, not a request to the server. The
+ * lightweight server-info read is repeated after reconnect, when the page
+ * returns to the foreground, and occasionally while it stays open so a tunnel
+ * opened or replaced elsewhere does not leave stale links behind.
  */
 export function ShareableServerProvider(props: { platform: Platform; children: ReactNode }) {
   const client = useClient();
@@ -22,20 +25,39 @@ export function ShareableServerProvider(props: { platform: Platform; children: R
   );
 
   useEffect(() => {
-    // Asked once the workspace is reachable, and again after a failure only
-    // when it comes back.
-    if (!online || publicUrl !== undefined) return;
+    setPublicUrl(undefined);
+    if (!online) return;
     let live = true;
-    client.api
-      .serverInfo()
-      .then((info) => {
-        if (live) setPublicUrl(info.publicUrl ?? null);
-      })
-      .catch(() => {});
+    let revision = 0;
+    let applied = 0;
+    const refresh = () => {
+      const request = ++revision;
+      void client.api
+        .serverInfo()
+        .then((info) => {
+          // A later successful read wins. If that later read fails, an older
+          // successful response is still better than leaving the address unknown.
+          if (live && request > applied) {
+            applied = request;
+            setPublicUrl(info.publicUrl ?? null);
+          }
+        })
+        .catch(() => {});
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    const timer = window.setInterval(refresh, 30_000);
     return () => {
       live = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [client, online, publicUrl]);
+  }, [client, online]);
 
   const value = useMemo(
     () => shareableServer({ baseUrl: client.baseUrl, publicUrl, hosting: hosting.status }),

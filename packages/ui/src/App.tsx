@@ -443,18 +443,22 @@ export function App({ platform }: { platform: Platform }) {
               hosting.error) && (
               <div className="flex shrink-0 items-center gap-3 border-t border-edge bg-raised px-4 py-2 text-xs">
                 <span
-                  role={hosting.status?.warning ? "alert" : "status"}
+                  role={
+                    hosting.status?.warning || hosting.status?.openToAllError ? "alert" : "status"
+                  }
                   className="min-w-0 flex-1 text-ink-dim"
                 >
                   {hosting.error
                     ? "Hosting status unavailable"
-                    : hosting.status?.warning
-                      ? hosting.status.warning
-                      : hosting.status?.phase === "starting"
-                        ? "Starting your hosted workspace…"
-                        : hosting.status?.phase === "stopping"
-                          ? "Stopping your hosted workspace…"
-                          : `Hosting ${hosting.status?.workspaceName ?? "a workspace"} on this computer`}
+                    : hosting.status?.openToAllError
+                      ? hosting.status.openToAllError
+                      : hosting.status?.warning
+                        ? hosting.status.warning
+                        : hosting.status?.phase === "starting"
+                          ? "Starting your hosted workspace…"
+                          : hosting.status?.phase === "stopping"
+                            ? "Stopping your hosted workspace…"
+                            : `Hosting ${hosting.status?.workspaceName ?? "a workspace"} on this computer${hosting.status?.openToAll?.phase === "open" ? " · open to all" : ""}`}
                 </span>
                 <button
                   type="button"

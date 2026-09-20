@@ -365,8 +365,15 @@ if (server.claimCode) {
   console.log("");
   console.log("  This workspace has no owner yet.");
   console.log(`  Claim code: ${server.claimCode}`);
-  console.log("  Creating the first account from this machine does not need it.");
-  console.log("  From anywhere else, enter it when you create that account.");
+  if (publicUrl) {
+    // Behind a proxy or tunnel every request arrives from this machine, so
+    // none of them is let off.
+    console.log("  With --public-url set, enter it when you create that account,");
+    console.log("  from this machine too.");
+  } else {
+    console.log("  Creating the first account from this machine does not need it.");
+    console.log("  From anywhere else, enter it when you create that account.");
+  }
 }
 console.log("");
 

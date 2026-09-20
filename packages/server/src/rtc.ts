@@ -4,7 +4,7 @@ const iceUrl = z
   .string()
   .max(500)
   .regex(/^(stun|stuns|turn|turns):[^\s]+$/);
-const iceServersSchema = z
+export const iceServersSchema = z
   .array(
     z.object({
       urls: z.union([iceUrl, z.array(iceUrl).min(1).max(8)]),

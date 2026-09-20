@@ -1,4 +1,4 @@
-import type { Server as HttpServer } from "node:http";
+import type { IncomingMessage, Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   PROTOCOL_VERSION,
@@ -14,6 +14,7 @@ import type { Store } from "./store.js";
 import { hashToken } from "./auth.js";
 import { socketMessage } from "./socketSchema.js";
 import type { RateLimiter } from "./limits.js";
+import { resolveClientAddress } from "./netTrust.js";
 
 interface Client {
   ws: WebSocket;
@@ -47,6 +48,8 @@ export class Gateway {
     private workspaceName: () => string,
     /** Shared with the HTTP side, so one caller has one allowance overall. */
     private limiter: RateLimiter | null = null,
+    private clientAddress: (request: IncomingMessage) => string = (request) =>
+      resolveClientAddress(request.socket.remoteAddress, request.headers),
   ) {
     this.heartbeat = setInterval(() => {
       for (const c of this.clients) {
@@ -80,7 +83,7 @@ export class Gateway {
       // Opening sockets is cheap for the caller and not for the server, so it
       // is rationed before the handshake rather than after it. Keyed on the
       // address because there is no account yet to key on.
-      const address = (req.socket.remoteAddress ?? "unknown").replace(/^::ffff:/, "");
+      const address = this.clientAddress(req);
       if (this.limiter && !this.limiter.take("socket", address).ok) {
         socket.destroy();
         return;

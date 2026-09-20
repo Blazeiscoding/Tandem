@@ -118,9 +118,10 @@ export interface ShareableServer {
 }
 
 /**
- * Which address to put in a link someone else will open. The address this app
- * is connected to is right, unless it is this computer's own, and that is just
- * what a host looking at their own workspace is connected to.
+ * Which address to put in a link someone else will open. A live temporary
+ * address owned by this desktop is authoritative, followed by the address the
+ * server publishes. Otherwise the address this app is connected to is right,
+ * unless it reaches only this computer.
  */
 export function shareableServer(input: {
   baseUrl: string;
@@ -129,17 +130,28 @@ export function shareableServer(input: {
   /** From this app, when it may be the one hosting the workspace. */
   hosting?: HostingStatus | null;
 }): ShareableServer {
-  const published = input.publicUrl ? rootOrigin(input.publicUrl) : null;
-  if (published) return { serverUrl: published, alternatives: [], localOnly: false };
-  if (!isLoopbackUrl(input.baseUrl)) {
-    return { serverUrl: input.baseUrl, alternatives: [], localOnly: false };
-  }
+  const loopback = isLoopbackUrl(input.baseUrl);
   const { hosting } = input;
-  if (hosting?.running && String(hosting.port) === new URL(input.baseUrl).port) {
+  const hostedHere =
+    loopback && hosting?.running && String(hosting.port) === new URL(input.baseUrl).port;
+  if (hostedHere) {
+    // The desktop controller owns this temporary address. Its live status is
+    // authoritative over /api/server-info, which may have been fetched before
+    // the tunnel opened or may still contain an address that just closed.
+    if (hosting.openToAll?.phase === "open") {
+      const publicAddress = rootOrigin(hosting.openToAll.url);
+      if (publicAddress) return { serverUrl: publicAddress, alternatives: [], localOnly: false };
+    }
     const [first, ...rest] = [...(hosting.lanUrls ?? [])]
       .sort((a, b) => lanRank(a) - lanRank(b))
       .flatMap((address) => normalizeServerUrlSafe(address) ?? []);
     if (first) return { serverUrl: first, alternatives: rest, localOnly: false };
+    return { serverUrl: input.baseUrl, alternatives: [], localOnly: true };
+  }
+  const published = input.publicUrl ? rootOrigin(input.publicUrl) : null;
+  if (published) return { serverUrl: published, alternatives: [], localOnly: false };
+  if (!loopback) {
+    return { serverUrl: input.baseUrl, alternatives: [], localOnly: false };
   }
   return { serverUrl: input.baseUrl, alternatives: [], localOnly: true };
 }
