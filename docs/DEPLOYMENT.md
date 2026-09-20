@@ -138,6 +138,52 @@ screen sharing fails between restrictive or symmetric NATs. A deployment that
 needs reliable internet huddles should supply its own TURN service through
 `GATHERLINE_ICE_SERVERS`, as described under [Voice and huddles](#voice-and-huddles).
 
+### A stable address for the desktop app
+
+A Quick Tunnel gives a different address every time it opens, so every invite
+link has to be sent again. Point the desktop app at a Cloudflare named tunnel
+instead and **Open to all** publishes the same address each time.
+
+Create the tunnel in Cloudflare once, on the
+[Zero Trust dashboard](https://one.dash.cloudflare.com/) or with `cloudflared`,
+and route its public hostname to `http://127.0.0.1:8543` — the port **Manage
+hosting** shows for the workspace. Save the connector token Cloudflare gives you
+to a file readable only by your account; Gatherline never reads its contents and
+passes the path to `cloudflared --token-file`. Then set both variables before
+starting Gatherline. In PowerShell:
+
+```powershell
+$env:GATHERLINE_TUNNEL_URL = "https://chat.example.org"
+$env:GATHERLINE_TUNNEL_TOKEN_FILE = "C:\Users\sam\.cloudflared\chat-token.txt"
+```
+
+On macOS or Linux:
+
+```sh
+export GATHERLINE_TUNNEL_URL=https://chat.example.org
+export GATHERLINE_TUNNEL_TOKEN_FILE=/home/sam/.cloudflared/chat-token
+```
+
+`GATHERLINE_TUNNEL_URL` has to be a public HTTPS origin: a hostname with a dot,
+no path, port, query, credentials, or fragment. `SLACKOSS_TUNNEL_URL` and
+`SLACKOSS_TUNNEL_TOKEN_FILE` work as well. Setting only one of the pair, naming
+a token file that is not there, or giving an address that cannot be published
+is reported in **Manage hosting** and leaves **Open to all** unavailable, rather
+than quietly opening a temporary address nobody was given. Correct the setting
+and the dialog picks it up within a few seconds; no restart is needed for the
+message to clear, though the variables themselves are read at launch.
+
+**Open to all** then starts the saved connector and waits until the configured
+address reaches _this_ running workspace before publishing it. If the address
+answers as something else — another workspace, or a route left pointing
+somewhere old — opening fails and says which Cloudflare route to correct. What
+the connector prints is kept out of Gatherline's messages and logs, because it
+can quote the token it was given.
+
+Closing the public link or quitting stops the connector, and the address stops
+working until it is opened again. Unlike a Quick Tunnel, the address itself
+survives, so invite links already sent keep working the next time you open it.
+
 ### Run a Quick Tunnel with the standalone server
 
 Build the server first, start it only on the local interface, and create the

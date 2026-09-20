@@ -107,6 +107,13 @@ Gatherline running until everyone is finished. Closing the public link, stopping
 hosting, or quitting invalidates the temporary address. See the
 [Cloudflare Tunnel setup and commands](docs/DEPLOYMENT.md#temporary-internet-sharing-with-cloudflare-tunnel).
 
+For an address that does not change, create a Cloudflare named tunnel routed to
+the port **Manage hosting** shows, then set `GATHERLINE_TUNNEL_URL` and
+`GATHERLINE_TUNNEL_TOKEN_FILE` before starting Gatherline. **Open to all** then
+publishes that same address every time, so invite links you have already sent
+keep working. See
+[A stable address for the desktop app](docs/DEPLOYMENT.md#a-stable-address-for-the-desktop-app).
+
 ### Standalone (VPS, spare machine)
 
 ```sh
