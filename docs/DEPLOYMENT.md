@@ -138,15 +138,70 @@ screen sharing fails between restrictive or symmetric NATs. A deployment that
 needs reliable internet huddles should supply its own TURN service through
 `GATHERLINE_ICE_SERVERS`, as described under [Voice and huddles](#voice-and-huddles).
 
-### A stable address for the desktop app
+### Use an address you already have
 
 A Quick Tunnel gives a different address every time it opens, so every invite
-link has to be sent again. Point the desktop app at a Cloudflare named tunnel
-instead and **Open to all** publishes the same address each time.
+link has to be sent again. If something already carries a public HTTPS address
+to this computer, give that address to Gatherline instead and **Open to all**
+publishes the same one every time.
+
+Open **Manage hosting**, put the address under **Your own address**, and save.
+Gatherline starts no connector in this mode. It checks that the address reaches
+this workspace, publishes it into browser, invite and message links, and keeps
+checking while the link is open. Nothing here needs a domain or a Cloudflare
+account.
+
+Anything that ends at `http://127.0.0.1:<port>` works: a Tailscale Funnel, a
+reverse proxy, a VPS in front, or a tunnel you started yourself. Use the port
+**Manage hosting** shows for the workspace.
+
+#### With Tailscale Funnel
+
+Funnel gives a stable HTTPS name with a real certificate, free, without a
+domain. Install Tailscale, sign in, then:
+
+```sh
+tailscale funnel 8543
+```
+
+On Windows that needs an Administrator prompt. Funnel prints a name like
+`https://box.tail1234.ts.net`; paste it into **Your own address**. Funnel
+listens on 443, 8443 and 10000 only, and the free plan allows three of them.
+
+Gatherline does not offer to sign you into Tailscale, and the reason is worth
+stating. It could detect the `tailscale` binary the way it detects
+`cloudflared`, run `tailscale up` so Tailscale's own browser login handles the
+account, then run `tailscale funnel` and read the hostname back. What it cannot
+do is make that meaningfully easier: there is no OAuth we can run for you, and
+Tailscale's API path needs an OAuth client created in their admin console,
+which is more setup than the command above, not less. Funnel also has to be
+enabled once in the tailnet policy, and on Windows the command needs
+Administrator rights that an app button would have to ask for. So Gatherline
+takes the finished address and leaves the account to Tailscale.
+
+#### Setting it outside the app
+
+`GATHERLINE_PUBLIC_URL` sets the same address from the environment, for a
+service or a scripted install. `SLACKOSS_PUBLIC_URL` works too. An address set
+that way is shown in **Manage hosting** but cannot be edited there, since the
+app does not own it. A saved address takes precedence over both, so an old
+variable in a shell cannot quietly replace one somebody typed into the app.
+
+The address has to be a public HTTPS origin, the same rule described below. If
+it stops answering as this workspace, Gatherline gives it up after several
+checks in a row fail, removes it from new links, and says so in **Manage
+hosting**. A brief network blip does not invalidate the links you have sent.
+
+### A stable address Gatherline runs for you
+
+If you own a domain on Cloudflare, Gatherline can run the connector itself
+rather than leaving it to you. Open to all then starts and stops a Cloudflare
+named tunnel with the workspace, at an address that does not change. This needs
+a domain; the section above needs none.
 
 Create the tunnel in Cloudflare once, on the
 [Zero Trust dashboard](https://one.dash.cloudflare.com/) or with `cloudflared`,
-and route its public hostname to `http://127.0.0.1:8543` — the port **Manage
+and route its public hostname to `http://127.0.0.1:8543`, the port **Manage
 hosting** shows for the workspace. Save the connector token Cloudflare gives you
 to a file readable only by your account; Gatherline never reads its contents and
 passes the path to `cloudflared --token-file`. Then set both variables before
