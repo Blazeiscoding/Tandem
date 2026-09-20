@@ -237,6 +237,10 @@ own: `cloudflared tunnel --url http://127.0.0.1:8543`, giving
   not only in the dialog.
 - A rejected address showed the main process's own sentence, with Electron's
   `Error invoking remote method …` wrapper removed.
+- The loopback check distinguishes an address that leads elsewhere from one
+  that leads nowhere. Only a reply from something that is not this run warns; a
+  refused or timed-out probe stays quiet, since naming a program that is not
+  there would be worse than saying nothing.
 - Holding `127.0.0.1:8543` with another program did **not** raise `EADDRINUSE`:
   Gatherline bound `0.0.0.0:8543` beside it, `netstat` showed both listeners,
   and `http://127.0.0.1:8543` answered from the other program while the LAN
