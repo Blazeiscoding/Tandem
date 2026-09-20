@@ -107,6 +107,20 @@ Gatherline running until everyone is finished. Closing the public link, stopping
 hosting, or quitting invalidates the temporary address. See the
 [Cloudflare Tunnel setup and commands](docs/DEPLOYMENT.md#temporary-internet-sharing-with-cloudflare-tunnel).
 
+For an address that does not change, put one you already have under **Your own
+address** in Manage hosting: a Tailscale Funnel, a reverse proxy, or any tunnel
+of your own that forwards HTTP and WebSockets to the port shown there. **Open to
+all** verifies that it reaches this workspace and uses it in new links.
+Gatherline does not start or stop that outside connector, so **Close public
+link** does not take the address off the internet; stop the Funnel, proxy, or
+tunnel yourself, or stop hosting. Existing invite links keep the same address,
+but their codes still expire or run out of uses normally. See
+[Use an address you already have](docs/DEPLOYMENT.md#use-an-address-you-already-have).
+
+If you own a domain on Cloudflare, Gatherline can run a remotely managed
+Cloudflare connector for you instead. See
+[A stable address Gatherline runs for you](docs/DEPLOYMENT.md#a-stable-address-gatherline-runs-for-you).
+
 ### Standalone (VPS, spare machine)
 
 ```sh

@@ -122,12 +122,33 @@ describe("self-hosted product", () => {
   });
   it("keeps relay credentials authenticated and exposes a lightweight health check", async () => {
     const base = await start();
-    expect((await request(base, "/api/health")).data).toEqual({ status: "ok" });
+    // The identifier lets a public address be confirmed to reach this run,
+    // so it is the same for every check while the server stays up.
+    const health = (await request(base, "/api/health")).data;
+    expect(health).toEqual({ status: "ok", instanceId: expect.any(String) });
+    expect((await request(base, "/api/health")).data.instanceId).toBe(health.instanceId);
     expect((await request(base, "/api/rtc-config")).status).toBe(401);
     const owner = await register(base, "owner");
     expect(
       (await request(base, "/api/rtc-config", owner.data.token)).data.iceServers[0].credential,
     ).toBe("secret");
+  });
+
+  it("gives each server start a fresh health-check identity", async () => {
+    let base = await start();
+    const first = (await request(base, "/api/health")).data.instanceId;
+    await server!.stop();
+    server = await createWorkspaceServer({
+      dataDir: directory!,
+      port: 0,
+      host: "127.0.0.1",
+      mdns: false,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+    const second = (await request(base, "/api/health")).data.instanceId;
+    expect(first).toEqual(expect.any(String));
+    expect(second).toEqual(expect.any(String));
+    expect(second).not.toBe(first);
   });
 
   it("keeps friends private, requires recipient acceptance, and persists across restart", async () => {

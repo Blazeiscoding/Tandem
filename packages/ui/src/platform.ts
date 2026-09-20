@@ -26,12 +26,22 @@ export interface HostingStatus {
   warning?: string;
   /** Whether closing the window can keep hosting through the system tray. */
   backgroundAvailable?: boolean;
-  /** A temporary public address, while Cloudflare Tunnel is opening or open. */
+  /** A public address, while Cloudflare Tunnel is opening or open. */
   openToAll?: { phase: "opening" } | { phase: "open"; url: string };
   /** Why the last attempt to open the public address failed or ended. */
   openToAllError?: string;
   /** Whether cloudflared is installed where the desktop app can find it. */
   tunnelAvailable?: boolean;
+  /** A configured address that stays the same each time the link is opened. */
+  publicAddress?: string;
+  /** What the public address setting holds, valid or not, for editing. */
+  publicAddressSetting?: string;
+  /** Whether the environment set the address, so this app cannot change it. */
+  publicAddressLocked?: boolean;
+  /** Whether Gatherline runs the connector for it, rather than something else. */
+  publicAddressManaged?: boolean;
+  /** Safe setup instructions when the stable address configuration cannot be used. */
+  publicAddressError?: string;
   /** Whether new accounts need an invite code. */
   inviteOnly?: boolean;
 }
@@ -71,11 +81,17 @@ export interface Platform {
     subscribe?: (cb: (status: HostingStatus) => void) => () => void;
     start: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
     stop: () => Promise<void>;
-    /** Open/close a temporary public Cloudflare Tunnel to the hosted workspace. */
+    /** Publish/unpublish the hosted workspace at a public address. */
     openToAll?: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
     endOpenToAll?: () => Promise<HostingStatus>;
     /** Change whether new accounts need an invite while the server is running. */
     setInviteOnly?: (inviteOnly: boolean) => Promise<HostingStatus>;
+    /**
+     * Save an address something else already carries to this workspace, or
+     * clear it with "" to go back to a temporary one. Rejects what cannot be
+     * published, so the setting never holds an address that will not work.
+     */
+    setPublicAddress?: (address: string) => Promise<HostingStatus>;
     /** The workspace this computer hosted last, if it remembers. */
     lastHosted?: () => Promise<{ workspaceName: string; port: number } | null>;
   };

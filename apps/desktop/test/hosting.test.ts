@@ -23,7 +23,13 @@ const inUse = () =>
   Object.assign(new Error("listen EADDRINUSE: address already in use"), { code: "EADDRINUSE" });
 
 /** A controller over fake servers, with hooks to hold or fail each step. */
-function harness(options: { publicAccess?: boolean } = {}) {
+function harness(
+  options: {
+    publicAccess?: boolean;
+    publicAddress?: () => { setting?: string; url?: string; managed?: boolean; error?: string };
+    savePublicAddress?: (address: string | null) => Promise<void> | void;
+  } = {},
+) {
   type FakeTunnel = Tunnel & { close: Mock<() => Promise<void>>; drop(reason: string): void };
   const h = {
     starts: [] as StartRequest[],
@@ -39,8 +45,9 @@ function harness(options: { publicAccess?: boolean } = {}) {
     policyCalls: [] as boolean[],
     proxyTrust: [] as boolean[],
     publicUrls: [] as (string | null)[],
+    savedPublicAddresses: [] as (string | null)[],
     iceServers: [] as { urls: string }[][],
-    tunnelStarts: [] as { port: number; signal: AbortSignal }[],
+    tunnelStarts: [] as { port: number; signal: AbortSignal; instanceId?: string }[],
     tunnels: [] as FakeTunnel[],
     events: [] as string[],
     beforeTunnel: (_port: number, _signal: AbortSignal): Promise<void> | void => {},
@@ -59,6 +66,7 @@ function harness(options: { publicAccess?: boolean } = {}) {
       await h.beforeBind(request.port);
       const server = {
         port: request.port === 0 ? 50123 : request.port,
+        instanceId: "workspace-run-1",
         stop: vi.fn(async () => {}),
         ...(options.publicAccess
           ? {
@@ -85,9 +93,9 @@ function harness(options: { publicAccess?: boolean } = {}) {
     ...(options.publicAccess
       ? {
           tunnelAvailable: () => true,
-          openTunnel: async (port: number, signal: AbortSignal) => {
+          openTunnel: async (port: number, signal: AbortSignal, instanceId?: string) => {
             h.events.push("tunnel:open");
-            h.tunnelStarts.push({ port, signal });
+            h.tunnelStarts.push({ port, signal, instanceId });
             await h.beforeTunnel(port, signal);
             let listener: ((reason: string) => void) | undefined;
             const tunnel: FakeTunnel = {
@@ -103,6 +111,11 @@ function harness(options: { publicAccess?: boolean } = {}) {
           },
         }
       : {}),
+    ...(options.publicAddress ? { publicAddress: options.publicAddress } : {}),
+    savePublicAddress: async (address: string | null) => {
+      await options.savePublicAddress?.(address);
+      h.savedPublicAddresses.push(address);
+    },
   });
   return h;
 }
@@ -614,5 +627,110 @@ describe("remembering the last hosted workspace", () => {
       workspaceName: "Rocket Team",
       port: 0,
     });
+  });
+});
+
+describe("a stable public address configured for this computer", () => {
+  const configured = "https://chat.example.org";
+
+  it("shows the configured address and opens it for the running workspace", async () => {
+    const h = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, setting: configured }),
+    });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    expect(h.controller.status()).toMatchObject({ publicAddress: configured });
+
+    await h.controller.openToAll({ inviteOnly: true });
+    // The connector is told which run to confirm, so the saved address cannot
+    // publish a link to a workspace other than this one.
+    expect(h.tunnelStarts.at(-1)).toMatchObject({ port: 8543, instanceId: "workspace-run-1" });
+    // A carrier Gatherline does not own is not trusted to sanitize Cloudflare's
+    // client-address header before forwarding it from loopback.
+    expect(h.proxyTrust).toEqual([]);
+
+    await h.controller.setInviteOnly(false);
+    h.tunnels[0]!.drop("external route stopped answering");
+    expect(h.controller.status()).toMatchObject({
+      inviteOnly: true,
+      openToAllError: expect.stringMatching(/same address/),
+    });
+    expect(h.controller.status().openToAllError).not.toMatch(/new link/);
+  });
+
+  it("trusts the loopback visitor header for a Cloudflare connector it owns", async () => {
+    const h = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, managed: true }),
+    });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.openToAll({ inviteOnly: true });
+    expect(h.proxyTrust).toEqual([true]);
+  });
+
+  it("secures registration when it stops publishing an externally carried address", async () => {
+    const h = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, setting: configured }),
+    });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.openToAll({ inviteOnly: false });
+    expect(h.controller.status().inviteOnly).toBe(false);
+
+    await h.controller.endOpenToAll();
+    expect(h.controller.status().inviteOnly).toBe(true);
+    expect(h.publicUrls.at(-1)).toBeNull();
+  });
+
+  it("secures and saves a replacement address, clearing the previous carrier's error", async () => {
+    const h = harness({ publicAccess: true });
+    h.beforeTunnel = () => {
+      throw new Error("old carrier failed");
+    };
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await expect(h.controller.openToAll({ inviteOnly: false })).rejects.toThrow(/old carrier/);
+    expect(h.controller.status().openToAllError).toMatch(/old carrier/);
+
+    await h.controller.setPublicAddress(configured);
+    expect(h.savedPublicAddresses).toEqual([configured]);
+    expect(h.controller.status().inviteOnly).toBe(true);
+    expect(h.controller.status().openToAllError).toBeUndefined();
+  });
+
+  it("keeps registration secured if saving a replacement address fails", async () => {
+    const h = harness({
+      publicAccess: true,
+      savePublicAddress: () => {
+        throw new Error("settings unavailable");
+      },
+    });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.setInviteOnly(false);
+
+    await expect(h.controller.setPublicAddress(configured)).rejects.toThrow(/settings unavailable/);
+    expect(h.controller.status().inviteOnly).toBe(true);
+    expect(h.savedPublicAddresses).toEqual([]);
+  });
+
+  it("refuses to open a link, and changes nothing, while its configuration is unusable", async () => {
+    const error = "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE.";
+    const h = harness({ publicAccess: true, publicAddress: () => ({ error }) });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    expect(h.controller.status()).toMatchObject({ publicAddressError: error });
+    expect(h.controller.status()).not.toHaveProperty("publicAddress");
+
+    await expect(h.controller.openToAll({ inviteOnly: true })).rejects.toThrow(/Set both/);
+    expect(h.tunnelStarts).toEqual([]);
+    expect(h.policyCalls).toEqual([]);
+    expect(h.publicUrls).toEqual([]);
+  });
+
+  it("leaves a temporary address alone when nothing is configured", async () => {
+    const h = harness({ publicAccess: true, publicAddress: () => ({}) });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.openToAll({ inviteOnly: true });
+    expect(h.controller.status()).not.toHaveProperty("publicAddress");
+    expect(h.controller.status()).not.toHaveProperty("publicAddressError");
+    expect(h.publicUrls.at(-1)).toBe("https://rocket-team.trycloudflare.com");
   });
 });

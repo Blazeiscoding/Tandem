@@ -91,11 +91,14 @@ export function HostDialog(props: {
   const { status, loading, error: statusError, refresh } = props.state;
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<
-    "starting" | "stopping" | "opening" | "closing" | "policy" | null
+    "starting" | "stopping" | "opening" | "closing" | "policy" | "address" | null
   >(null);
   const operationPending = useRef(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; tunnel?: boolean } | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
+  /** Null while the saved address is shown; a string while it is being edited. */
+  const [addressDraft, setAddressDraft] = useState<string | null>(null);
+  const [addressError, setAddressError] = useState<string | null>(null);
   // A public address is not authorization. Require an invite by default when
   // a previously LAN-only workspace is first put on the internet.
   const [requireInvite, setRequireInvite] = useState(true);
@@ -104,6 +107,11 @@ export function HostDialog(props: {
   const changing = phase === "starting" || phase === "stopping";
   const unavailable = loading || statusError || !status || changing || !!busy;
   const publicUrl = status?.openToAll?.phase === "open" ? status.openToAll.url : null;
+  const externallyCarried = !!status?.publicAddress && !status.publicAddressManaged;
+  const tunnelError = status?.publicAddressError ?? status?.openToAllError;
+  const savedAddress = status?.publicAddressSetting ?? "";
+  const addressValue = addressDraft ?? savedAddress;
+  const addressDirty = addressDraft !== null && addressDraft.trim() !== savedAddress;
 
   // Opening management also refreshes shells without status subscriptions.
   useEffect(() => {
@@ -119,9 +127,8 @@ export function HostDialog(props: {
   }, [status?.workspaceName]);
 
   useEffect(() => {
-    if (status?.openToAll?.phase === "open" && status.inviteOnly !== undefined)
-      setRequireInvite(status.inviteOnly);
-  }, [status?.inviteOnly, status?.openToAll?.phase]);
+    if (status?.inviteOnly !== undefined) setRequireInvite(status.inviteOnly);
+  }, [status?.inviteOnly]);
 
   async function start(e: React.FormEvent) {
     e.preventDefault();
@@ -135,9 +142,10 @@ export function HostDialog(props: {
       if (next.running && next.phase !== "stopping" && next.port !== undefined)
         props.onStarted(next);
     } catch {
-      setError(
-        "The workspace could not start. Check that its data folder is writable and its port is available, then try again.",
-      );
+      setError({
+        message:
+          "The workspace could not start. Check that its data folder is writable and its port is available, then try again.",
+      });
       await refresh();
     } finally {
       operationPending.current = false;
@@ -154,9 +162,10 @@ export function HostDialog(props: {
       await props.hosting.stop();
       setConfirmStop(false);
     } catch {
-      setError(
-        "The workspace could not be stopped. Check its current status; Quit Gatherline offers recovery options if stopping keeps failing.",
-      );
+      setError({
+        message:
+          "The workspace could not be stopped. Check its current status; Quit Gatherline offers recovery options if stopping keeps failing.",
+      });
     } finally {
       await refresh();
       operationPending.current = false;
@@ -165,18 +174,27 @@ export function HostDialog(props: {
   }
 
   async function openToAll() {
-    if (operationPending.current || unavailable || !props.hosting.openToAll) return;
+    if (
+      operationPending.current ||
+      unavailable ||
+      !props.hosting.openToAll ||
+      status?.publicAddressError ||
+      status?.tunnelAvailable === false
+    )
+      return;
     operationPending.current = true;
     setBusy("opening");
     setError(null);
     try {
       await props.hosting.openToAll({ inviteOnly: requireInvite });
     } catch (err) {
-      setError(
-        err instanceof Error && /Create your own account/i.test(err.message)
-          ? "Open the workspace and create its owner account first, then try again."
-          : "The public link could not be opened. Check that cloudflared is installed and that this computer is online, then try again.",
-      );
+      setError({
+        tunnel: true,
+        message:
+          err instanceof Error && /Create your own account/i.test(err.message)
+            ? "Open the workspace and create its owner account first, then try again."
+            : "The public link could not be opened. Check that cloudflared is installed and that this computer is online, then try again.",
+      });
     } finally {
       await refresh();
       operationPending.current = false;
@@ -192,9 +210,12 @@ export function HostDialog(props: {
     try {
       await props.hosting.endOpenToAll();
     } catch {
-      setError(
-        "The public link could not be closed cleanly. Try again before quitting Gatherline.",
-      );
+      setError({
+        tunnel: true,
+        message: externallyCarried
+          ? "Gatherline could not stop publishing this address. Try again, then stop its external tunnel or proxy separately."
+          : "Gatherline’s Cloudflare connection could not be closed cleanly. Try again before quitting Gatherline.",
+      });
     } finally {
       await refresh();
       operationPending.current = false;
@@ -213,7 +234,33 @@ export function HostDialog(props: {
       await props.hosting.setInviteOnly(next);
     } catch {
       setRequireInvite(previous);
-      setError("Who may join could not be changed. The previous setting is still in use.");
+      setError({
+        message: "Who may join could not be changed. The previous setting is still in use.",
+      });
+    } finally {
+      await refresh();
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function saveAddress() {
+    if (operationPending.current || !props.hosting.setPublicAddress || addressDraft === null)
+      return;
+    operationPending.current = true;
+    setBusy("address");
+    setAddressError(null);
+    try {
+      await props.hosting.setPublicAddress(addressDraft.trim());
+      setAddressDraft(null);
+    } catch (err) {
+      // The main process says exactly what is wrong with the address; a
+      // rewritten message here would only be vaguer than the real one.
+      setAddressError(
+        err instanceof Error && err.message
+          ? err.message
+          : "The address could not be saved. Try again.",
+      );
     } finally {
       await refresh();
       operationPending.current = false;
@@ -306,11 +353,26 @@ export function HostDialog(props: {
                   </span>
                 )}
               </div>
+              <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+                {publicUrl
+                  ? `Public link open at ${publicUrl}`
+                  : status.openToAll?.phase === "opening"
+                    ? "Opening public link"
+                    : "Public link closed"}
+              </p>
+              {tunnelError && (
+                <p role="alert" className="mb-2 text-xs text-alert">
+                  {tunnelError}
+                </p>
+              )}
               {publicUrl ? (
                 <>
                   <p className="mb-2 text-xs text-ink-dim">
-                    This temporary address works from anywhere while Gatherline and cloudflared stay
-                    running.
+                    {!status.publicAddress
+                      ? "This temporary address works from anywhere while Gatherline and cloudflared stay running."
+                      : status.publicAddressManaged
+                        ? "This configured address stays the same when you reopen the public link. Keep Gatherline and its Cloudflare connector running so teammates can connect."
+                        : "This configured address stays the same when you reopen it. Gatherline can stop publishing the address, but only you can stop its external tunnel or proxy and make it unreachable."}
                   </p>
                   <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-raised p-2">
                     <a
@@ -329,11 +391,6 @@ export function HostDialog(props: {
                       {copyLabel("Copy address", "Copied", "Copy failed", "public-address")}
                     </button>
                   </div>
-                  {status.openToAllError && (
-                    <p role="alert" className="mt-2 text-xs text-alert">
-                      {status.openToAllError}
-                    </p>
-                  )}
                   <label className="mt-3 flex items-start gap-2 text-xs text-ink-dim">
                     <input
                       type="checkbox"
@@ -358,19 +415,104 @@ export function HostDialog(props: {
                     onClick={() => void endOpenToAll()}
                     className="mt-3 rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:text-ink disabled:opacity-40"
                   >
-                    {busy === "closing" ? "Closing public link…" : "Close public link"}
+                    {busy === "closing"
+                      ? externallyCarried
+                        ? "Stopping use of address…"
+                        : "Closing public link…"
+                      : externallyCarried
+                        ? "Stop using address"
+                        : "Close public link"}
                   </button>
                 </>
               ) : (
                 <>
-                  <p className="text-xs text-ink-dim">
-                    Create a temporary HTTPS address through Cloudflare Tunnel. No router setup or
-                    Cloudflare account is needed.
-                  </p>
-                  {status.openToAllError && (
-                    <p role="alert" className="mt-2 text-xs text-alert">
-                      {status.openToAllError}
+                  {status.publicAddress ? (
+                    <div className="space-y-2 text-xs text-ink-dim">
+                      <p>Open this workspace at your own address, which does not change:</p>
+                      <p className="break-all font-mono text-copper">{status.publicAddress}</p>
+                      {status.port !== undefined && (
+                        <p>
+                          {status.publicAddressManaged ? "In Cloudflare, route" : "Send"} this
+                          address to{" "}
+                          <code className="break-all text-ink">{`http://127.0.0.1:${status.port}`}</code>
+                          .
+                        </p>
+                      )}
+                      <p>Keep Gatherline running so teammates can connect.</p>
+                      {externallyCarried && (
+                        <p>
+                          Its external tunnel or proxy may already make this workspace reachable.
+                          Gatherline requires invites when you save the address; stop the carrier
+                          separately when you want the address itself to become unreachable.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-ink-dim">
+                      Create a temporary HTTPS address through Cloudflare Tunnel. No router setup or
+                      Cloudflare account is needed.
                     </p>
+                  )}
+                  {props.hosting.setPublicAddress && (
+                    <div className="mt-3 border-t border-edge pt-3">
+                      <label
+                        htmlFor="public-address"
+                        className="block text-xs font-medium text-ink-dim"
+                      >
+                        Your own address
+                      </label>
+                      <p id="public-address-help" className="mt-1 text-xs text-ink-dim">
+                        Already have a Tailscale Funnel, reverse proxy, or tunnel of your own
+                        pointing here? Enter its address to reuse the same link every time. Leave it
+                        empty to{" "}
+                        {status.publicAddressManaged
+                          ? "use the configured Cloudflare address"
+                          : "create a temporary address"}
+                        .
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          id="public-address"
+                          type="url"
+                          inputMode="url"
+                          spellCheck={false}
+                          placeholder="https://box.tail1234.ts.net"
+                          value={addressValue}
+                          disabled={!!busy || status.publicAddressLocked}
+                          aria-describedby={`public-address-help${addressError ? " public-address-error" : ""}`}
+                          aria-invalid={!!addressError}
+                          aria-errormessage={addressError ? "public-address-error" : undefined}
+                          onChange={(event) => {
+                            setAddressDraft(event.target.value);
+                            setAddressError(null);
+                          }}
+                          className="min-w-0 flex-1 rounded-lg border border-edge bg-raised px-2 py-1.5 font-mono text-xs text-ink disabled:opacity-40"
+                        />
+                        <button
+                          type="button"
+                          disabled={!!busy || !addressDirty || status.publicAddressLocked}
+                          onClick={() => void saveAddress()}
+                          className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-xs text-ink-dim hover:text-ink disabled:opacity-40"
+                        >
+                          {busy === "address" ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                      {status.publicAddressLocked && (
+                        <p className="mt-2 text-xs text-ink-dim">
+                          This address comes from an environment variable, so it cannot be changed
+                          here.
+                        </p>
+                      )}
+                      {addressError && (
+                        <p
+                          id="public-address-error"
+                          role="alert"
+                          className="mt-2 text-xs text-alert"
+                        >
+                          {addressError}
+                        </p>
+                      )}
+                    </div>
                   )}
                   {status.tunnelAvailable === false ? (
                     <div className="mt-3 text-xs text-ink-dim">
@@ -401,7 +543,11 @@ export function HostDialog(props: {
                       </label>
                       <button
                         type="button"
-                        disabled={unavailable || status.openToAll?.phase === "opening"}
+                        disabled={
+                          unavailable ||
+                          !!status.publicAddressError ||
+                          status.openToAll?.phase === "opening"
+                        }
                         onClick={() => void openToAll()}
                         className={`${primaryBtnCls} mt-3 w-full`}
                       >
@@ -422,9 +568,9 @@ export function HostDialog(props: {
           {status.warning}
         </p>
       )}
-      {error && (
+      {error && !(error.tunnel && tunnelError) && (
         <p role="alert" className="mb-4 text-sm text-alert">
-          {error}
+          {error.message}
         </p>
       )}
       {!statusError && status && (status.running || changing) ? (

@@ -144,6 +144,13 @@ describe("claiming a workspace that has no owner", () => {
     expect(accepted.status).toBe(201);
   });
 
+  it("requires the claim code when a loopback proxy marks a command-line request as remote", async () => {
+    await start();
+    const refused = await register({ "cf-connecting-ip": "203.0.113.25" });
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: string }).error).toBe("claim_required");
+  });
+
   it("lets a visited page through only with the claim code, as from anywhere else", async () => {
     await start();
     const accepted = await register({ origin: "https://evil.example.com" }, server!.claimCode!);

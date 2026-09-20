@@ -50,6 +50,25 @@ function fakeHosting(initial: HostingStatus) {
       current = { ...current, inviteOnly };
       return current;
     }),
+    // The main process validates and saves; here it simply takes what it is given.
+    setPublicAddress: vi.fn(async (address: string) => {
+      current = address
+        ? {
+            ...current,
+            publicAddress: address,
+            publicAddressSetting: address,
+            inviteOnly: true,
+            openToAllError: undefined,
+          }
+        : {
+            ...current,
+            publicAddress: undefined,
+            publicAddressSetting: undefined,
+            inviteOnly: true,
+            openToAllError: undefined,
+          };
+      return current;
+    }),
     subscribe: (listener: (status: HostingStatus) => void) => {
       listeners.add(listener);
       return () => void listeners.delete(listener);
@@ -293,5 +312,161 @@ describe("hosting a workspace from the host dialog", () => {
     push({ ...running, phase: "stopping" });
     expect(within(dialog).getByText("Stopping workspace…")).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Stop hosting" })).toBeDisabled();
+  });
+});
+
+describe("a stable public address configured for the desktop app", () => {
+  const configured = "https://chat.example.org";
+
+  it("offers the configured address, and where to route it, instead of a temporary one", async () => {
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      publicAddress: configured,
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByText(configured)).toBeVisible();
+    expect(within(dialog).getByText("http://127.0.0.1:8543")).toBeVisible();
+    expect(within(dialog).queryByText(/Create a temporary HTTPS address/)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Open to all" })).toBeEnabled();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+
+  it("explains that a blank override keeps the configured Cloudflare address", async () => {
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      publicAddress: configured,
+      publicAddressManaged: true,
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(
+      within(dialog).getByText(/empty to use the configured Cloudflare address/),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByText(/empty to create a temporary address/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("says the open address will be the same one next time", async () => {
+    const open: HostingStatus = {
+      ...running,
+      tunnelAvailable: true,
+      publicAddress: configured,
+      openToAll: { phase: "open", url: configured },
+    };
+    const { hosting } = fakeHosting(open);
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(await within(dialog).findByRole("link", { name: configured })).toHaveAttribute(
+      "href",
+      configured,
+    );
+    expect(within(dialog).getByText(/stays the same when you reopen it/)).toBeVisible();
+    expect(within(dialog).queryByText(/This temporary address/)).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/only you can stop its external tunnel or proxy/),
+    ).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Stop using address" })).toBeEnabled();
+  });
+
+  it("says what to correct, and opens nothing, while the configuration is unusable", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      publicAddressError: "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE.",
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(/Set both GATHERLINE_TUNNEL_URL/);
+    const open = within(dialog).getByRole("button", { name: "Open to all" });
+    expect(open).toBeDisabled();
+
+    await user.click(open);
+    expect(hosting.openToAll).not.toHaveBeenCalled();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+});
+
+describe("an address the host already has", () => {
+  const funnel = "https://box.tail1234.ts.net";
+
+  it("takes one, trims it, and publishes it as the workspace's own", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({ ...running, tunnelAvailable: true });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText("Your own address"), `  ${funnel}  `);
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(hosting.setPublicAddress).toHaveBeenCalledWith(funnel);
+    expect(await within(dialog).findByText(funnel)).toBeVisible();
+    // Nothing here is Cloudflare's, so it must not tell them to route it there.
+    expect(within(dialog).getByText(/Send this address to/)).toBeVisible();
+    expect(within(dialog).queryByText(/In Cloudflare, route/)).not.toBeInTheDocument();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+
+  it("repeats what the app says about an address it will not take", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({ ...running, tunnelAvailable: true });
+    hosting.setPublicAddress.mockRejectedValueOnce(
+      new Error("Use a public HTTPS hostname without a path, credentials, query, or fragment."),
+    );
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    await user.type(within(dialog).getByLabelText("Your own address"), "http://localhost:8543");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(/public HTTPS hostname/);
+    const address = within(dialog).getByLabelText("Your own address");
+    expect(address).toHaveValue("http://localhost:8543");
+    expect(address).toHaveAttribute("aria-invalid", "true");
+    expect(address).toHaveAttribute("aria-errormessage", "public-address-error");
+    expect(address).toHaveAccessibleDescription(/public HTTPS hostname/);
+  });
+
+  it("warns that an external carrier can already expose the workspace", async () => {
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      publicAddress: funnel,
+      publicAddressSetting: funnel,
+      inviteOnly: true,
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByText(/may already make this workspace reachable/)).toBeVisible();
+    expect(within(dialog).getByText(/stop the carrier separately/)).toBeVisible();
+    expect(within(dialog).getByRole("checkbox", { name: /Require an invite/ })).toBeChecked();
+  });
+
+  it("shows an address the environment fixed without offering to change it", async () => {
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      publicAddress: funnel,
+      publicAddressSetting: funnel,
+      publicAddressLocked: true,
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByLabelText("Your own address")).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(dialog).getByText(/comes from an environment variable/)).toBeVisible();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
   });
 });

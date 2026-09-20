@@ -13,6 +13,7 @@ interface SlackossBridge {
   hostingOpenToAll: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
   hostingEndOpenToAll: () => Promise<HostingStatus>;
   hostingSetInviteOnly: (inviteOnly: boolean) => Promise<HostingStatus>;
+  hostingSetPublicAddress: (address: string) => Promise<HostingStatus>;
   onHostingStatus: (cb: (status: HostingStatus) => void) => () => void;
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
@@ -23,6 +24,19 @@ declare global {
   interface Window {
     slackoss: SlackossBridge;
   }
+}
+
+/**
+ * Electron prefixes a rejected handler's message with the channel it came
+ * from. Where the main process wrote the message for the person reading it,
+ * that prefix is noise, so it is removed before the UI ever sees it.
+ */
+const IPC_PREFIX = /^Error invoking remote method '[^']*':\s*(?:[A-Za-z]*Error:\s*)?/;
+function plainly<T>(call: Promise<T>): Promise<T> {
+  return call.catch((reason: unknown) => {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    throw new Error(message.replace(IPC_PREFIX, "") || message);
+  });
 }
 
 export function electronPlatform(): Platform {
@@ -61,9 +75,10 @@ export function electronPlatform(): Platform {
       start: (opts) => bridge.hostingStart(opts),
       lastHosted: () => bridge.hostingLastHosted(),
       stop: () => bridge.hostingStop(),
-      openToAll: (opts) => bridge.hostingOpenToAll(opts),
+      openToAll: (opts) => plainly(bridge.hostingOpenToAll(opts)),
       endOpenToAll: () => bridge.hostingEndOpenToAll(),
       setInviteOnly: (inviteOnly) => bridge.hostingSetInviteOnly(inviteOnly),
+      setPublicAddress: (address) => plainly(bridge.hostingSetPublicAddress(address)),
       subscribe: (cb) => bridge.onHostingStatus(cb),
     },
   };

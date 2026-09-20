@@ -9,12 +9,22 @@ export interface HostingSnapshot {
   dataDir?: string;
   lanUrls?: string[];
   warning?: string;
-  /** Reachable from anywhere through a tunnel, for as long as it lasts. */
+  /** Published at a public address, for as long as this app is using it. */
   openToAll?: { phase: "opening" } | { phase: "open"; url: string };
   /** Why opening to all failed or ended, until it is tried again. */
   openToAllError?: string;
   /** Whether this computer has what opening to all needs. */
   tunnelAvailable?: boolean;
+  /** A configured address that stays the same each time the link is opened. */
+  publicAddress?: string;
+  /** What the public address setting holds, valid or not, for editing. */
+  publicAddressSetting?: string;
+  /** Whether the environment set the address, so this app cannot change it. */
+  publicAddressLocked?: boolean;
+  /** Whether Gatherline runs the connector, rather than something else. */
+  publicAddressManaged?: boolean;
+  /** Why a configured stable address cannot be used, and what to correct. */
+  publicAddressError?: string;
   /** Whether an account after the first needs an invite code. */
   inviteOnly?: boolean;
 }
@@ -53,6 +63,8 @@ export function parseLastHosted(value: unknown): LastHosted | null {
 
 interface HostedServer {
   port: number;
+  /** Identifies this run, so a public address can be confirmed to reach it. */
+  instanceId?: string;
   stop(): Promise<void>;
   /** How the running server is reached and joined; see `WorkspaceServer`. */
   setPublicUrl?(url: string | null): void;
@@ -76,9 +88,23 @@ interface HostingOptions {
   lanUrls(port: number): string[];
   onChange?(): void;
   /** Opens a tunnel to a port on this computer. Absent where there is none to open. */
-  openTunnel?(port: number, signal: AbortSignal): Promise<Tunnel>;
+  openTunnel?(port: number, signal: AbortSignal, instanceId?: string): Promise<Tunnel>;
   /** Whether a tunnel could be opened now. */
   tunnelAvailable?(): boolean;
+  /**
+   * The stable public address configured for this computer: what the setting
+   * holds, the address that passed validation, who carries it, and what is
+   * wrong with it. Absent where only temporary addresses are available.
+   */
+  publicAddress?(): {
+    setting?: string;
+    locked?: boolean;
+    url?: string;
+    managed?: boolean;
+    error?: string;
+  };
+  /** Persists an address the host supplied, after the controller makes the change safe. */
+  savePublicAddress?(address: string | null): Promise<void>;
 }
 
 function startOptions(value: unknown): { workspaceName: string; port?: number } {
@@ -112,6 +138,8 @@ export function createHostingController(options: HostingOptions) {
   let closing = false;
   let shutdownPromise: Promise<void> | null = null;
   let tunnel: Tunnel | null = null;
+  /** The current address is carried by a process outside this app's control. */
+  let externalCarrier = false;
   /** Set while a tunnel is opening, so stopping or quitting need not wait for it. */
   let opening: AbortController | null = null;
   let openError: string | undefined;
@@ -127,7 +155,21 @@ export function createHostingController(options: HostingOptions) {
     }
   }
 
+  /**
+   * Read for each snapshot, so correcting the configuration takes effect
+   * without a restart. Configuration that cannot be read at all leaves the
+   * temporary address available rather than failing the status call.
+   */
+  function publicAddress(): NonNullable<ReturnType<NonNullable<HostingOptions["publicAddress"]>>> {
+    try {
+      return options.publicAddress?.() ?? {};
+    } catch {
+      return {};
+    }
+  }
+
   function status(): HostingSnapshot {
+    const address = publicAddress();
     return {
       running: server !== null,
       phase,
@@ -141,6 +183,11 @@ export function createHostingController(options: HostingOptions) {
           : {}),
       ...(openError ? { openToAllError: openError } : {}),
       ...(options.tunnelAvailable ? { tunnelAvailable: options.tunnelAvailable() } : {}),
+      ...(address.url ? { publicAddress: address.url } : {}),
+      ...(address.setting ? { publicAddressSetting: address.setting } : {}),
+      ...(address.locked ? { publicAddressLocked: true } : {}),
+      ...(address.managed ? { publicAddressManaged: true } : {}),
+      ...(address.error ? { publicAddressError: address.error } : {}),
       ...(warning ? { warning } : {}),
     };
   }
@@ -166,9 +213,17 @@ export function createHostingController(options: HostingOptions) {
     // Remove the public address from new links before asking the connector to
     // drain. Keep its handle/status until exit is confirmed so closing can be
     // retried if the child process refuses to stop.
-    if (server) closeReach(server);
+    if (server) {
+      closeReach(server);
+      // Stopping our use of an external route cannot stop that route. Keep it
+      // from becoming an open-registration endpoint if it is still running.
+      if (externalCarrier) server.setInviteOnly?.(true);
+    }
     await current.close();
-    if (tunnel === current) tunnel = null;
+    if (tunnel === current) {
+      tunnel = null;
+      externalCarrier = false;
+    }
   }
 
   function cancelPublicOpen(): void {
@@ -326,6 +381,12 @@ export function createHostingController(options: HostingOptions) {
       if (stopFailed)
         throw new Error("Finish stopping the workspace before changing its public access.");
       if (!options.openTunnel) throw new Error("Opening to all is not available in this app.");
+      // A configured stable address that cannot be used has to be corrected.
+      // Falling back would publish a temporary link nobody was given. An
+      // already open link keeps working, so its policy can still be changed.
+      const configured = publicAddress();
+      const carriedElsewhere = !!configured.url && !configured.managed;
+      if (!tunnel && configured.error) throw new Error(configured.error);
       if (
         !target.setPublicUrl ||
         !target.setIceServers ||
@@ -351,7 +412,7 @@ export function createHostingController(options: HostingOptions) {
       changed();
       let opened: Tunnel;
       try {
-        opened = await options.openTunnel(target.port, attempt.signal);
+        opened = await options.openTunnel(target.port, attempt.signal, target.instanceId);
       } catch (error) {
         try {
           target.setInviteOnly(previousInviteOnly);
@@ -377,7 +438,9 @@ export function createHostingController(options: HostingOptions) {
         throw new Error("Opening to all was cancelled.");
       }
       try {
-        target.setTrustLoopbackProxy?.(true);
+        // Only a connector Gatherline starts is known to replace Cloudflare's
+        // client-address header. A generic local proxy may pass a forged one.
+        if (!carriedElsewhere) target.setTrustLoopbackProxy?.(true);
         target.setPublicUrl(opened.url);
         target.setIceServers(OPEN_TO_ALL_ICE_SERVERS);
       } catch (error) {
@@ -393,11 +456,17 @@ export function createHostingController(options: HostingOptions) {
         throw error;
       }
       tunnel = opened;
+      externalCarrier = carriedElsewhere;
       opened.onUnexpectedExit((reason) => {
         if (tunnel !== opened) return;
         tunnel = null;
+        const wasExternal = externalCarrier;
+        externalCarrier = false;
         closeReach(target);
-        openError = `The public link stopped working (${reason}). Open to all again for a new link.`;
+        if (wasExternal) target.setInviteOnly?.(true);
+        openError = configured.url
+          ? `The public link stopped working (${reason}). Fix its connection, then open to all again at the same address.`
+          : `The public link stopped working (${reason}). Open to all again for a new link.`;
         changed();
       });
       changed();
@@ -438,6 +507,26 @@ export function createHostingController(options: HostingOptions) {
     });
   }
 
+  /**
+   * Changes the saved external address in the same queue as opening it. An
+   * external carrier may already be live, so registration is secured before
+   * persistence and remains secured if saving fails.
+   */
+  function setPublicAddress(value: string | null): Promise<HostingSnapshot> {
+    if (!options.savePublicAddress)
+      return Promise.reject(new Error("Saving a public address is not available in this app."));
+    return serialized(async () => {
+      if (closing) throw new Error("The app is quitting.");
+      if (tunnel || opening)
+        throw new Error("Stop using the current public address before changing it.");
+      if (server && phase === "running") server.setInviteOnly?.(true);
+      await options.savePublicAddress!(value);
+      openError = undefined;
+      changed();
+      return status();
+    });
+  }
+
   function shutdown(): Promise<void> {
     if (shutdownPromise) return shutdownPromise;
     // Set before joining the queue: later IPC starts cannot outrun a pending quit.
@@ -452,5 +541,14 @@ export function createHostingController(options: HostingOptions) {
     return shutdownPromise;
   }
 
-  return { status, start, stop, shutdown, openToAll, endOpenToAll, setInviteOnly };
+  return {
+    status,
+    start,
+    stop,
+    shutdown,
+    openToAll,
+    endOpenToAll,
+    setInviteOnly,
+    setPublicAddress,
+  };
 }
