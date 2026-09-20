@@ -243,6 +243,17 @@ own: `cloudflared tunnel --url http://127.0.0.1:8543`, giving
   address answered from the workspace. The loopback check catches this and
   names it; with the port free the same start says nothing.
 
+The Tailscale instructions were checked against Tailscale's own documentation
+on 2026-09-20 rather than by running them: the 443/8443/10000 listener ports,
+beta status and non-configurable bandwidth, the MagicDNS/HTTPS/node-attribute
+prerequisites, `--bg` and `reset`, the Windows Administrator requirement, and
+the Personal plan being free but non-commercial all match. One claim did not:
+an earlier revision said macOS Funnel needs the open-source `tailscaled` build,
+which is Tailscale's rule for sharing **files**. Sharing a **port** is what
+Gatherline needs, and that works on the GUI builds. Tailscale's Funnel page and
+its macOS variants table disagree about the App Store build, so the text now
+names only the Standalone one and links the table.
+
 What it does not cover: a **Tailscale Funnel**, which was not installed or run,
 and a **Cloudflare named tunnel**, which needs a zone and a connector token that
 were not used. `cloudflared` 2026.9.1 is installed on the Windows validation

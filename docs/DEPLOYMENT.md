@@ -180,9 +180,12 @@ published.
 
 [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel) gives a
 stable HTTPS name with a real certificate and no domain to buy. It is available
-on every Tailscale plan; Tailscale's Personal plan is free for individual,
-non-commercial use, while team or business use can require a paid plan. Funnel
-is currently beta and has non-configurable bandwidth limits. It also needs
+on every Tailscale plan; Tailscale's Personal plan is free but is for
+non-commercial use, and caps how many people share a tailnet. That cap counts
+Tailscale accounts, not workspace members: a Funnel is open to the internet, so
+teammates join Gatherline through the address in a browser and need no Tailscale
+account at all. Funnel is currently beta and has non-configurable bandwidth
+limits. It also needs
 MagicDNS, HTTPS certificates, and the Funnel node attribute in the tailnet
 policy. The first command can open Tailscale's approval page to enable those
 settings; the person approving it needs the appropriate tailnet role.
@@ -225,9 +228,11 @@ sudo tailscale funnel reset
 Funnel prints a name like `https://box.tail1234.ts.net`; paste it into **Your own
 address**. The public HTTPS listener can use only port 443 (the default), 8443,
 or 10000. The `8543` above is the local Gatherline target, not the public
-listener. On macOS, Funnel requires Tailscale's
-[open-source `tailscaled` variant](https://tailscale.com/docs/concepts/macos-variants);
-the App Store and Standalone GUI variants do not support it.
+listener. On macOS, forwarding a port needs one of the GUI builds — Tailscale
+documents the Standalone system extension for this, and the open-source
+`tailscaled` build is what its file-sharing rule is about, not ports. Check
+[which macOS variant you have](https://tailscale.com/docs/concepts/macos-variants)
+if `tailscale funnel` refuses the port.
 
 Gatherline does not sign in to Tailscale or change the tailnet policy. Those
 steps belong to Tailscale's own client and approval page, and the Windows command
