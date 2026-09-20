@@ -91,12 +91,23 @@ describe("reopening a workspace this computer hosted", () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it("still reconnects when hosting runs", async () => {
+  it("still reconnects when hosting runs, and reports a dropped public link", async () => {
     const connect = vi.spyOn(WorkspaceClient.prototype, "connect").mockImplementation(() => {});
     appWithLinks({
-      status: async () => ({ running: true, phase: "running" }),
+      status: async () => ({
+        running: true,
+        phase: "running",
+        workspaceName: "Rocket Team",
+        port: 9,
+        warning: "The last-used hosting settings could not be saved.",
+        openToAllError:
+          "The public link stopped working (edge connection lost). Open to all again for a new link.",
+      }),
       lastHosted: async () => ({ workspaceName: "Rocket Team", port: 9 }),
     });
     await waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/public link stopped working/);
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/settings could not be saved/);
+    expect(screen.getByRole("button", { name: "Manage hosting" })).toBeVisible();
   });
 });

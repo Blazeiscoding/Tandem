@@ -67,7 +67,7 @@ async function inviteWith(options: {
     requiresClaim: false,
     ...(options.publicUrl ? { publicUrl: options.publicUrl } : {}),
   };
-  vi.spyOn(client.api, "serverInfo").mockResolvedValue(info);
+  const serverInfo = vi.spyOn(client.api, "serverInfo").mockResolvedValue(info);
   vi.spyOn(client.api, "listInvites").mockResolvedValue({ invites: [] });
   vi.spyOn(client.api, "createInvite").mockResolvedValue({
     invite: {
@@ -97,7 +97,7 @@ async function inviteWith(options: {
   const dialog = screen.getByRole("dialog", { name: "Invite people" });
   await user.click(within(dialog).getByRole("button", { name: "Generate invite code" }));
   await within(dialog).findByText("ABCD1234");
-  return { dialog: within(dialog), root: dialog, user };
+  return { dialog: within(dialog), root: dialog, user, info, serverInfo };
 }
 
 describe("inviting someone", () => {
@@ -123,14 +123,24 @@ describe("inviting someone", () => {
     expect(await accessibilityProblems(root)).toEqual([]);
   });
 
-  it("uses the address the host published, whatever this app is connected through", async () => {
-    const { dialog } = await inviteWith({
+  it("refreshes the address the host published, whatever this app is connected through", async () => {
+    const { dialog, info, serverInfo } = await inviteWith({
       baseUrl: "http://192.168.1.20:8543",
       publicUrl: "https://chat.team.dev",
     });
     expect(await dialog.findByText("https://chat.team.dev/#/join/ABCD1234")).toBeVisible();
     expect(
       dialog.getByText("gatherline://join?host=https://chat.team.dev&code=ABCD1234"),
+    ).toBeVisible();
+
+    serverInfo.mockResolvedValue({ ...info, publicUrl: undefined });
+    fireEvent.focus(window);
+    expect(await dialog.findByText("http://192.168.1.20:8543/#/join/ABCD1234")).toBeVisible();
+
+    serverInfo.mockResolvedValue({ ...info, publicUrl: "https://new-link.trycloudflare.com" });
+    fireEvent.focus(window);
+    expect(
+      await dialog.findByText("https://new-link.trycloudflare.com/#/join/ABCD1234"),
     ).toBeVisible();
   });
 
