@@ -221,10 +221,6 @@ const hosting = createHostingController({
       port,
       workspaceName,
       mdns: true,
-      // cloudflared reaches this embedded server from loopback. Trust only
-      // that peer's client-address headers so public visitors do not all share
-      // one authentication and WebSocket rate-limit bucket.
-      trustedClientProxy: "loopback",
       webDistPath: app.isPackaged
         ? join(process.resourcesPath, "web")
         : join(import.meta.dirname, "../../../web/dist"),
@@ -233,6 +229,9 @@ const hosting = createHostingController({
       port: server.port,
       stop: () => server.stop(),
       setPublicUrl: (url) => server.setPublicUrl(url),
+      // cloudflared reaches this embedded server from loopback. Believe its
+      // visitor address only while the controller owns a live connector.
+      setTrustLoopbackProxy: (enabled) => server.setTrustLoopbackProxy(enabled),
       setIceServers: (servers) => server.setIceServers(servers),
       inviteOnly: () => server.inviteOnly(),
       setInviteOnly: (value) => server.setInviteOnly(value),

@@ -56,6 +56,7 @@ interface HostedServer {
   stop(): Promise<void>;
   /** How the running server is reached and joined; see `WorkspaceServer`. */
   setPublicUrl?(url: string | null): void;
+  setTrustLoopbackProxy?(enabled: boolean): void;
   setIceServers?(servers: { urls: string }[]): void;
   inviteOnly?(): boolean;
   setInviteOnly?(inviteOnly: boolean): void;
@@ -146,11 +147,16 @@ export function createHostingController(options: HostingOptions) {
 
   /** Back to reachable only on this network: no public address, no STUN. */
   function closeReach(target: HostedServer): void {
-    try {
-      target.setPublicUrl?.(null);
-      target.setIceServers?.([]);
-    } catch {
-      // Clearing takes values that are always accepted.
+    for (const clear of [
+      () => target.setTrustLoopbackProxy?.(false),
+      () => target.setPublicUrl?.(null),
+      () => target.setIceServers?.([]),
+    ]) {
+      try {
+        clear();
+      } catch {
+        // Keep clearing the other public state even if an implementation fails.
+      }
     }
   }
 
@@ -371,6 +377,7 @@ export function createHostingController(options: HostingOptions) {
         throw new Error("Opening to all was cancelled.");
       }
       try {
+        target.setTrustLoopbackProxy?.(true);
         target.setPublicUrl(opened.url);
         target.setIceServers(OPEN_TO_ALL_ICE_SERVERS);
       } catch (error) {

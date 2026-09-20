@@ -127,6 +127,10 @@ The public HTTPS address carries the browser client, API requests, and
 WebSockets used for chat. Opening the invite link on another computer sends the
 request to Cloudflare's edge, which forwards it through the tunnel that the host
 already opened. A click cannot open a tunnel on a host that is offline.
+While that connector is active, the embedded server accepts Cloudflare's
+visitor-address header only from a loopback peer so its unauthenticated limits
+remain separate per visitor. It stops trusting that header as soon as the public
+link closes; LAN and other network peers cannot supply it.
 
 **Open to all** adds Cloudflare's STUN service for peer-to-peer huddles, but it
 does not add a TURN relay. Chat and invites can work while audio, camera, or

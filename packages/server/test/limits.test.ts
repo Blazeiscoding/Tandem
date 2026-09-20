@@ -221,7 +221,7 @@ describe("authentication limits", () => {
     expect(repeated.status).toBe(429);
   });
 
-  it("ignores client-address headers unless the loopback proxy was explicitly trusted", async () => {
+  it("changes client-address trust only while the loopback proxy is enabled", async () => {
     await start({
       authByAddress: { burst: 1, perMinute: 1 },
       authByHandle: { burst: 100, perMinute: 100 },
@@ -240,6 +240,31 @@ describe("authentication limits", () => {
         await call("/api/auth/login", {
           headers: { "cf-connecting-ip": "203.0.113.21" },
           body: { handle: "missing-two", password: "wrong" },
+        })
+      ).status,
+    ).toBe(429);
+
+    server!.setTrustLoopbackProxy(true);
+    for (const [address, handle] of [
+      ["203.0.113.20", "missing-three"],
+      ["203.0.113.21", "missing-four"],
+    ] as const) {
+      expect(
+        (
+          await call("/api/auth/login", {
+            headers: { "cf-connecting-ip": address },
+            body: { handle, password: "wrong" },
+          })
+        ).status,
+      ).toBe(401);
+    }
+
+    server!.setTrustLoopbackProxy(false);
+    expect(
+      (
+        await call("/api/auth/login", {
+          headers: { "cf-connecting-ip": "203.0.113.22" },
+          body: { handle: "missing-five", password: "wrong" },
         })
       ).status,
     ).toBe(429);

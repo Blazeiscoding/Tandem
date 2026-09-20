@@ -215,6 +215,8 @@ export interface WorkspaceServer {
    * with `publicUrl`, no request counts as coming from this machine.
    */
   setPublicUrl: (url: string | null) => void;
+  /** Trusts a loopback connector's client-address headers only while it is in use. */
+  setTrustLoopbackProxy: (enabled: boolean) => void;
   /** Replaces the STUN and TURN servers that calls started from now on are given. */
   setIceServers: (servers: NonNullable<ServerOptions["iceServers"]>) => void;
   /** Whether an account after the first needs an invite code. */
@@ -335,10 +337,15 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     opts.rateLimits === false
       ? null
       : new RateLimiter({ ...DEFAULT_LIMITS, ...(opts.rateLimits ?? {}) });
+  let trustLoopbackProxy = opts.trustedClientProxy === "loopback";
 
   /** The address a request came from, as the limiter keys on it. */
   const callerAddress = (req: FastifyRequest): string =>
-    resolveClientAddress(req.socket.remoteAddress, req.headers, opts.trustedClientProxy);
+    resolveClientAddress(
+      req.socket.remoteAddress,
+      req.headers,
+      trustLoopbackProxy ? "loopback" : undefined,
+    );
 
   /**
    * Clears what a handle has spent on authentication. Called when a password
@@ -364,7 +371,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   };
 
   const gateway = new Gateway(store, workspaceName, limiter, (req) =>
-    resolveClientAddress(req.socket.remoteAddress, req.headers, opts.trustedClientProxy),
+    resolveClientAddress(
+      req.socket.remoteAddress,
+      req.headers,
+      trustLoopbackProxy ? "loopback" : undefined,
+    ),
   );
 
   const recordEvent = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
@@ -3623,6 +3634,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     setPublicUrl: (url) => {
       // Checked before anything changes, so a refused address leaves the old one.
       publicUrl = url === null ? undefined : parsePublicUrl(url, "publicUrl");
+    },
+    setTrustLoopbackProxy: (enabled) => {
+      if (typeof enabled !== "boolean") throw new TypeError("enabled must be a boolean");
+      trustLoopbackProxy = enabled;
     },
     setIceServers: (servers) => {
       iceServers = iceServersSchema.parse(servers);

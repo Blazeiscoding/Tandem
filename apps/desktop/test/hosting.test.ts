@@ -37,6 +37,7 @@ function harness(options: { publicAccess?: boolean } = {}) {
     accountCount: 1,
     inviteOnly: false,
     policyCalls: [] as boolean[],
+    proxyTrust: [] as boolean[],
     publicUrls: [] as (string | null)[],
     iceServers: [] as { urls: string }[][],
     tunnelStarts: [] as { port: number; signal: AbortSignal }[],
@@ -61,6 +62,7 @@ function harness(options: { publicAccess?: boolean } = {}) {
         stop: vi.fn(async () => {}),
         ...(options.publicAccess
           ? {
+              setTrustLoopbackProxy: (enabled: boolean) => h.proxyTrust.push(enabled),
               setPublicUrl: (url: string | null) => h.publicUrls.push(url),
               setIceServers: (servers: { urls: string }[]) => h.iceServers.push(servers),
               inviteOnly: () => h.inviteOnly,
@@ -296,6 +298,7 @@ describe("hosting a workspace from the desktop app", () => {
       expect(h.events.slice(0, 2)).toEqual(["policy:true", "tunnel:open"]);
       expect(h.tunnelStarts).toHaveLength(1);
       expect(h.publicUrls).toEqual(["https://rocket-team.trycloudflare.com"]);
+      expect(h.proxyTrust).toEqual([true]);
       expect(h.iceServers.at(-1)).toEqual([{ urls: "stun:stun.cloudflare.com:3478" }]);
       expect(opened).toMatchObject({
         running: true,
@@ -315,6 +318,7 @@ describe("hosting a workspace from the desktop app", () => {
       const closed = await h.controller.endOpenToAll();
       expect(h.tunnels[0]!.close).toHaveBeenCalledOnce();
       expect(h.publicUrls.at(-1)).toBeNull();
+      expect(h.proxyTrust).toEqual([true, false]);
       expect(h.iceServers.at(-1)).toEqual([]);
       expect(closed.openToAll).toBeUndefined();
       expect(closed.inviteOnly).toBe(false);
@@ -446,6 +450,7 @@ describe("hosting a workspace from the desktop app", () => {
 
       h.tunnels[0]!.drop("edge connection lost");
       expect(h.publicUrls.at(-1)).toBeNull();
+      expect(h.proxyTrust).toEqual([true, false]);
       expect(h.iceServers.at(-1)).toEqual([]);
       expect(h.controller.status()).toMatchObject({
         openToAllError: expect.stringMatching(/edge connection lost/),
