@@ -1,10 +1,13 @@
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type RequestListener } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   findCloudflared,
+  gatherlineIsReachable,
   openConfiguredAddress,
   openNamedTunnel,
   openQuickTunnel,
@@ -35,8 +38,25 @@ afterAll(() => rmSync(workdir, { recursive: true, force: true }));
 
 const opened: Tunnel[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const tunnel of opened.splice(0)) await tunnel.close();
 });
+
+async function serve(handler: RequestListener): Promise<{ url: string; close(): Promise<void> }> {
+  const server = createServer(handler);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
+}
 
 describe("finding cloudflared", () => {
   const present =
@@ -72,6 +92,95 @@ describe("finding cloudflared", () => {
     expect(findCloudflared(env, present(installer, winget), "win32")).toBe(installer);
     expect(findCloudflared(env, present(winget), "win32")).toBe(winget);
     expect(findCloudflared(env, present(), "win32")).toBeNull();
+  });
+});
+
+describe("checking the public workspace identity", () => {
+  it("uses a fresh nonce without caching or redirects and requires the exact running instance", async () => {
+    const requested: string[] = [];
+    const endpoint = await serve((request, response) => {
+      requested.push(request.url ?? "");
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ status: "ok", instanceId: "workspace-run-1" }));
+    });
+    const actualFetch = globalThis.fetch;
+    const options: RequestInit[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      options.push(init ?? {});
+      return actualFetch(input, init);
+    });
+    try {
+      const health = `${endpoint.url}/api/health`;
+      expect(await gatherlineIsReachable(health, new AbortController().signal, "another-run")).toBe(
+        false,
+      );
+      expect(
+        await gatherlineIsReachable(health, new AbortController().signal, "workspace-run-1"),
+      ).toBe(true);
+      expect(options).toHaveLength(2);
+      for (const option of options) {
+        expect(option.cache).toBe("no-store");
+        expect(option.redirect).toBe("error");
+        expect(option.headers).toEqual({ accept: "application/json" });
+      }
+      const nonces = requested.map((value) =>
+        new URL(value, endpoint.url).searchParams.get("_gatherline"),
+      );
+      expect(nonces[0]).toMatch(/^[0-9a-f-]{36}$/);
+      expect(nonces[1]).toMatch(/^[0-9a-f-]{36}$/);
+      expect(nonces[1]).not.toBe(nonces[0]);
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("refuses redirects even when their destination has a valid health response", async () => {
+    const endpoint = await serve((request, response) => {
+      if (request.url?.startsWith("/api/health")) {
+        response.writeHead(302, { location: "/other" });
+        response.end();
+        return;
+      }
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ status: "ok", instanceId: "workspace-run-1" }));
+    });
+    try {
+      expect(
+        await gatherlineIsReachable(
+          `${endpoint.url}/api/health`,
+          new AbortController().signal,
+          "workspace-run-1",
+        ),
+      ).toBe(false);
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("refuses malformed and oversized health documents", async () => {
+    let request = 0;
+    const endpoint = await serve((_incoming, response) => {
+      response.setHeader("content-type", "application/json");
+      if (request++ === 0) {
+        response.end("{");
+        return;
+      }
+      // Chunked whitespace keeps Content-Length absent and would still be
+      // valid JSON without the response-size limit.
+      response.write(" ".repeat(5_000));
+      response.end(JSON.stringify({ status: "ok", instanceId: "workspace-run-1" }));
+    });
+    try {
+      const health = `${endpoint.url}/api/health`;
+      expect(
+        await gatherlineIsReachable(health, new AbortController().signal, "workspace-run-1"),
+      ).toBe(false);
+      expect(
+        await gatherlineIsReachable(health, new AbortController().signal, "workspace-run-1"),
+      ).toBe(false);
+    } finally {
+      await endpoint.close();
+    }
   });
 });
 
@@ -490,8 +599,8 @@ describe("publishing an address something else carries", () => {
     );
   });
 
-  it("gives the address up after several checks fail, not after one blip", async () => {
-    let healthy = true;
+  it("gives the address up only after consecutive failures, resetting after a recovery", async () => {
+    const answers = [true, false, false, true, false, false, false];
     const checks: boolean[] = [];
     const tunnel = await openConfiguredAddress({
       publicUrl: funnel,
@@ -500,6 +609,7 @@ describe("publishing an address something else carries", () => {
       pollMs: 5,
       tolerance: 3,
       healthProbe: async () => {
+        const healthy = answers.shift() ?? true;
         checks.push(healthy);
         return healthy;
       },
@@ -508,9 +618,8 @@ describe("publishing an address something else carries", () => {
     const reasons: string[] = [];
     tunnel.onUnexpectedExit((reason) => reasons.push(reason));
 
-    healthy = false;
     await expect.poll(() => reasons).toHaveLength(1);
     expect(reasons[0]).toMatch(/stopped answering as this workspace/);
-    expect(checks.filter((ok) => !ok).length).toBeGreaterThanOrEqual(3);
+    expect(checks.slice(0, 7)).toEqual([true, false, false, true, false, false, false]);
   });
 });

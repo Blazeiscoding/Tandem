@@ -134,6 +134,23 @@ describe("self-hosted product", () => {
     ).toBe("secret");
   });
 
+  it("gives each server start a fresh health-check identity", async () => {
+    let base = await start();
+    const first = (await request(base, "/api/health")).data.instanceId;
+    await server!.stop();
+    server = await createWorkspaceServer({
+      dataDir: directory!,
+      port: 0,
+      host: "127.0.0.1",
+      mdns: false,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+    const second = (await request(base, "/api/health")).data.instanceId;
+    expect(first).toEqual(expect.any(String));
+    expect(second).toEqual(expect.any(String));
+    expect(second).not.toBe(first);
+  });
+
   it("keeps friends private, requires recipient acceptance, and persists across restart", async () => {
     let base = await start();
     const owner = (await register(base, "owner")).data;

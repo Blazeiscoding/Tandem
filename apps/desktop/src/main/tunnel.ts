@@ -86,22 +86,65 @@ function lastComplaint(lines: string[]): string | null {
   return text.length > 200 ? `${text.slice(0, 197)}…` : text;
 }
 
-async function gatherlineIsReachable(
+const MAX_HEALTH_RESPONSE_BYTES = 4 * 1024;
+
+/** Read only the small JSON document the health endpoint is expected to return. */
+async function readHealthResponse(response: Response): Promise<string | null> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_HEALTH_RESPONSE_BYTES) return null;
+  if (!response.body) return null;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_HEALTH_RESPONSE_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } catch {
+    try {
+      await reader.cancel();
+    } catch {
+      // The response already failed; cancellation is only best-effort cleanup.
+    }
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function gatherlineIsReachable(
   url: string,
   signal: AbortSignal,
   instanceId?: string,
 ): Promise<boolean> {
-  const address = new URL(url);
-  address.searchParams.set("_gatherline", randomUUID());
-  const response = await fetch(address, {
-    signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
-    cache: "no-store",
-    redirect: "error",
-    headers: { accept: "application/json" },
-  });
-  if (!response.ok) return false;
-  const body = (await response.json()) as { status?: unknown; instanceId?: unknown } | null;
-  return body?.status === "ok" && (instanceId === undefined || body.instanceId === instanceId);
+  try {
+    const address = new URL(url);
+    address.searchParams.set("_gatherline", randomUUID());
+    const response = await fetch(address, {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
+      cache: "no-store",
+      redirect: "error",
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) return false;
+    const text = await readHealthResponse(response);
+    if (text === null) return false;
+    const body = JSON.parse(text) as { status?: unknown; instanceId?: unknown } | null;
+    return body?.status === "ok" && (instanceId === undefined || body.instanceId === instanceId);
+  } catch {
+    return false;
+  }
 }
 
 /**
