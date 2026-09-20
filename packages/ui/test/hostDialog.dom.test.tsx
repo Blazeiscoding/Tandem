@@ -53,8 +53,20 @@ function fakeHosting(initial: HostingStatus) {
     // The main process validates and saves; here it simply takes what it is given.
     setPublicAddress: vi.fn(async (address: string) => {
       current = address
-        ? { ...current, publicAddress: address, publicAddressSetting: address }
-        : { ...current, publicAddress: undefined, publicAddressSetting: undefined };
+        ? {
+            ...current,
+            publicAddress: address,
+            publicAddressSetting: address,
+            inviteOnly: true,
+            openToAllError: undefined,
+          }
+        : {
+            ...current,
+            publicAddress: undefined,
+            publicAddressSetting: undefined,
+            inviteOnly: true,
+            openToAllError: undefined,
+          };
       return current;
     }),
     subscribe: (listener: (status: HostingStatus) => void) => {
@@ -322,6 +334,24 @@ describe("a stable public address configured for the desktop app", () => {
     expect(await accessibilityProblems(dialog)).toEqual([]);
   });
 
+  it("explains that a blank override keeps the configured Cloudflare address", async () => {
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      publicAddress: configured,
+      publicAddressManaged: true,
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(
+      within(dialog).getByText(/empty to use the configured Cloudflare address/),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByText(/empty to create a temporary address/),
+    ).not.toBeInTheDocument();
+  });
+
   it("says the open address will be the same one next time", async () => {
     const open: HostingStatus = {
       ...running,
@@ -337,10 +367,12 @@ describe("a stable public address configured for the desktop app", () => {
       "href",
       configured,
     );
-    expect(
-      within(dialog).getByText(/stays the same when you reopen the public link/),
-    ).toBeVisible();
+    expect(within(dialog).getByText(/stays the same when you reopen it/)).toBeVisible();
     expect(within(dialog).queryByText(/This temporary address/)).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/only you can stop its external tunnel or proxy/),
+    ).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Stop using address" })).toBeEnabled();
   });
 
   it("says what to correct, and opens nothing, while the configuration is unusable", async () => {
@@ -398,7 +430,27 @@ describe("an address the host already has", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(/public HTTPS hostname/);
-    expect(within(dialog).getByLabelText("Your own address")).toHaveValue("http://localhost:8543");
+    const address = within(dialog).getByLabelText("Your own address");
+    expect(address).toHaveValue("http://localhost:8543");
+    expect(address).toHaveAttribute("aria-invalid", "true");
+    expect(address).toHaveAttribute("aria-errormessage", "public-address-error");
+    expect(address).toHaveAccessibleDescription(/public HTTPS hostname/);
+  });
+
+  it("warns that an external carrier can already expose the workspace", async () => {
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      publicAddress: funnel,
+      publicAddressSetting: funnel,
+      inviteOnly: true,
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByText(/may already make this workspace reachable/)).toBeVisible();
+    expect(within(dialog).getByText(/stop the carrier separately/)).toBeVisible();
+    expect(within(dialog).getByRole("checkbox", { name: /Require an invite/ })).toBeChecked();
   });
 
   it("shows an address the environment fixed without offering to change it", async () => {

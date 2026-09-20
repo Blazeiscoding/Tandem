@@ -107,6 +107,7 @@ export function HostDialog(props: {
   const changing = phase === "starting" || phase === "stopping";
   const unavailable = loading || statusError || !status || changing || !!busy;
   const publicUrl = status?.openToAll?.phase === "open" ? status.openToAll.url : null;
+  const externallyCarried = !!status?.publicAddress && !status.publicAddressManaged;
   const tunnelError = status?.publicAddressError ?? status?.openToAllError;
   const savedAddress = status?.publicAddressSetting ?? "";
   const addressValue = addressDraft ?? savedAddress;
@@ -126,9 +127,8 @@ export function HostDialog(props: {
   }, [status?.workspaceName]);
 
   useEffect(() => {
-    if (status?.openToAll?.phase === "open" && status.inviteOnly !== undefined)
-      setRequireInvite(status.inviteOnly);
-  }, [status?.inviteOnly, status?.openToAll?.phase]);
+    if (status?.inviteOnly !== undefined) setRequireInvite(status.inviteOnly);
+  }, [status?.inviteOnly]);
 
   async function start(e: React.FormEvent) {
     e.preventDefault();
@@ -212,8 +212,9 @@ export function HostDialog(props: {
     } catch {
       setError({
         tunnel: true,
-        message:
-          "Gatherline’s Cloudflare connection could not be closed cleanly. Try again before quitting Gatherline.",
+        message: externallyCarried
+          ? "Gatherline could not stop publishing this address. Try again, then stop its external tunnel or proxy separately."
+          : "Gatherline’s Cloudflare connection could not be closed cleanly. Try again before quitting Gatherline.",
       });
     } finally {
       await refresh();
@@ -352,6 +353,13 @@ export function HostDialog(props: {
                   </span>
                 )}
               </div>
+              <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+                {publicUrl
+                  ? `Public link open at ${publicUrl}`
+                  : status.openToAll?.phase === "opening"
+                    ? "Opening public link"
+                    : "Public link closed"}
+              </p>
               {tunnelError && (
                 <p role="alert" className="mb-2 text-xs text-alert">
                   {tunnelError}
@@ -364,7 +372,7 @@ export function HostDialog(props: {
                       ? "This temporary address works from anywhere while Gatherline and cloudflared stay running."
                       : status.publicAddressManaged
                         ? "This configured address stays the same when you reopen the public link. Keep Gatherline and its Cloudflare connector running so teammates can connect."
-                        : "This configured address stays the same when you reopen the public link. Keep Gatherline running, and whatever carries this address to it."}
+                        : "This configured address stays the same when you reopen it. Gatherline can stop publishing the address, but only you can stop its external tunnel or proxy and make it unreachable."}
                   </p>
                   <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-raised p-2">
                     <a
@@ -407,7 +415,13 @@ export function HostDialog(props: {
                     onClick={() => void endOpenToAll()}
                     className="mt-3 rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:text-ink disabled:opacity-40"
                   >
-                    {busy === "closing" ? "Closing public link…" : "Close public link"}
+                    {busy === "closing"
+                      ? externallyCarried
+                        ? "Stopping use of address…"
+                        : "Closing public link…"
+                      : externallyCarried
+                        ? "Stop using address"
+                        : "Close public link"}
                   </button>
                 </>
               ) : (
@@ -425,6 +439,13 @@ export function HostDialog(props: {
                         </p>
                       )}
                       <p>Keep Gatherline running so teammates can connect.</p>
+                      {externallyCarried && (
+                        <p>
+                          Its external tunnel or proxy may already make this workspace reachable.
+                          Gatherline requires invites when you save the address; stop the carrier
+                          separately when you want the address itself to become unreachable.
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <p className="text-xs text-ink-dim">
@@ -440,10 +461,14 @@ export function HostDialog(props: {
                       >
                         Your own address
                       </label>
-                      <p className="mt-1 text-xs text-ink-dim">
+                      <p id="public-address-help" className="mt-1 text-xs text-ink-dim">
                         Already have a Tailscale Funnel, reverse proxy, or tunnel of your own
                         pointing here? Enter its address to reuse the same link every time. Leave it
-                        empty for a temporary one.
+                        empty to{" "}
+                        {status.publicAddressManaged
+                          ? "use the configured Cloudflare address"
+                          : "create a temporary address"}
+                        .
                       </p>
                       <div className="mt-2 flex gap-2">
                         <input
@@ -454,6 +479,9 @@ export function HostDialog(props: {
                           placeholder="https://box.tail1234.ts.net"
                           value={addressValue}
                           disabled={!!busy || status.publicAddressLocked}
+                          aria-describedby={`public-address-help${addressError ? " public-address-error" : ""}`}
+                          aria-invalid={!!addressError}
+                          aria-errormessage={addressError ? "public-address-error" : undefined}
                           onChange={(event) => {
                             setAddressDraft(event.target.value);
                             setAddressError(null);
@@ -476,7 +504,11 @@ export function HostDialog(props: {
                         </p>
                       )}
                       {addressError && (
-                        <p role="alert" className="mt-2 text-xs text-alert">
+                        <p
+                          id="public-address-error"
+                          role="alert"
+                          className="mt-2 text-xs text-alert"
+                        >
                           {addressError}
                         </p>
                       )}

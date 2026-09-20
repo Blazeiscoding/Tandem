@@ -81,7 +81,7 @@ export interface Platform {
     subscribe?: (cb: (status: HostingStatus) => void) => () => void;
     start: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
     stop: () => Promise<void>;
-    /** Open/close this app's public Cloudflare Tunnel connection to the hosted workspace. */
+    /** Publish/unpublish the hosted workspace at a public address. */
     openToAll?: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
     endOpenToAll?: () => Promise<HostingStatus>;
     /** Change whether new accounts need an invite while the server is running. */

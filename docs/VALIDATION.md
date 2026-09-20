@@ -27,7 +27,7 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite                | Command                                   | Result                                                                                                                                                                                     | Last run   |
 | -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
 | Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed                                                                                                                                | 2026-09-20 |
-| Unit and integration | `pnpm test`                               | 637 tests: server 365, client-core 64, ui 159, protocol 12, desktop 37                                                                                                                     | 2026-09-20 |
+| Unit and integration | `pnpm test`                               | 683 tests: server 367, client-core 64, ui 167, protocol 12, desktop 73                                                                                                                     | 2026-09-20 |
 | Browser end to end   | `pnpm test:e2e`                           | 12 scenarios, passed; the demo seed fills an invite-only workspace the browser then shows                                                                                                  | 2026-09-20 |
 | Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again | 2026-09-20 |
 | Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 453.0 kB in the browser client and 453.4 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                        | 2026-09-20 |
@@ -211,6 +211,17 @@ What it does not cover: the visitor was a browser on the host machine, so the
 request reached Cloudflare's edge and came back rather than starting on another
 network; calls between two restrictive networks, which have no relay; and macOS
 or Linux, where nothing has been run.
+
+The stable-address modes added after that walkthrough have **not** been opened
+against a real Cloudflare remotely managed tunnel or a real Tailscale Funnel.
+Their automated coverage uses a stand-in connector and injected health probes to
+check command arguments, run identity, failure handling, credential redaction,
+and consecutive health failures. It does not prove that a dashboard route or
+token is configured correctly, that a real Funnel forwards this app's
+WebSockets and headers, or that either service behaves the same under a real
+internet outage. `cloudflared` 2026.9.1 was installed on the Windows validation
+machine and its help lists `--token-file`; no named-tunnel token was used.
+Tailscale was not installed or run for this validation.
 
 ## Server under load, in a container
 
