@@ -212,16 +212,41 @@ request reached Cloudflare's edge and came back rather than starting on another
 network; calls between two restrictive networks, which have no relay; and macOS
 or Linux, where nothing has been run.
 
-The stable-address modes added after that walkthrough have **not** been opened
-against a real Cloudflare remotely managed tunnel or a real Tailscale Funnel.
-Their automated coverage uses a stand-in connector and injected health probes to
-check command arguments, run identity, failure handling, credential redaction,
-and consecutive health failures. It does not prove that a dashboard route or
-token is configured correctly, that a real Funnel forwards this app's
-WebSockets and headers, or that either service behaves the same under a real
-internet outage. `cloudflared` 2026.9.1 was installed on the Windows validation
-machine and its help lists `--token-file`; no named-tunnel token was used.
-Tailscale was not installed or run for this validation.
+### An address the host already has, through a real carrier
+
+Run on 2026-09-20 against the Windows dev build, with a Cloudflare Quick Tunnel
+started by hand as the outside carrier so Gatherline started no connector of its
+own: `cloudflared tunnel --url http://127.0.0.1:8543`, giving
+`https://exposed-nat-york-intellectual.trycloudflare.com`.
+
+- That address returned the same `instanceId` from `/api/health` as
+  `http://127.0.0.1:8543`, served the client over HTTPS (200), and completed a
+  real WebSocket upgrade (101), so chat and not only the home page went through.
+- Saving it under **Your own address** persisted it, turned the invite
+  requirement back on, and survived a full restart of the app.
+- **Open to all** verified the address reached this run before publishing it,
+  and the button then read **Stop using address**.
+- **Stop using address** closed the link and left the invite requirement on,
+  and the carrier kept answering afterwards, which is the behaviour the dialog
+  and the deployment guide now describe.
+- Killing `cloudflared` while the link was open left the hostname answering with
+  Cloudflare's 502 rather than failing to resolve. Gatherline gave the address
+  up 90 seconds later, after three consecutive checks, and said so at the same
+  address rather than promising a new link. `POST /api/auth/register` answered
+  `invite_required` afterwards, so registration was secured at the server and
+  not only in the dialog.
+- A rejected address showed the main process's own sentence, with Electron's
+  `Error invoking remote method …` wrapper removed.
+
+What it does not cover: a **Tailscale Funnel**, which was not installed or run,
+and a **Cloudflare named tunnel**, which needs a zone and a connector token that
+were not used. `cloudflared` 2026.9.1 is installed on the Windows validation
+machine and its help lists `--token-file`; nothing confirms a dashboard route or
+token file is configured correctly, and the named-tunnel path's automated
+coverage still uses a stand-in connector for command arguments, run identity,
+failure handling and credential redaction. The visitor above was again on the
+host machine, so requests reached Cloudflare's edge and came back rather than
+starting on another network.
 
 ## Server under load, in a container
 
