@@ -165,7 +165,11 @@ export GATHERLINE_TUNNEL_TOKEN_FILE=/home/sam/.cloudflared/chat-token
 ```
 
 `GATHERLINE_TUNNEL_URL` has to be a public HTTPS origin: a hostname with a dot,
-no path, port, query, credentials, or fragment. `SLACKOSS_TUNNEL_URL` and
+and no path, query, credentials, or fragment. Loopback and private-network
+suffixes (`.local`, `.internal`, `.home`, `.lan`, `localhost`) and bare IP
+addresses are refused, and so is a trailing dot. An accented hostname is
+accepted and stored in its punycode form. A non-standard HTTPS port is allowed,
+for the alternate ports Cloudflare proxies. `SLACKOSS_TUNNEL_URL` and
 `SLACKOSS_TUNNEL_TOKEN_FILE` work as well. Setting only one of the pair, naming
 a token file that is not there, or giving an address that cannot be published
 is reported in **Manage hosting** and leaves **Open to all** unavailable, rather
