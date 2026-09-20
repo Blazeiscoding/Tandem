@@ -20,9 +20,12 @@ import { createSettingsStorage } from "./settings.js";
 import { createHostingController, parseLastHosted } from "./hosting.js";
 import {
   findCloudflared,
+  openConfiguredAddress,
   openNamedTunnel,
   openQuickTunnel,
-  readNamedTunnelConfig,
+  resolvePublicAddress,
+  validatePublicAddress,
+  type PublicAddressConfig,
 } from "./tunnel.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
@@ -214,13 +217,49 @@ function cloudflared(): string | null {
   return cloudflaredLookup.path;
 }
 
+/**
+ * The saved address, kept in memory because hosting status is read far more
+ * often than it changes and a settings read cannot block a snapshot. Loaded
+ * once at startup and updated by whoever writes it.
+ */
+let savedPublicAddress: string | null = null;
+
 /** Read again on the same schedule, so a corrected setting needs no restart. */
-let namedTunnelLookup: { at: number; config: ReturnType<typeof readNamedTunnelConfig> } | null =
-  null;
-function namedTunnel(): ReturnType<typeof readNamedTunnelConfig> {
-  if (!namedTunnelLookup || Date.now() - namedTunnelLookup.at > 5_000)
-    namedTunnelLookup = { at: Date.now(), config: readNamedTunnelConfig() };
-  return namedTunnelLookup.config;
+let publicAddressLookup: { at: number; config: PublicAddressConfig } | null = null;
+function publicAddressConfig(): PublicAddressConfig {
+  if (!publicAddressLookup || Date.now() - publicAddressLookup.at > 5_000)
+    publicAddressLookup = { at: Date.now(), config: resolvePublicAddress(savedPublicAddress) };
+  return publicAddressLookup.config;
+}
+
+/** Opening to all needs no cloudflared when something else already carries the address. */
+function publicAddressCarriedElsewhere(): boolean {
+  const config = publicAddressConfig();
+  return !!config && !("error" in config) && config.carrier === "elsewhere";
+}
+
+/** What the hosting status reports about the stable address, for display and editing. */
+function publicAddressStatus(): {
+  setting?: string;
+  locked?: boolean;
+  url?: string;
+  managed?: boolean;
+  error?: string;
+} {
+  const config = publicAddressConfig();
+  // A saved address the app can change, against one the environment fixed.
+  const fromEnvironment = !savedPublicAddress;
+  const setting =
+    savedPublicAddress ??
+    (config && !("error" in config) && config.carrier === "elsewhere" ? config.publicUrl : null);
+  return {
+    ...(setting ? { setting } : {}),
+    ...(setting && fromEnvironment ? { locked: true } : {}),
+    ...(config && "error" in config ? { error: config.error } : {}),
+    ...(config && !("error" in config)
+      ? { url: config.publicUrl, ...(config.carrier === "gatherline" ? { managed: true } : {}) }
+      : {}),
+  };
 }
 
 const hosting = createHostingController({
@@ -253,23 +292,26 @@ const hosting = createHostingController({
       accountCount: () => server.store.userCount(),
     };
   },
-  tunnelAvailable: () => cloudflared() !== null,
-  namedTunnel,
+  tunnelAvailable: () => cloudflared() !== null || publicAddressCarriedElsewhere(),
+  publicAddress: publicAddressStatus,
   openTunnel: (port, signal, instanceId) => {
     cloudflaredLookup = null;
-    namedTunnelLookup = null;
+    publicAddressLookup = null;
+    const configured = publicAddressConfig();
+    if (configured && "error" in configured) throw new Error(configured.error);
+    if (configured && !instanceId)
+      throw new Error("The hosted workspace cannot verify its public address. Restart hosting.");
+    // Nothing to install or start when something else already carries the
+    // address here; the workspace only has to answer at it.
+    if (configured?.carrier === "elsewhere")
+      return openConfiguredAddress({ ...configured, port, signal, instanceId: instanceId! });
     const command = cloudflared();
     if (!command)
       throw new Error(
         "Open to all needs Cloudflare's free cloudflared tool. Install it, then try again.",
       );
-    const configured = namedTunnel();
-    if (configured && "error" in configured) throw new Error(configured.error);
-    if (configured) {
-      if (!instanceId)
-        throw new Error("The hosted workspace cannot verify its public address. Restart hosting.");
-      return openNamedTunnel({ ...configured, command, port, signal, instanceId });
-    }
+    if (configured)
+      return openNamedTunnel({ ...configured, command, port, signal, instanceId: instanceId! });
     return openQuickTunnel({ command, port, signal, instanceId });
   },
 });
@@ -300,6 +342,22 @@ ipcMain.handle("hosting:endOpenToAll", async () => {
 });
 ipcMain.handle("hosting:setInviteOnly", async (_e, value: unknown) => {
   await hosting.setInviteOnly(value);
+  return hostingStatus();
+});
+ipcMain.handle("hosting:setPublicAddress", async (_e, value: unknown) => {
+  if (typeof value !== "string") throw new Error("Enter the address as text.");
+  const address = value.trim();
+  // Refuse here rather than saving something Open to all would only reject
+  // later, when the setting is out of sight.
+  const saving = address ? validatePublicAddress(address) : null;
+  // Changing it under an open link would leave the setting describing an
+  // address that is not the one people were given.
+  if (hosting.status().openToAll)
+    throw new Error("Close the public link before changing its address.");
+  await writeSetting("publicAddress", saving);
+  savedPublicAddress = saving;
+  publicAddressLookup = null;
+  publishHostingStatus();
   return hostingStatus();
 });
 
@@ -549,8 +607,13 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   if (!primaryInstance) return;
+  // Unreadable settings mean no saved address, not a failed launch. The
+  // environment can still supply one, and Manage hosting can save a new one.
+  const stored = await settings.get("publicAddress").catch(() => null);
+  savedPublicAddress = typeof stored === "string" && stored.trim() ? stored.trim() : null;
+  publicAddressLookup = null;
   const initial = deepLinkFromArgv(process.argv);
   if (initial && !pendingDeepLink) pendingDeepLink = initial;
   createTray();

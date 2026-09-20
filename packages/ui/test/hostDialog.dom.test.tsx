@@ -50,6 +50,13 @@ function fakeHosting(initial: HostingStatus) {
       current = { ...current, inviteOnly };
       return current;
     }),
+    // The main process validates and saves; here it simply takes what it is given.
+    setPublicAddress: vi.fn(async (address: string) => {
+      current = address
+        ? { ...current, publicAddress: address, publicAddressSetting: address }
+        : { ...current, publicAddress: undefined, publicAddressSetting: undefined };
+      return current;
+    }),
     subscribe: (listener: (status: HostingStatus) => void) => {
       listeners.add(listener);
       return () => void listeners.delete(listener);
@@ -303,7 +310,7 @@ describe("a stable public address configured for the desktop app", () => {
     const { hosting } = fakeHosting({
       ...running,
       tunnelAvailable: true,
-      namedTunnelUrl: configured,
+      publicAddress: configured,
     });
     render(<Harness hosting={hosting} />);
 
@@ -319,7 +326,7 @@ describe("a stable public address configured for the desktop app", () => {
     const open: HostingStatus = {
       ...running,
       tunnelAvailable: true,
-      namedTunnelUrl: configured,
+      publicAddress: configured,
       openToAll: { phase: "open", url: configured },
     };
     const { hosting } = fakeHosting(open);
@@ -341,7 +348,7 @@ describe("a stable public address configured for the desktop app", () => {
     const { hosting } = fakeHosting({
       ...running,
       tunnelAvailable: true,
-      tunnelConfigurationError: "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE.",
+      publicAddressError: "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE.",
     });
     render(<Harness hosting={hosting} />);
 
@@ -352,6 +359,62 @@ describe("a stable public address configured for the desktop app", () => {
 
     await user.click(open);
     expect(hosting.openToAll).not.toHaveBeenCalled();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+});
+
+describe("an address the host already has", () => {
+  const funnel = "https://box.tail1234.ts.net";
+
+  it("takes one, trims it, and publishes it as the workspace's own", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({ ...running, tunnelAvailable: true });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText("Your own address"), `  ${funnel}  `);
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(hosting.setPublicAddress).toHaveBeenCalledWith(funnel);
+    expect(await within(dialog).findByText(funnel)).toBeVisible();
+    // Nothing here is Cloudflare's, so it must not tell them to route it there.
+    expect(within(dialog).getByText(/Send this address to/)).toBeVisible();
+    expect(within(dialog).queryByText(/In Cloudflare, route/)).not.toBeInTheDocument();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+
+  it("repeats what the app says about an address it will not take", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting({ ...running, tunnelAvailable: true });
+    hosting.setPublicAddress.mockRejectedValueOnce(
+      new Error("Use a public HTTPS hostname without a path, credentials, query, or fragment."),
+    );
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    await user.type(within(dialog).getByLabelText("Your own address"), "http://localhost:8543");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(/public HTTPS hostname/);
+    expect(within(dialog).getByLabelText("Your own address")).toHaveValue("http://localhost:8543");
+  });
+
+  it("shows an address the environment fixed without offering to change it", async () => {
+    const { hosting } = fakeHosting({
+      ...running,
+      tunnelAvailable: true,
+      publicAddress: funnel,
+      publicAddressSetting: funnel,
+      publicAddressLocked: true,
+    });
+    render(<Harness hosting={hosting} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByLabelText("Your own address")).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(dialog).getByText(/comes from an environment variable/)).toBeVisible();
     expect(await accessibilityProblems(dialog)).toEqual([]);
   });
 });

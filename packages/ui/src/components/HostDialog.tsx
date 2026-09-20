@@ -91,11 +91,14 @@ export function HostDialog(props: {
   const { status, loading, error: statusError, refresh } = props.state;
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<
-    "starting" | "stopping" | "opening" | "closing" | "policy" | null
+    "starting" | "stopping" | "opening" | "closing" | "policy" | "address" | null
   >(null);
   const operationPending = useRef(false);
   const [error, setError] = useState<{ message: string; tunnel?: boolean } | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
+  /** Null while the saved address is shown; a string while it is being edited. */
+  const [addressDraft, setAddressDraft] = useState<string | null>(null);
+  const [addressError, setAddressError] = useState<string | null>(null);
   // A public address is not authorization. Require an invite by default when
   // a previously LAN-only workspace is first put on the internet.
   const [requireInvite, setRequireInvite] = useState(true);
@@ -104,7 +107,10 @@ export function HostDialog(props: {
   const changing = phase === "starting" || phase === "stopping";
   const unavailable = loading || statusError || !status || changing || !!busy;
   const publicUrl = status?.openToAll?.phase === "open" ? status.openToAll.url : null;
-  const tunnelError = status?.tunnelConfigurationError ?? status?.openToAllError;
+  const tunnelError = status?.publicAddressError ?? status?.openToAllError;
+  const savedAddress = status?.publicAddressSetting ?? "";
+  const addressValue = addressDraft ?? savedAddress;
+  const addressDirty = addressDraft !== null && addressDraft.trim() !== savedAddress;
 
   // Opening management also refreshes shells without status subscriptions.
   useEffect(() => {
@@ -172,7 +178,7 @@ export function HostDialog(props: {
       operationPending.current ||
       unavailable ||
       !props.hosting.openToAll ||
-      status?.tunnelConfigurationError ||
+      status?.publicAddressError ||
       status?.tunnelAvailable === false
     )
       return;
@@ -230,6 +236,30 @@ export function HostDialog(props: {
       setError({
         message: "Who may join could not be changed. The previous setting is still in use.",
       });
+    } finally {
+      await refresh();
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function saveAddress() {
+    if (operationPending.current || !props.hosting.setPublicAddress || addressDraft === null)
+      return;
+    operationPending.current = true;
+    setBusy("address");
+    setAddressError(null);
+    try {
+      await props.hosting.setPublicAddress(addressDraft.trim());
+      setAddressDraft(null);
+    } catch (err) {
+      // The main process says exactly what is wrong with the address; a
+      // rewritten message here would only be vaguer than the real one.
+      setAddressError(
+        err instanceof Error && err.message
+          ? err.message
+          : "The address could not be saved. Try again.",
+      );
     } finally {
       await refresh();
       operationPending.current = false;
@@ -330,9 +360,11 @@ export function HostDialog(props: {
               {publicUrl ? (
                 <>
                   <p className="mb-2 text-xs text-ink-dim">
-                    {status.namedTunnelUrl
-                      ? "This configured address stays the same when you reopen the public link. Keep Gatherline and its Cloudflare connector running so teammates can connect."
-                      : "This temporary address works from anywhere while Gatherline and cloudflared stay running."}
+                    {!status.publicAddress
+                      ? "This temporary address works from anywhere while Gatherline and cloudflared stay running."
+                      : status.publicAddressManaged
+                        ? "This configured address stays the same when you reopen the public link. Keep Gatherline and its Cloudflare connector running so teammates can connect."
+                        : "This configured address stays the same when you reopen the public link. Keep Gatherline running, and whatever carries this address to it."}
                   </p>
                   <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-raised p-2">
                     <a
@@ -380,13 +412,14 @@ export function HostDialog(props: {
                 </>
               ) : (
                 <>
-                  {status.namedTunnelUrl ? (
+                  {status.publicAddress ? (
                     <div className="space-y-2 text-xs text-ink-dim">
-                      <p>Open your configured Cloudflare Tunnel at this stable address:</p>
-                      <p className="break-all font-mono text-copper">{status.namedTunnelUrl}</p>
+                      <p>Open this workspace at your own address, which does not change:</p>
+                      <p className="break-all font-mono text-copper">{status.publicAddress}</p>
                       {status.port !== undefined && (
                         <p>
-                          In Cloudflare, route this address to{" "}
+                          {status.publicAddressManaged ? "In Cloudflare, route" : "Send"} this
+                          address to{" "}
                           <code className="break-all text-ink">{`http://127.0.0.1:${status.port}`}</code>
                           .
                         </p>
@@ -398,6 +431,56 @@ export function HostDialog(props: {
                       Create a temporary HTTPS address through Cloudflare Tunnel. No router setup or
                       Cloudflare account is needed.
                     </p>
+                  )}
+                  {props.hosting.setPublicAddress && (
+                    <div className="mt-3 border-t border-edge pt-3">
+                      <label
+                        htmlFor="public-address"
+                        className="block text-xs font-medium text-ink-dim"
+                      >
+                        Your own address
+                      </label>
+                      <p className="mt-1 text-xs text-ink-dim">
+                        Already have a Tailscale Funnel, reverse proxy, or tunnel of your own
+                        pointing here? Enter its address to reuse the same link every time. Leave it
+                        empty for a temporary one.
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          id="public-address"
+                          type="url"
+                          inputMode="url"
+                          spellCheck={false}
+                          placeholder="https://box.tail1234.ts.net"
+                          value={addressValue}
+                          disabled={!!busy || status.publicAddressLocked}
+                          onChange={(event) => {
+                            setAddressDraft(event.target.value);
+                            setAddressError(null);
+                          }}
+                          className="min-w-0 flex-1 rounded-lg border border-edge bg-raised px-2 py-1.5 font-mono text-xs text-ink disabled:opacity-40"
+                        />
+                        <button
+                          type="button"
+                          disabled={!!busy || !addressDirty || status.publicAddressLocked}
+                          onClick={() => void saveAddress()}
+                          className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-xs text-ink-dim hover:text-ink disabled:opacity-40"
+                        >
+                          {busy === "address" ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                      {status.publicAddressLocked && (
+                        <p className="mt-2 text-xs text-ink-dim">
+                          This address comes from an environment variable, so it cannot be changed
+                          here.
+                        </p>
+                      )}
+                      {addressError && (
+                        <p role="alert" className="mt-2 text-xs text-alert">
+                          {addressError}
+                        </p>
+                      )}
+                    </div>
                   )}
                   {status.tunnelAvailable === false ? (
                     <div className="mt-3 text-xs text-ink-dim">
@@ -430,7 +513,7 @@ export function HostDialog(props: {
                         type="button"
                         disabled={
                           unavailable ||
-                          !!status.tunnelConfigurationError ||
+                          !!status.publicAddressError ||
                           status.openToAll?.phase === "opening"
                         }
                         onClick={() => void openToAll()}

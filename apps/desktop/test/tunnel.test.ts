@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   findCloudflared,
+  openConfiguredAddress,
   openNamedTunnel,
   openQuickTunnel,
   readNamedTunnelConfig,
+  resolvePublicAddress,
   validateNamedTunnelConfig,
   type Tunnel,
 } from "../src/main/tunnel.js";
@@ -379,5 +381,136 @@ describe("opening a configured stable tunnel", () => {
       /cannot verify its public address/,
     );
     expect(started).toBe(false);
+  });
+});
+
+describe("choosing which stable address to publish", () => {
+  const present =
+    (...paths: string[]) =>
+    (path: string) =>
+      paths.includes(path);
+  const named = {
+    GATHERLINE_TUNNEL_URL: "https://chat.example.org",
+    GATHERLINE_TUNNEL_TOKEN_FILE: tokenFile,
+  };
+
+  it("is absent when nothing is configured anywhere", () => {
+    expect(resolvePublicAddress(null, {}, present())).toBeNull();
+    expect(resolvePublicAddress("   ", {}, present())).toBeNull();
+  });
+
+  it("takes a saved address over one left in the environment", () => {
+    const saved = resolvePublicAddress(
+      "  https://box.tail1234.ts.net  ",
+      { ...named, GATHERLINE_PUBLIC_URL: "https://stale.example.org" },
+      present(tokenFile),
+    );
+    expect(saved).toEqual({ carrier: "elsewhere", publicUrl: "https://box.tail1234.ts.net" });
+  });
+
+  it("takes an address from the environment when none is saved", () => {
+    expect(
+      resolvePublicAddress(
+        null,
+        { GATHERLINE_PUBLIC_URL: "https://box.tail1234.ts.net" },
+        present(),
+      ),
+    ).toEqual({ carrier: "elsewhere", publicUrl: "https://box.tail1234.ts.net" });
+    expect(
+      resolvePublicAddress(null, { SLACKOSS_PUBLIC_URL: "https://box.tail1234.ts.net" }, present()),
+    ).toEqual({ carrier: "elsewhere", publicUrl: "https://box.tail1234.ts.net" });
+  });
+
+  it("falls back to the tunnel Gatherline runs itself", () => {
+    expect(resolvePublicAddress(null, named, present(tokenFile))).toEqual({
+      carrier: "gatherline",
+      publicUrl: "https://chat.example.org",
+      tokenFile,
+    });
+  });
+
+  it("reports a saved address that cannot be published, rather than ignoring it", () => {
+    expect(resolvePublicAddress("http://box.tail1234.ts.net", named, present(tokenFile))).toEqual({
+      error: expect.stringMatching(/public HTTPS hostname/),
+    });
+    expect(resolvePublicAddress(42, {}, present())).toEqual({
+      error: expect.stringMatching(/public HTTPS hostname/),
+    });
+  });
+});
+
+describe("publishing an address something else carries", () => {
+  const funnel = "https://box.tail1234.ts.net";
+
+  it("publishes it once it answers as this workspace, starting nothing", async () => {
+    const probes: { url: string; instanceId?: string }[] = [];
+    const tunnel = await openConfiguredAddress({
+      publicUrl: funnel,
+      port: 8543,
+      instanceId: "workspace-run-1",
+      healthProbe: async (url, _signal, instanceId) => {
+        probes.push({ url, instanceId });
+        return instanceId === "workspace-run-1";
+      },
+    });
+    opened.push(tunnel);
+    expect(tunnel.url).toBe(funnel);
+    expect(probes).toEqual([
+      { url: "https://box.tail1234.ts.net/api/health", instanceId: "workspace-run-1" },
+    ]);
+  });
+
+  it("says what to check when the address never answers", async () => {
+    await expect(
+      openConfiguredAddress({
+        publicUrl: funnel,
+        port: 8543,
+        instanceId: "workspace-run-1",
+        timeoutMs: 200,
+        healthProbe: async () => false,
+      }),
+    ).rejects.toThrow(/did not answer as this workspace.+http:\/\/127\.0\.0\.1:8543/s);
+  });
+
+  it("refuses what it cannot publish before waiting on anything", async () => {
+    const base = {
+      publicUrl: funnel,
+      port: 8543,
+      instanceId: "run",
+      healthProbe: async () => true,
+    };
+    await expect(
+      openConfiguredAddress({ ...base, publicUrl: "http://box.tail1234.ts.net" }),
+    ).rejects.toThrow(/public HTTPS hostname/);
+    await expect(openConfiguredAddress({ ...base, port: 0 })).rejects.toThrow(
+      /valid listening port/,
+    );
+    await expect(openConfiguredAddress({ ...base, instanceId: "" })).rejects.toThrow(
+      /cannot verify its public address/,
+    );
+  });
+
+  it("gives the address up after several checks fail, not after one blip", async () => {
+    let healthy = true;
+    const checks: boolean[] = [];
+    const tunnel = await openConfiguredAddress({
+      publicUrl: funnel,
+      port: 8543,
+      instanceId: "workspace-run-1",
+      pollMs: 5,
+      tolerance: 3,
+      healthProbe: async () => {
+        checks.push(healthy);
+        return healthy;
+      },
+    });
+    opened.push(tunnel);
+    const reasons: string[] = [];
+    tunnel.onUnexpectedExit((reason) => reasons.push(reason));
+
+    healthy = false;
+    await expect.poll(() => reasons).toHaveLength(1);
+    expect(reasons[0]).toMatch(/stopped answering as this workspace/);
+    expect(checks.filter((ok) => !ok).length).toBeGreaterThanOrEqual(3);
   });
 });

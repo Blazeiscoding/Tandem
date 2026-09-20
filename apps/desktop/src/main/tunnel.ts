@@ -104,15 +104,15 @@ async function gatherlineIsReachable(
   return body?.status === "ok" && (instanceId === undefined || body.instanceId === instanceId);
 }
 
-/** Validates configuration without reading the file or including its contents in errors. */
-export function validateNamedTunnelConfig(
-  publicUrl: unknown,
-  tokenFile: unknown,
-): { publicUrl: string; tokenFile: string } {
-  let url: URL;
+/**
+ * The address a workspace may be published at, reduced to its origin. Anything
+ * that is not a plain public HTTPS hostname is refused, whoever carries the
+ * traffic to it.
+ */
+export function validatePublicAddress(publicUrl: unknown): string {
   try {
     if (typeof publicUrl !== "string" || /\s|\\/.test(publicUrl)) throw new Error();
-    url = new URL(publicUrl);
+    const url = new URL(publicUrl);
     const hostname = url.hostname;
     if (
       url.protocol !== "https:" ||
@@ -128,9 +128,18 @@ export function validateNamedTunnelConfig(
       hostname.split(".").some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
     )
       throw new Error();
+    return url.origin;
   } catch {
     throw new Error("Use a public HTTPS hostname without a path, credentials, query, or fragment.");
   }
+}
+
+/** Validates configuration without reading the file or including its contents in errors. */
+export function validateNamedTunnelConfig(
+  publicUrl: unknown,
+  tokenFile: unknown,
+): { publicUrl: string; tokenFile: string } {
+  const origin = validatePublicAddress(publicUrl);
   if (
     typeof tokenFile !== "string" ||
     !tokenFile ||
@@ -138,7 +147,7 @@ export function validateNamedTunnelConfig(
     !isAbsolute(tokenFile)
   )
     throw new Error("Choose an absolute path to the Cloudflare tunnel token file.");
-  return { publicUrl: url.origin, tokenFile };
+  return { publicUrl: origin, tokenFile };
 }
 
 /**
@@ -170,6 +179,42 @@ export function readNamedTunnelConfig(
   } catch (error) {
     return { error: (error as Error).message };
   }
+}
+
+/** How a workspace reaches the internet at an address that does not change. */
+export type PublicAddressConfig =
+  /** Gatherline runs Cloudflare's connector for it. */
+  | { carrier: "gatherline"; publicUrl: string; tokenFile: string }
+  /** Something else already carries it here: a funnel, a proxy, a tunnel run by hand. */
+  | { carrier: "elsewhere"; publicUrl: string }
+  | { error: string }
+  | null;
+
+/**
+ * Which stable address to publish, and who carries it. A saved address comes
+ * first: someone typed it into this app and can see it there, so an
+ * environment variable left over from a script must not quietly beat it.
+ */
+export function resolvePublicAddress(
+  saved: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync,
+): PublicAddressConfig {
+  const configured = typeof saved === "string" ? saved.trim() : saved;
+  const carried =
+    configured !== undefined && configured !== null && configured !== ""
+      ? configured
+      : (env.GATHERLINE_PUBLIC_URL ?? env.SLACKOSS_PUBLIC_URL);
+  if (carried) {
+    try {
+      return { carrier: "elsewhere", publicUrl: validatePublicAddress(carried) };
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  }
+  const named = readNamedTunnelConfig(env, exists);
+  if (!named || "error" in named) return named;
+  return { carrier: "gatherline", ...named };
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -215,16 +260,122 @@ export async function openNamedTunnel(
   options: TunnelOptions & { publicUrl: string; tokenFile: string; instanceId: string },
 ): Promise<Tunnel> {
   const config = validateNamedTunnelConfig(options.publicUrl, options.tokenFile);
-  if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535)
+  validateHostedPort(options.port);
+  validateInstanceId(options.instanceId);
+  return openTunnel(options, config);
+}
+
+/** Checks the workspace's own port, so a stale address cannot look reachable. */
+function validateHostedPort(port: unknown): void {
+  if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535)
     throw new Error("The hosted workspace must have a valid listening port.");
+}
+
+function validateInstanceId(instanceId: unknown): void {
   if (
-    typeof options.instanceId !== "string" ||
-    !options.instanceId ||
-    options.instanceId.length > 200 ||
-    /\s|\p{Cc}/u.test(options.instanceId)
+    typeof instanceId !== "string" ||
+    !instanceId ||
+    instanceId.length > 200 ||
+    /\s|\p{Cc}/u.test(instanceId)
   )
     throw new Error("The hosted workspace cannot verify its public address. Restart hosting.");
-  return openTunnel(options, config);
+}
+
+/**
+ * Publishes an address something else already carries to this workspace: a
+ * Tailscale Funnel, a reverse proxy, a tunnel started by hand. Gatherline runs
+ * no connector here, so there is no process to watch. It watches the address
+ * instead, and gives it up once it stops answering as this workspace.
+ */
+export async function openConfiguredAddress(options: {
+  publicUrl: string;
+  port: number;
+  instanceId: string;
+  /** How long the address has to answer before opening gives up. */
+  timeoutMs?: number;
+  /** How often an open address is confirmed to still reach this workspace. */
+  pollMs?: number;
+  /** Checks that may fail in a row before the address is given up. */
+  tolerance?: number;
+  signal?: AbortSignal;
+  healthProbe?: (url: string, signal: AbortSignal, instanceId?: string) => Promise<boolean>;
+}): Promise<Tunnel> {
+  const address = validatePublicAddress(options.publicUrl);
+  validateHostedPort(options.port);
+  validateInstanceId(options.instanceId);
+  if (options.signal?.aborted) throw new Error("Opening to all was cancelled.");
+
+  const probe = options.healthProbe ?? gatherlineIsReachable;
+  const health = `${address}/api/health`;
+  // A blip on the way to Cloudflare or Tailscale must not invalidate everyone's
+  // links, so an open address is given up only after several checks in a row.
+  const pollMs = options.pollMs ?? 30_000;
+  const tolerance = options.tolerance ?? 3;
+  const lifecycle = new AbortController();
+  const onAbort = () => lifecycle.abort();
+  options.signal?.addEventListener("abort", onAbort, { once: true });
+  const reachable = async () => {
+    try {
+      return await probe(health, lifecycle.signal, options.instanceId);
+    } catch {
+      return false;
+    }
+  };
+
+  const deadline = Date.now() + (options.timeoutMs ?? 30_000);
+  try {
+    for (;;) {
+      if (options.signal?.aborted) throw new Error("Opening to all was cancelled.");
+      if (await reachable()) break;
+      if (options.signal?.aborted) throw new Error("Opening to all was cancelled.");
+      if (Date.now() >= deadline)
+        throw new Error(
+          `${address} did not answer as this workspace. Check that whatever carries it is running and sending it to http://127.0.0.1:${options.port}.`,
+        );
+      await wait(1_000, lifecycle.signal);
+    }
+  } catch (error) {
+    options.signal?.removeEventListener("abort", onAbort);
+    lifecycle.abort();
+    throw error;
+  }
+
+  // The address is this workspace's now. A later abort belongs to closing,
+  // which calls close(), so it must not read as the address having failed.
+  options.signal?.removeEventListener("abort", onAbort);
+  const listeners: ((reason: string) => void)[] = [];
+  let unexpectedReason: string | null = null;
+  let stopped = false;
+  let misses = 0;
+
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+    lifecycle.abort();
+  };
+  const timer = setInterval(() => {
+    void (async () => {
+      if (stopped || (await reachable())) {
+        misses = 0;
+        return;
+      }
+      if (stopped || ++misses < tolerance) return;
+      stop();
+      unexpectedReason = `${address} stopped answering as this workspace`;
+      for (const listener of listeners.splice(0)) listener(unexpectedReason);
+    })();
+  }, pollMs);
+  timer.unref?.();
+
+  return {
+    url: address,
+    close: async () => stop(),
+    onUnexpectedExit: (listener) => {
+      if (unexpectedReason) queueMicrotask(() => listener(unexpectedReason!));
+      else if (!stopped) listeners.push(listener);
+    },
+  };
 }
 
 function openTunnel(

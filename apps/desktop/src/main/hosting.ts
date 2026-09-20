@@ -16,9 +16,15 @@ export interface HostingSnapshot {
   /** Whether this computer has what opening to all needs. */
   tunnelAvailable?: boolean;
   /** A configured address that stays the same each time the link is opened. */
-  namedTunnelUrl?: string;
+  publicAddress?: string;
+  /** What the public address setting holds, valid or not, for editing. */
+  publicAddressSetting?: string;
+  /** Whether the environment set the address, so this app cannot change it. */
+  publicAddressLocked?: boolean;
+  /** Whether Gatherline runs the connector, rather than something else. */
+  publicAddressManaged?: boolean;
   /** Why a configured stable address cannot be used, and what to correct. */
-  tunnelConfigurationError?: string;
+  publicAddressError?: string;
   /** Whether an account after the first needs an invite code. */
   inviteOnly?: boolean;
 }
@@ -86,10 +92,17 @@ interface HostingOptions {
   /** Whether a tunnel could be opened now. */
   tunnelAvailable?(): boolean;
   /**
-   * A stable public address configured for this computer, what is wrong with
-   * that configuration, or null when only temporary addresses are available.
+   * The stable public address configured for this computer: what the setting
+   * holds, the address that passed validation, who carries it, and what is
+   * wrong with it. Absent where only temporary addresses are available.
    */
-  namedTunnel?(): { publicUrl: string } | { error: string } | null;
+  publicAddress?(): {
+    setting?: string;
+    locked?: boolean;
+    url?: string;
+    managed?: boolean;
+    error?: string;
+  };
 }
 
 function startOptions(value: unknown): { workspaceName: string; port?: number } {
@@ -143,16 +156,16 @@ export function createHostingController(options: HostingOptions) {
    * without a restart. Configuration that cannot be read at all leaves the
    * temporary address available rather than failing the status call.
    */
-  function namedTunnel(): { publicUrl: string } | { error: string } | null {
+  function publicAddress(): NonNullable<ReturnType<NonNullable<HostingOptions["publicAddress"]>>> {
     try {
-      return options.namedTunnel?.() ?? null;
+      return options.publicAddress?.() ?? {};
     } catch {
-      return null;
+      return {};
     }
   }
 
   function status(): HostingSnapshot {
-    const named = namedTunnel();
+    const address = publicAddress();
     return {
       running: server !== null,
       phase,
@@ -166,8 +179,11 @@ export function createHostingController(options: HostingOptions) {
           : {}),
       ...(openError ? { openToAllError: openError } : {}),
       ...(options.tunnelAvailable ? { tunnelAvailable: options.tunnelAvailable() } : {}),
-      ...(named && "publicUrl" in named ? { namedTunnelUrl: named.publicUrl } : {}),
-      ...(named && "error" in named ? { tunnelConfigurationError: named.error } : {}),
+      ...(address.url ? { publicAddress: address.url } : {}),
+      ...(address.setting ? { publicAddressSetting: address.setting } : {}),
+      ...(address.locked ? { publicAddressLocked: true } : {}),
+      ...(address.managed ? { publicAddressManaged: true } : {}),
+      ...(address.error ? { publicAddressError: address.error } : {}),
       ...(warning ? { warning } : {}),
     };
   }
@@ -356,8 +372,8 @@ export function createHostingController(options: HostingOptions) {
       // A configured stable address that cannot be used has to be corrected.
       // Falling back would publish a temporary link nobody was given. An
       // already open link keeps working, so its policy can still be changed.
-      const configured = namedTunnel();
-      if (!tunnel && configured && "error" in configured) throw new Error(configured.error);
+      const configured = publicAddress();
+      if (!tunnel && configured.error) throw new Error(configured.error);
       if (
         !target.setPublicUrl ||
         !target.setIceServers ||

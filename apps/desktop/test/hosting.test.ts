@@ -26,7 +26,7 @@ const inUse = () =>
 function harness(
   options: {
     publicAccess?: boolean;
-    namedTunnel?: () => { publicUrl: string } | { error: string } | null;
+    publicAddress?: () => { setting?: string; url?: string; managed?: boolean; error?: string };
   } = {},
 ) {
   type FakeTunnel = Tunnel & { close: Mock<() => Promise<void>>; drop(reason: string): void };
@@ -109,7 +109,7 @@ function harness(
           },
         }
       : {}),
-    ...(options.namedTunnel ? { namedTunnel: options.namedTunnel } : {}),
+    ...(options.publicAddress ? { publicAddress: options.publicAddress } : {}),
   });
   return h;
 }
@@ -628,9 +628,12 @@ describe("a stable public address configured for this computer", () => {
   const configured = "https://chat.example.org";
 
   it("shows the configured address and opens it for the running workspace", async () => {
-    const h = harness({ publicAccess: true, namedTunnel: () => ({ publicUrl: configured }) });
+    const h = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, setting: configured }),
+    });
     await h.controller.start({ workspaceName: "Rocket Team" });
-    expect(h.controller.status()).toMatchObject({ namedTunnelUrl: configured });
+    expect(h.controller.status()).toMatchObject({ publicAddress: configured });
 
     await h.controller.openToAll({ inviteOnly: true });
     // The connector is told which run to confirm, so the saved address cannot
@@ -640,10 +643,10 @@ describe("a stable public address configured for this computer", () => {
 
   it("refuses to open a link, and changes nothing, while its configuration is unusable", async () => {
     const error = "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE.";
-    const h = harness({ publicAccess: true, namedTunnel: () => ({ error }) });
+    const h = harness({ publicAccess: true, publicAddress: () => ({ error }) });
     await h.controller.start({ workspaceName: "Rocket Team" });
-    expect(h.controller.status()).toMatchObject({ tunnelConfigurationError: error });
-    expect(h.controller.status()).not.toHaveProperty("namedTunnelUrl");
+    expect(h.controller.status()).toMatchObject({ publicAddressError: error });
+    expect(h.controller.status()).not.toHaveProperty("publicAddress");
 
     await expect(h.controller.openToAll({ inviteOnly: true })).rejects.toThrow(/Set both/);
     expect(h.tunnelStarts).toEqual([]);
@@ -652,11 +655,11 @@ describe("a stable public address configured for this computer", () => {
   });
 
   it("leaves a temporary address alone when nothing is configured", async () => {
-    const h = harness({ publicAccess: true, namedTunnel: () => null });
+    const h = harness({ publicAccess: true, publicAddress: () => ({}) });
     await h.controller.start({ workspaceName: "Rocket Team" });
     await h.controller.openToAll({ inviteOnly: true });
-    expect(h.controller.status()).not.toHaveProperty("namedTunnelUrl");
-    expect(h.controller.status()).not.toHaveProperty("tunnelConfigurationError");
+    expect(h.controller.status()).not.toHaveProperty("publicAddress");
+    expect(h.controller.status()).not.toHaveProperty("publicAddressError");
     expect(h.publicUrls.at(-1)).toBe("https://rocket-team.trycloudflare.com");
   });
 });
