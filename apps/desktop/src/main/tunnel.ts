@@ -123,28 +123,52 @@ async function readHealthResponse(response: Response): Promise<string | null> {
   }
 }
 
-export async function gatherlineIsReachable(
+/**
+ * What answered, for callers that must tell an address leading somewhere else
+ * from one that leads nowhere. "no-answer" covers a refused connection, a
+ * timeout, and a redirect, since none of them show who holds the address.
+ */
+export type HealthAnswer = "this-workspace" | "something-else" | "no-answer";
+
+export async function probeHealth(
   url: string,
   signal: AbortSignal,
   instanceId?: string,
-): Promise<boolean> {
+): Promise<HealthAnswer> {
+  let response: Response;
   try {
     const address = new URL(url);
     address.searchParams.set("_gatherline", randomUUID());
-    const response = await fetch(address, {
+    response = await fetch(address, {
       signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
       cache: "no-store",
       redirect: "error",
       headers: { accept: "application/json" },
     });
-    if (!response.ok) return false;
-    const text = await readHealthResponse(response);
-    if (text === null) return false;
-    const body = JSON.parse(text) as { status?: unknown; instanceId?: unknown } | null;
-    return body?.status === "ok" && (instanceId === undefined || body.instanceId === instanceId);
   } catch {
-    return false;
+    return "no-answer";
   }
+  // Past here something is listening and replied, so a reply that is not this
+  // run means the address reaches another program.
+  try {
+    if (!response.ok) return "something-else";
+    const text = await readHealthResponse(response);
+    if (text === null) return "something-else";
+    const body = JSON.parse(text) as { status?: unknown; instanceId?: unknown } | null;
+    return body?.status === "ok" && (instanceId === undefined || body.instanceId === instanceId)
+      ? "this-workspace"
+      : "something-else";
+  } catch {
+    return "something-else";
+  }
+}
+
+export async function gatherlineIsReachable(
+  url: string,
+  signal: AbortSignal,
+  instanceId?: string,
+): Promise<boolean> {
+  return (await probeHealth(url, signal, instanceId)) === "this-workspace";
 }
 
 /**

@@ -20,10 +20,10 @@ import { createSettingsStorage } from "./settings.js";
 import { createHostingController, parseLastHosted } from "./hosting.js";
 import {
   findCloudflared,
-  gatherlineIsReachable,
   openConfiguredAddress,
   openNamedTunnel,
   openQuickTunnel,
+  probeHealth,
   resolvePublicAddress,
   validatePublicAddress,
   type PublicAddressConfig,
@@ -298,12 +298,15 @@ const hosting = createHostingController({
       accountCount: () => server.store.userCount(),
     };
   },
-  verifyLoopback: (port, instanceId) =>
-    gatherlineIsReachable(
+  verifyLoopback: async (port, instanceId) =>
+    // Only a reply from something that is not this run proves the port leads
+    // elsewhere. A probe that cannot connect at all proves nothing, and must
+    // not produce a warning naming a program that may not be there.
+    (await probeHealth(
       `http://127.0.0.1:${port}/api/health`,
       AbortSignal.timeout(3_000),
       instanceId,
-    ),
+    )) !== "something-else",
   tunnelAvailable: () => cloudflared() !== null || publicAddressCarriedElsewhere(),
   publicAddress: publicAddressStatus,
   savePublicAddress: async (address) => {

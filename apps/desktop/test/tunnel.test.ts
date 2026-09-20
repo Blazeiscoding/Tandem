@@ -11,6 +11,7 @@ import {
   openConfiguredAddress,
   openNamedTunnel,
   openQuickTunnel,
+  probeHealth,
   readNamedTunnelConfig,
   resolvePublicAddress,
   validateNamedTunnelConfig,
@@ -181,6 +182,34 @@ describe("checking the public workspace identity", () => {
     } finally {
       await endpoint.close();
     }
+  });
+
+  it("separates an address that leads elsewhere from one that leads nowhere", async () => {
+    const endpoint = await serve((request, response) => {
+      if (request.url?.startsWith("/api/health")) {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ status: "ok", instanceId: "workspace-run-1" }));
+        return;
+      }
+      response.end("not the workspace");
+    });
+    const health = `${endpoint.url}/api/health`;
+    const signal = () => new AbortController().signal;
+    try {
+      expect(await probeHealth(health, signal(), "workspace-run-1")).toBe("this-workspace");
+      // Answering, but as another run and then as another program entirely.
+      expect(await probeHealth(health, signal(), "a-different-run")).toBe("something-else");
+      expect(await probeHealth(`${endpoint.url}/elsewhere`, signal(), "workspace-run-1")).toBe(
+        "something-else",
+      );
+    } finally {
+      await endpoint.close();
+    }
+
+    // Nothing is listening now. That says nothing about who owns the port, so
+    // a caller must be able to stay quiet rather than name a program.
+    expect(await probeHealth(health, signal(), "workspace-run-1")).toBe("no-answer");
+    expect(await gatherlineIsReachable(health, signal(), "workspace-run-1")).toBe(false);
   });
 });
 
