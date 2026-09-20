@@ -787,6 +787,20 @@ describe("a stable public address configured for this computer", () => {
     expect(h.publicUrls.at(-1)).toBeNull();
   });
 
+  it("keeps registration secured when an external address fails verification", async () => {
+    const h = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, setting: configured }),
+    });
+    h.beforeTunnel = () => {
+      throw new Error("address did not reach this workspace");
+    };
+    await h.controller.start({ workspaceName: "Rocket Team" });
+
+    await expect(h.controller.openToAll({ inviteOnly: false })).rejects.toThrow(/did not reach/);
+    expect(h.controller.status().inviteOnly).toBe(true);
+  });
+
   it("secures and saves a replacement address, clearing the previous carrier's error", async () => {
     const h = harness({ publicAccess: true });
     h.beforeTunnel = () => {

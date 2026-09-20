@@ -447,6 +447,7 @@ export function createHostingController(options: HostingOptions) {
         throw new Error("Create your own account in the workspace first, then open it to all.");
       const previousInviteOnly = target.inviteOnly();
       const requestedInviteOnly = inviteOnly ?? true;
+      const closedInviteOnly = carriedElsewhere ? true : previousInviteOnly;
       openError = undefined;
       target.setInviteOnly(requestedInviteOnly);
       if (tunnel) {
@@ -462,7 +463,7 @@ export function createHostingController(options: HostingOptions) {
         opened = await options.openTunnel(target.port, attempt.signal, target.instanceId);
       } catch (error) {
         try {
-          target.setInviteOnly(previousInviteOnly);
+          target.setInviteOnly(closedInviteOnly);
         } catch {
           // The original opening error remains the useful one to report.
         }
@@ -476,7 +477,7 @@ export function createHostingController(options: HostingOptions) {
       if (opening === attempt) opening = null;
       if (attempt.signal.aborted || request !== publicRequest || closing) {
         try {
-          target.setInviteOnly(previousInviteOnly);
+          target.setInviteOnly(closedInviteOnly);
         } catch {
           // Closing the newly opened connector still removes public access.
         }
@@ -493,7 +494,7 @@ export function createHostingController(options: HostingOptions) {
       } catch (error) {
         closeReach(target);
         try {
-          target.setInviteOnly(previousInviteOnly);
+          target.setInviteOnly(closedInviteOnly);
         } catch {
           // The public connector is still closed below.
         }
