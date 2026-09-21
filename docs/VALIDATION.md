@@ -24,19 +24,19 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 
 ## Automated suites
 
-| Suite                | Command                                   | Result                                                                                                                                                                                     | Last run   |
-| -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
-| Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed                                                                                                                                | 2026-09-21 |
-| Unit and integration | `pnpm test`                               | 699 tests: server 367, client-core 64, UI 176, protocol 12, desktop 80                                                                                                                     | 2026-09-21 |
-| Browser end to end   | `pnpm test:e2e`                           | 12 scenarios, passed; the demo seed fills an invite-only workspace the browser then shows                                                                                                  | 2026-09-21 |
-| Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again | 2026-09-20 |
-| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 459.4 kB in the browser client and 460.1 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                        | 2026-09-21 |
-| Container            | `node tests/docker-smoke.mjs`             | passed; on 2026-09-17 only its new Compose checks ran here, without a Docker engine, and CI ran the rest                                                                                   | 2026-09-05 |
+| Suite                | Command                                   | Result                                                                                                                                                                                           | Last run   |
+| -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed                                                                                                                                      | 2026-09-21 |
+| Unit and integration | `pnpm test`                               | 699 tests: server 367, client-core 64, UI 176, protocol 12, desktop 80                                                                                                                           | 2026-09-21 |
+| Browser end to end   | `pnpm test:e2e`                           | 12 scenarios, passed; the demo seed fills an invite-only workspace the browser then shows                                                                                                        | 2026-09-21 |
+| Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed in CI, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again | 2026-09-21 |
+| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 459.4 kB in the browser client and 460.1 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                              | 2026-09-21 |
+| Container            | `node tests/docker-smoke.mjs`             | passed; on 2026-09-17 only its new Compose checks ran here, without a Docker engine, and CI ran the rest                                                                                         | 2026-09-05 |
 
 The last combined verification including tests used `pnpm exec turbo test typecheck build --force`:
 all 15 tasks passed without cached results on September 21, including all 699 tests and the web,
 desktop and server CLI builds. The bundle check and all 12 browser scenarios passed too. The
-packaged Windows suite was not rerun for the confirmation work; its row retains its last-run date.
+packaged Windows suite was not rerun locally; both scenarios passed in the September 21 CI job.
 
 The September 14 UI environment phase passed 482 tests: server 347, client-core 62,
 UI 49, protocol 12, desktop 12. Thirteen UI component checks in
