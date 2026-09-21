@@ -6,6 +6,7 @@ import type { Channel, ID, Invite, InviteStatus } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { useConfirm } from "./Confirm.js";
 import { useShareableServer } from "./ShareableServer.js";
 
 export function NewChannelDialog(props: { onClose: () => void; onCreated: (ch: Channel) => void }) {
@@ -279,6 +280,7 @@ function InviteLink(props: { title: string; link: string; copyLabel: string; onC
 
 export function InviteDialog(props: { onClose: () => void }) {
   const client = useClient();
+  const confirm = useConfirm();
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
   const selfRole = useWorkspace((s) => s.self?.role);
@@ -353,20 +355,23 @@ export function InviteDialog(props: { onClose: () => void }) {
   }
 
   async function revoke(code: string) {
-    if (
-      !confirm(
-        "Revoke this invite? Anyone who has not used it yet will not be able to join with it.",
-      )
-    ) {
-      return;
-    }
+    const go = await confirm({
+      title: "Revoke this invite?",
+      body: "Anyone who has not used it yet will not be able to join with it.",
+      confirmLabel: "Revoke",
+      destructive: true,
+    });
+    if (!go) return;
     setError(null);
     try {
       await client.api.revokeInvite(code);
       if (code === invite) setInvite(null);
       void loadInvites();
     } catch {
-      setError("Could not revoke that invite. Nothing was changed; try again.");
+      setError(
+        "Could not confirm whether that invite was revoked. Check your connection before trying again.",
+      );
+      void loadInvites();
     }
   }
 

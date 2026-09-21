@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { normalizeServerUrl, WorkspaceClient } from "@slackoss/client-core";
 import { PlatformContext } from "./context.js";
 import type { Platform, SavedServer } from "./platform.js";
@@ -9,6 +9,7 @@ import { Dialog, primaryBtnCls } from "./components/Dialog.js";
 import { Icon } from "./components/Icon.js";
 import { HostDialog, useHostingStatus, useLastHosted } from "./components/HostDialog.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
+import { ConfirmProvider } from "./components/Confirm.js";
 import { parseSavedServers } from "./lib/savedServers.js";
 import { hostedButStopped } from "./lib/resume.js";
 
@@ -24,6 +25,14 @@ type Session =
       /** Set when a link to a message opened this workspace. */
       target?: { channelId: string; messageId: string } | null;
     };
+
+function AppBoundary({ children }: { children: ReactNode }) {
+  return (
+    <ErrorBoundary>
+      <ConfirmProvider>{children}</ConfirmProvider>
+    </ErrorBoundary>
+  );
+}
 
 export function App({ platform }: { platform: Platform }) {
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
@@ -265,7 +274,7 @@ export function App({ platform }: { platform: Platform }) {
 
   return (
     <PlatformContext.Provider value={platform}>
-      <ErrorBoundary>
+      <AppBoundary>
         <div className="flex h-full flex-col">
           {platform.kind === "desktop" &&
             (saveError || session.view === "loading" || session.view === "restore_failed") && (
@@ -470,7 +479,7 @@ export function App({ platform }: { platform: Platform }) {
               </div>
             )}
         </div>
-      </ErrorBoundary>
+      </AppBoundary>
     </PlatformContext.Provider>
   );
 }

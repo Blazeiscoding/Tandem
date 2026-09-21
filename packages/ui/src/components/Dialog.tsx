@@ -7,14 +7,24 @@ interface Props {
   children: React.ReactNode;
   width?: number;
   dismissible?: boolean;
+  /** Id of the text a reader needs along with the title, such as a question's consequence. */
+  describedBy?: string;
 }
 
-export function Dialog({ title, onClose, children, width = 440, dismissible = true }: Props) {
+export function Dialog({
+  title,
+  onClose,
+  children,
+  width = 440,
+  dismissible = true,
+  describedBy,
+}: Props) {
   return (
     <Modal
       title={title}
       onClose={onClose}
       dismissible={dismissible}
+      describedBy={describedBy}
       backdropClassName="flex items-start justify-center bg-black/60 px-3 pt-[10vh]"
       className="max-h-[80vh] max-w-full overflow-y-auto rounded-2xl border border-edge bg-raised p-5 shadow-2xl outline-none"
       style={{ width }}

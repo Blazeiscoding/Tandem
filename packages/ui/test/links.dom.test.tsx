@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
-import type { Channel, ServerInfo, User } from "@slackoss/protocol";
+import type { Channel, Invite, ServerInfo, User } from "@slackoss/protocol";
 import { ClientContext, OpenMessageContext } from "../src/context.js";
 import { InviteDialog } from "../src/components/dialogs.js";
+import { ConfirmProvider } from "../src/components/Confirm.js";
 import { Mrkdwn } from "../src/components/Mrkdwn.js";
 import { ShareableServerProvider } from "../src/components/ShareableServer.js";
 import { webPlatform, type HostingStatus, type Platform } from "../src/platform.js";
@@ -46,6 +47,16 @@ const hostingHere: HostingStatus = {
   lanUrls: ["172.28.64.1:8543", "192.168.1.20:8543"],
 };
 
+const madeInvite: Invite = {
+  code: "ABCD1234",
+  createdBy: "U_SAM",
+  createdAt: 0,
+  expiresAt: null,
+  maxUses: null,
+  uses: 0,
+  status: "active",
+};
+
 /**
  * The invite dialog over a workspace client that never connects, below the
  * provider the workspace screen puts it under, with a code already made.
@@ -54,6 +65,7 @@ async function inviteWith(options: {
   baseUrl: string;
   publicUrl?: string;
   hosting?: HostingStatus;
+  invites?: Invite[];
 }) {
   const client = new WorkspaceClient(options.baseUrl, "test-token-not-a-credential");
   client.store.setState({ self: owner, users: { U_SAM: owner }, status: "online" });
@@ -68,17 +80,10 @@ async function inviteWith(options: {
     ...(options.publicUrl ? { publicUrl: options.publicUrl } : {}),
   };
   const serverInfo = vi.spyOn(client.api, "serverInfo").mockResolvedValue(info);
-  vi.spyOn(client.api, "listInvites").mockResolvedValue({ invites: [] });
-  vi.spyOn(client.api, "createInvite").mockResolvedValue({
-    invite: {
-      code: "ABCD1234",
-      createdBy: "U_SAM",
-      createdAt: 0,
-      expiresAt: null,
-      maxUses: null,
-      uses: 0,
-      status: "active",
-    },
+  vi.spyOn(client.api, "listInvites").mockResolvedValue({ invites: options.invites ?? [] });
+  vi.spyOn(client.api, "createInvite").mockResolvedValue({ invite: madeInvite });
+  const revokeInvite = vi.spyOn(client.api, "revokeInvite").mockResolvedValue({
+    invite: { ...(options.invites?.[0] ?? madeInvite), status: "revoked" },
   });
   const hosting = options.hosting;
   const platform: Platform = {
@@ -88,16 +93,18 @@ async function inviteWith(options: {
   };
   const user = userEvent.setup();
   render(
-    <ClientContext.Provider value={client}>
-      <ShareableServerProvider platform={platform}>
-        <InviteDialog onClose={() => {}} />
-      </ShareableServerProvider>
-    </ClientContext.Provider>,
+    <ConfirmProvider>
+      <ClientContext.Provider value={client}>
+        <ShareableServerProvider platform={platform}>
+          <InviteDialog onClose={() => {}} />
+        </ShareableServerProvider>
+      </ClientContext.Provider>
+    </ConfirmProvider>,
   );
   const dialog = screen.getByRole("dialog", { name: "Invite people" });
   await user.click(within(dialog).getByRole("button", { name: "Generate invite code" }));
   await within(dialog).findByText("ABCD1234");
-  return { dialog: within(dialog), root: dialog, user, info, serverInfo };
+  return { dialog: within(dialog), root: dialog, user, info, serverInfo, revokeInvite };
 }
 
 describe("inviting someone", () => {
@@ -194,6 +201,29 @@ describe("inviting someone", () => {
     }
   });
 
+  it("revokes an invite only after the shared confirmation is accepted", async () => {
+    const oldInvite: Invite = { ...madeInvite, code: "OLD-CODE", uses: 1 };
+    const { dialog, user, revokeInvite } = await inviteWith({
+      baseUrl: "http://192.168.1.20:8543",
+      invites: [oldInvite],
+    });
+    const revoke = await dialog.findByRole("button", { name: "Revoke invite OLD-CODE" });
+    await user.click(revoke);
+
+    const question = screen.getByRole("dialog", { name: "Revoke this invite?" });
+    expect(revokeInvite).not.toHaveBeenCalled();
+    await user.click(within(question).getByRole("button", { name: "Cancel" }));
+    expect(revokeInvite).not.toHaveBeenCalled();
+
+    await user.click(revoke);
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Revoke this invite?" })).getByRole("button", {
+        name: "Revoke",
+      }),
+    );
+    expect(revokeInvite).toHaveBeenCalledWith("OLD-CODE");
+  });
+
   it("tells someone who cannot create invite codes what joining takes", async () => {
     const member: User = {
       ...owner,
@@ -206,9 +236,11 @@ describe("inviting someone", () => {
     client.store.setState({ self: member, users: { U_ALEX: member }, status: "online" });
     vi.spyOn(client.api, "listInvites").mockResolvedValue({ invites: [] });
     render(
-      <ClientContext.Provider value={client}>
-        <InviteDialog onClose={() => {}} />
-      </ClientContext.Provider>,
+      <ConfirmProvider>
+        <ClientContext.Provider value={client}>
+          <InviteDialog onClose={() => {}} />
+        </ClientContext.Provider>
+      </ConfirmProvider>,
     );
     const dialog = screen.getByRole("dialog", { name: "Invite people" });
     expect(dialog).toHaveTextContent(

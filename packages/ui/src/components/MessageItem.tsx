@@ -10,6 +10,7 @@ import { Mrkdwn } from "./Mrkdwn.js";
 import { MessageEditor } from "./MessageEditor.js";
 import { useShareableServer } from "./ShareableServer.js";
 import { Icon } from "./Icon.js";
+import { useConfirm } from "./Confirm.js";
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
 
@@ -36,10 +37,13 @@ export const MessageItem = memo(function MessageItem({
   highlighted,
 }: Props) {
   const client = useClient();
+  const confirm = useConfirm();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   const self = useWorkspace((s) => s.self);
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(false);
   const { copy, copied } = useCopy(1200);
   const shareable = useShareableServer();
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
@@ -131,6 +135,12 @@ export const MessageItem = memo(function MessageItem({
               )}
               <MessageAttachments files={message.files} onOpenImage={(f) => onOpenImage?.(f)} />
               <MessageActions message={message} />
+              {deleteError && (
+                <p role="alert" className="mt-2 text-xs text-alert">
+                  Could not confirm whether the message was deleted. Check your connection before
+                  trying again.
+                </p>
+              )}
             </>
           )}
 
@@ -252,9 +262,28 @@ export const MessageItem = memo(function MessageItem({
             <ToolbarButton
               label={<Icon name="trash" size={15} />}
               title="Delete message"
-              onClick={() => {
-                if (confirm("Delete this message?")) void client.api.deleteMessage(message.id);
-              }}
+              disabled={deleting}
+              onClick={() =>
+                void (async () => {
+                  if (deleting) return;
+                  const go = await confirm({
+                    title: "Delete this message?",
+                    body: "Everyone in the conversation stops seeing it.",
+                    confirmLabel: "Delete",
+                    destructive: true,
+                  });
+                  if (!go) return;
+                  setDeleting(true);
+                  setDeleteError(false);
+                  try {
+                    await client.api.deleteMessage(message.id);
+                  } catch {
+                    setDeleteError(true);
+                  } finally {
+                    setDeleting(false);
+                  }
+                })()
+              }
             />
           )}
         </div>
@@ -267,14 +296,16 @@ function ToolbarButton(props: {
   label: ReactNode;
   title?: string;
   active?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={props.onClick}
+      disabled={props.disabled}
       title={props.title}
       aria-label={props.title}
-      className={`flex items-center justify-center px-2 py-1.5 text-[14px] transition-colors hover:bg-copper/20 ${
+      className={`flex items-center justify-center px-2 py-1.5 text-[14px] transition-colors hover:bg-copper/20 disabled:opacity-40 ${
         props.active ? "bg-copper/25" : ""
       }`}
     >
