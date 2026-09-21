@@ -7,6 +7,7 @@ import { ClientContext } from "../src/context.js";
 import { HuddleBar } from "../src/components/HuddleBar.js";
 import { MessageItem } from "../src/components/MessageItem.js";
 import { Sidebar } from "../src/components/Sidebar.js";
+import { ConfirmProvider } from "../src/components/Confirm.js";
 import { accessibilityProblems } from "./accessibility.js";
 
 /** Emoji and pictographs, which used to stand in for the drawn icons. */
@@ -149,15 +150,19 @@ describe("message actions", () => {
 
   function messageItem() {
     const client = offlineClient();
+    const deleteMessage = vi.spyOn(client.api, "deleteMessage").mockResolvedValue({ ok: true });
     client.store.setState({
       channels: { C_GENERAL: room("C_GENERAL", "public", "general") },
       saved: { M_1: true },
     });
     render(
-      <ClientContext.Provider value={client}>
-        <MessageItem message={message} compact={false} onOpenThread={vi.fn()} />
-      </ClientContext.Provider>,
+      <ConfirmProvider>
+        <ClientContext.Provider value={client}>
+          <MessageItem message={message} compact={false} onOpenThread={vi.fn()} />
+        </ClientContext.Provider>
+      </ConfirmProvider>,
     );
+    return { client, deleteMessage };
   }
 
   it("names every action, since each one shows only an icon", async () => {
@@ -188,6 +193,43 @@ describe("message actions", () => {
     // An exact match: "📌 Pinned to this channel" would not be found.
     expect(screen.getByText("Pinned to this channel")).toBeInTheDocument();
     expect(screen.getByText("Saved for later")).toBeInTheDocument();
+  });
+
+  it("deletes only after the shared confirmation is accepted", async () => {
+    const user = userEvent.setup();
+    const { deleteMessage } = messageItem();
+    await user.click(screen.getByRole("button", { name: "Delete message" }));
+
+    const question = screen.getByRole("dialog", { name: "Delete this message?" });
+    expect(question).toHaveTextContent(/Everyone in the conversation stops seeing it/);
+    expect(deleteMessage).not.toHaveBeenCalled();
+    await user.click(within(question).getByRole("button", { name: "Cancel" }));
+    expect(deleteMessage).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Delete message" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Delete this message?" })).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+    expect(deleteMessage).toHaveBeenCalledWith("M_1");
+  });
+
+  it("keeps a failed deletion usable and says what happened", async () => {
+    const user = userEvent.setup();
+    const { deleteMessage } = messageItem();
+    deleteMessage.mockRejectedValueOnce(new Error("offline"));
+
+    await user.click(screen.getByRole("button", { name: "Delete message" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Delete this message?" })).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Could not confirm whether the message was deleted/,
+    );
+    expect(screen.getByRole("button", { name: "Delete message" })).toBeEnabled();
   });
 });
 

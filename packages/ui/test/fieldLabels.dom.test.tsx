@@ -5,6 +5,7 @@ import { Api, WorkspaceClient } from "@slackoss/client-core";
 import type { ServerInfo, User } from "@slackoss/protocol";
 import { ClientContext } from "../src/context.js";
 import { AppsDialog } from "../src/components/AppsDialog.js";
+import { ConfirmProvider } from "../src/components/Confirm.js";
 import { EditProfileDialog } from "../src/components/ProfileDialog.js";
 import { JoinScreen } from "../src/screens/JoinScreen.js";
 import type { Platform } from "../src/platform.js";
@@ -151,8 +152,9 @@ describe("account and administration dialogs", () => {
   });
 
   it("says what an integration can rely on instead of promising a changed URL is enough", async () => {
+    const user = userEvent.setup();
     const client = workspace();
-    vi.spyOn(client.api, "listApps").mockResolvedValue({
+    const listApps = vi.spyOn(client.api, "listApps").mockResolvedValue({
       apps: [
         {
           id: "A_DEPLOY",
@@ -168,13 +170,17 @@ describe("account and administration dialogs", () => {
         },
       ],
     });
+    const deleteApp = vi.spyOn(client.api, "deleteApp").mockRejectedValueOnce(new Error("offline"));
     render(
-      <ClientContext.Provider value={client}>
-        <AppsDialog onClose={() => {}} />
-      </ClientContext.Provider>,
+      <ConfirmProvider>
+        <ClientContext.Provider value={client}>
+          <AppsDialog onClose={() => {}} />
+        </ClientContext.Provider>
+      </ConfirmProvider>,
     );
     const dialog = screen.getByRole("dialog", { name: "Apps and integrations" });
     await within(dialog).findByText("Deploy Bot");
+    listApps.mockRejectedValueOnce(new Error("still offline"));
 
     expect(dialog).not.toHaveTextContent(/work by changing the URL/);
     const contract = within(dialog).getByRole("link", { name: "docs/INTEGRATIONS.md" });
@@ -192,6 +198,26 @@ describe("account and administration dialogs", () => {
     ]) {
       expect(within(dialog).getByLabelText(field)).toBeVisible();
     }
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const question = screen.getByRole("dialog", { name: "Delete Deploy Bot?" });
+    expect(deleteApp).not.toHaveBeenCalled();
+    await user.click(within(question).getByRole("button", { name: "Cancel" }));
+    expect(deleteApp).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Delete Deploy Bot?" })).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+    expect(deleteApp).toHaveBeenCalledWith("A_DEPLOY");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /Could not confirm whether the app was deleted/,
+    );
+    expect(listApps).toHaveBeenCalledTimes(2);
+    expect(within(dialog).getByText("Deploy Bot")).toBeVisible();
+    expect(within(dialog).queryByText("No apps yet.")).toBeNull();
     expect(await accessibilityProblems(dialog)).toEqual([]);
   });
 });

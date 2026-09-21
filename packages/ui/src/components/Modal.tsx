@@ -244,6 +244,8 @@ interface Props {
   onClose: () => void;
   dismissible?: boolean;
   children: ReactNode;
+  /** Id of text read along with the title, for content the label cannot carry. */
+  describedBy?: string;
   backdropClassName?: string;
   className?: string;
   style?: CSSProperties;
@@ -255,6 +257,7 @@ export function Modal({
   onClose,
   dismissible = true,
   children,
+  describedBy,
   backdropClassName = "",
   className,
   style,
@@ -315,6 +318,7 @@ export function Modal({
         tabIndex={-1}
         aria-modal="true"
         aria-label={title}
+        aria-describedby={describedBy}
         className={className}
         style={style}
       >

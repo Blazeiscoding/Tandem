@@ -4,6 +4,7 @@ import type { EventSubscription, ID } from "@slackoss/protocol";
 import { ApiError, type AppDetail } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { useConfirm } from "./Confirm.js";
 
 /** What an integration can rely on from this server, and where it differs from Slack. */
 const INTEGRATION_CONTRACT_URL =
@@ -74,6 +75,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 /** Admin view for integrations: bot tokens, webhooks, commands and events. */
 export function AppsDialog({ onClose }: { onClose: () => void }) {
   const client = useClient();
+  const confirm = useConfirm();
   const channels = useWorkspace((s) => s.channels);
   const [apps, setApps] = useState<AppDetail[] | null>(null);
   const [name, setName] = useState("");
@@ -87,7 +89,9 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
     client.api
       .listApps()
       .then((r) => setApps(r.apps))
-      .catch(() => setApps([]));
+      // A failed refresh must not turn a real list into "No apps yet". The
+      // action that asked for the refresh keeps its own error on screen.
+      .catch(() => setApps((shown) => shown ?? []));
   }, [client]);
 
   useEffect(load, [load]);
@@ -123,19 +127,22 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
    * credential is dead the moment the server answers and whatever was using
    * it fails until someone updates it.
    */
-  async function replace(question: string, action: () => Promise<void>) {
-    if (!confirm(question)) return;
+  async function replace(title: string, body: string, action: () => Promise<void>) {
+    if (!(await confirm({ title, body, confirmLabel: "Replace", destructive: true }))) return;
     setRotateError(null);
     try {
       await action();
     } catch {
-      setRotateError("Could not replace it. Nothing was changed; try again.");
+      setRotateError(
+        "Could not confirm whether it was replaced. Check the integration before trying again.",
+      );
     }
   }
 
   const replaceToken = (a: AppDetail) =>
     replace(
-      `Replace ${a.name}'s bot token? The current token stops working immediately.`,
+      `Replace ${a.name}'s bot token?`,
+      "The current token stops working immediately.",
       async () => {
         const r = await client.api.replaceAppToken(a.id);
         setSecrets((s) => ({ ...s, [a.id]: r.token }));
@@ -144,7 +151,8 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
 
   const replaceSigningSecret = (a: AppDetail) =>
     replace(
-      `Replace ${a.name}'s signing secret? The app will reject requests from this workspace until it has the new one.`,
+      `Replace ${a.name}'s signing secret?`,
+      "The app will reject requests from this workspace until it has the new one.",
       async () => {
         await client.api.replaceSigningSecret(a.id);
         load();
@@ -153,7 +161,8 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
 
   const replaceWebhookUrl = (a: AppDetail, webhookId: ID, channelName: string) =>
     replace(
-      `Replace the webhook URL for #${channelName}? Anything posting to the current URL will stop working.`,
+      `Replace the webhook URL for #${channelName}?`,
+      "Anything posting to the current URL will stop working.",
       async () => {
         const r = await client.api.replaceWebhookUrl(webhookId);
         setHookUrls((h) => ({ ...h, [webhookId]: `${client.baseUrl}${r.url}` }));
@@ -225,13 +234,32 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
                 New bot token
               </button>
               <button
+                disabled={busy}
                 onClick={async () => {
-                  if (!confirm(`Delete ${a.name}? Its tokens and webhooks stop working.`)) return;
-                  await client.api.deleteApp(a.id);
-                  load();
-                  void client.loadCommands();
+                  const go = await confirm({
+                    title: `Delete ${a.name}?`,
+                    body: "Its tokens and webhooks stop working.",
+                    confirmLabel: "Delete",
+                    destructive: true,
+                  });
+                  if (!go) return;
+                  setBusy(true);
+                  setRotateError(null);
+                  try {
+                    await client.api.deleteApp(a.id);
+                    load();
+                    void client.loadCommands();
+                  } catch {
+                    setRotateError(
+                      "Could not confirm whether the app was deleted. Refreshing the app list; check it before trying again.",
+                    );
+                    load();
+                    void client.loadCommands();
+                  } finally {
+                    setBusy(false);
+                  }
                 }}
-                className="rounded px-2 py-1 text-[11px] text-ink-faint transition-colors hover:text-alert"
+                className="rounded px-2 py-1 text-[11px] text-ink-faint transition-colors hover:text-alert disabled:opacity-40"
               >
                 Delete
               </button>

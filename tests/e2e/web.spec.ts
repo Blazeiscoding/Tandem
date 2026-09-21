@@ -1023,9 +1023,6 @@ test("an admin who never copied a bot token can replace it, and the old one stop
   const page = await context.newPage();
   try {
     await signIn(page, "alice");
-    // Every replacement asks first; this test means yes.
-    page.on("dialog", (d) => void d.accept());
-
     await page.getByRole("button", { name: "Workspace", exact: true }).click();
     await page.getByRole("menuitem", { name: "Apps and integrations", exact: true }).click();
     let dialog = page.getByRole("dialog", { name: "Apps and integrations" });
@@ -1049,6 +1046,11 @@ test("an admin who never copied a bot token can replace it, and the old one stop
     await expect(reopened.getByText(/Bot token · shown once/)).toHaveCount(0);
 
     await reopened.getByRole("button", { name: "New bot token", exact: true }).click();
+    const replace = page.getByRole("dialog", {
+      name: "Replace Rotation Demo's bot token?",
+    });
+    await expect(replace).toContainText("The current token stops working immediately.");
+    await replace.getByRole("button", { name: "Replace", exact: true }).click();
     const newRow = reopened
       .locator("div")
       .filter({ hasText: /^Bot token · shown once/ })
@@ -1083,7 +1085,6 @@ test("an invite code that got out can be revoked from the dialog that made it", 
   const page = await context.newPage();
   try {
     await signIn(page, "alice");
-    page.on("dialog", (d) => void d.accept());
 
     await page.getByRole("button", { name: "Workspace", exact: true }).click();
     await page.getByRole("menuitem", { name: "Invite people", exact: true }).click();
@@ -1098,6 +1099,11 @@ test("an invite code that got out can be revoked from the dialog that made it", 
     await expect(row.getByText("Active", { exact: true })).toBeVisible();
 
     await row.getByRole("button", { name: `Revoke invite ${code}`, exact: true }).click();
+    const revoke = page.getByRole("dialog", { name: "Revoke this invite?" });
+    await expect(revoke).toContainText(
+      "Anyone who has not used it yet will not be able to join with it.",
+    );
+    await revoke.getByRole("button", { name: "Revoke", exact: true }).click();
     await expect(row.getByText("Revoked", { exact: true })).toBeVisible();
     await expect(row.getByRole("button", { name: `Revoke invite ${code}` })).toHaveCount(0);
 
