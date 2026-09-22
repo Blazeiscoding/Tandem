@@ -601,10 +601,6 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(shortcuts).toHaveCount(0);
   await expect(latestArticle.getByText("Pinned to this channel", { exact: true })).toBeVisible();
   await page.unroute("**/api/messages/*/pin");
-  // Put the pointer back where the steps before this one left it, off the
-  // timeline. A pointer resting on a compact message row currently makes that
-  // row taller, which is a separate bug with its own fix and test.
-  await page.mouse.move(0, 0);
 
   await page.getByRole("textbox", { name: "Message #design-studio", exact: true }).focus();
   for (let i = 0; i < 315; i++) {
