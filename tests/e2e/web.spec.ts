@@ -601,10 +601,6 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(shortcuts).toHaveCount(0);
   await expect(latestArticle.getByText("Pinned to this channel", { exact: true })).toBeVisible();
   await page.unroute("**/api/messages/*/pin");
-  // Put the pointer back where the steps before this one left it, off the
-  // timeline. A pointer resting on a compact message row currently makes that
-  // row taller, which is a separate bug with its own fix and test.
-  await page.mouse.move(0, 0);
 
   await page.getByRole("textbox", { name: "Message #design-studio", exact: true }).focus();
   for (let i = 0; i < 315; i++) {
@@ -640,6 +636,18 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
     ).ok,
   ).toBe(true);
   await expect(page.getByText(longUpdate, { exact: true })).toBeInViewport();
+  // People read with the pointer resting on a message. Showing a compact
+  // row's time on hover must not make that row taller: a time that wrapped to
+  // two lines did, and the timeline then lost its place at the bottom when
+  // the side panel below narrowed it. The pointer stays there until then.
+  const restingRow = page.locator("[data-mid]").filter({ hasText: "Live update 300 —" });
+  const unhovered = await restingRow.boundingBox();
+  await restingRow.hover();
+  await expect(restingRow.getByText(/\d:\d\d/)).toBeVisible();
+  const hovered = await restingRow.boundingBox();
+  expect(unhovered).not.toBeNull();
+  expect(hovered).not.toBeNull();
+  expect(Math.abs(hovered!.height - unhovered!.height)).toBeLessThan(0.5);
   await page.getByRole("button", { name: "Saved", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Later", exact: true })).toBeVisible();
   await expect

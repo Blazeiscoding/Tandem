@@ -83,7 +83,7 @@ export const MessageItem = memo(function MessageItem({
       }`}
     >
       <div className="flex gap-2.5">
-        <div className="w-9 shrink-0 pt-0.5">
+        <div className="relative w-9 shrink-0 pt-0.5">
           {!compact && (
             <Tooltip label={profileLabel}>
               <button
@@ -96,7 +96,11 @@ export const MessageItem = memo(function MessageItem({
             </Tooltip>
           )}
           {compact && (
-            <span className="hidden select-none pt-1 text-right font-mono text-[10px] text-ink-faint group-hover:block">
+            // Out of the flow and on one line, so showing it cannot make the
+            // row taller. A time that wrapped to two lines here grew the row
+            // under a resting pointer, and the timeline then lost its place
+            // at the bottom when a side panel opened.
+            <span className="absolute right-0 top-0.5 hidden select-none whitespace-nowrap pt-1 font-mono text-[10px] text-ink-faint group-hover:block">
               {formatTime(message.createdAt)}
             </span>
           )}
