@@ -97,6 +97,14 @@ describe("the huddle bar", () => {
     const toggles = ["Mute microphone", "Camera", "Share screen"];
     for (const name of toggles)
       expect(within(controls).getByRole("button", { name, pressed: false })).toBeInTheDocument();
+    const mute = within(controls).getByRole("button", { name: "Mute microphone" });
+    const camera = within(controls).getByRole("button", { name: "Camera" });
+    const share = within(controls).getByRole("button", { name: "Share screen" });
+    for (const control of [mute, camera, share]) expect(control).not.toHaveAttribute("title");
+    act(() => mute.focus());
+    expect(mute).toHaveAccessibleDescription("Mute");
+    act(() => camera.focus());
+    expect(camera).toHaveAccessibleDescription("Turn your camera on");
 
     act(() =>
       client.store.setState((s) => ({
@@ -106,6 +114,8 @@ describe("the huddle bar", () => {
     // A screen reader hears the same control, now pressed, not a different one.
     for (const name of toggles)
       expect(within(controls).getByRole("button", { name, pressed: true })).toBeInTheDocument();
+    act(() => mute.focus());
+    expect(mute).toHaveAccessibleDescription("Unmute");
     expect(within(controls).getAllByRole("button")).toHaveLength(4);
   });
 
@@ -167,6 +177,10 @@ describe("message actions", () => {
 
   it("names every action, since each one shows only an icon", async () => {
     messageItem();
+    const profile = screen.getByRole("button", { name: "View Sam Rivera's profile" });
+    expect(profile).not.toHaveAttribute("title");
+    act(() => profile.focus());
+    expect(profile).toHaveAccessibleDescription("View Sam Rivera's profile");
     const toolbar = screen.getByRole("button", { name: "Reply in thread" }).parentElement!;
     const named = [
       "Reply in thread",
@@ -177,8 +191,12 @@ describe("message actions", () => {
       "Edit message",
       "Delete message",
     ];
-    for (const name of named)
-      expect(within(toolbar).getByRole("button", { name })).toBeInTheDocument();
+    for (const name of named) {
+      const action = within(toolbar).getByRole("button", { name });
+      act(() => action.focus());
+      expect(action).toHaveAccessibleDescription(name);
+      expect(action).not.toHaveAttribute("title");
+    }
     // The rest are the quick reactions, which are emoji on purpose.
     const reactions = within(toolbar)
       .getAllByRole("button")

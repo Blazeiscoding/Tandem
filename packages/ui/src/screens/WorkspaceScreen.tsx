@@ -29,6 +29,7 @@ import { NotificationBanner } from "../components/NotificationBanner.js";
 import { WorkspaceStorageGate } from "../components/WorkspaceStorageGate.js";
 import { ShareableServerProvider } from "../components/ShareableServer.js";
 import { hasOpenModal } from "../components/Modal.js";
+import { Tooltip } from "../components/Tooltip.js";
 import { isImeKey } from "../lib/textInput.js";
 
 const ActivityPanel = lazy(() =>
@@ -478,60 +479,64 @@ function WorkspaceInner({
             </p>
           </button>
           {activeChannelId && <HuddleButton channelId={activeChannelId} />}
-          <button
-            onClick={() =>
-              setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
-            }
-            title="Pinned messages"
-            aria-label="Pinned messages"
-            aria-pressed={panel.kind === "pins"}
-            className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
-              panel.kind === "pins"
-                ? "border-copper text-copper"
-                : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
-            }`}
-          >
-            <Icon name="pin" />
-          </button>
-          <button
-            onClick={() =>
-              setPanel((p) => (p.kind === "later" ? { kind: "none" } : { kind: "later" }))
-            }
-            title="Saved for later"
-            aria-label="Saved for later"
-            aria-pressed={panel.kind === "later"}
-            className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
-              panel.kind === "later"
-                ? "border-copper text-copper"
-                : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
-            }`}
-          >
-            <Icon name="bookmark" />
-          </button>
-          <button
-            onClick={() =>
-              setPanel((p) => (p.kind === "scheduled" ? { kind: "none" } : { kind: "scheduled" }))
-            }
-            title="Scheduled messages"
-            aria-label="Scheduled messages"
-            aria-pressed={panel.kind === "scheduled"}
-            className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
-              panel.kind === "scheduled"
-                ? "border-copper text-copper"
-                : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
-            }`}
-          >
-            <Icon name="clock" />
-          </button>
-          <button
-            onClick={() => setDialog({ kind: "search" })}
-            aria-label="Search messages"
-            title="Search messages (Ctrl F)"
-            className="flex items-center gap-2 rounded-lg border border-edge px-3 py-1.5 text-[13px] text-ink-dim transition-colors hover:border-ink-faint hover:text-ink"
-          >
-            <Icon name="search" size={16} />
-            <span className="header-secondary">Search</span>
-          </button>
+          <Tooltip label="Pinned messages">
+            <button
+              onClick={() =>
+                setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
+              }
+              aria-label="Pinned messages"
+              aria-pressed={panel.kind === "pins"}
+              className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+                panel.kind === "pins"
+                  ? "border-copper text-copper"
+                  : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+              }`}
+            >
+              <Icon name="pin" />
+            </button>
+          </Tooltip>
+          <Tooltip label="Saved for later">
+            <button
+              onClick={() =>
+                setPanel((p) => (p.kind === "later" ? { kind: "none" } : { kind: "later" }))
+              }
+              aria-label="Saved for later"
+              aria-pressed={panel.kind === "later"}
+              className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+                panel.kind === "later"
+                  ? "border-copper text-copper"
+                  : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+              }`}
+            >
+              <Icon name="bookmark" />
+            </button>
+          </Tooltip>
+          <Tooltip label="Scheduled messages">
+            <button
+              onClick={() =>
+                setPanel((p) => (p.kind === "scheduled" ? { kind: "none" } : { kind: "scheduled" }))
+              }
+              aria-label="Scheduled messages"
+              aria-pressed={panel.kind === "scheduled"}
+              className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+                panel.kind === "scheduled"
+                  ? "border-copper text-copper"
+                  : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+              }`}
+            >
+              <Icon name="clock" />
+            </button>
+          </Tooltip>
+          <Tooltip label="Search messages" keys="Ctrl/Cmd F">
+            <button
+              onClick={() => setDialog({ kind: "search" })}
+              aria-label="Search messages"
+              className="flex items-center gap-2 rounded-lg border border-edge px-3 py-1.5 text-[13px] text-ink-dim transition-colors hover:border-ink-faint hover:text-ink"
+            >
+              <Icon name="search" size={16} />
+              <span className="header-secondary">Search</span>
+            </button>
+          </Tooltip>
         </header>
 
         {activeChannelId ? (

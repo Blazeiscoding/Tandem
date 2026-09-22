@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useClient, useWorkspace } from "../context.js";
 import { Icon } from "./Icon.js";
+import { Tooltip } from "./Tooltip.js";
 
 /**
  * Microphone, camera, screen and Leave. The huddle bar shows them, and so does
@@ -44,42 +45,44 @@ export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
         overlay ? "rounded-2xl bg-black/35 p-2 backdrop-blur" : "ml-auto"
       }`}
     >
-      <button
-        aria-label="Mute microphone"
-        aria-pressed={huddle.micMuted}
-        onClick={() => client.toggleMic()}
-        title={huddle.micMuted ? "Unmute" : "Mute"}
-        className={toggleCls(
-          huddle.micMuted,
-          overlay ? "border-alert bg-black/45 text-alert" : "border-alert text-alert",
-        )}
-      >
-        <Icon name={huddle.micMuted ? "micOff" : "mic"} />
-      </button>
-      <button
-        aria-label="Camera"
-        aria-pressed={huddle.cameraOn}
-        onClick={() => void guarded("camera", () => client.toggleCamera())}
-        disabled={busy !== null}
-        title={huddle.cameraOn ? "Turn your camera off" : "Turn your camera on"}
-        className={toggleCls(huddle.cameraOn, lit)}
-      >
-        <Icon name="camera" />
-      </button>
-      <button
-        aria-label="Share screen"
-        aria-pressed={huddle.sharingScreen}
-        onClick={() => void guarded("screen", () => client.toggleScreenShare())}
-        disabled={busy !== null}
-        title={huddle.sharingScreen ? "Stop sharing" : "Share your screen"}
-        className={toggleCls(huddle.sharingScreen, lit)}
-      >
-        <Icon name="screen" />
-      </button>
+      <Tooltip label={huddle.micMuted ? "Unmute" : "Mute"}>
+        <button
+          aria-label="Mute microphone"
+          aria-pressed={huddle.micMuted}
+          onClick={() => client.toggleMic()}
+          className={toggleCls(
+            huddle.micMuted,
+            overlay ? "border-alert bg-black/45 text-alert" : "border-alert text-alert",
+          )}
+        >
+          <Icon name={huddle.micMuted ? "micOff" : "mic"} />
+        </button>
+      </Tooltip>
+      <Tooltip label={huddle.cameraOn ? "Turn your camera off" : "Turn your camera on"}>
+        <button
+          aria-label="Camera"
+          aria-pressed={huddle.cameraOn}
+          onClick={() => void guarded("camera", () => client.toggleCamera())}
+          disabled={busy !== null}
+          className={toggleCls(huddle.cameraOn, lit)}
+        >
+          <Icon name="camera" />
+        </button>
+      </Tooltip>
+      <Tooltip label={huddle.sharingScreen ? "Stop sharing" : "Share your screen"}>
+        <button
+          aria-label="Share screen"
+          aria-pressed={huddle.sharingScreen}
+          onClick={() => void guarded("screen", () => client.toggleScreenShare())}
+          disabled={busy !== null}
+          className={toggleCls(huddle.sharingScreen, lit)}
+        >
+          <Icon name="screen" />
+        </button>
+      </Tooltip>
       {/* Leave keeps its word: an arrow out of a door reads as signing out just as easily. */}
       <button
         onClick={() => client.leaveHuddle()}
-        title="Leave the huddle"
         className="flex h-11 items-center gap-2 rounded-xl bg-alert px-4 text-sm font-semibold text-ground transition-colors hover:bg-alert/85"
       >
         <Icon name="leave" size={16} />
