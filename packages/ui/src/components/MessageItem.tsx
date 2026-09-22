@@ -11,6 +11,7 @@ import { MessageEditor } from "./MessageEditor.js";
 import { useShareableServer } from "./ShareableServer.js";
 import { Icon } from "./Icon.js";
 import { useConfirm } from "./Confirm.js";
+import { Tooltip } from "./Tooltip.js";
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
 
@@ -48,6 +49,7 @@ export const MessageItem = memo(function MessageItem({
   const shareable = useShareableServer();
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
+  const profileLabel = author ? `View ${author.displayName}'s profile` : "View profile";
   const mine = message.userId === self?.id;
   const canDelete = mine || self?.role === "owner" || self?.role === "admin";
   const mentionsMe = self ? message.text.includes(`<@${self.id}>`) : false;
@@ -66,13 +68,15 @@ export const MessageItem = memo(function MessageItem({
       <div className="flex gap-2.5">
         <div className="w-9 shrink-0 pt-0.5">
           {!compact && (
-            <button
-              onClick={() => onOpenProfile?.(message.userId)}
-              title={`View ${author?.displayName ?? "profile"}`}
-              className="rounded-lg transition-opacity hover:opacity-80"
-            >
-              <Avatar user={author} size={36} />
-            </button>
+            <Tooltip label={profileLabel}>
+              <button
+                aria-label={profileLabel}
+                onClick={() => onOpenProfile?.(message.userId)}
+                className="rounded-lg transition-opacity hover:opacity-80"
+              >
+                <Avatar user={author} size={36} />
+              </button>
+            </Tooltip>
           )}
           {compact && (
             <span className="hidden select-none pt-1 text-right font-mono text-[10px] text-ink-faint group-hover:block">
@@ -299,11 +303,10 @@ function ToolbarButton(props: {
   disabled?: boolean;
   onClick: () => void;
 }) {
-  return (
+  const button = (
     <button
       onClick={props.onClick}
       disabled={props.disabled}
-      title={props.title}
       aria-label={props.title}
       className={`flex items-center justify-center px-2 py-1.5 text-[14px] transition-colors hover:bg-copper/20 disabled:opacity-40 ${
         props.active ? "bg-copper/25" : ""
@@ -312,6 +315,7 @@ function ToolbarButton(props: {
       {props.label}
     </button>
   );
+  return props.title ? <Tooltip label={props.title}>{button}</Tooltip> : button;
 }
 
 /**

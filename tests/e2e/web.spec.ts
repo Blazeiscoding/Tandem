@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -134,6 +134,23 @@ async function signIn(page: Page, handle: string) {
   await expect(page.locator("textarea")).toBeVisible();
 }
 
+async function expectTooltipInsideViewport(page: Page, trigger: Locator, text: string) {
+  await trigger.focus();
+  const tooltip = page.getByRole("tooltip").filter({ hasText: text });
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveAttribute("data-side", "bottom");
+  const box = await tooltip.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height);
+  await page.keyboard.press("Escape");
+  await expect(tooltip).toHaveCount(0);
+}
+
 test("a browser served by a workspace offers that workspace without being asked", async ({
   page,
 }) => {
@@ -243,7 +260,7 @@ test("two people register, chat, become friends, reconnect, and exchange real We
         .poll(() => page.locator(".ring-online").count(), { timeout: 15_000 })
         .toBeGreaterThan(0);
     }
-    await alice.getByTitle("Turn your camera on", { exact: true }).click();
+    await alice.getByRole("button", { name: "Camera", pressed: false }).click();
     await expect
       .poll(() =>
         bob
@@ -254,8 +271,10 @@ test("two people register, chat, become friends, reconnect, and exchange real We
     // The video gets a stage of its own above the chat, with Alice named on it.
     const bobStage = bob.getByRole("region", { name: "Huddle video" });
     await expect(bobStage.getByRole("group", { name: "alice", exact: true })).toBeVisible();
-    await alice.getByTitle("Mute", { exact: true }).click();
-    await expect(alice.getByTitle("Unmute", { exact: true })).toBeVisible();
+    await alice.getByRole("button", { name: "Mute microphone", pressed: false }).click();
+    await expect(
+      alice.getByRole("button", { name: "Mute microphone", pressed: true }),
+    ).toBeVisible();
     // Muting is signalled, not guessed: Bob's copy of Alice says so.
     await expect(bob.getByTitle("alice (muted)")).toBeVisible();
     await expect(bobStage.getByRole("group", { name: "alice, muted", exact: true })).toBeVisible();
@@ -464,9 +483,65 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
     ).toBe(true);
   }
   await expect(page.getByText(messages[2]!.text, { exact: true })).toBeVisible();
+  const searchToggle = page.getByRole("button", { name: "Search messages", exact: true });
+  await expectTooltipInsideViewport(page, searchToggle, "Search messages");
+  const pinnedToggle = page.getByRole("button", { name: "Pinned messages", exact: true });
+  await pinnedToggle.focus();
+  const pinnedTooltip = page.getByRole("tooltip").filter({ hasText: "Pinned messages" });
+  await expect(pinnedTooltip).toBeVisible();
+  const pinnedCenterDifference = async () => {
+    const [buttonBox, tooltipBox] = await Promise.all([
+      pinnedToggle.boundingBox(),
+      pinnedTooltip.boundingBox(),
+    ]);
+    if (!buttonBox || !tooltipBox) return Infinity;
+    return Math.abs(buttonBox.x + buttonBox.width / 2 - (tooltipBox.x + tooltipBox.width / 2));
+  };
+  // A same-sized trigger can move without notifying ResizeObserver. The open
+  // hint still follows its live geometry.
+  await pinnedToggle.evaluate((element) => {
+    (element as HTMLElement).style.transform = "translateX(-24px)";
+  });
+  await expect.poll(pinnedCenterDifference).toBeLessThan(2);
+  await pinnedToggle.evaluate((element) => {
+    (element as HTMLElement).style.transform = "";
+  });
+  await expect.poll(pinnedCenterDifference).toBeLessThan(2);
+  await page.keyboard.press("Enter");
+  await expect(pinnedToggle).toHaveAttribute("aria-pressed", "true");
+  // Opening the side panel shrinks the main column without resizing the
+  // window. The open tooltip must follow the focused button across that reflow.
+  await expect.poll(pinnedCenterDifference).toBeLessThan(2);
+  await page.keyboard.press("Escape");
+  await expect(pinnedTooltip).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(pinnedToggle).toHaveAttribute("aria-pressed", "false");
   await page.screenshot({ path: info.outputPath("gatherline-conversation.png") });
-  await page.getByRole("article").last().focus();
-  await expect(page.getByTitle("Reply in thread", { exact: true }).last()).toBeVisible();
+  const latestArticle = page.getByRole("article").last();
+  await latestArticle.hover();
+  const reply = page.getByRole("button", { name: "Reply in thread", exact: true }).last();
+  await expect(reply).toBeVisible();
+  await reply.hover();
+  const hoveredTooltip = page.getByRole("tooltip").filter({ hasText: "Reply in thread" });
+  await expect(hoveredTooltip).toBeVisible();
+  const hoveredBox = await hoveredTooltip.boundingBox();
+  expect(hoveredBox).not.toBeNull();
+  await page.mouse.move(
+    hoveredBox!.x + hoveredBox!.width / 2,
+    hoveredBox!.y + hoveredBox!.height / 2,
+    { steps: 5 },
+  );
+  await page.waitForTimeout(350);
+  await expect(hoveredTooltip).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expect(hoveredTooltip).toHaveCount(0);
+
+  await latestArticle.focus();
+  await expect(reply).toBeVisible();
+  await reply.focus();
+  await expect(page.getByRole("tooltip").filter({ hasText: "Reply in thread" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await page.getByRole("textbox", { name: "Message #design-studio", exact: true }).focus();
   for (let i = 0; i < 315; i++) {
     const posted = await fetch(`${base}/api/channels/${channel.id}/messages`, {
@@ -641,6 +716,7 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await expectTooltipInsideViewport(page, searchToggle, "Search messages");
   await expect(page.getByRole("navigation")).not.toBeVisible();
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   await expect(page.getByRole("navigation")).toBeVisible();
@@ -1266,7 +1342,7 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     // Copying a message's link gives the browser form of it.
     const latestRow = hostPage.locator(`[data-mid="${latest.id}"]`);
     await latestRow.hover();
-    await latestRow.getByTitle("Copy link to message", { exact: true }).click();
+    await latestRow.getByRole("button", { name: "Copy link to message", exact: true }).click();
     expect(await hostPage.evaluate(() => navigator.clipboard.readText())).toBe(
       messageLink(latest.id),
     );
