@@ -1562,52 +1562,68 @@ export class WorkspaceClient {
     this.store.setState((s) => ({ pending: s.pending.filter((x) => x.nonce !== nonce) }));
   }
 
-  /** Optimistic reaction toggle. */
-  toggleReaction(message: Message, emoji: string): void {
+  /**
+   * Optimistic reaction toggle. Resolves false when the server refused it, so
+   * the caller can say so; a refusal never rejects, because these are called
+   * from click handlers that have nowhere to put an exception.
+   */
+  async toggleReaction(message: Message, emoji: string): Promise<boolean> {
     const selfId = this.state.self?.id;
-    if (!selfId) return;
+    if (!selfId) return false;
     const has = message.reactions.some((g) => g.emoji === emoji && g.userIds.includes(selfId));
-    void (has
-      ? this.api.removeReaction(message.id, emoji)
-      : this.api.addReaction(message.id, emoji));
+    try {
+      await (has
+        ? this.api.removeReaction(message.id, emoji)
+        : this.api.addReaction(message.id, emoji));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Optimistic pin toggle — the channel-wide event confirms it. */
-  togglePin(message: Message): void {
+  async togglePin(message: Message): Promise<boolean> {
     const next = !message.pinned;
     const apply = (m: Message): Message => ({ ...m, pinned: next });
     this.store.setState((s) => ({
       timelines: this.patchMessage(s, message.channelId, message.id, apply),
       threads: this.patchThreadMessage(s, message.id, apply),
     }));
-    void (next ? this.api.pinMessage(message.id) : this.api.unpinMessage(message.id)).catch(() => {
+    try {
+      await (next ? this.api.pinMessage(message.id) : this.api.unpinMessage(message.id));
+      return true;
+    } catch {
       const revert = (m: Message): Message => ({ ...m, pinned: !next });
       this.store.setState((s) => ({
         timelines: this.patchMessage(s, message.channelId, message.id, revert),
         threads: this.patchThreadMessage(s, message.id, revert),
       }));
-    });
+      return false;
+    }
   }
 
-  /** Optimistic save-for-later toggle; other devices get the ephemeral echo. */
-  toggleSaved(messageId: ID): void {
-    const isSaved = !!this.state.saved[messageId];
-    this.store.setState((s) => {
-      const saved = { ...s.saved };
-      if (isSaved) delete saved[messageId];
-      else saved[messageId] = true;
-      return { saved };
-    });
-    void (isSaved ? this.api.unsaveMessage(messageId) : this.api.saveMessage(messageId)).catch(
-      () => {
-        this.store.setState((s) => {
-          const saved = { ...s.saved };
-          if (isSaved) saved[messageId] = true;
-          else delete saved[messageId];
-          return { saved };
-        });
-      },
-    );
+  /**
+   * Optimistic save-for-later toggle; other devices get the ephemeral echo.
+   * Pass `save` to repeat an earlier intent, so trying a refused save again
+   * saves even if the state has changed elsewhere since, rather than flipping.
+   */
+  async toggleSaved(messageId: ID, save = !this.state.saved[messageId]): Promise<boolean> {
+    const wasSaved = !!this.state.saved[messageId];
+    const show = (on: boolean) =>
+      this.store.setState((s) => {
+        const saved = { ...s.saved };
+        if (on) saved[messageId] = true;
+        else delete saved[messageId];
+        return { saved };
+      });
+    show(save);
+    try {
+      await (save ? this.api.saveMessage(messageId) : this.api.unsaveMessage(messageId));
+      return true;
+    } catch {
+      show(wasSaved);
+      return false;
+    }
   }
 
   /**

@@ -107,6 +107,10 @@ function isolate(layer: Layer | null) {
   if (!layer) return;
   for (const element of document.body.children) {
     if (!(element instanceof HTMLElement) || element === layer.root) continue;
+    // Notices report what happened elsewhere, including while this dialog has
+    // been open. They compete with nothing on it, so they stay readable and
+    // stay in the accessibility tree rather than going inert behind it.
+    if (element.hasAttribute("data-gatherline-toasts")) continue;
     if (!originalInert.has(element)) originalInert.set(element, element.getAttribute("inert"));
     if (!element.hasAttribute("inert")) element.setAttribute("inert", "");
   }

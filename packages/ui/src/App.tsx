@@ -10,6 +10,7 @@ import { Icon } from "./components/Icon.js";
 import { HostDialog, useHostingStatus, useLastHosted } from "./components/HostDialog.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { ConfirmProvider } from "./components/Confirm.js";
+import { ToastProvider } from "./components/Toast.js";
 import { parseSavedServers } from "./lib/savedServers.js";
 import { hostedButStopped } from "./lib/resume.js";
 
@@ -29,7 +30,9 @@ type Session =
 function AppBoundary({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary>
-      <ConfirmProvider>{children}</ConfirmProvider>
+      <ToastProvider>
+        <ConfirmProvider>{children}</ConfirmProvider>
+      </ToastProvider>
     </ErrorBoundary>
   );
 }

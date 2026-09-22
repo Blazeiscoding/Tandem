@@ -8,6 +8,7 @@ import { HuddleBar } from "../src/components/HuddleBar.js";
 import { MessageItem } from "../src/components/MessageItem.js";
 import { Sidebar } from "../src/components/Sidebar.js";
 import { ConfirmProvider } from "../src/components/Confirm.js";
+import { ToastProvider } from "../src/components/Toast.js";
 import { accessibilityProblems } from "./accessibility.js";
 
 /** Emoji and pictographs, which used to stand in for the drawn icons. */
@@ -166,11 +167,13 @@ describe("message actions", () => {
       saved: { M_1: true },
     });
     render(
-      <ConfirmProvider>
-        <ClientContext.Provider value={client}>
-          <MessageItem message={message} compact={false} onOpenThread={vi.fn()} />
-        </ClientContext.Provider>
-      </ConfirmProvider>,
+      <ToastProvider>
+        <ConfirmProvider>
+          <ClientContext.Provider value={client}>
+            <MessageItem message={message} compact={false} onOpenThread={vi.fn()} />
+          </ClientContext.Provider>
+        </ConfirmProvider>
+      </ToastProvider>,
     );
     return { client, deleteMessage };
   }
@@ -248,6 +251,24 @@ describe("message actions", () => {
       /Could not confirm whether the message was deleted/,
     );
     expect(screen.getByRole("button", { name: "Delete message" })).toBeEnabled();
+  });
+
+  it("says so when an optimistic toggle comes back undone, and offers it again", async () => {
+    const user = userEvent.setup();
+    const { client } = messageItem();
+    const unpin = vi
+      .spyOn(client.api, "unpinMessage")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ ok: true });
+
+    // The pin flips back on its own. Without the notice that revert is the
+    // only sign anything happened, and the toolbar that started it is gone.
+    await user.click(screen.getByRole("button", { name: "Unpin from channel" }));
+    expect(await screen.findByText("Could not unpin that message.")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(unpin).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Could not unpin that message.")).not.toBeInTheDocument();
   });
 });
 
