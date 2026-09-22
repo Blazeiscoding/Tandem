@@ -12,6 +12,7 @@ import { useShareableServer } from "./ShareableServer.js";
 import { Icon } from "./Icon.js";
 import { useConfirm } from "./Confirm.js";
 import { Tooltip } from "./Tooltip.js";
+import { useToast } from "./Toast.js";
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
 
@@ -53,6 +54,22 @@ export const MessageItem = memo(function MessageItem({
   const mine = message.userId === self?.id;
   const canDelete = mine || self?.role === "owner" || self?.role === "admin";
   const mentionsMe = self ? message.text.includes(`<@${self.id}>`) : false;
+  const toast = useToast();
+
+  /**
+   * These toggles are optimistic and undo themselves when the server refuses.
+   * The row that started one is hover-only and may be gone by the time the
+   * refusal arrives, so the notice carries the news and the second attempt.
+   */
+  function reportRefusal(failure: string, run: () => Promise<boolean>) {
+    void run().then((ok) => {
+      if (ok) return;
+      toast({
+        message: failure,
+        action: { label: "Try again", run: () => reportRefusal(failure, run) },
+      });
+    });
+  }
 
   return (
     <div
@@ -157,7 +174,11 @@ export const MessageItem = memo(function MessageItem({
                   <button
                     key={g.emoji}
                     title={names}
-                    onClick={() => client.toggleReaction(message, g.emoji)}
+                    onClick={() =>
+                      reportRefusal("That reaction did not go through.", () =>
+                        client.toggleReaction(message, g.emoji),
+                      )
+                    }
                     className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[13px] transition-colors ${
                       reacted
                         ? "border-copper/60 bg-copper/15"
@@ -200,7 +221,15 @@ export const MessageItem = memo(function MessageItem({
       {!editing && (
         <div className="absolute -top-3.5 right-4 hidden max-w-[calc(100%-32px)] items-center overflow-x-auto rounded-lg border border-edge bg-lifted shadow-lg group-hover:flex group-focus-within:flex">
           {QUICK_REACTIONS.map((e) => (
-            <ToolbarButton key={e} label={e} onClick={() => client.toggleReaction(message, e)} />
+            <ToolbarButton
+              key={e}
+              label={e}
+              onClick={() =>
+                reportRefusal("That reaction did not go through.", () =>
+                  client.toggleReaction(message, e),
+                )
+              }
+            />
           ))}
           {!inThread && (
             <ToolbarButton
@@ -234,7 +263,14 @@ export const MessageItem = memo(function MessageItem({
             label={<Icon name="bookmark" size={15} />}
             title={isSaved ? "Remove from Later" : "Save for later"}
             active={isSaved}
-            onClick={() => client.toggleSaved(message.id)}
+            onClick={() => {
+              // Trying again repeats this intent, whatever the state is by then.
+              const save = !isSaved;
+              reportRefusal(
+                save ? "Could not save that for later." : "Could not remove that from Later.",
+                () => client.toggleSaved(message.id, save),
+              );
+            }}
           />
           <ToolbarButton
             label={<Icon name="markUnread" size={15} />}
@@ -251,7 +287,12 @@ export const MessageItem = memo(function MessageItem({
             label={<Icon name="pin" size={15} />}
             title={message.pinned ? "Unpin from channel" : "Pin to channel"}
             active={message.pinned}
-            onClick={() => client.togglePin(message)}
+            onClick={() =>
+              reportRefusal(
+                message.pinned ? "Could not unpin that message." : "Could not pin that message.",
+                () => client.togglePin(message),
+              )
+            }
           />
           {mine && (
             <ToolbarButton

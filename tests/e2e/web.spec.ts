@@ -134,12 +134,8 @@ async function signIn(page: Page, handle: string) {
   await expect(page.locator("textarea")).toBeVisible();
 }
 
-async function expectTooltipInsideViewport(page: Page, trigger: Locator, text: string) {
-  await trigger.focus();
-  const tooltip = page.getByRole("tooltip").filter({ hasText: text });
-  await expect(tooltip).toBeVisible();
-  await expect(tooltip).toHaveAttribute("data-side", "bottom");
-  const box = await tooltip.boundingBox();
+async function expectInsideViewport(page: Page, element: Locator) {
+  const box = await element.boundingBox();
   const viewport = page.viewportSize();
   expect(box).not.toBeNull();
   expect(viewport).not.toBeNull();
@@ -147,8 +143,36 @@ async function expectTooltipInsideViewport(page: Page, trigger: Locator, text: s
   expect(box!.y).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height);
+}
+
+async function expectTooltipInsideViewport(page: Page, trigger: Locator, text: string) {
+  await trigger.focus();
+  const tooltip = page.getByRole("tooltip").filter({ hasText: text });
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveAttribute("data-side", "bottom");
+  await expectInsideViewport(page, tooltip);
   await page.keyboard.press("Escape");
   await expect(tooltip).toHaveCount(0);
+}
+
+/** The notice that carries `text`, for its geometry and its own buttons. */
+function notice(page: Page, text: string) {
+  return page.locator("[data-toast]").filter({ hasText: text });
+}
+
+/** Fails when `a` and `b` overlap on screen. */
+async function expectApart(a: Locator, b: Locator) {
+  const [one, two] = await Promise.all([a.boundingBox(), b.boundingBox()]);
+  expect(one).not.toBeNull();
+  expect(two).not.toBeNull();
+  const overlapX = Math.min(one!.x + one!.width, two!.x + two!.width) - Math.max(one!.x, two!.x);
+  const overlapY = Math.min(one!.y + one!.height, two!.y + two!.height) - Math.max(one!.y, two!.y);
+  expect(overlapX <= 0 || overlapY <= 0).toBe(true);
+}
+
+/** Whether the modal layer has made `element` or anything around it inert. */
+function isInert(element: Locator) {
+  return element.evaluate((el) => el.closest("[inert]") !== null);
 }
 
 test("a browser served by a workspace offers that workspace without being asked", async ({
@@ -542,6 +566,46 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(page.getByRole("tooltip").filter({ hasText: "Reply in thread" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+  // A refused pin comes back undone, and the notice is the only thing that
+  // says so. It stays in the window and above a dialog, outside the page the
+  // modal layer makes inert, and its action works with the dialog still open.
+  let refusePins = true;
+  await page.route("**/api/messages/*/pin", (route) =>
+    refusePins ? route.abort("connectionfailed") : route.fallback(),
+  );
+  await latestArticle.hover();
+  await latestArticle.getByRole("button", { name: "Pin to channel", exact: true }).click();
+  const refusedPin = notice(page, "Could not pin that message.");
+  await expect(refusedPin).toBeVisible();
+  await expectInsideViewport(page, refusedPin);
+  // A failure stays until it is dealt with, so it must not sit on the
+  // composer someone is about to type in.
+  const composerField = page.getByRole("textbox", { name: "Message #design-studio", exact: true });
+  await expectApart(refusedPin, composerField);
+  await expect(latestArticle.getByText("Pinned to this channel", { exact: true })).toHaveCount(0);
+  // The shortcut sheet is bundled with the app, so opening it here leaves the
+  // first opening of search, further on, to prove that download.
+  await page.keyboard.press("Control+/");
+  const shortcuts = page.getByRole("dialog", { name: "Keyboard shortcuts", exact: true });
+  await expect(shortcuts).toBeVisible();
+  await expect(refusedPin).toBeVisible();
+  expect(await isInert(refusedPin)).toBe(false);
+  await page.screenshot({ path: info.outputPath("notice-over-dialog.png") });
+  refusePins = false;
+  await refusedPin.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(refusedPin).toHaveCount(0);
+  // Pressing the notice is not a press outside the dialog.
+  await expect(shortcuts).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(shortcuts).toHaveCount(0);
+  await expect(latestArticle.getByText("Pinned to this channel", { exact: true })).toBeVisible();
+  await page.unroute("**/api/messages/*/pin");
+  // Put the pointer back where the steps before this one left it, off the
+  // timeline. A pointer resting on a compact message row currently makes that
+  // row taller, which is a separate bug with its own fix and test.
+  await page.mouse.move(0, 0);
+
   await page.getByRole("textbox", { name: "Message #design-studio", exact: true }).focus();
   for (let i = 0; i < 315; i++) {
     const posted = await fetch(`${base}/api/channels/${channel.id}/messages`, {
@@ -717,6 +781,19 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expectTooltipInsideViewport(page, searchToggle, "Search messages");
+  // At phone width a notice still fits the window.
+  await page.route("**/api/messages/*/save", (route) => route.abort("connectionfailed"));
+  const newest = page.getByRole("article").last();
+  await newest.hover();
+  await newest.getByRole("button", { name: "Save for later", exact: true }).click();
+  const refusedSave = notice(page, "Could not save that for later.");
+  await expect(refusedSave).toBeVisible();
+  await expectInsideViewport(page, refusedSave);
+  await expectApart(refusedSave, composerField);
+  await page.screenshot({ path: info.outputPath("notice-phone.png") });
+  await refusedSave.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(refusedSave).toHaveCount(0);
+  await page.unroute("**/api/messages/*/save");
   await expect(page.getByRole("navigation")).not.toBeVisible();
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   await expect(page.getByRole("navigation")).toBeVisible();

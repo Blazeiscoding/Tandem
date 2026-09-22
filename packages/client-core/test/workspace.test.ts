@@ -196,15 +196,54 @@ describe("WorkspaceClient", () => {
     const reacted = await until(client, (s) => (find(s)?.reactions.length ?? 0) > 0, "reaction");
     expect(find(reacted)!.reactions[0]).toEqual({ emoji: "🎯", userIds: [bobId] });
 
-    client.togglePin(find(client.state)!);
+    const pinning = client.togglePin(find(client.state)!);
     expect(find(client.state)!.pinned).toBe(true); // optimistic
+    expect(await pinning).toBe(true);
     await until(client, (s) => find(s)!.pinned, "pin confirmed");
 
-    client.toggleSaved(message.id);
+    expect(await client.toggleSaved(message.id)).toBe(true);
     await until(client, (s) => !!s.saved[message.id], "saved");
 
-    client.toggleSaved(message.id);
+    // Trying a save again repeats it, rather than flipping a state that has
+    // since changed and undoing what the person asked for.
+    expect(await client.toggleSaved(message.id, true)).toBe(true);
+    expect(client.state.saved[message.id]).toBe(true);
+
+    expect(await client.toggleSaved(message.id)).toBe(true);
     await until(client, (s) => !s.saved[message.id], "unsaved");
+    client.destroy();
+  });
+
+  it("puts an optimistic toggle back and says so when the server refuses it", async () => {
+    const client = new WorkspaceClient(base, aliceToken);
+    client.connect();
+    await until(client, (s) => s.status === "online");
+    const general = Object.values(client.state.channels).find((c) => c.name === "general")!;
+    await client.loadTimeline(general.id);
+
+    const { message } = await client.api.sendMessage(general.id, { text: "refuse me" });
+    await until(
+      client,
+      (s) => (s.timelines[general.id]?.items ?? []).some((m) => m.id === message.id),
+      "message arrival",
+    );
+    const find = () => client.state.timelines[general.id]!.items.find((m) => m.id === message.id)!;
+    const wasPinned = find().pinned;
+
+    // A refusal that only reverted would leave whoever asked with no sign
+    // anything happened beyond the control quietly flipping back.
+    client.api.pinMessage = () => Promise.reject(new Error("offline"));
+    client.api.unpinMessage = () => Promise.reject(new Error("offline"));
+    client.api.saveMessage = () => Promise.reject(new Error("offline"));
+    client.api.addReaction = () => Promise.reject(new Error("offline"));
+
+    expect(await client.togglePin(find())).toBe(false);
+    expect(find().pinned).toBe(wasPinned);
+
+    expect(await client.toggleSaved(message.id)).toBe(false);
+    expect(client.state.saved[message.id]).toBeUndefined();
+
+    expect(await client.toggleReaction(find(), "\u{1F3AF}")).toBe(false);
     client.destroy();
   });
 
