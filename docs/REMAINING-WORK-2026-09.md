@@ -2,7 +2,7 @@
 
 Written September 15, 2026, against `main` at `b36fec5`, the merge of PR #48, plus the uncommitted modal work on the `fix/modal-keyboard-ownership` branch.
 
-Updated September 23, 2026: phase 0 is done, in PRs #50 to #58. The counts in the next two sections are still September 15's. Today there are 709 unit and integration tests, 12 browser scenarios and 2 packaged Windows scenarios.
+Updated September 23, 2026: phase 0 is done, in PRs #50 to #58. The counts in the next two sections are still September 15's. Today there are 725 unit and integration tests, 12 browser scenarios and 2 packaged Windows scenarios.
 
 `IMPROVEMENT-PLAN-2026-09.md` holds the original assessment and a log of everything built since. This document looks forward. For every item it says what is still open, what I would do first, and how I would do each piece. It draws on four sources.
 
@@ -57,7 +57,7 @@ Done means the acceptance criteria are met. Mostly means a small remainder. Part
 | ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | U01 joining                     | Done    | Invite and message links open in a browser since #52, and copy on a page served over plain http since #53                                                                                                                                                                                                                                       |
 | U02 navigation                  | Partial | Screens have no URLs, so Back leaves the app and reload forgets the channel. The sidebar footer's account and admin controls became one Workspace menu in #54                                                                                                                                                                                   |
-| U03 shared components           | Partial | A menu on the modal layer since #54, an app-owned shared confirmation, and one accessible tooltip used by message actions, huddle controls and the workspace header. Toast, skeleton and empty-state components remain                                                                                                                          |
+| U03 shared components           | Partial | A menu on the modal layer since #54, an app-owned shared confirmation, one accessible tooltip used by message actions, huddle controls and the workspace header, and shared notices that report refused pins, saves and reactions with Try again. Skeleton and empty-state components remain                                                    |
 | U04 keyboard and screen readers | Partial | Modal ownership landed in #50, and labelled sign-in and account fields with real sign-in tabs in #54. Every message is its own Tab stop. The switcher and emoji chooser have no combobox semantics. Channel details uses buttons as tabs with no selected state. A reaction is read as its emoji and count only. Nothing announces new messages |
 | U05 responsive behaviour        | Partial | The stylesheet has one layout breakpoint, at 760 px, and message actions need a hover. Image previews fit a phone and the newest message stays in view when a panel opens since #51                                                                                                                                                             |
 | U06 visual consistency          | Partial | Dark theme only. The slate and periwinkle palette has its colour roles written down and held to 4.5:1 by a test, and line icons replaced the glyphs. Mixed label styles, and no spacing or type scale                                                                                                                                           |
@@ -157,7 +157,7 @@ Done September 19, in PRs #50 to #58.
 
 Several weeks. Later pieces build on earlier ones, so the order inside this phase matters.
 
-1. **U03, shared components first.** The menu, app-owned confirmation dialog and passive tooltip now exist, with DOM, axe and browser checks. Still to build are toast notices, a skeleton and an empty state, with the same shared focus and dismissal behaviour.
+1. **U03, shared components first.** The menu, app-owned confirmation dialog, passive tooltip and notices now exist, with DOM, axe and browser checks. Still to build are a skeleton and an empty state, with the same shared focus and dismissal behaviour.
 2. **U04, keyboard and screen readers, in slices.**
    - One listbox hook using `aria-activedescendant`, with the combobox role on the input, shared by the switcher, the mention and channel autocomplete and the emoji chooser.
    - A tabs component with `tablist`, `tab` and `tabpanel` roles and arrow keys, for channel details and the sign-in card.
