@@ -9,6 +9,7 @@ import {
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { ListStatus } from "./ListStatus.js";
 
 type Tab = "about" | "members" | "notifications";
 
@@ -45,6 +46,7 @@ export function ChannelDetailsDialog(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [membersError, setMembersError] = useState(false);
+  const [membersLoaded, setMembersLoaded] = useState(false);
   const [membersAttempt, setMembersAttempt] = useState(0);
   const [removingId, setRemovingId] = useState<ID | null>(null);
   const [membersLoading, setMembersLoading] = useState(true);
@@ -53,12 +55,15 @@ export function ChannelDetailsDialog(props: {
 
   useEffect(() => {
     let active = true;
-    setMembersError(false);
     setMembersLoading(true);
     void client.api
       .channelMembers(props.channelId)
       .then((r) => {
-        if (active) setMemberIds(r.memberIds);
+        if (active) {
+          setMemberIds(r.memberIds);
+          setMembersLoaded(true);
+          setMembersError(false);
+        }
       })
       .catch(() => {
         if (active) setMembersError(true);
@@ -173,7 +178,9 @@ export function ChannelDetailsDialog(props: {
             }`}
           >
             {t === "members"
-              ? `Members (${memberIds.length})`
+              ? membersLoaded
+                ? `Members (${memberIds.length})`
+                : "Members"
               : t === "notifications"
                 ? "Notifications"
                 : "About"}
@@ -389,17 +396,27 @@ export function ChannelDetailsDialog(props: {
             onClick={() => setMembersAttempt((n) => n + 1)}
             className="mb-3 text-sm underline"
           >
-            {membersLoading ? "Loading members…" : "Refresh members"}
+            Refresh members
           </button>
-          {membersError && (
-            <p role="alert" className="mb-3 text-sm text-alert">
-              Could not load members.{" "}
-              <button onClick={() => setMembersAttempt((n) => n + 1)} className="underline">
-                Retry
-              </button>
-            </p>
-          )}
-          <ul className="mb-4 max-h-[260px] space-y-0.5 overflow-y-auto">
+          <ListStatus
+            loading={membersLoading}
+            placeholder={!membersLoaded}
+            loadingLabel="Loading members…"
+            error={
+              membersError ? "Could not load members. Check your connection and try again." : null
+            }
+            onRetry={() => setMembersAttempt((n) => n + 1)}
+            empty={
+              membersLoaded && !membersError && memberIds.length === 0
+                ? "No members were returned. Refresh to check this conversation."
+                : null
+            }
+          />
+          <ul
+            aria-label="Channel members"
+            aria-busy={membersLoading}
+            className="mb-4 max-h-[260px] space-y-0.5 overflow-y-auto"
+          >
             {memberIds.map((id) => {
               const u = users[id];
               return (
