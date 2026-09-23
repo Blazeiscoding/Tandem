@@ -658,6 +658,7 @@ function WorkspaceInner({
       {dialog.kind === "channel-details" && activeChannelId && (
         <LazyDialog loading="Loading channel details" onClose={closeDialog}>
           <ChannelDetailsDialog
+            key={activeChannelId}
             channelId={activeChannelId}
             onChangeParticipants={(memberIds) =>
               setDialog({ kind: "new-dm", initialMemberIds: memberIds })
