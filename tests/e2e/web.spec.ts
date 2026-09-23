@@ -710,7 +710,15 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   // and work.
   await page.getByRole("button", { name: "Search messages", exact: true }).click();
   const search = page.getByRole("dialog", { name: "Search messages", exact: true });
-  await expect(search.getByRole("textbox", { name: "Search messages", exact: true })).toBeVisible();
+  const searchBox = search.getByRole("textbox", { name: "Search messages", exact: true });
+  await expect(searchBox).toBeVisible();
+  // A search that finds nothing says so where the dialog says what it is
+  // doing, and says what to try instead.
+  await searchBox.fill("zebracrossingquartz");
+  await searchBox.press("Enter");
+  await expect(search.getByRole("status").filter({ hasText: "Nothing matched" })).toHaveText(
+    "Nothing matched. Try different words.",
+  );
   await page.keyboard.press("Escape");
   await expect(search).toHaveCount(0);
   const scheduledToggle = page.getByRole("button", { name: "Scheduled messages", exact: true });

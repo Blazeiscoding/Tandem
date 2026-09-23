@@ -5,10 +5,13 @@ import { channelTitle, formatDay, formatTime } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
+import { ListStatus } from "./ListStatus.js";
 
 interface Props {
   title: string;
   emptyHint: ReactNode;
+  /** One thing to do about an empty list, such as clearing its filter. */
+  emptyAction?: { label: string; run: () => void };
   load: (
     cursor?: string,
     signal?: AbortSignal,
@@ -108,33 +111,21 @@ export function MessageListPanel(props: Props) {
         </button>
       </header>
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={busy}>
-        {error && (
-          <p role="alert" className="mb-3 text-sm text-ink-dim">
-            Could not load {props.title.toLowerCase()}. The last loaded page is kept.{" "}
-            <button
-              disabled={busy}
-              className="text-copper underline"
-              onClick={() => retry.current?.()}
-            >
-              Retry
-            </button>
-          </p>
-        )}
-        {busy && (
-          <p
-            role="status"
-            className="flex items-center justify-center gap-2 py-3 font-mono text-xs text-ink-faint"
-          >
-            <span
-              className="size-3 animate-spin rounded-full border border-edge border-t-copper"
-              aria-hidden="true"
-            />
-            Loading messages…
-          </p>
-        )}
-        {messages?.length === 0 && (
-          <p className="px-2 py-6 text-center text-sm text-ink-faint">{props.emptyHint}</p>
-        )}
+        <ListStatus
+          loading={busy}
+          placeholder={messages === null}
+          loadingLabel="Loading messages…"
+          error={
+            error
+              ? `Could not load ${props.title.toLowerCase()}.${
+                  messages ? " The last loaded page is kept." : ""
+                }`
+              : null
+          }
+          onRetry={() => retry.current?.()}
+          empty={messages?.length === 0 ? props.emptyHint : null}
+          emptyAction={props.emptyAction}
+        />
         <ul className="space-y-2">
           {(messages ?? [])
             .filter((message) => channels[message.channelId])
@@ -302,6 +293,9 @@ export function ThreadsPanel(props: {
         unreadOnly
           ? "No unread replies. Threads you follow show up here when someone answers."
           : "Reply to a message, or follow a thread, and it shows up here."
+      }
+      emptyAction={
+        unreadOnly ? { label: "Show all threads", run: () => setUnreadOnly(false) } : undefined
       }
       headerExtra={
         <button

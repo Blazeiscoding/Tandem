@@ -5,6 +5,7 @@ import { Composer } from "./Composer.js";
 import { MessageItem } from "./MessageItem.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Icon } from "./Icon.js";
+import { ListStatus } from "./ListStatus.js";
 
 interface Props {
   channelId: ID;
@@ -189,27 +190,23 @@ export function ThreadPanel({
             <div className="h-px flex-1 bg-edge" />
           </div>
         )}
-        {page?.error && (
-          <div role="alert" className="px-5 py-3 text-sm text-ink-dim">
-            {page.error}{" "}
-            <button
-              className="text-copper underline"
-              disabled={page.loading}
-              onClick={() => load("latest")}
-            >
-              Retry
-            </button>
-          </div>
-        )}
-        {page?.loading && (
-          <p role="status" className="flex items-center gap-2 px-5 py-2 text-sm text-ink-faint">
-            <span
-              className="size-3 shrink-0 animate-spin rounded-full border border-edge border-t-copper"
-              aria-hidden="true"
-            />
-            Loading replies…
-          </p>
-        )}
+        <ListStatus
+          className="px-5"
+          loading={page?.loading}
+          placeholder={!page?.loaded}
+          loadingLabel="Loading replies…"
+          error={page?.error}
+          onRetry={() => load("latest")}
+          empty={
+            page?.loaded && !page.error
+              ? !root
+                ? "The original message was deleted."
+                : !replies?.length
+                  ? "No replies yet. Start the conversation."
+                  : null
+              : null
+          }
+        />
         {page?.hasMoreOlder && (
           <button
             className="w-full px-5 py-2 text-sm text-copper disabled:opacity-50"
@@ -218,14 +215,6 @@ export function ThreadPanel({
           >
             Load older replies
           </button>
-        )}
-        {page?.loaded && !page.error && !root && (
-          <p className="px-5 py-3 text-sm text-ink-faint">The original message was deleted.</p>
-        )}
-        {page?.loaded && root && !replies?.length && (
-          <p className="px-5 py-3 text-sm text-ink-faint">
-            No replies yet. Start the conversation.
-          </p>
         )}
         {(replies ?? []).map((msg, i) => {
           const prev = replies![i - 1];

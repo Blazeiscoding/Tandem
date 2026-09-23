@@ -4,6 +4,7 @@ import type { EphemeralMessage, PendingMessage } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { formatDay, sameDay } from "../lib/format.js";
 import { MessageItem } from "./MessageItem.js";
+import { ListStatus } from "./ListStatus.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
@@ -286,29 +287,27 @@ export const MessageTimeline = memo(function MessageTimeline({
       aria-busy={loadingHistory !== null}
     >
       <div ref={content}>
-        {historyError && (
-          <div role="alert" className="px-6 py-4 text-sm text-ink-dim">
-            Could not load{" "}
-            {historyError === "initial" ? "this conversation" : `${historyError} messages`}.{" "}
-            <button
-              className="text-copper underline"
-              disabled={loadingHistory !== null}
-              onClick={() => void requestHistory(historyError)}
-            >
-              Retry
-            </button>
-          </div>
-        )}
-        {loadingHistory && loadingHistory !== "initial" && (
-          <p role="status" className="px-6 py-2 text-sm text-ink-faint">
-            Loading {loadingHistory} messages…
-          </p>
-        )}
-        {!timeline?.loaded && !historyError && (
-          <div role="status" className="px-6 py-8 text-sm text-ink-faint">
-            Loading conversation…
-          </div>
-        )}
+        <ListStatus
+          className="px-5"
+          // A cached conversation refreshing on open says nothing; paging
+          // through history, or a conversation not seen yet, does.
+          loading={
+            (loadingHistory !== null && loadingHistory !== "initial") ||
+            (!timeline?.loaded && !historyError)
+          }
+          placeholder={!timeline?.loaded}
+          loadingLabel={
+            timeline?.loaded ? `Loading ${loadingHistory} messages…` : "Loading conversation…"
+          }
+          error={
+            historyError
+              ? `Could not load ${historyError === "initial" ? "this conversation" : `${historyError} messages`}.`
+              : null
+          }
+          onRetry={() => {
+            if (historyError) void requestHistory(historyError);
+          }}
+        />
         {timeline?.hasMore && (
           <button
             className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"

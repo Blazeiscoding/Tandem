@@ -7,6 +7,7 @@ import { formatScheduleTime, localDateTime } from "../lib/schedule.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { MESSAGE_LIMIT } from "./FormattingToolbar.js";
 import { Icon } from "./Icon.js";
+import { ListStatus } from "./ListStatus.js";
 
 function draftText(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -172,28 +173,25 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
         </button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={loading}>
-        {error && (
-          <p role="alert" className="mb-3 text-sm text-ink-dim">
-            {error}{" "}
-            <button
-              disabled={loading || busy !== null}
-              className="text-copper underline"
-              onClick={() => void load()}
-            >
-              Refresh
-            </button>
-          </p>
-        )}
-        {items === null && loading && (
-          <p className="py-6 text-center font-mono text-xs text-ink-faint">loading…</p>
-        )}
-        {items?.length === 0 && (
-          <p className="px-2 py-6 text-center text-sm text-ink-faint">
-            Nothing queued. Write a message, then choose{" "}
-            <Icon name="clock" size={13} className="inline align-[-2px]" /> Send later beside the
-            attach button.
-          </p>
-        )}
+        <ListStatus
+          // The list refreshes itself every 15 seconds; only the first load,
+          // with nothing to show yet, is worth saying.
+          loading={loading && items === null}
+          placeholder
+          loadingLabel="Loading scheduled messages…"
+          error={error}
+          retryLabel="Refresh"
+          onRetry={() => void load()}
+          empty={
+            items?.length === 0 ? (
+              <>
+                Nothing queued. Write a message, then choose{" "}
+                <Icon name="clock" size={13} className="inline align-[-2px]" /> Send later beside
+                the attach button.
+              </>
+            ) : null
+          }
+        />
         {editing && (
           <form
             className="mb-3 space-y-2 rounded-xl border border-copper/40 p-3"
