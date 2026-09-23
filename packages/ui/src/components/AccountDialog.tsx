@@ -6,6 +6,7 @@ import { useClient, useWorkspace } from "../context.js";
 import { accountError, deviceLabel } from "../lib/account.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { ListStatus } from "./ListStatus.js";
 
 const button =
   "rounded-lg border border-edge px-3 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink disabled:opacity-40";
@@ -23,7 +24,9 @@ export function AccountDialog({
   const self = useWorkspace((s) => s.self);
   const composer = useComposerPreferences();
   const alive = useRef(true);
+  const loadVersion = useRef(0);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,15 +46,25 @@ export function AccountDialog({
   const [showPassword, setShowPassword] = useState(false);
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
     setLoading(true);
-    setLoadError(null);
     try {
       const result = await client.api.listSessions();
-      if (alive.current) setSessions(result.sessions);
+      if (alive.current && version === loadVersion.current) {
+        setSessions(result.sessions);
+        setLoaded(true);
+        setLoadError(null);
+      }
     } catch (err) {
-      if (alive.current) setLoadError(accountError(err));
+      if (alive.current && version === loadVersion.current) {
+        setLoadError(
+          err instanceof ApiError && err.code === "unauthorized"
+            ? accountError(err)
+            : "Could not load signed-in devices. Check your connection and try again.",
+        );
+      }
     } finally {
-      if (alive.current) setLoading(false);
+      if (alive.current && version === loadVersion.current) setLoading(false);
     }
   }, [client]);
   useEffect(() => {
@@ -85,6 +98,7 @@ export function AccountDialog({
       setNotice(
         "Password changed. Your other devices have been signed out; this device stays signed in.",
       );
+      setSessions((current) => current.filter((session) => session.current));
       await load();
     } catch (err) {
       if (alive.current) setError(accountError(err));
@@ -111,6 +125,11 @@ export function AccountDialog({
         confirmation.kind === "device"
           ? "That device has been signed out."
           : "Your other devices have been signed out.",
+      );
+      setSessions((current) =>
+        current.filter((session) =>
+          confirmation.kind === "device" ? session.id !== confirmation.session.id : session.current,
+        ),
       );
       setConfirmation(null);
       await load();
@@ -253,22 +272,24 @@ export function AccountDialog({
         <p className="mt-1 text-sm text-ink-dim">
           Each sign-in appears separately. Remove a device you no longer use.
         </p>
-        {loadError && (
-          <p role="alert" className="mt-3 text-sm text-alert">
-            {loadError}
-          </p>
-        )}
-        {loading && (
-          <p role="status" className="mt-3 text-sm text-ink-faint">
-            Loading devices…
-          </p>
-        )}
-        {!loading && !loadError && sessions.length === 0 && (
-          <p className="mt-3 text-sm text-ink-dim">
-            No active devices were returned. Refresh to check your session.
-          </p>
-        )}
-        <ul className="mt-3 divide-y divide-edge" aria-busy={loading}>
+        <ListStatus
+          className="mt-3"
+          loading={loading}
+          placeholder={!loaded}
+          loadingLabel="Loading devices…"
+          error={loadError}
+          onRetry={() => void load()}
+          empty={
+            loaded && !loadError && sessions.length === 0
+              ? "No active devices were returned. Refresh to check your session."
+              : null
+          }
+        />
+        <ul
+          aria-label="Signed-in devices"
+          className="mt-3 divide-y divide-edge"
+          aria-busy={loading}
+        >
           {sessions.map((session) => (
             <li key={session.id} className="flex flex-wrap items-center gap-3 py-3">
               <div className="min-w-0 flex-1">
