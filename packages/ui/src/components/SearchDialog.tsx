@@ -8,6 +8,7 @@ import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { isImeKey } from "../lib/textInput.js";
 import { Icon } from "./Icon.js";
+import { ListStatus } from "./ListStatus.js";
 
 const MODIFIER_HELP = [
   { token: "from:@name", what: "by one person" },
@@ -310,29 +311,22 @@ export function SearchDialog(props: {
         </details>
       )}
       <SearchHints query={query} />
-      {error && (
-        <p role="alert" className="py-3 text-sm text-ink-dim">
-          {error}{" "}
-          <button
-            className="text-copper underline"
-            onClick={() => failed.current?.()}
-            disabled={busy}
-          >
-            Retry
-          </button>
+      {results && (
+        <p role="status" className="mb-2 text-xs text-ink-faint">
+          {results.messages.length} results · Page {page + 1} · Newest first
+          {submitted?.query ? ` · “${submitted.query}”` : ""}
         </p>
       )}
-      {busy && (
-        <p role="status" className="py-4 text-center text-sm text-ink-faint">
-          Searching…
-        </p>
-      )}
+      <ListStatus
+        loading={busy}
+        placeholder={!results}
+        loadingLabel="Searching…"
+        error={error}
+        onRetry={() => failed.current?.()}
+        empty={results?.messages.length === 0 ? "Nothing matched. Try different words." : null}
+      />
       {results && (
         <>
-          <p role="status" className="mb-2 text-xs text-ink-faint">
-            {results.messages.length} results · Page {page + 1} · Newest first
-            {submitted?.query ? ` · “${submitted.query}”` : ""}
-          </p>
           <ul
             ref={list}
             className="space-y-2"
@@ -397,11 +391,6 @@ export function SearchDialog(props: {
                   </li>
                 );
               })}
-            {results.messages.length === 0 && (
-              <li className="py-4 text-center text-sm text-ink-faint">
-                Nothing matched. Try different words.
-              </li>
-            )}
           </ul>
           <div className="mt-4 flex justify-between text-sm text-copper">
             <button

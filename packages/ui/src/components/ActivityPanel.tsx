@@ -4,6 +4,7 @@ import { useClient, useWorkspace } from "../context.js";
 import { channelTitle, formatTime } from "../lib/format.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
+import { ListStatus } from "./ListStatus.js";
 
 export function ActivityPanel({
   onClose,
@@ -103,35 +104,22 @@ export function ActivityPanel({
             ? "Unread messages in conversations you joined."
             : "Direct and room-wide mentions in conversations you joined."}
         </p>
-        {loading && (
-          <p
-            role="status"
-            className="flex items-center justify-center gap-2 py-6 text-sm text-ink-faint"
-          >
-            <span
-              className="size-3 animate-spin rounded-full border border-edge border-t-copper"
-              aria-hidden="true"
-            />
-            Loading activity…
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="py-3 text-sm text-ink-dim">
-            {error}{" "}
-            <button className="text-copper underline" onClick={() => setRevision((v) => v + 1)}>
-              Retry
-            </button>
-          </p>
-        )}
-        {!loading && result && !messages.length && (
-          <p role="status" className="py-6 text-center text-sm text-ink-faint">
-            {cursors.length > 1 || result.nextCursor
-              ? "Nothing unread on this page."
-              : mode === "unread"
-                ? "You're caught up."
-                : "No mentions yet."}
-          </p>
-        )}
+        <ListStatus
+          loading={loading}
+          placeholder
+          loadingLabel="Loading activity…"
+          error={error}
+          onRetry={() => setRevision((v) => v + 1)}
+          empty={
+            result && !messages.length
+              ? cursors.length > 1 || result.nextCursor
+                ? "Nothing unread on this page."
+                : mode === "unread"
+                  ? "You're caught up."
+                  : "No mentions yet."
+              : null
+          }
+        />
         <ul className="space-y-3">
           {messages.map((message) => {
             const unread = message.seq > (memberships[message.channelId] ?? 0);
