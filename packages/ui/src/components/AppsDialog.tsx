@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCopy } from "../lib/useCopy.js";
 import type { EventSubscription, ID } from "@slackoss/protocol";
 import { ApiError, type AppDetail } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { useConfirm } from "./Confirm.js";
+import { ListStatus } from "./ListStatus.js";
 
 /** What an integration can rely on from this server, and where it differs from Slack. */
 const INTEGRATION_CONTRACT_URL =
@@ -78,6 +79,11 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
   const confirm = useConfirm();
   const channels = useWorkspace((s) => s.channels);
   const [apps, setApps] = useState<AppDetail[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const alive = useRef(true);
+  const loadVersion = useRef(0);
+  const loadInFlight = useRef(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   /** Bot tokens from this session only; the server never returns them again. */
@@ -85,22 +91,48 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
   const [hookUrls, setHookUrls] = useState<Record<string, string>>({});
   const [rotateError, setRotateError] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    client.api
-      .listApps()
-      .then((r) => setApps(r.apps))
-      // A failed refresh must not turn a real list into "No apps yet". The
-      // action that asked for the refresh keeps its own error on screen.
-      .catch(() => setApps((shown) => shown ?? []));
-  }, [client]);
+  const load = useCallback(
+    (quiet = false) => {
+      if (quiet && loadInFlight.current) return;
+      const version = ++loadVersion.current;
+      loadInFlight.current = true;
+      if (!quiet) setLoading(true);
+      void client.api
+        .listApps()
+        .then((result) => {
+          if (!alive.current || version !== loadVersion.current) return;
+          setApps(result.apps);
+          setLoadError(null);
+        })
+        .catch(() => {
+          if (!alive.current || version !== loadVersion.current) return;
+          // Keep the last good rows. A failed first load is not an empty list.
+          setLoadError("Could not load apps. Check your connection and try again.");
+        })
+        .finally(() => {
+          if (!alive.current || version !== loadVersion.current) return;
+          loadInFlight.current = false;
+          if (!quiet) setLoading(false);
+        });
+    },
+    [client],
+  );
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    alive.current = true;
+    load();
+    return () => {
+      alive.current = false;
+      loadVersion.current++;
+      loadInFlight.current = false;
+    };
+  }, [load]);
 
   const hasPendingDeliveries =
     apps?.some((app) => app.subscriptions.some((sub) => (sub.delivery?.pending ?? 0) > 0)) ?? false;
   useEffect(() => {
     if (!hasPendingDeliveries) return;
-    const timer = setInterval(load, 5_000);
+    const timer = setInterval(() => load(true), 5_000);
     return () => clearInterval(timer);
   }, [hasPendingDeliveries, load]);
 
@@ -114,6 +146,18 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       const r = await client.api.createApp({ name: name.trim() });
+      // A bot token is returned only once. Keep its row visible even if the
+      // follow-up list request fails, so the admin can still copy the token.
+      setApps((shown) => [
+        {
+          ...r.app,
+          signingSecret: r.signingSecret,
+          webhooks: [],
+          commands: [],
+          subscriptions: [],
+        },
+        ...(shown ?? []).filter((app) => app.id !== r.app.id),
+      ]);
       setSecrets((s) => ({ ...s, [r.app.id]: r.token }));
       setName("");
       load();
@@ -215,14 +259,20 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
         </p>
       )}
 
-      {apps === null && (
-        <p className="py-4 text-center font-mono text-xs text-ink-faint">loading…</p>
-      )}
-      {apps?.length === 0 && (
-        <p className="py-4 text-center text-sm text-ink-faint">No apps yet.</p>
-      )}
+      <ListStatus
+        loading={loading}
+        placeholder={apps === null}
+        loadingLabel="Loading apps…"
+        error={loadError}
+        onRetry={() => load()}
+        empty={
+          apps?.length === 0 && !loadError
+            ? "No apps yet. Create one above to connect it to this workspace."
+            : null
+        }
+      />
 
-      <ul className="space-y-3">
+      <ul className="space-y-3" aria-busy={loading}>
         {(apps ?? []).map((a) => (
           <li key={a.id} className="rounded-xl border border-edge bg-ground p-3">
             <div className="flex items-center gap-2">
