@@ -212,9 +212,10 @@ describe("account and administration dialogs", () => {
       }),
     );
     expect(deleteApp).toHaveBeenCalledWith("A_DEPLOY");
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      /Could not confirm whether the app was deleted/,
-    );
+    expect(
+      await within(dialog).findByText(/Could not confirm whether the app was deleted/),
+    ).toHaveAttribute("role", "alert");
+    expect(within(dialog).getByRole("button", { name: "Retry" })).toBeVisible();
     expect(listApps).toHaveBeenCalledTimes(2);
     expect(within(dialog).getByText("Deploy Bot")).toBeVisible();
     expect(within(dialog).queryByText("No apps yet.")).toBeNull();
