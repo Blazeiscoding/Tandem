@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { AuditEntry, ID, User } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { formatDay, formatTime } from "../lib/format.js";
+import { ListStatus } from "./ListStatus.js";
 
 /**
  * One entry as a sentence an administrator would say. Names are looked up at
@@ -100,23 +101,45 @@ export function AuditHistory() {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
+  const section = useRef<HTMLElement>(null);
+  const inFlight = useRef(false);
+  const alive = useRef(true);
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<"initial" | "page" | null>(null);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (open) section.current?.focus({ preventScroll: true });
+  }, [open]);
 
   async function load(before?: string) {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
-    setError(false);
     try {
       const page = await client.api.listAudit(before);
-      setEntries((current) => (before && current ? [...current, ...page.entries] : page.entries));
+      if (!alive.current) return;
+      setEntries((current) => {
+        if (!before || !current) return page.entries;
+        const seen = new Set(current.map((entry) => entry.id));
+        return [...current, ...page.entries.filter((entry) => !seen.has(entry.id))];
+      });
       setCursor(page.nextCursor);
+      setError(null);
     } catch {
-      setError(true);
+      if (alive.current) setError(before ? "page" : "initial");
     } finally {
-      setBusy(false);
+      inFlight.current = false;
+      if (alive.current) setBusy(false);
     }
   }
 
@@ -135,15 +158,26 @@ export function AuditHistory() {
   }
 
   return (
-    <section className="mt-4" aria-label="Recent changes">
+    <section ref={section} tabIndex={-1} className="mt-4 outline-none" aria-label="Recent changes">
       <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
         Recent changes
       </div>
-      {entries?.length === 0 && (
-        <p className="text-sm text-ink-faint">Nothing has been changed yet.</p>
-      )}
+      <ListStatus
+        loading={busy}
+        placeholder={entries === null}
+        loadingLabel={entries === null ? "Loading recent changes…" : "Loading older changes…"}
+        error={
+          error === "initial"
+            ? "Could not load recent changes. Check your connection and try again."
+            : error === "page"
+              ? "Could not load older changes. Try again."
+              : null
+        }
+        onRetry={error === "initial" ? () => void load() : undefined}
+        empty={entries?.length === 0 && !cursor && !error ? "Nothing has been changed yet." : null}
+      />
       {entries && entries.length > 0 && (
-        <ul className="max-h-64 space-y-1 overflow-y-auto text-[13px]">
+        <ul aria-busy={busy} className="max-h-64 space-y-1 overflow-y-auto text-[13px]">
           {entries.map((entry) => (
             <li key={entry.id} className="flex gap-3 rounded px-1 py-1">
               <span className="min-w-0 flex-1 text-ink-dim">
@@ -159,23 +193,50 @@ export function AuditHistory() {
           ))}
         </ul>
       )}
-      {error && (
-        <p role="alert" className="mt-2 text-sm text-alert">
-          Could not load recent changes. Try again.
-        </p>
-      )}
       <div className="mt-2 flex gap-3">
-        {(cursor || error) && (
-          <button
-            disabled={busy}
-            onClick={() => void load(error && !entries ? undefined : (cursor ?? undefined))}
-            className="text-[12px] text-ink-faint underline transition-colors hover:text-ink disabled:opacity-40"
-          >
-            {error ? "Try again" : "Show older changes"}
-          </button>
+        {cursor && (
+          <PaginationButton
+            busy={busy}
+            home={section}
+            onClick={() => void load(cursor)}
+            label={error === "page" ? "Retry older changes" : "Show older changes"}
+          />
         )}
-        {busy && <span className="text-[12px] text-ink-faint">Loading…</span>}
       </div>
     </section>
+  );
+}
+
+/** Keep keyboard focus in the history section when the final page removes this button. */
+function PaginationButton({
+  busy,
+  home,
+  onClick,
+  label,
+}: {
+  busy: boolean;
+  home: RefObject<HTMLElement | null>;
+  onClick: () => void;
+  label: string;
+}) {
+  const button = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const element = button.current;
+    return () => {
+      if (document.activeElement === element) home.current?.focus({ preventScroll: true });
+    };
+  }, [home]);
+  return (
+    <button
+      ref={button}
+      type="button"
+      aria-disabled={busy || undefined}
+      onClick={() => {
+        if (!busy) onClick();
+      }}
+      className="text-[12px] text-ink-faint underline transition-colors hover:text-ink aria-disabled:opacity-40"
+    >
+      {label}
+    </button>
   );
 }
