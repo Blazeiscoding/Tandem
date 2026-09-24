@@ -649,12 +649,12 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   expect(hovered).not.toBeNull();
   expect(Math.abs(hovered!.height - unhovered!.height)).toBeLessThan(0.5);
   await page.getByRole("button", { name: "Saved", exact: true }).click();
-  await expect(page.getByRole("complementary", { name: "Later", exact: true })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Saved", exact: true })).toBeVisible();
   await expect
     .poll(() => history.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
     .toBeLessThan(4);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("complementary", { name: "Later", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "Saved", exact: true })).toHaveCount(0);
 
   // Observe input-to-next-frame timing in the built production client. Report
   // timings rather than imposing a machine-dependent "60 fps" CI promise.
@@ -681,7 +681,7 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
     )
     .toBe(true);
   await page.getByRole("button", { name: "Saved", exact: true }).click();
-  const savedPanel = page.getByRole("complementary", { name: "Later", exact: true });
+  const savedPanel = page.getByRole("complementary", { name: "Saved", exact: true });
   await expect(savedPanel).toBeVisible();
   await composer.focus();
   await page.keyboard.press("Control+k");

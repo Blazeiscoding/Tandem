@@ -242,7 +242,7 @@ export function PinsPanel(props: {
 }
 
 /** The user's saved messages, across every channel they can see. */
-export function LaterPanel(props: {
+export function SavedPanel(props: {
   onClose: () => void;
   onJump: (channelId: ID, messageId: ID) => void;
 }) {
@@ -250,7 +250,7 @@ export function LaterPanel(props: {
   const savedSignature = useWorkspace((s) => Object.keys(s.saved).sort().join(","));
   return (
     <MessageListPanel
-      title="Later"
+      title="Saved"
       emptyHint={
         <>
           Choose <Icon name="bookmark" size={13} className="inline align-[-2px]" /> Save for later
@@ -266,7 +266,7 @@ export function LaterPanel(props: {
 }
 
 /**
- * Threads this account follows, most recently active first. Unlike Later and
+ * Threads this account follows, most recently active first. Unlike Saved and
  * Pinned, a row stands for a conversation rather than a single message, so it
  * carries its own unread count and opens the thread instead of the message.
  */

@@ -16,7 +16,7 @@ import {
   NewDmDialog,
 } from "../components/dialogs.js";
 import { QuickSwitcher } from "../components/QuickSwitcher.js";
-import { LaterPanel, PinsPanel, ThreadsPanel } from "../components/MessageListPanel.js";
+import { PinsPanel, SavedPanel, ThreadsPanel } from "../components/MessageListPanel.js";
 import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
@@ -89,7 +89,7 @@ type SidePanel =
   | { kind: "none" }
   | { kind: "thread"; rootId: ID; targetId?: ID }
   | { kind: "pins" }
-  | { kind: "later" }
+  | { kind: "saved" }
   | { kind: "threads" }
   | { kind: "scheduled" }
   | { kind: "activity" };
@@ -311,7 +311,7 @@ function WorkspaceInner({
     setPanel({ kind: "thread", rootId });
   }
 
-  /** Opens a channel scrolled to one message, from search, pins or Later. */
+  /** Opens a channel scrolled to one message, from search, pins or Saved. */
   function jumpToMessage(channelId: ID, messageId: ID) {
     const ticket = ++navigation.current;
     setDialog({ kind: "none" });
@@ -401,7 +401,7 @@ function WorkspaceInner({
       <Sidebar
         onSearch={() => setDialog({ kind: "switcher" })}
         onSaved={() => {
-          setPanel({ kind: "later" });
+          setPanel({ kind: "saved" });
           setSidebarOpen(false);
         }}
         onScheduled={() => {
@@ -495,15 +495,15 @@ function WorkspaceInner({
               <Icon name="pin" />
             </button>
           </Tooltip>
-          <Tooltip label="Saved for later">
+          <Tooltip label="Saved messages">
             <button
               onClick={() =>
-                setPanel((p) => (p.kind === "later" ? { kind: "none" } : { kind: "later" }))
+                setPanel((p) => (p.kind === "saved" ? { kind: "none" } : { kind: "saved" }))
               }
-              aria-label="Saved for later"
-              aria-pressed={panel.kind === "later"}
+              aria-label="Saved messages"
+              aria-pressed={panel.kind === "saved"}
               className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
-                panel.kind === "later"
+                panel.kind === "saved"
                   ? "border-copper text-copper"
                   : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
               }`}
@@ -595,8 +595,8 @@ function WorkspaceInner({
           onJump={jumpToMessage}
         />
       )}
-      {panel.kind === "later" && (
-        <LaterPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+      {panel.kind === "saved" && (
+        <SavedPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
       )}
       {panel.kind === "threads" && (
         <ThreadsPanel onClose={() => setPanel({ kind: "none" })} onJump={openThreadInChannel} />

@@ -1,6 +1,23 @@
+import { useComposerPreferences } from "../lib/composerPreferences.js";
 import { Dialog } from "./Dialog.js";
 
-const GROUPS: { title: string; items: [string, string][] }[] = [
+/** What Enter does depends on the preference in Account settings, so the list follows it. */
+function writingKeys(enterSends: boolean): [string, string][] {
+  return enterSends
+    ? [
+        ["Enter", "Send"],
+        ["Shift Enter", "New line"],
+        ["Ctrl Enter", "Send without choosing a mention"],
+      ]
+    : [
+        ["Ctrl Enter", "Send"],
+        ["Enter", "New line"],
+      ];
+}
+
+const groups = (
+  enterSends: boolean,
+): { title: string; items: [string, string][]; note?: string }[] => [
   {
     title: "Getting around",
     items: [
@@ -12,13 +29,12 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
   },
   {
     title: "Writing",
+    note: "Choose what Enter does in Account settings.",
     items: [
-      ["Enter", "Send"],
-      ["Shift Enter", "New line"],
+      ...writingKeys(enterSends),
       ["Ctrl B", "Bold selected text"],
       ["Ctrl I", "Italic selected text"],
       ["Ctrl E", "Inline code"],
-      ["Ctrl Enter", "Send without choosing a mention"],
       ["@", "Mention someone"],
       ["Ctrl V", "Paste an image straight in"],
     ],
@@ -33,10 +49,11 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
 ];
 
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
+  const { enterSends } = useComposerPreferences();
   return (
     <Dialog title="Keyboard shortcuts" onClose={onClose} width={460}>
       <div className="space-y-4">
-        {GROUPS.map((group) => (
+        {groups(enterSends).map((group) => (
           <section key={group.title}>
             <h3 className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
               {group.title}
@@ -58,6 +75,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
                 </li>
               ))}
             </ul>
+            {group.note && <p className="mt-2 text-xs text-ink-faint">{group.note}</p>}
           </section>
         ))}
       </div>

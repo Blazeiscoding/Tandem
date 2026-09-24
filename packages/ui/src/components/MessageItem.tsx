@@ -265,13 +265,13 @@ export const MessageItem = memo(function MessageItem({
           />
           <ToolbarButton
             label={<Icon name="bookmark" size={15} />}
-            title={isSaved ? "Remove from Later" : "Save for later"}
+            title={isSaved ? "Remove from Saved" : "Save for later"}
             active={isSaved}
             onClick={() => {
               // Trying again repeats this intent, whatever the state is by then.
               const save = !isSaved;
               reportRefusal(
-                save ? "Could not save that for later." : "Could not remove that from Later.",
+                save ? "Could not save that for later." : "Could not remove that from Saved.",
                 () => client.toggleSaved(message.id, save),
               );
             }}

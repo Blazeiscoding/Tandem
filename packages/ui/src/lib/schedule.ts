@@ -18,6 +18,11 @@ function at(hour: number, dayOffset = 0, base = new Date()): Date {
   return d;
 }
 
+/** 9:00 on the next calendar day, in this device's time zone. */
+export function tomorrowMorning(now = new Date()): Date {
+  return at(9, 1, now);
+}
+
 /**
  * Presets relative to now: a short delay, later today if there's still day
  * left, then tomorrow and the start of next week.
@@ -34,7 +39,7 @@ export function schedulePresets(now = new Date()): SchedulePreset[] {
     out.push({ label: "This evening", at: evening });
   }
 
-  out.push({ label: "Tomorrow morning", at: at(9, 1, now) });
+  out.push({ label: "Tomorrow morning", at: tomorrowMorning(now) });
 
   // Monday, skipping to next week if today is already Monday.
   const monday = at(9, (8 - now.getDay()) % 7 || 7, now);
@@ -44,9 +49,8 @@ export function schedulePresets(now = new Date()): SchedulePreset[] {
 }
 
 /** "Tomorrow at 9:00 AM" — how a scheduled time reads in the UI. */
-export function formatScheduleTime(ts: number): string {
+export function formatScheduleTime(ts: number, today = new Date()): string {
   const date = new Date(ts);
-  const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
 

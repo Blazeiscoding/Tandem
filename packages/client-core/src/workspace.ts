@@ -1722,7 +1722,11 @@ export class WorkspaceClient {
 
   /** Snooze notifications for `minutes`, or pass null to clear Do Not Disturb. */
   snoozeNotifications(minutes: number | null): void {
-    const dndUntil = minutes === null ? null : Date.now() + minutes * 60_000;
+    this.snoozeNotificationsUntil(minutes === null ? null : Date.now() + minutes * 60_000);
+  }
+
+  /** Pause notifications until an epoch ms time; null resumes them now. */
+  snoozeNotificationsUntil(dndUntil: number | null): void {
     const self = this.state.self;
     if (self) this.store.setState({ self: { ...self, dndUntil } });
     void this.api.updateMe({ dndUntil }).catch(() => {
