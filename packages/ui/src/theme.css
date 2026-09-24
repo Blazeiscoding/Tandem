@@ -186,6 +186,26 @@ textarea {
 }
 
 /*
+ * A message's toolbar rises on hover or focus. A touchscreen has no hover, and
+ * a tap that raised it covered the message above with icons too small to hit,
+ * so there each message offers its menu instead, with room kept beside it.
+ */
+.message-more {
+  display: none;
+}
+@media (hover: none) {
+  .message-toolbar {
+    display: none;
+  }
+  .message-more {
+    display: block;
+  }
+  .message-row {
+    padding-right: 2.75rem;
+  }
+}
+
+/*
  * Shortening a looping animation does not stop it — it speeds it up. The
  * pulsing dot that says a call is live would run its whole cycle in a
  * hundredth of a second and flicker, which is worse for the person who asked

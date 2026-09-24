@@ -1875,3 +1875,115 @@ test("Back, Forward and a reload return to the conversation and thread someone w
     rmSync(routeData, { recursive: true, force: true });
   }
 });
+
+test("on a touchscreen each message offers its actions in a menu, and any emoji as a reaction", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const port = 18547;
+  const origin = `http://127.0.0.1:${port}`;
+  const touchData = mkdtempSync(join(tmpdir(), "slackoss-e2e-touch-"));
+  const touchServer = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      touchData,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Touch Team",
+      "--no-rate-limits",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  // A phone: no hover, and taps rather than a pointer.
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  try {
+    await expect
+      .poll(async () => {
+        try {
+          return (await fetch(`${origin}/api/health`)).status;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(200);
+    const { token } = await (
+      await fetch(`${origin}/api/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "hana", displayName: "Hana", password: "password123" }),
+      })
+    ).json();
+    const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const { channels } = await (await fetch(`${origin}/api/channels`, { headers: auth })).json();
+    const general = channels.find((c: { name: string }) => c.name === "general");
+    const { message } = await (
+      await fetch(`${origin}/api/channels/${general.id}/messages`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ text: "Launch is on Friday" }),
+      })
+    ).json();
+
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.evaluate(
+      (server) => localStorage.setItem("slackoss:servers", JSON.stringify([server])),
+      { url: origin, token, workspaceName: "Touch Team", handle: "hana", lastUsedAt: 1 },
+    );
+    await page.reload();
+    expect(await page.evaluate(() => matchMedia("(hover: none)").matches)).toBe(true);
+    const row = page.locator(`[data-mid="${message.id}"]`);
+    await expect(row).toBeVisible();
+
+    // A tap on the message no longer raises the hover toolbar over the one above.
+    await row.getByText("Launch is on Friday", { exact: true }).tap();
+    await expect(row.getByRole("button", { name: "Reply in thread", exact: true })).toBeHidden();
+    const more = row.getByRole("button", { name: "Actions for message from Hana", exact: true });
+    await expect(more).toBeVisible();
+    const box = (await more.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(36);
+    expect(box.height).toBeGreaterThanOrEqual(36);
+    // The text keeps clear of the button.
+    const text = (await row.getByText("Launch is on Friday", { exact: true }).boundingBox())!;
+    expect(text.x + text.width).toBeLessThanOrEqual(box.x);
+
+    await more.tap();
+    const menu = page.getByRole("menu", { name: "Actions for message from Hana" });
+    await expect(menu).toBeVisible();
+    await expectInsideViewport(page, menu);
+    await page.screenshot({ path: test.info().outputPath("touch-menu.png") });
+    await menu.getByRole("menuitem", { name: "Add a reaction…", exact: true }).tap();
+    const picker = page.getByRole("dialog", { name: "Add a reaction" });
+    await expect(picker).toBeVisible();
+    // Opening the picker does not raise the keyboard over the emoji.
+    await expect(picker.getByRole("textbox", { name: "Search emoji" })).not.toBeFocused();
+    await picker.getByRole("button", { name: "Celebrate party", exact: true }).tap();
+    await expect(picker).toHaveCount(0);
+    await expect(row.getByRole("button", { name: /🎉\s*1/ })).toBeVisible();
+
+    await more.tap();
+    await menu.getByRole("menuitem", { name: "Reply in thread", exact: true }).tap();
+    await expect(page.getByRole("complementary", { name: "Thread", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  } finally {
+    await context.close().catch(() => {});
+    if (touchServer.exitCode === null) {
+      const exited = new Promise((resolve) => touchServer.once("exit", resolve));
+      touchServer.kill();
+      await exited;
+    }
+    rmSync(touchData, { recursive: true, force: true });
+  }
+});

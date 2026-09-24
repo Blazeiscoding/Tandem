@@ -186,6 +186,7 @@ describe("message actions", () => {
     expect(profile).toHaveAccessibleDescription("View Sam Rivera's profile");
     const toolbar = screen.getByRole("button", { name: "Reply in thread" }).parentElement!;
     const named = [
+      "Add a reaction",
       "Reply in thread",
       "Copy link to message",
       "Remove from Saved",

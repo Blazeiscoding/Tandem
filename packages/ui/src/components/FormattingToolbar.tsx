@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { findEmoji } from "../lib/emoji.js";
 import { Icon } from "./Icon.js";
 
 export const MESSAGE_LIMIT = 12_000;
@@ -38,57 +39,6 @@ export function formatText(
   };
 }
 
-const EMOJI = [
-  ["😀", "Smile happy"],
-  ["😂", "Laugh tears joy"],
-  ["❤️", "Heart love"],
-  ["👍", "Thumbs up yes"],
-  ["✅", "Done check complete"],
-  ["👀", "Eyes looking"],
-  ["🎉", "Celebrate party"],
-  ["🙏", "Thanks please"],
-  ["🚀", "Rocket launch"],
-  ["💡", "Idea light bulb"],
-  ["🤔", "Thinking question"],
-  ["🙌", "Raised hands hooray"],
-  ["😊", "Smile blush"],
-  ["😅", "Sweat relieved"],
-  ["😎", "Cool sunglasses"],
-  ["🤩", "Star struck excited"],
-  ["😢", "Sad cry"],
-  ["😭", "Sobbing crying"],
-  ["😴", "Sleep tired"],
-  ["🤯", "Mind blown amazed"],
-  ["🤝", "Handshake agreement"],
-  ["👏", "Clap applause"],
-  ["👋", "Wave hello goodbye"],
-  ["💪", "Strong muscle"],
-  ["🔥", "Fire hot"],
-  ["⭐", "Star favorite"],
-  ["💯", "Hundred perfect"],
-  ["⚠️", "Warning attention"],
-  ["❌", "No cross cancel"],
-  ["❓", "Question help"],
-  ["📌", "Pin reminder"],
-  ["📝", "Notes writing"],
-  ["📅", "Calendar date"],
-  ["⏰", "Alarm clock time"],
-  ["☕", "Coffee break"],
-  ["🍕", "Pizza food"],
-  ["🎂", "Cake birthday"],
-  ["🎁", "Gift present"],
-  ["🌱", "Seedling growth"],
-  ["🌈", "Rainbow"],
-  ["🐛", "Bug insect"],
-  ["🛠️", "Tools fix repair"],
-  ["🔒", "Lock private secure"],
-  ["🔗", "Link connection"],
-  ["📊", "Chart data"],
-  ["💻", "Computer laptop code"],
-  ["🏠", "Home house"],
-  ["🌍", "Earth world"],
-] as const;
-
 interface Props {
   onFormat: (marker: string, placeholder: string, block?: boolean) => void;
   onInsert: (text: string) => void;
@@ -100,10 +50,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
-  const matches = EMOJI.filter(
-    ([emoji, label]) =>
-      label.toLowerCase().includes(query.toLowerCase().trim()) || emoji === query.trim(),
-  );
+  const matches = findEmoji(query);
   return (
     <>
       <div

@@ -1,0 +1,173 @@
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { WorkspaceClient } from "@slackoss/client-core";
+import type { Channel, Message, User } from "@slackoss/protocol";
+import { ClientContext } from "../src/context.js";
+import { MessageItem } from "../src/components/MessageItem.js";
+import { ConfirmProvider } from "../src/components/Confirm.js";
+import { ToastProvider } from "../src/components/Toast.js";
+import { accessibilityProblems } from "./accessibility.js";
+
+const person = (id: string, displayName: string, role: User["role"] = "member"): User => ({
+  id,
+  handle: displayName.split(" ")[0]!.toLowerCase(),
+  displayName,
+  role,
+  statusText: "",
+  statusEmoji: "",
+  isBot: false,
+  deactivated: false,
+  dndUntil: null,
+  createdAt: 0,
+});
+
+const general: Channel = {
+  id: "C_GENERAL",
+  type: "public",
+  name: "general",
+  topic: "",
+  description: "",
+  creatorId: "U_SAM",
+  archived: false,
+  createdAt: 0,
+};
+
+const message: Message = {
+  id: "M_1",
+  channelId: "C_GENERAL",
+  userId: "U_SAM",
+  text: "Standup notes are in the doc.",
+  threadRootId: null,
+  broadcast: false,
+  seq: 7,
+  createdAt: 0,
+  editedAt: null,
+  nonce: null,
+  replyCount: 0,
+  reactions: [],
+  files: [],
+  pinned: false,
+  actions: [],
+};
+
+/**
+ * One message over a client that never connects. The menu is what a
+ * touchscreen shows in place of the hover toolbar; jsdom applies no styles,
+ * so both are in the document here.
+ */
+function messageFrom(author: User, self: User) {
+  const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
+  client.store.setState({
+    self,
+    users: { [author.id]: author, [self.id]: self },
+    channels: { C_GENERAL: general },
+    status: "online",
+  });
+  const react = vi.spyOn(client, "toggleReaction").mockResolvedValue(true);
+  const onOpenThread = vi.fn();
+  render(
+    <ToastProvider>
+      <ConfirmProvider>
+        <ClientContext.Provider value={client}>
+          <MessageItem
+            message={{ ...message, userId: author.id }}
+            compact={false}
+            onOpenThread={onOpenThread}
+          />
+        </ClientContext.Provider>
+      </ConfirmProvider>
+    </ToastProvider>,
+  );
+  return { client, react, onOpenThread, user: userEvent.setup() };
+}
+
+const sam = person("U_SAM", "Sam Rivera");
+const priya = person("U_PRIYA", "Priya Shah");
+
+async function openMenu(user: ReturnType<typeof userEvent.setup>, author: string) {
+  await user.click(screen.getByRole("button", { name: `Actions for message from ${author}` }));
+  return screen.getByRole("menu", { name: `Actions for message from ${author}` });
+}
+
+describe("a message's menu", () => {
+  it("names every action the toolbar offers, and only those this person may take", async () => {
+    const { user } = messageFrom(sam, sam);
+    const menu = await openMenu(user, "Sam Rivera");
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Reply in thread",
+      "Add a reaction…",
+      "Copy link to message",
+      "Save for later",
+      "Mark unread from this message",
+      "Pin to channel",
+      "Edit message",
+      "Delete message",
+    ]);
+    expect(await accessibilityProblems(menu)).toEqual([]);
+  });
+
+  it("leaves out editing and deleting on someone else's message", async () => {
+    const { user } = messageFrom(priya, sam);
+    const menu = await openMenu(user, "Priya Shah");
+    const items = within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent);
+    expect(items).not.toContain("Edit message");
+    expect(items).not.toContain("Delete message");
+  });
+
+  it("does what each item names", async () => {
+    const { client, user, onOpenThread } = messageFrom(sam, sam);
+    const pin = vi.spyOn(client, "togglePin").mockResolvedValue(true);
+    const save = vi.spyOn(client, "toggleSaved").mockResolvedValue(true);
+
+    await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Reply in thread"));
+    expect(onOpenThread).toHaveBeenCalledWith("M_1");
+    await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Pin to channel"));
+    expect(pin).toHaveBeenCalledOnce();
+    await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Save for later"));
+    expect(save).toHaveBeenCalledWith("M_1", true);
+    // Editing opens in place, with the cursor in the editor.
+    await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Edit message"));
+    expect(screen.getByRole("textbox")).toHaveFocus();
+  });
+
+  it("copies the link and says so, since the menu has closed by then", async () => {
+    const { user } = messageFrom(sam, sam);
+    await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Copy link to message"));
+    expect(await screen.findByText("Link copied.")).toBeVisible();
+    expect(await navigator.clipboard.readText()).toBe("http://127.0.0.1:9/#/c/C_GENERAL/m/M_1");
+  });
+});
+
+describe("adding a reaction", () => {
+  it("finds any emoji from the menu, and reacts with it", async () => {
+    const { react, user } = messageFrom(sam, sam);
+    await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Add a reaction…"));
+    const picker = screen.getByRole("dialog", { name: "Add a reaction" });
+    expect(await accessibilityProblems(picker)).toEqual([]);
+    await user.type(within(picker).getByRole("textbox", { name: "Search emoji" }), "rocket");
+    await user.click(within(picker).getByRole("button", { name: "Rocket launch" }));
+    expect(react).toHaveBeenCalledWith(expect.objectContaining({ id: "M_1" }), "🚀");
+    expect(screen.queryByRole("dialog", { name: "Add a reaction" })).not.toBeInTheDocument();
+  });
+
+  it("opens from the toolbar too, and says when nothing matches", async () => {
+    const { react, user } = messageFrom(sam, sam);
+    await user.click(screen.getByRole("button", { name: "Add a reaction" }));
+    const picker = screen.getByRole("dialog", { name: "Add a reaction" });
+    const search = within(picker).getByRole("textbox", { name: "Search emoji" });
+    expect(search).toHaveFocus();
+    await user.type(search, "zzzz");
+    expect(within(picker).getByRole("status")).toHaveTextContent("No emoji matched");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Add a reaction" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add a reaction" })).toHaveFocus();
+    expect(react).not.toHaveBeenCalled();
+  });
+});
