@@ -1,0 +1,167 @@
+[
+  {
+    "id": "R01",
+    "url": "https://www.microsoft.com/en-us/research/publication/notifications-and-awareness-a-field-study-of-alert-usage-and-preferences/",
+    "title": "Notifications and Awareness: A Field Study of Alert Usage and Preferences",
+    "publisher": "Microsoft Research / Iqbal and Horvitz",
+    "type": "primary-study",
+    "publishedOrUpdated": "2010-02",
+    "claim": "A two-week workplace email study found varied effects when notifications were removed, including more self-checking for some users.",
+    "limitations": "Older email study; not a trial of Gatherline, Slack or a universal notification default.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R02",
+    "url": "https://arxiv.org/abs/1612.02314",
+    "title": "Productive, Anxious, Lonely — 24 Hours Without Push Notifications",
+    "publisher": "Pielot and Rello",
+    "type": "primary-study",
+    "publishedOrUpdated": "2017-07-05 (revision)",
+    "claim": "Thirty volunteers disabled alerts for one day; reported benefits coexisted with anxiety and reduced social connection.",
+    "limitations": "Small volunteer sample, short intervention and self-reports; no population productivity effect established.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R03",
+    "url": "https://static1.squarespace.com/static/57a40c19414fb54f51f8095f/t/614a55faa7b89e25f4e48ad1/1632261627146/2019%2Bfitz%2Bbatching.pdf",
+    "title": "Batching smartphone notifications can improve well-being",
+    "publisher": "Fitz et al., Computers in Human Behavior",
+    "type": "primary-study",
+    "publishedOrUpdated": "2019",
+    "claim": "Randomized smartphone study with 237 participants compared batching schedules and alert suppression; effects depended on the intervention.",
+    "limitations": "Not a workplace-chat product comparison; outcomes include self-report. Search summaries were inconsistent on productivity, so no precise productivity claim is used.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R04",
+    "url": "https://news.ycombinator.com/item?id=46671952",
+    "title": "Show HN: Dock — Slack minus the bloat, tax, and 90-day memory loss",
+    "publisher": "Hacker News participants",
+    "type": "firsthand-discussion",
+    "publishedOrUpdated": null,
+    "claim": "Respondents describe external partners, integrations and mobile notifications as reasons a chat replacement may fail to win adoption.",
+    "limitations": "Self-selected launch feedback, promotional context and disputed claims; comments are not verified product documentation or representative demand.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R05",
+    "url": "https://news.ycombinator.com/item?id=43780176",
+    "title": "Show HN: Colanode, open-source and local-first Slack and Notion alternative",
+    "publisher": "Hacker News participants",
+    "type": "firsthand-discussion",
+    "publishedOrUpdated": "2025-04",
+    "claim": "Discussion includes disagreement over self-hosted mobile notifications, operating effort and service funding.",
+    "limitations": "Pricing allegations are historical anecdotes; current vendor documentation is required for comparison.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R06",
+    "url": "https://www.reddit.com/r/selfhosted/comments/1d13cn7/the_current_sad_state_of_selfhosted_chat_apps/",
+    "title": "The current (sad) state of self-hosted chat apps",
+    "publisher": "r/selfhosted participants",
+    "type": "firsthand-discussion",
+    "publishedOrUpdated": "2024 original discussion; later replies",
+    "claim": "Participants report setup, guest access, push and casual-threading friction; replies dispute several original claims.",
+    "limitations": "Do not carry older feature, price or licensing allegations forward as current facts; includes promotional replies.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R07",
+    "url": "https://github.com/colanode/colanode",
+    "title": "Colanode repository and architecture",
+    "publisher": "Colanode maintainers",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Project documents local SQLite reads/writes with background sync and a server stack including Postgres, Redis and file storage.",
+    "limitations": "Maintainer-described architecture; no independent performance, durability or mobile validation performed.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R08",
+    "url": "https://www.inkandswitch.com/essay/local-first/",
+    "title": "Local-first software: You own your data, in spite of the cloud",
+    "publisher": "Ink & Switch / Kleppmann et al.",
+    "type": "research-position",
+    "publishedOrUpdated": "2019",
+    "claim": "Explains offline access and durable user ownership as stronger requirements than an optimistic interface or server cache.",
+    "limitations": "Research/design position with prototypes, not evidence that every chat app needs CRDTs or federation.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R09",
+    "url": "https://www.w3.org/TR/WCAG22/",
+    "title": "Web Content Accessibility Guidelines 2.2",
+    "publisher": "W3C",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Provides testable accessibility criteria including focus visibility, target size, reflow, authentication and media alternatives.",
+    "limitations": "Standard used as a design target; this research does not establish legal compliance or certify Gatherline.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R10",
+    "url": "https://docs.github.com/en/integrations/how-tos/slack/use-github-in-slack",
+    "title": "Using GitHub in Slack",
+    "publisher": "GitHub",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Official integration groups issue and pull-request updates in threads and maintains current context.",
+    "limitations": "Documents GitHub's Slack app; does not establish compatibility with Gatherline's partial Slack API.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R11",
+    "url": "https://slack.com/intl/en-gb/help/articles/16905395872019-Hide-a-person-in-Slack",
+    "title": "Hide a person in Slack",
+    "publisher": "Slack",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Slack supports hiding people and suppressing banner notifications; badges and shared-huddle behavior have specified exceptions.",
+    "limitations": "Hiding is not equivalent to preventing contact; avoid repeating older claims that no person-level control exists.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R12",
+    "url": "https://slack.com/intl/en-gb/help/articles/28310650165907-Security-for-Slack-AI",
+    "title": "Security for AI features in Slack",
+    "publisher": "Slack",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Slack says native AI respects request-time user access and does not use customer data to train LLMs.",
+    "limitations": "Vendor security statement, not an independent audit; third-party apps and other products need their own review.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R13",
+    "url": "https://slack.com/intl/en-ie/blog/news/how-slack-protects-your-data-when-using-machine-learning-and-ai",
+    "title": "How Slack protects your data when using machine learning and AI",
+    "publisher": "Slack",
+    "type": "official-doc",
+    "publishedOrUpdated": "2025-04-07",
+    "claim": "Distinguishes traditional ML based on derived signals from generative AI and describes workspace opt-out.",
+    "limitations": "Do not use this older explanation for present pricing or bundling; vendor account of its own controls.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R14",
+    "url": "https://support.google.com/chat/answer/10126829?hl=en",
+    "title": "Export your data from Google Chat",
+    "publisher": "Google",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Personal and organization exports have different coverage, including exclusions for certain work/school or external spaces.",
+    "limitations": "An export's existence does not imply complete source history or a ready Gatherline import adapter.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "R15",
+    "url": "https://support.google.com/chat/answer/16053860?hl=en-IN",
+    "title": "Learn about message history for conversations",
+    "publisher": "Google",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Conversation retention can be governed by the organization that started an external conversation.",
+    "limitations": "Applies to described Google Chat configurations; no claim that every external-collaboration platform behaves identically.",
+    "accessed": "2026-09-24"
+  }
+]

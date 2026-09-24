@@ -1,0 +1,200 @@
+[
+  {
+    "id": "C01",
+    "url": "https://support.discord.com/hc/en-us/articles/11074987197975-Community-Onboarding-FAQ",
+    "title": "Community Onboarding FAQ",
+    "publisher": "Discord",
+    "type": "official-doc",
+    "publishedOrUpdated": "2023-03-31",
+    "claim": "Members can select channels and roles through onboarding; the documented setup requires seven default channels, including five writable by everyone, and desktop administration.",
+    "limitations": "Documentation establishes advertised behavior, not adoption benefit. Its displayed update date is older than access date; no hands-on Discord test was performed.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C02",
+    "url": "https://support.discord.com/hc/en-us/articles/217916488-Blocking-Privacy-Settings",
+    "title": "Blocking & Privacy Settings",
+    "publisher": "Discord",
+    "type": "official-doc",
+    "publishedOrUpdated": "2025-02-10",
+    "claim": "Discord documents server-level DM controls, blocking and friend-request permissions; shared-server members can send DMs by default.",
+    "limitations": "Describes controls and documented defaults, not their effectiveness against harassment or every account-age-specific exception.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C03",
+    "url": "https://support.discord.com/hc/en-us/articles/4421269296535-AutoMod-FAQ",
+    "title": "AutoMod FAQ",
+    "publisher": "Discord",
+    "type": "official-doc",
+    "publishedOrUpdated": "2026-06-15",
+    "claim": "AutoMod supports keyword/spam rules, blocking, alerts and timeouts. Built-in word lists and spam filtering are documented as English-only, while custom keywords support other languages.",
+    "limitations": "No independent accuracy, false-positive or moderator-workload measurements; capability does not establish moderation sufficiency.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C04",
+    "url": "https://support.discord.com/hc/en-us/articles/6208479917079-Forum-Channels-FAQ",
+    "title": "Forum Channels FAQ",
+    "publisher": "Discord",
+    "type": "official-doc",
+    "publishedOrUpdated": "2024-10-24",
+    "claim": "Forum channels organize posts with titles, tags, guidelines, search, list/gallery layouts and inactivity handling; documentation requires Community mode.",
+    "limitations": "Older displayed update date. Do not infer that titled discussions automatically improve participation or that eligibility cannot change.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C05",
+    "url": "https://www.reddit.com/r/discordhelp/comments/1smhmjp/server_onboarding_help_unsolved/",
+    "title": "Server Onboarding Help - Unsolved",
+    "publisher": "r/discordhelp participant",
+    "type": "firsthand-discussion",
+    "publishedOrUpdated": null,
+    "claim": "A server administrator reports having to guide newcomers to Show all channels despite believing role and onboarding permissions were configured correctly.",
+    "limitations": "Single self-selected support report; cause and current reproducibility are unverified. Relative dates were displayed, so no exact publication date is assigned.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C06",
+    "url": "https://meta.discourse.org/t/discourse-chat/230881",
+    "title": "Discourse Chat",
+    "publisher": "Discourse Meta documentation",
+    "type": "official-doc",
+    "publishedOrUpdated": "2026-07-14",
+    "claim": "Current chat documentation describes thread titles/tracking, Quote to topic, channel moves, configurable retention and category-derived access.",
+    "limitations": "The linked page also contains community replies; capability claims here use the maintained documentation post, not every reply.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C07",
+    "url": "https://meta.discourse.org/t/moving-conversations-from-chat-to-topics/253209",
+    "title": "Moving conversations from chat to topics",
+    "publisher": "Discourse Meta participants and staff",
+    "type": "firsthand-discussion",
+    "publishedOrUpdated": "2023-01-29",
+    "claim": "Participants discuss losing authorship/notification continuity when quoting chats into topics; staff also describe curation and summarization as a useful deliberate transition.",
+    "limitations": "Historical qualitative discussion with conflicting preferences; not proof that all reported limitations persist in 2026 or a representative usability study.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C08",
+    "url": "https://support.signal.org/hc/en-us/articles/6712070553754-Phone-Number-Privacy-and-Usernames",
+    "title": "Phone Number Privacy and Usernames",
+    "publisher": "Signal",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Signal separates phone visibility from discovery and permits contact initiation through exact usernames, QR codes or links, but still requires a phone number and offers no searchable username directory.",
+    "limitations": "Capability documentation, not proof of anonymous operation or optimal discoverability. Existing contacts can already know a number.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C09",
+    "url": "https://support.signal.org/hc/en-us/articles/7860719423002-How-to-create-and-share-call-links",
+    "title": "How to create and share call links",
+    "publisher": "Signal",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Reusable call links have optional administrative approval, deletion and expiry after 90 days unused; participants need Signal.",
+    "limitations": "Not a browser guest-calling guarantee and not a benchmark for call reliability or participant capacity.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C10",
+    "url": "https://about.fb.com/news/2024/05/events-in-whatsapp-communities/",
+    "title": "New Ways to Organize Events in WhatsApp Communities",
+    "publisher": "Meta / WhatsApp",
+    "type": "vendor-opinion",
+    "publishedOrUpdated": "2024-05-01",
+    "claim": "WhatsApp announced group event responses/reminders and grouped announcement replies with muted notifications.",
+    "limitations": "Vendor launch announcement: useful feature evidence, but promotional adoption claims and the original rollout schedule are not independently verified.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C11",
+    "url": "https://about.fb.com/news/2023/05/whatsapp-polls-updates-sharing-with-captions/",
+    "title": "New Updates to Polls and Sharing With Captions on WhatsApp",
+    "publisher": "Meta / WhatsApp",
+    "type": "vendor-opinion",
+    "publishedOrUpdated": "2023-05-05",
+    "claim": "WhatsApp announced single-vote polls, poll search, vote notifications and captions preserved or changed when forwarding media/documents.",
+    "limitations": "Historical vendor announcement, not a complete account of current polls. Captions here mean accompanying message text, not live speech captions.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C12",
+    "url": "https://telegram.org/faq",
+    "title": "Telegram FAQ",
+    "publisher": "Telegram",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Telegram distinguishes groups from broadcast channels and cloud-synced chats from device-specific end-to-end encrypted Secret Chats; cloud group chats are not end-to-end encrypted.",
+    "limitations": "The FAQ includes vendor security comparisons that this research does not adopt. No cryptographic audit or complete current feature census was performed.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C13",
+    "url": "https://matrix.org/docs/matrix-concepts/elements-of-matrix/",
+    "title": "Elements of Matrix",
+    "publisher": "Matrix.org Foundation",
+    "type": "official-doc",
+    "publishedOrUpdated": "2023-02-08",
+    "claim": "Matrix federates room events across homeservers, with account identifiers containing a username and homeserver domain; bridges add another trust and identity surface.",
+    "limitations": "Conceptual documentation, not evidence that moving a community transfers accounts or provides seamless portable identity.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C14",
+    "url": "https://docs.element.io/latest/element-support/device-verification/how-to-ensure-you-have-a-recovery-key/",
+    "title": "How to Ensure You Have a Recovery Key",
+    "publisher": "Element",
+    "type": "official-doc",
+    "publishedOrUpdated": null,
+    "claim": "Encrypted-history recovery uses a key distinct from the account password; losing both the key and verified devices can require an identity reset and lose access to old history.",
+    "limitations": "Specific Element recovery workflow; does not prove all E2EE systems require identical UX or quantify recovery failure rates.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C15",
+    "url": "https://reitmaier.io/publications/chi2022_asr_opportunities/Reitmaier_2022_ASR-Opportunities-Challenges.pdf",
+    "title": "Opportunities and Challenges of Automatic Speech Recognition Systems for Low-Resource Language Speakers",
+    "publisher": "Reitmaier et al., ACM CHI 2022; author-hosted paper",
+    "type": "primary-study",
+    "publishedOrUpdated": "2022",
+    "claim": "Participatory research with isiXhosa and Marathi-speaking communities identifies the value of voice messaging, difficulty retrieving recordings and language/context challenges in transcription.",
+    "limitations": "Situated qualitative fieldwork, not a representative global survey or evaluation of present-day WhatsApp or speech-recognition accuracy. Recommendations about live captions are extrapolations.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C16",
+    "url": "https://stoat.chat/release-notes/93eb1f4ec77444ca9fb13617e0e6c0b1",
+    "title": "Our Most Requested Feature Yet",
+    "publisher": "Stoat",
+    "type": "vendor-opinion",
+    "publishedOrUpdated": "2026-07-17",
+    "claim": "Stoat announced video/screensharing, call/message sounds and push on several platforms; release notes acknowledge 720p30 sharing, Wayland audio issues and pending granular notification controls.",
+    "limitations": "Vendor release claims were not hands-on verified. This later release supersedes historical assertions that the product simply lacks mobile voice or push.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C17",
+    "url": "https://github.com/orgs/stoatchat/discussions/1352",
+    "title": "[Mobile] Hangups and jank",
+    "publisher": "Stoat GitHub community participants",
+    "type": "firsthand-discussion",
+    "publishedOrUpdated": "2026-02-22",
+    "claim": "Several users report confusing mobile navigation, stale sent states, missing updates and notifications during attempts to move from Discord.",
+    "limitations": "Small self-selected discussion preceding the July release. Evidence of harmful failure modes, not their persistence or prevalence today.",
+    "accessed": "2026-09-24"
+  },
+  {
+    "id": "C18",
+    "url": "https://www.reddit.com/r/elementchat/comments/1r5jq6o/encryption_and_new_nontechie_users/",
+    "title": "Encryption and new non-techie users",
+    "publisher": "r/elementchat participants",
+    "type": "firsthand-discussion",
+    "publishedOrUpdated": null,
+    "claim": "A person inviting family recalls encryption/recovery friction; replies describe improvements and QR verification rather than unanimous rejection of encryption.",
+    "limitations": "Recollection without a reproducible current bug and with differing responses. Relative dates were shown; does not justify recommending plaintext.",
+    "accessed": "2026-09-24"
+  }
+]
