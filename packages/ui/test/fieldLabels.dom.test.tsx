@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Api, WorkspaceClient } from "@slackoss/client-core";
 import type { ServerInfo, User } from "@slackoss/protocol";
@@ -54,6 +54,9 @@ async function signInCard(options: { inviteCode?: string } = {}) {
     />,
   );
   await screen.findByRole("heading", { name: "Rocket Team" });
+  // The card puts the cursor in its first field once it has mounted. On a slow
+  // machine that can come after a test has moved focus itself, and take it back.
+  await waitFor(() => expect(screen.getByLabelText("Username")).toHaveFocus());
   return userEvent.setup();
 }
 
