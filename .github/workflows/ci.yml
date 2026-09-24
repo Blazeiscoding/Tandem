@@ -1,8 +1,18 @@
 name: Checks
+# The account has 2,000 free minutes a month and a budget of nothing beyond
+# them, so each check runs once for the code it checks. A pull request's run
+# checks the result of merging it, so main is not checked again after the
+# merge; a branch is rebased before merging when main has moved since its run.
+# Changes to documentation alone start nothing: run `pnpm format` locally.
+# The packaged Windows app and the container image have workflows of their
+# own, desktop.yml and container.yml, which start only when what they check
+# changes.
 on:
-  push:
-    branches: [main]
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE"
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -32,13 +42,22 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @slackoss/web build
-      # What every visit downloads stays under the size Vite warns about.
+      # What every visit downloads stays under the size Vite warns about, in
+      # the browser and in the desktop app, whose renderer builds here in a
+      # few seconds without Electron itself.
       - run: node scripts/check-web-bundle.mjs
+      - run: pnpm --filter @slackoss/desktop build
+      - run: node scripts/check-web-bundle.mjs apps/desktop/out/renderer
       - run: pnpm --filter slackoss-server build
+      # Chromium comes from a cache caches.yml fills on main, and is only
+      # downloaded when the lockfile has moved on without it. Restoring alone
+      # leaves no cache behind that only this pull request could use.
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
-      - run: docker build -f docker/Dockerfile -t slackoss:local .
-      - run: node tests/docker-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -58,32 +77,13 @@ jobs:
           ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq \
             "[.artifacts[] | select(.workflow_run.id != $GITHUB_RUN_ID and (.expired | not)) | .id] | join(\" \")")
           echo "ids=$ids" >> "$GITHUB_OUTPUT"
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @slackoss/desktop package --win
-      - run: node scripts/check-web-bundle.mjs apps/desktop/out/renderer
-      # Packaging still has to succeed here, and test:desktop then launches the
-      # unpacked app it produced. What is no longer kept is the installer that
-      # same step writes beside it: uploading a 107 MB file on every push and
-      # holding it for ninety days used most of what this repository is given
-      # for artifacts, and nothing read them. A release workflow can publish
-      # one deliberately when there is something to hand out.
-      - run: pnpm test:desktop
   # Actions storage is counted for every hour an artifact exists, so each run
   # deletes what earlier runs left. Any job that starts counts as at least a
   # minute of CI time, so this one starts only when there is something to
   # delete. A pull request from a fork gets a token that cannot delete, so its
   # runs leave the deleting to a later one.
   clean-up:
-    needs: [web-and-server, windows]
+    needs: [web-and-server]
     if: >-
       ${{ !cancelled() && needs.web-and-server.outputs.leftovers != '' &&
       !github.event.pull_request.head.repo.fork }}

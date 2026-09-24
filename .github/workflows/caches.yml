@@ -1,0 +1,45 @@
+name: Dependency caches
+# Checks run on pull requests only; running them again on main after a merge
+# repeated a run that had just passed on the same code, and used almost half
+# of September's minutes. But a pull request can restore caches made on main
+# and nowhere else, so when the lockfile changes this refills the caches the
+# checks install from: the pnpm store on both systems, and the Chromium the
+# browser tests use on Linux. It does nothing more.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pnpm-lock.yaml"
+      - ".github/workflows/caches.yml"
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  pnpm-store:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      # Filling the store is the point; setup-node saves it after the job.
+      - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # The browser only; the system libraries it needs are installed by each
+      # check run, since they live outside the cached folder.
+      - if: runner.os == 'Linux'
+        run: pnpm exec playwright install chromium
