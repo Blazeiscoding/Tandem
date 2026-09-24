@@ -1,5 +1,5 @@
 import { memo, useState, type ReactNode } from "react";
-import { useCopy } from "../lib/useCopy.js";
+import { useCopy, writeClipboard } from "../lib/useCopy.js";
 import { browserLink } from "../lib/deeplink.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
@@ -10,6 +10,8 @@ import { Mrkdwn } from "./Mrkdwn.js";
 import { MessageEditor } from "./MessageEditor.js";
 import { useShareableServer } from "./ShareableServer.js";
 import { Icon } from "./Icon.js";
+import { Menu, type MenuItem } from "./Menu.js";
+import { ReactionPicker } from "./ReactionPicker.js";
 import { useConfirm } from "./Confirm.js";
 import { Tooltip } from "./Tooltip.js";
 import { useToast } from "./Toast.js";
@@ -44,6 +46,7 @@ export const MessageItem = memo(function MessageItem({
   const channels = useWorkspace((s) => s.channels);
   const self = useWorkspace((s) => s.self);
   const [editing, setEditing] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(false);
   const { copy, copied } = useCopy(1200);
@@ -71,12 +74,99 @@ export const MessageItem = memo(function MessageItem({
     });
   }
 
+  /** A link that opens anywhere: in a browser at the web client, and in place inside the app. */
+  const link = () =>
+    browserLink(shareable.serverUrl, {
+      kind: "message",
+      channelId: message.channelId,
+      messageId: message.id,
+    });
+  function react(emoji: string) {
+    reportRefusal("That reaction did not go through.", () => client.toggleReaction(message, emoji));
+  }
+  const saveLabel = isSaved ? "Remove from Saved" : "Save for later";
+  function toggleSaved() {
+    // Trying again repeats this intent, whatever the state is by then.
+    const save = !isSaved;
+    reportRefusal(
+      save ? "Could not save that for later." : "Could not remove that from Saved.",
+      () => client.toggleSaved(message.id, save),
+    );
+  }
+  const unreadLabel = inThread ? "Mark unread from this reply" : "Mark unread from this message";
+  function markUnread() {
+    // Inside a thread this is the thread's own unread state, and the root
+    // shown at the top of the panel is itself the thread.
+    if (inThread) client.markThreadUnread(message.threadRootId ?? message.id, message.seq);
+    else client.markUnread(message.channelId, message.seq);
+  }
+  const pinLabel = message.pinned ? "Unpin from channel" : "Pin to channel";
+  function togglePin() {
+    reportRefusal(
+      message.pinned ? "Could not unpin that message." : "Could not pin that message.",
+      () => client.togglePin(message),
+    );
+  }
+  async function deleteMessage() {
+    if (deleting) return;
+    const go = await confirm({
+      title: "Delete this message?",
+      body: "Everyone in the conversation stops seeing it.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!go) return;
+    setDeleting(true);
+    setDeleteError(false);
+    try {
+      await client.api.deleteMessage(message.id);
+    } catch {
+      setDeleteError(true);
+    } finally {
+      setDeleting(false);
+    }
+  }
+  const menuItems: MenuItem[] = [
+    ...(inThread
+      ? []
+      : [{ id: "reply", label: "Reply in thread", onSelect: () => onOpenThread?.(message.id) }]),
+    { id: "react", label: "Add a reaction…", onSelect: () => setPicking(true) },
+    {
+      id: "link",
+      label: "Copy link to message",
+      // The menu has closed by now, so a notice says whether it worked.
+      onSelect: () =>
+        void writeClipboard(link()).then((ok) =>
+          toast(
+            ok
+              ? { message: "Link copied.", kind: "success" }
+              : { message: "Could not copy the link." },
+          ),
+        ),
+    },
+    { id: "save", label: saveLabel, onSelect: toggleSaved },
+    { id: "unread", label: unreadLabel, onSelect: markUnread },
+    { id: "pin", label: pinLabel, onSelect: togglePin },
+    ...(mine ? [{ id: "edit", label: "Edit message", onSelect: () => setEditing(true) }] : []),
+    ...(canDelete
+      ? [
+          {
+            id: "delete",
+            label: "Delete message",
+            destructive: true,
+            disabled: deleting,
+            onSelect: () => void deleteMessage(),
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div
       role="article"
       aria-label={`Message from ${author?.displayName ?? "unknown"}`}
       tabIndex={0}
-      className={`group relative px-5 py-0.5 transition-colors hover:bg-raised/60 ${
+      className={`message-row group relative px-5 py-0.5 transition-colors hover:bg-raised/60 ${
         compact ? "" : "mt-2.5"
       } ${mentionsMe ? "border-l-2 border-copper bg-mention hover:bg-mention" : ""} ${
         highlighted ? "bg-copper/15 hover:bg-copper/15" : ""
@@ -178,11 +268,7 @@ export const MessageItem = memo(function MessageItem({
                   <button
                     key={g.emoji}
                     title={names}
-                    onClick={() =>
-                      reportRefusal("That reaction did not go through.", () =>
-                        client.toggleReaction(message, g.emoji),
-                      )
-                    }
+                    onClick={() => react(g.emoji)}
                     className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[13px] transition-colors ${
                       reacted
                         ? "border-copper/60 bg-copper/15"
@@ -223,18 +309,15 @@ export const MessageItem = memo(function MessageItem({
       </div>
 
       {!editing && (
-        <div className="absolute -top-3.5 right-4 hidden max-w-[calc(100%-32px)] items-center overflow-x-auto rounded-lg border border-edge bg-lifted shadow-lg group-hover:flex group-focus-within:flex">
+        <div className="message-toolbar absolute -top-3.5 right-4 hidden max-w-[calc(100%-32px)] items-center overflow-x-auto rounded-lg border border-edge bg-lifted shadow-lg group-hover:flex group-focus-within:flex">
           {QUICK_REACTIONS.map((e) => (
-            <ToolbarButton
-              key={e}
-              label={e}
-              onClick={() =>
-                reportRefusal("That reaction did not go through.", () =>
-                  client.toggleReaction(message, e),
-                )
-              }
-            />
+            <ToolbarButton key={e} label={e} onClick={() => react(e)} />
           ))}
+          <ToolbarButton
+            label={<Icon name="smile" size={15} />}
+            title="Add a reaction"
+            onClick={() => setPicking(true)}
+          />
           {!inThread && (
             <ToolbarButton
               label={<Icon name="thread" size={15} />}
@@ -251,60 +334,30 @@ export const MessageItem = memo(function MessageItem({
               )
             }
             title={copied && !copied.ok ? "Could not copy the link" : "Copy link to message"}
-            onClick={() =>
-              // A browser link opens anywhere: in a browser at the web client,
-              // and in place when clicked inside the app.
-              void copy(
-                browserLink(shareable.serverUrl, {
-                  kind: "message",
-                  channelId: message.channelId,
-                  messageId: message.id,
-                }),
-              )
-            }
+            onClick={() => void copy(link())}
           />
           <ToolbarButton
             label={<Icon name="bookmark" size={15} />}
-            title={isSaved ? "Remove from Saved" : "Save for later"}
+            title={saveLabel}
             active={isSaved}
-            onClick={() => {
-              // Trying again repeats this intent, whatever the state is by then.
-              const save = !isSaved;
-              reportRefusal(
-                save ? "Could not save that for later." : "Could not remove that from Saved.",
-                () => client.toggleSaved(message.id, save),
-              );
-            }}
+            onClick={toggleSaved}
           />
           <ToolbarButton
             label={<Icon name="markUnread" size={15} />}
-            title={inThread ? "Mark unread from this reply" : "Mark unread from this message"}
-            onClick={() =>
-              // Inside a thread this is the thread's own unread state, and the
-              // root shown at the top of the panel is itself the thread.
-              inThread
-                ? client.markThreadUnread(message.threadRootId ?? message.id, message.seq)
-                : client.markUnread(message.channelId, message.seq)
-            }
+            title={unreadLabel}
+            onClick={markUnread}
           />
           <ToolbarButton
             label={<Icon name="pin" size={15} />}
-            title={message.pinned ? "Unpin from channel" : "Pin to channel"}
+            title={pinLabel}
             active={message.pinned}
-            onClick={() =>
-              reportRefusal(
-                message.pinned ? "Could not unpin that message." : "Could not pin that message.",
-                () => client.togglePin(message),
-              )
-            }
+            onClick={togglePin}
           />
           {mine && (
             <ToolbarButton
               label={<Icon name="edit" size={15} />}
               title="Edit message"
-              onClick={() => {
-                setEditing(true);
-              }}
+              onClick={() => setEditing(true)}
             />
           )}
           {canDelete && (
@@ -312,31 +365,23 @@ export const MessageItem = memo(function MessageItem({
               label={<Icon name="trash" size={15} />}
               title="Delete message"
               disabled={deleting}
-              onClick={() =>
-                void (async () => {
-                  if (deleting) return;
-                  const go = await confirm({
-                    title: "Delete this message?",
-                    body: "Everyone in the conversation stops seeing it.",
-                    confirmLabel: "Delete",
-                    destructive: true,
-                  });
-                  if (!go) return;
-                  setDeleting(true);
-                  setDeleteError(false);
-                  try {
-                    await client.api.deleteMessage(message.id);
-                  } catch {
-                    setDeleteError(true);
-                  } finally {
-                    setDeleting(false);
-                  }
-                })()
-              }
+              onClick={() => void deleteMessage()}
             />
           )}
         </div>
       )}
+      {/* A touchscreen has no hover to raise the toolbar, so each message
+          offers the same actions, with their names, in a menu of its own. */}
+      {!editing && (
+        <div className="message-more absolute right-1 top-0.5">
+          <Menu
+            label={`Actions for message from ${author?.displayName ?? "unknown"}`}
+            items={menuItems}
+            triggerClassName="flex size-9 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+          />
+        </div>
+      )}
+      {picking && <ReactionPicker onPick={react} onClose={() => setPicking(false)} />}
     </div>
   );
 });

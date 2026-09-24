@@ -42,7 +42,7 @@ export function useCopy(resetMs = 1500) {
  * where they offer nothing. Copying a selection, the older way, still works
  * there, as it does when the API is present but refuses.
  */
-async function writeClipboard(text: string): Promise<boolean> {
+export async function writeClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
