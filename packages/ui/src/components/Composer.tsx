@@ -8,6 +8,7 @@ import { useComposerPreferences } from "../lib/composerPreferences.js";
 import { formatScheduleTime, localDateTime, schedulePresets } from "../lib/schedule.js";
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { Tooltip } from "./Tooltip.js";
 import { caretToRestore, isImeKey, type PendingCaret } from "../lib/textInput.js";
 import {
   readWorkspaceStorage,
@@ -830,25 +831,27 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         )}
         <div className="relative flex items-center justify-between px-2.5 pb-2">
           <span className="flex items-center gap-1">
-            <button
-              onClick={() => filePicker.current?.click()}
-              title="Attach a file"
-              aria-label="Attach a file"
-              className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
-            >
-              <Icon name="attach" />
-            </button>
-            {(text.trim() || attached.length > 0) && (
+            <Tooltip label="Attach a file">
               <button
-                onClick={() => setScheduleOpen((v) => !v)}
-                title="Send later"
-                aria-label="Send later"
-                className={`rounded-lg px-2 py-1 transition-colors hover:bg-lifted hover:text-ink ${
-                  scheduleOpen ? "text-copper" : "text-ink-faint"
-                }`}
+                onClick={() => filePicker.current?.click()}
+                aria-label="Attach a file"
+                className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
               >
-                <Icon name="clock" />
+                <Icon name="attach" />
               </button>
+            </Tooltip>
+            {(text.trim() || attached.length > 0) && (
+              <Tooltip label="Send later">
+                <button
+                  onClick={() => setScheduleOpen((v) => !v)}
+                  aria-label="Send later"
+                  className={`rounded-lg px-2 py-1 transition-colors hover:bg-lifted hover:text-ink ${
+                    scheduleOpen ? "text-copper" : "text-ink-faint"
+                  }`}
+                >
+                  <Icon name="clock" />
+                </button>
+              </Tooltip>
             )}
           </span>
           {threadRootId && (
@@ -869,18 +872,19 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                   : "Ctrl/Cmd+Enter to send · Enter for a new line"
                 : "")}
           </span>
-          <button
-            onClick={() => {
-              send();
-              box.current?.focus();
-            }}
-            disabled={(!text.trim() && attached.length === 0) || text.length > MESSAGE_LIMIT}
-            aria-label="Send message"
-            title={enterSends ? "Send message (Enter)" : "Send message (Ctrl/Cmd+Enter)"}
-            className="flex items-center gap-2 rounded-lg bg-copper px-3 py-1.5 text-ground hover:bg-copper-deep disabled:bg-lifted disabled:text-ink-faint"
-          >
-            <Icon name="send" size={16} />
-          </button>
+          <Tooltip label="Send message" keys={enterSends ? "Enter" : "Ctrl/Cmd+Enter"}>
+            <button
+              onClick={() => {
+                send();
+                box.current?.focus();
+              }}
+              disabled={(!text.trim() && attached.length === 0) || text.length > MESSAGE_LIMIT}
+              aria-label="Send message"
+              className="flex items-center gap-2 rounded-lg bg-copper px-3 py-1.5 text-ground hover:bg-copper-deep disabled:bg-lifted disabled:text-ink-faint"
+            >
+              <Icon name="send" size={16} />
+            </button>
+          </Tooltip>
           {scheduleOpen && (
             <ul className="absolute bottom-full left-2 z-20 mb-1 w-[220px] overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
               <li className="border-b border-edge px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-ink-faint">
