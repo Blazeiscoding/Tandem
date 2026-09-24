@@ -1448,7 +1448,8 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     await expect(planText).toHaveCount(0);
     await guestPage.goto(messageLink(plan.id));
     await expect(planText).toBeInViewport();
-    await expect(guestPage).toHaveURL(`${origin}/`);
+    // The link is taken out of the address, which names the conversation instead.
+    await expect(guestPage).toHaveURL(`${origin}/#/c/${general.id}`);
 
     // Opened by someone signed out, it waits for them to sign in.
     const later = await browser.newContext({ viewport: { width: 1280, height: 820 } });
@@ -1703,5 +1704,149 @@ test("the demo seed fills a new workspace with something to try, and leaves one 
       await exited;
     }
     rmSync(demoData, { recursive: true, force: true });
+  }
+});
+
+test("Back, Forward and a reload return to the conversation and thread someone was in", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const port = 18546;
+  const origin = `http://127.0.0.1:${port}`;
+  const routeData = mkdtempSync(join(tmpdir(), "slackoss-e2e-routes-"));
+  const routeServer = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      routeData,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Route Team",
+      "--no-rate-limits",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  try {
+    await expect
+      .poll(async () => {
+        try {
+          return (await fetch(`${origin}/api/health`)).status;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(200);
+    const account = async (handle: string) =>
+      (
+        await (
+          await fetch(`${origin}/api/auth/register`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ handle, displayName: handle, password: "password123" }),
+          })
+        ).json()
+      ).token as string;
+    const as = (token: string) => ({
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    });
+    const owner = await account("hana");
+    const other = await account("omar");
+    const call = async (token: string, path: string, body: unknown) =>
+      (
+        await fetch(`${origin}${path}`, {
+          method: "POST",
+          headers: as(token),
+          body: JSON.stringify(body),
+        })
+      ).json();
+    const { channels } = await (
+      await fetch(`${origin}/api/channels`, { headers: as(owner) })
+    ).json();
+    const general = channels.find((c: { name: string }) => c.name === "general");
+    const { channel: design } = await call(owner, "/api/channels", {
+      type: "public",
+      name: "design",
+    });
+    // Private to omar, so hana has no way in.
+    const { channel: leads } = await call(other, "/api/channels", {
+      type: "private",
+      name: "leads",
+    });
+    const { message: root } = await call(owner, `/api/channels/${design.id}/messages`, {
+      text: "Which icon set are we using?",
+    });
+    await call(owner, `/api/channels/${design.id}/messages`, {
+      text: "The line set, I think",
+      threadRootId: root.id,
+    });
+
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.evaluate(
+      (server) => localStorage.setItem("slackoss:servers", JSON.stringify([server])),
+      { url: origin, token: owner, workspaceName: "Route Team", handle: "hana", lastUsedAt: 1 },
+    );
+    await page.reload();
+    await expect(page.locator("textarea")).toBeVisible();
+    // Arriving names where the app landed, without adding a step to go Back through.
+    await expect(page).toHaveURL(`${origin}/#/c/${general.id}`);
+
+    const nav = page.getByRole("navigation", { name: "Workspace navigation" });
+    const thread = page.getByRole("complementary", { name: "Thread", exact: true });
+    const reply = thread.getByRole("textbox", { name: "Reply…", exact: true });
+    await nav.getByRole("button", { name: /^#\s*design\b/ }).click();
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
+    const rootRow = page.locator(`[data-mid="${root.id}"]`);
+    await rootRow.hover();
+    await rootRow.getByRole("button", { name: "Reply in thread", exact: true }).click();
+    await expect(thread).toBeVisible();
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/t/${root.id}`);
+    await reply.fill("Half a reply, not sent yet");
+
+    await nav.getByRole("button", { name: /^#\s*general\b/ }).click();
+    await expect(thread).toHaveCount(0);
+    await expect(page).toHaveURL(`${origin}/#/c/${general.id}`);
+
+    // Back reopens the thread, with the unsent reply still in it.
+    await page.goBack();
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/t/${root.id}`);
+    await expect(thread.getByText("The line set, I think", { exact: true })).toBeVisible();
+    await expect(reply).toHaveValue("Half a reply, not sent yet");
+    await page.goBack();
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
+    await expect(thread).toHaveCount(0);
+    await expect(page.locator(".channel-header h2")).toHaveText("#design");
+    await page.goForward();
+    await expect(thread).toBeVisible();
+
+    // A reload keeps the conversation, the thread and the draft.
+    await page.reload();
+    await expect(page.locator(".channel-header h2")).toHaveText("#design");
+    await expect(thread.getByText("The line set, I think", { exact: true })).toBeVisible();
+    await expect(reply).toHaveValue("Half a reply, not sent yet");
+
+    // An address for a conversation this account cannot see says so, lands in
+    // #general, and does not leave that address in the history to go Back to.
+    await page.goto(`${origin}/#/c/${leads.id}`);
+    await expect(page.getByRole("alert")).toContainText("That conversation is not available");
+    await expect(page).toHaveURL(`${origin}/#/c/${general.id}`);
+    await expect(page.locator(".channel-header h2")).toHaveText("#general");
+    await page.goBack();
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/t/${root.id}`);
+  } finally {
+    await context.close().catch(() => {});
+    if (routeServer.exitCode === null) {
+      const exited = new Promise((resolve) => routeServer.once("exit", resolve));
+      routeServer.kill();
+      await exited;
+    }
+    rmSync(routeData, { recursive: true, force: true });
   }
 });

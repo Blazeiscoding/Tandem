@@ -31,6 +31,8 @@ import { ShareableServerProvider } from "../components/ShareableServer.js";
 import { hasOpenModal } from "../components/Modal.js";
 import { Tooltip } from "../components/Tooltip.js";
 import { isImeKey } from "../lib/textInput.js";
+import { currentRoute, writeRoute } from "../lib/route.js";
+import { useHistoryKeys } from "../lib/historyKeys.js";
 
 const ActivityPanel = lazy(() =>
   import("../components/ActivityPanel.js").then((module) => ({ default: module.ActivityPanel })),
@@ -146,13 +148,22 @@ function WorkspaceInner({
   const channels = useWorkspace((s) => s.channels);
   const users = useWorkspace((s) => s.users);
   const self = useWorkspace((s) => s.self);
+  const clientFromCtx = useClient();
+  const serverUrl = clientFromCtx.baseUrl;
+  // Where the address, or Back and a reload, left this workspace. A link to a
+  // message says where to go instead.
+  const [initialRoute] = useState(() => (initialTarget ? null : currentRoute(serverUrl)));
   const [activeChannelId, setActiveChannelId] = useState<ID | null>(
-    initialTarget?.channelId ?? null,
+    initialTarget?.channelId ?? initialRoute?.channelId ?? null,
   );
   const [highlightMessageId, setHighlightMessageId] = useState<ID | null>(
     initialTarget?.messageId ?? null,
   );
-  const [panel, setPanel] = useState<SidePanel>({ kind: "none" });
+  const [panel, setPanel] = useState<SidePanel>(
+    initialRoute?.threadRootId
+      ? { kind: "thread", rootId: initialRoute.threadRootId }
+      : { kind: "none" },
+  );
   const [dialog, setDialog] = useState<DialogKind>({ kind: "none" });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [huddleView, setHuddleView] = useState<HuddleView>("docked");
@@ -163,7 +174,6 @@ function WorkspaceInner({
   }, [huddleVideo]);
   /** The video covers the chat, which stays mounted underneath so it keeps its place. */
   const chatCovered = huddleView === "expanded" && huddleVideo;
-  const clientFromCtx = useClient();
   const navigation = useRef(0);
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const [navigating, setNavigating] = useState(false);
@@ -234,14 +244,77 @@ function WorkspaceInner({
     void clientFromCtx.loadCommands();
   }, [clientFromCtx]);
 
-  // Pick #general (or the first channel) once the snapshot lands.
+  /**
+   * A conversation the app, not the person, moved to. Arriving there replaces
+   * the history entry, so Back does not lead to somewhere unavailable.
+   */
+  const replaceRoute = useRef<ID | null>(null);
+  /**
+   * Bumped when a link or the address itself names where to be. The place may
+   * be the one already on screen, and the address still needs writing back.
+   */
+  const [routeRequest, setRouteRequest] = useState(0);
+
+  // Pick #general (or the first channel) once the snapshot lands, and move
+  // there from a conversation this account cannot see or that has gone.
   useEffect(() => {
     if (!activeChannelId || (status === "online" && !channels[activeChannelId])) {
       const list = Object.values(channels).filter((c) => !c.archived);
       const general = list.find((c) => c.name === "general") ?? list[0];
-      if (general) setActiveChannelId(general.id);
+      if (!general) return;
+      if (activeChannelId) {
+        setNavigationError(
+          "That conversation is not available. It may have been deleted, or you may not have access to it.",
+        );
+        setPanel((p) => (p.kind === "thread" ? { kind: "none" } : p));
+      }
+      replaceRoute.current = general.id;
+      setActiveChannelId(general.id);
     }
   }, [channels, activeChannelId, status]);
+
+  // The address follows the conversation and thread on screen, so Back,
+  // Forward and a reload return to them.
+  const routeThread = panel.kind === "thread" ? panel.rootId : null;
+  useEffect(() => {
+    if (!activeChannelId) return;
+    const replace = replaceRoute.current === activeChannelId;
+    if (replace) replaceRoute.current = null;
+    writeRoute(
+      serverUrl,
+      { channelId: activeChannelId, threadRootId: routeThread },
+      replace ? "replace" : "auto",
+    );
+  }, [serverUrl, activeChannelId, routeThread, routeRequest]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const route = currentRoute(serverUrl);
+      if (!route) return;
+      navigation.current++;
+      clientFromCtx.cancelMessageJump();
+      setNavigating(false);
+      setNavigationError(null);
+      setActiveChannelId(route.channelId);
+      setHighlightMessageId(null);
+      setPanel((p) =>
+        route.threadRootId
+          ? p.kind === "thread" && p.rootId === route.threadRootId
+            ? p
+            : { kind: "thread", rootId: route.threadRootId }
+          : p.kind === "thread"
+            ? { kind: "none" }
+            : p,
+      );
+      setDialog({ kind: "none" });
+      setSidebarOpen(false);
+      setRouteRequest((n) => n + 1);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [serverUrl, clientFromCtx]);
+
+  useHistoryKeys(platform.kind === "desktop");
 
   useEffect(() => {
     clientFromCtx.focusConversation(activeChannelId);
@@ -324,6 +397,7 @@ function WorkspaceInner({
         setActiveChannelId(channelId);
         setHighlightMessageId(rootId ?? messageId);
         setPanel(rootId ? { kind: "thread", rootId, targetId: messageId } : { kind: "none" });
+        setRouteRequest((n) => n + 1);
       })
       .catch(() => {
         if (ticket === navigation.current)
