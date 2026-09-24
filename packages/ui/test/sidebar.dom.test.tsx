@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
@@ -58,7 +58,7 @@ function sidebar(options: { admin: boolean }) {
       />
     </ClientContext.Provider>,
   );
-  return { calls, user: userEvent.setup() };
+  return { calls, client, user: userEvent.setup() };
 }
 
 async function workspaceMenu(user: ReturnType<typeof userEvent.setup>) {
@@ -109,5 +109,31 @@ describe("the workspace menu", () => {
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     }
     expect(calls).toEqual(["invite", "people", "apps", "switch", "account"]);
+  });
+});
+
+describe("pausing notifications", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    ["late in the evening", new Date(2026, 8, 25, 21, 30)],
+    ["early in the morning", new Date(2026, 8, 25, 7, 15)],
+  ])("pauses until the next morning, %s, rather than for twelve hours", async (_, now) => {
+    // Only the clock is fake, so the pointer and the menu still run on real timers.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+    const { client, user } = sidebar({ admin: false });
+    vi.spyOn(client.api, "updateMe").mockImplementation(async (body) => ({
+      user: { ...client.state.self!, ...body },
+    }));
+    const morning = new Date(2026, 8, 26, 9, 0);
+    const time = morning.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+    await user.click(screen.getByRole("button", { name: "Pause notifications" }));
+    await user.click(screen.getByRole("button", { name: `Until tomorrow at ${time}` }));
+
+    expect(client.state.self?.dndUntil).toBe(morning.getTime());
+    expect(client.api.updateMe).toHaveBeenCalledWith({ dndUntil: morning.getTime() });
+    expect(screen.getByText(`Paused until tomorrow at ${time}`)).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { unreadThreadCount } from "@slackoss/client-core";
 import { channelTitle } from "../lib/format.js";
+import { formatScheduleTime, tomorrowMorning } from "../lib/schedule.js";
 import { Avatar, PresenceDot } from "./Avatar.js";
 import { BrandMark, Icon, type IconName } from "./Icon.js";
 import { Menu, type MenuItem } from "./Menu.js";
@@ -315,11 +316,23 @@ function WorkspaceMenu(props: {
   );
 }
 
-const SNOOZE_OPTIONS = [
-  { label: "30 minutes", minutes: 30 },
-  { label: "1 hour", minutes: 60 },
-  { label: "Until tomorrow", minutes: 60 * 12 },
-];
+/** "9:00 AM" today, otherwise "tomorrow at 9:00 AM" or the day it falls on. */
+function resumeTime(until: number, now: Date): string {
+  const when = new Date(until);
+  if (when.toDateString() === now.toDateString())
+    return when.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return formatScheduleTime(until, now).replace(/^Tomorrow/, "tomorrow");
+}
+
+/** Worked out when the menu opens, so tomorrow means the next morning, not twelve hours. */
+function snoozeOptions(now: Date) {
+  const morning = tomorrowMorning(now).getTime();
+  return [
+    { label: "30 minutes", until: () => Date.now() + 30 * 60_000 },
+    { label: "1 hour", until: () => Date.now() + 60 * 60_000 },
+    { label: `Until ${resumeTime(morning, now)}`, until: () => morning },
+  ];
+}
 
 /** Do Not Disturb: pause notifications for a while. */
 function SnoozeControl({ snoozed, until }: { snoozed: boolean; until: number | null }) {
@@ -327,10 +340,7 @@ function SnoozeControl({ snoozed, until }: { snoozed: boolean; until: number | n
   const [open, setOpen] = useState(false);
 
   if (snoozed) {
-    const resumesAt = new Date(until!).toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    const resumesAt = resumeTime(until!, new Date());
     return (
       <div className="mb-1 flex items-center gap-2 rounded-lg border border-copper/40 bg-copper/10 px-2.5 py-1.5">
         <span className="text-copper">
@@ -358,11 +368,11 @@ function SnoozeControl({ snoozed, until }: { snoozed: boolean; until: number | n
       </button>
       {open && (
         <ul className="absolute bottom-full left-0 z-10 mb-1 w-full overflow-hidden rounded-lg border border-edge bg-lifted shadow-xl">
-          {SNOOZE_OPTIONS.map((o) => (
-            <li key={o.minutes}>
+          {snoozeOptions(new Date()).map((o) => (
+            <li key={o.label}>
               <button
                 onClick={() => {
-                  client.snoozeNotifications(o.minutes);
+                  client.snoozeNotificationsUntil(o.until());
                   setOpen(false);
                 }}
                 className="w-full px-3 py-2 text-left text-sm text-ink-dim transition-colors hover:bg-copper/15 hover:text-ink"

@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { ApiError } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
@@ -15,7 +16,25 @@ export function ProfileDialog(props: {
   const user = useWorkspace((s) => s.users[props.userId]);
   const presence = useWorkspace((s) => s.presence[props.userId] ?? "offline");
   const selfId = useWorkspace((s) => s.self?.id);
+  const [opening, setOpening] = useState(false);
+  const [dmError, setDmError] = useState<string | null>(null);
   if (!user) return null;
+
+  async function message(userId: ID, name: string) {
+    if (opening) return;
+    setOpening(true);
+    setDmError(null);
+    try {
+      const channel = await client.openDm([userId]);
+      props.onOpenDm(channel.id);
+    } catch {
+      setDmError(
+        `Could not open a conversation with ${name}. Check your connection and try again.`,
+      );
+    } finally {
+      setOpening(false);
+    }
+  }
 
   return (
     <Dialog title="Profile" onClose={props.onClose}>
@@ -52,15 +71,19 @@ export function ProfileDialog(props: {
           <FriendActions userId={user.id} />
         </div>
       )}
+      {user.id !== selfId && dmError && (
+        <p role="alert" className="mt-4 text-sm text-alert">
+          {dmError}
+        </p>
+      )}
       {user.id !== selfId && (
         <button
-          onClick={async () => {
-            const channel = await client.openDm([user.id]);
-            props.onOpenDm(channel.id);
-          }}
-          className={`${primaryBtnCls} mt-4 w-full`}
+          // Not `disabled`, so focus stays on the button while it works and it can try again.
+          aria-disabled={opening || undefined}
+          onClick={() => void message(user.id, user.displayName)}
+          className={`${primaryBtnCls} mt-4 w-full aria-disabled:opacity-60`}
         >
-          Message {user.displayName}
+          {opening ? "Opening…" : `Message ${user.displayName}`}
         </button>
       )}
     </Dialog>
@@ -83,11 +106,13 @@ export function EditProfileDialog(props: { onClose: () => void }) {
   const [statusEmoji, setStatusEmoji] = useState(self?.statusEmoji ?? "");
   const [statusText, setStatusText] = useState(self?.statusText ?? "");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const id = useId();
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       await client.api.updateMe({
         displayName: displayName.trim() || self?.handle || "",
@@ -95,6 +120,15 @@ export function EditProfileDialog(props: { onClose: () => void }) {
         statusText: statusText.trim(),
       });
       props.onClose();
+    } catch (err) {
+      // What was typed stays in the form, so saving again is one press.
+      setError(
+        err instanceof ApiError && err.code === "invalid_request"
+          ? "Your profile was not saved. A display name can be up to 80 characters and a status up to 120."
+          : err instanceof ApiError && err.code === "unauthorized"
+            ? "Your session has ended. Sign in again to change your profile."
+            : "Your profile was not saved. Check your connection and try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -116,6 +150,7 @@ export function EditProfileDialog(props: { onClose: () => void }) {
               id={`${id}-display-name`}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
+              maxLength={80}
               className={inputCls}
             />
           </div>
@@ -130,6 +165,7 @@ export function EditProfileDialog(props: { onClose: () => void }) {
               aria-label="Status emoji"
               value={statusEmoji}
               onChange={(e) => setStatusEmoji(e.target.value)}
+              maxLength={32}
               placeholder="🙂"
               className={`${inputCls} w-16 text-center`}
             />
@@ -137,6 +173,7 @@ export function EditProfileDialog(props: { onClose: () => void }) {
               aria-label="Status text"
               value={statusText}
               onChange={(e) => setStatusText(e.target.value)}
+              maxLength={120}
               placeholder="What's happening?"
               className={inputCls}
             />
@@ -170,6 +207,11 @@ export function EditProfileDialog(props: { onClose: () => void }) {
           </div>
         </fieldset>
 
+        {error && (
+          <p role="alert" className="text-sm text-alert">
+            {error}
+          </p>
+        )}
         <button type="submit" disabled={busy} className={`${primaryBtnCls} w-full`}>
           {busy ? "Saving…" : "Save"}
         </button>

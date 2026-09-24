@@ -188,7 +188,7 @@ describe("message actions", () => {
     const named = [
       "Reply in thread",
       "Copy link to message",
-      "Remove from Later",
+      "Remove from Saved",
       "Mark unread from this message",
       "Unpin from channel",
       "Edit message",

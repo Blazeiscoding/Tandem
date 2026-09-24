@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import type { Channel, User } from "@slackoss/protocol";
@@ -67,7 +67,7 @@ function switcherWith() {
     within(screen.getByRole("dialog", { name: "Jump to" }))
       .getAllByRole("listitem")
       .map((item) => item.textContent);
-  return { onOpen, openDm, options };
+  return { client, onOpen, openDm, options };
 }
 
 describe("jumping to a conversation", () => {
@@ -107,5 +107,41 @@ describe("jumping to a conversation", () => {
     await user.clear(screen.getByPlaceholderText("Channel or person"));
     await user.type(screen.getByPlaceholderText("Channel or person"), "@pri");
     expect(options()).toEqual(["@Alex Chen, Priya Natarajan", "@Priya Natarajan"]);
+  });
+
+  it("says when nothing matches, and arrow keys there leave a later match choosable", async () => {
+    const user = userEvent.setup();
+    const { client, onOpen, options } = switcherWith();
+    const input = screen.getByPlaceholderText("Channel or person");
+    await user.type(input, "news");
+    expect(screen.getByRole("status")).toHaveTextContent("No channel or person matches “news”.");
+    await user.keyboard("{ArrowDown}{ArrowUp}");
+    // A channel created elsewhere arrives while the box still says "news".
+    act(() =>
+      client.store.setState((s) => ({
+        channels: { ...s.channels, C_NEWS: room("C_NEWS", "public", "newsroom") },
+      })),
+    );
+    expect(options()).toEqual(["#newsroom"]);
+    expect(screen.getByRole("status")).toHaveTextContent("");
+    await user.keyboard("{Enter}");
+    expect(onOpen).toHaveBeenCalledWith("C_NEWS");
+  });
+
+  it("keeps what was typed when a new conversation cannot start, and tries again", async () => {
+    const user = userEvent.setup();
+    const { onOpen, openDm } = switcherWith();
+    openDm.mockRejectedValueOnce(new Error("offline"));
+    const input = screen.getByPlaceholderText("Channel or person");
+    await user.type(input, "pri");
+    await user.click(screen.getByRole("button", { name: "Priya Natarajan" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not open a conversation with Priya Natarajan.",
+    );
+    expect(input).toHaveValue("pri");
+    expect(onOpen).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(openDm).toHaveBeenCalledTimes(2);
+    expect(onOpen).toHaveBeenCalledWith("D_PRIYA");
   });
 });
