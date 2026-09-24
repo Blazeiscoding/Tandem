@@ -2,7 +2,7 @@
 
 Written September 15, 2026, against `main` at `b36fec5`, the merge of PR #48, plus the uncommitted modal work on the `fix/modal-keyboard-ownership` branch.
 
-Updated September 23, 2026: phase 0 is done, in PRs #50 to #58. The counts in the next two sections are still September 15's. Today there are 748 unit and integration tests, 12 browser scenarios and 2 packaged Windows scenarios.
+Updated September 23, 2026: phase 0 is done, in PRs #50 to #58. The counts in the next two sections are still September 15's. Today there are 757 unit and integration tests, 12 browser scenarios and 2 packaged Windows scenarios.
 
 `IMPROVEMENT-PLAN-2026-09.md` holds the original assessment and a log of everything built since. This document looks forward. For every item it says what is still open, what I would do first, and how I would do each piece. It draws on four sources.
 
