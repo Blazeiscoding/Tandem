@@ -219,7 +219,8 @@ function WorkspaceInner({
   }, [sidebarOpen]);
 
   useEffect(() => {
-    const wide = window.matchMedia("(min-width: 761px)");
+    // The opposite of the query in theme.css that turns the sidebar into a drawer.
+    const wide = window.matchMedia("(min-width: 761px) and (min-height: 481px)");
     const onResize = () => {
       if (wide.matches) setSidebarOpen(false);
     };
@@ -547,7 +548,7 @@ function WorkspaceInner({
             <h2 className="truncate text-[17px] font-semibold leading-tight">
               {isRoom ? `#${title}` : title || "…"}
             </h2>
-            <p className="mt-1 truncate text-xs text-ink-faint">
+            <p className="channel-topic mt-1 truncate text-xs text-ink-faint">
               {activeChannel?.topic ||
                 (isRoom ? "A space to keep the conversation moving" : "Your private conversation")}
             </p>

@@ -96,7 +96,7 @@ export function Sidebar(props: Props) {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-3 py-4">
+      <div className="sidebar-scroll flex-1 overflow-y-auto px-3 py-4">
         <h1 className="mb-3 truncate px-2 text-[15px] font-semibold" title={baseHost}>
           {workspaceName || "Connecting…"}
         </h1>
