@@ -118,7 +118,13 @@ textarea {
   background: linear-gradient(145deg, #2e3552, var(--color-ground) 75%);
 }
 
-@media (max-width: 760px) {
+/*
+ * A narrow window, or a short one such as a phone on its side, has no room to
+ * keep the sidebar open beside the conversation: at 844 by 390 it showed two
+ * rows of navigation. There it becomes a drawer. WorkspaceScreen closes the
+ * drawer when the window grows out of this query, so the two must match.
+ */
+@media (max-width: 760px), (max-height: 480px) {
   .workspace-sidebar {
     display: none;
   }
@@ -134,6 +140,30 @@ textarea {
   .sidebar-dismiss {
     display: inline-flex;
   }
+}
+
+/*
+ * Height is what a short window lacks, so the header gives some back. The
+ * sidebar scrolls as one column there: kept in place, its header and footer
+ * left about a hundred pixels between them for every channel.
+ */
+@media (max-height: 480px) {
+  .channel-header {
+    height: 52px;
+  }
+  .channel-topic {
+    display: none;
+  }
+  .workspace-sidebar {
+    overflow-y: auto;
+  }
+  .sidebar-scroll {
+    flex: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
   .channel-header {
     gap: 6px;
     padding-inline: 10px;

@@ -849,6 +849,31 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   expect(previewBox!.x + previewBox!.width).toBeLessThanOrEqual(390);
   expect(await history.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("gatherline-narrow.png") });
+
+  // A phone on its side is wide enough for the sidebar but too short for it:
+  // it becomes the same drawer, and the header gives some height back.
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(page.getByRole("navigation")).not.toBeVisible();
+  expect((await page.locator(".channel-header").boundingBox())!.height).toBeLessThanOrEqual(53);
+  await expect(composerField).toBeInViewport();
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  await expect(page.getByRole("navigation")).toBeVisible();
+  await page.screenshot({ path: info.outputPath("gatherline-short-landscape.png") });
+  // The drawer scrolls as one column, so its channels come into view with it.
+  const channelRow = page
+    .getByRole("navigation")
+    .getByRole("button", { name: /^#\s*design-studio\b/ });
+  await page.getByRole("navigation").evaluate((nav) => nav.scrollBy(0, 150));
+  await expect(channelRow).toBeInViewport();
+  await page.screenshot({ path: info.outputPath("gatherline-short-landscape-scrolled.png") });
+  await channelRow.click();
+  await expect(page.getByRole("navigation")).not.toBeVisible();
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  // Grown out of that, the drawer closes and the sidebar sits beside the chat again.
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await expect(page.getByRole("button", { name: "Close navigation", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("navigation")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeHidden();
   expect(errors).toEqual([]);
 });
 
