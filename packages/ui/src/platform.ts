@@ -136,6 +136,11 @@ export interface Platform {
     backup?: (folder: string) => Promise<{ path: string; at: number } | null>;
     /** Takes a workspace whose folder is gone out of the list. */
     forget?: (folder: string) => Promise<void>;
+    /**
+     * Asks for a backup's folder and restores it as a workspace hosted here,
+     * without starting it. Null when no folder was chosen.
+     */
+    restore?: () => Promise<{ folder: string; name: string } | null>;
   };
 }
 

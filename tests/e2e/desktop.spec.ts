@@ -317,6 +317,22 @@ test("restarting offers to host the last workspace again instead of reconnecting
     });
     expect(other.folder).not.toBe(resumed.folder);
     expect(await named(other.port)).toBe("Resume-Test");
+
+    // Back the new one up while it runs, through the system's folder dialog.
+    const backups = mkdtempSync(join(tmpdir(), "slackoss-desktop-restore-"));
+    const pick = (folder: string) =>
+      app.evaluate(({ dialog }, chosen) => {
+        dialog.showOpenDialog = (async () => ({
+          canceled: false,
+          filePaths: [chosen],
+        })) as unknown as typeof dialog.showOpenDialog;
+      }, folder);
+    await pick(backups);
+    const backedUp = await page.evaluate(
+      (folder) => (window as any).slackoss.hostingBackup(folder),
+      other.folder,
+    );
+    expect(backedUp.path).toContain("resume-test-");
     const listed = await page.evaluate(async () => {
       const bridge = (window as any).slackoss;
       await bridge.hostingStop();
@@ -332,6 +348,20 @@ test("restarting offers to host the last workspace again instead of reconnecting
     );
     expect(back.port).toBe(resumed.port);
     expect(await named(back.port)).toBe("Resume Test");
+
+    // Its folder lost, Resume-Test comes back from the backup into the same
+    // place in the list, without starting.
+    rmSync(join(data, "hosted", other.folder), { recursive: true, force: true });
+    await pick(backedUp.path);
+    expect(await page.evaluate(() => (window as any).slackoss.hostingRestore())).toEqual({
+      folder: other.folder,
+      name: "Resume-Test",
+    });
+    const afterRestore = await page.evaluate(() => (window as any).slackoss.hostingList());
+    expect(
+      afterRestore.workspaces.find((w: { folder: string }) => w.folder === other.folder),
+    ).toMatchObject({ missing: false, running: false });
+    rmSync(backups, { recursive: true, force: true });
     await expect(page.locator("textarea")).toBeVisible();
 
     // Leave nothing hosted behind: stop, then a plain close quits.
