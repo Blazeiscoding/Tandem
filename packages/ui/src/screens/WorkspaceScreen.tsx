@@ -31,7 +31,7 @@ import { ShareableServerProvider } from "../components/ShareableServer.js";
 import { hasOpenModal } from "../components/Modal.js";
 import { Tooltip } from "../components/Tooltip.js";
 import { isImeKey } from "../lib/textInput.js";
-import { currentRoute, writeRoute } from "../lib/route.js";
+import { ROUTE_VIEWS, currentRoute, writeRoute, type RouteView } from "../lib/route.js";
 import { useHistoryKeys } from "../lib/historyKeys.js";
 
 const ActivityPanel = lazy(() =>
@@ -162,7 +162,9 @@ function WorkspaceInner({
   const [panel, setPanel] = useState<SidePanel>(
     initialRoute?.threadRootId
       ? { kind: "thread", rootId: initialRoute.threadRootId }
-      : { kind: "none" },
+      : initialRoute?.view
+        ? { kind: initialRoute.view }
+        : { kind: "none" },
   );
   const [dialog, setDialog] = useState<DialogKind>({ kind: "none" });
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -274,19 +276,26 @@ function WorkspaceInner({
     }
   }, [channels, activeChannelId, status]);
 
-  // The address follows the conversation and thread on screen, so Back,
-  // Forward and a reload return to them.
+  // The address follows the conversation and the thread or panel beside it,
+  // so Back, Forward and a reload return to them, and Back closes a panel.
   const routeThread = panel.kind === "thread" ? panel.rootId : null;
+  const routeView = (ROUTE_VIEWS as readonly string[]).includes(panel.kind)
+    ? (panel.kind as RouteView)
+    : null;
   useEffect(() => {
     if (!activeChannelId) return;
     const replace = replaceRoute.current === activeChannelId;
     if (replace) replaceRoute.current = null;
     writeRoute(
       serverUrl,
-      { channelId: activeChannelId, threadRootId: routeThread },
+      {
+        channelId: activeChannelId,
+        threadRootId: routeThread,
+        ...(routeView ? { view: routeView } : {}),
+      },
       replace ? "replace" : "auto",
     );
-  }, [serverUrl, activeChannelId, routeThread, routeRequest]);
+  }, [serverUrl, activeChannelId, routeThread, routeView, routeRequest]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -298,14 +307,19 @@ function WorkspaceInner({
       setNavigationError(null);
       setActiveChannelId(route.channelId);
       setHighlightMessageId(null);
+      const view = route.view;
       setPanel((p) =>
         route.threadRootId
           ? p.kind === "thread" && p.rootId === route.threadRootId
             ? p
             : { kind: "thread", rootId: route.threadRootId }
-          : p.kind === "thread"
-            ? { kind: "none" }
-            : p,
+          : view
+            ? p.kind === view
+              ? p
+              : { kind: view }
+            : p.kind === "none"
+              ? p
+              : { kind: "none" },
       );
       setDialog({ kind: "none" });
       setSidebarOpen(false);

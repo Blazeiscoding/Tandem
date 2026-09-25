@@ -991,3 +991,11 @@ Tickets 5 and 8 of the roadmap's first sprint asked for a written design before 
 [STATE-TABLES-2026-09.md](STATE-TABLES-2026-09.md) covers ticket 8. For four areas it records what the source does today, the states proposed and the cases to prototype before choosing: who can reach whom (DM policy, blocks and mutes, E1a), unread, subscription, follow-up and resolved as four independent states (B1–B3), what a workspace that isn't open still receives (A10), and the lifecycle of ringing someone (D8). The notification table extends `decideNotification`'s existing order and reasons rather than replacing them.
 
 Neither changes code. Every source reference in them was checked against `main` at `b8a2a09`.
+
+### Back closes a side panel (A1, U02)
+
+The first A1 slice put the conversation and an open thread in the address. The other side panels were still React state only. Opening Saved and pressing Back left the conversation instead of closing the panel, and a reload closed it. On a phone the panel covers the chat, so Back was the natural way out, and it went somewhere else.
+
+The Pinned, Saved, Threads, Scheduled and Activity panels now have routes of their own, `#/c/<channel>/p/<panel>`, beside the thread route `#/c/<channel>/t/<root>`. Only one panel is open at a time, so a route has a thread or a panel, never both. Opening or closing a panel adds a history entry, as a thread does. Back closes the panel and returns to whatever was beside the conversation before, whether a thread or nothing, and Forward and a reload reopen it. Each history entry records its panel with its workspace, and an entry naming a panel this version does not know is read as the conversation alone. Three cases in `packages/ui/test/route.dom.test.ts` cover reading, remembering and stepping through panel routes, and the route browser scenario now opens Saved from a thread and walks Back, Forward and a reload through it. The serialized forced matrix passed all 773 tests (server 367, client-core 65, UI 249, protocol 12, desktop 80), all seven package typechecks and all three production builds without cached results. All 14 browser scenarios passed, and the browser entry is 477.1 kB.
+
+Dialogs, the phone drawer and scroll position are still not part of the address.
