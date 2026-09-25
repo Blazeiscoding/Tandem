@@ -1,10 +1,24 @@
+import { existsSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Tunnel } from "./tunnel.js";
+import {
+  REGISTRY_KEY,
+  adoptFolders,
+  legacyFolder,
+  newFolder,
+  parseRegistry,
+  readWorkspace,
+  serializeRegistry,
+  type HostedWorkspace,
+} from "./registry.js";
 
 export interface HostingSnapshot {
   running: boolean;
   phase: "stopped" | "starting" | "running" | "stopping";
   workspaceName?: string;
+  /** The running workspace's entry in the list of hosted workspaces. */
+  folder?: string;
   port?: number;
   dataDir?: string;
   lanUrls?: string[];
@@ -36,17 +50,30 @@ export interface HostingSnapshot {
  */
 export const OPEN_TO_ALL_ICE_SERVERS = [{ urls: "stun:stun.cloudflare.com:3478" }];
 
-/** What this computer hosted last, as remembered in its settings. */
+/**
+ * What earlier versions remembered as hosted last, and what this one still
+ * writes for them. They reopen by name, so it names a workspace only when an
+ * earlier version would find that workspace's folder from it.
+ */
 export interface LastHosted {
   workspaceName: string;
   port: number;
 }
 
+/** One entry in the list of workspaces hosted on this computer, as the window sees it. */
+export interface HostedWorkspaceSummary {
+  folder: string;
+  name: string;
+  port: number;
+  lastHostedAt: number;
+  running: boolean;
+  /** Its folder is gone, so it cannot start. */
+  missing: boolean;
+}
+
 /**
- * Reads the remembered workspace back, refusing anything malformed rather
- * than starting hosting under a name or port nobody chose. A settings file
- * edited by hand, or written by a newer app, must not become a surprise
- * workspace.
+ * Reads an earlier version's remembered workspace, refusing anything
+ * malformed rather than starting hosting under a name or port nobody chose.
  */
 export function parseLastHosted(value: unknown): LastHosted | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -63,6 +90,10 @@ export function parseLastHosted(value: unknown): LastHosted | null {
 
 interface HostedServer {
   port: number;
+  /** The identity the server keeps in its database, recorded in the registry. */
+  workspaceId?(): string | null;
+  /** The name the server keeps, which may differ from a name typed before. */
+  workspaceName?(): string;
   /** Identifies this run, so a public address can be confirmed to reach it. */
   instanceId?: string;
   stop(): Promise<void>;
@@ -77,12 +108,20 @@ interface HostedServer {
 }
 
 interface HostingOptions {
+  /** `workspaceName` is given for a new workspace only; an existing one keeps its own. */
   startServer(options: {
-    workspaceName: string;
+    workspaceName?: string;
     port: number;
     dataDir: string;
   }): Promise<HostedServer>;
-  saveLastHosted(options: { workspaceName: string; port: number }): Promise<void>;
+  /** Where the list of hosted workspaces is kept. `strict` reads throw when the file is unreadable. */
+  settings: {
+    get(key: string, options?: { strict?: boolean }): Promise<unknown>;
+    set(key: string, value: unknown): Promise<void>;
+  };
+  /** Reads a workspace's identity from its folder without starting it. */
+  readWorkspace?: typeof readWorkspace;
+  now?: () => number;
   dataRoot: string;
   defaultPort: number;
   lanUrls(port: number): string[];
@@ -113,10 +152,26 @@ interface HostingOptions {
   verifyLoopback?(port: number, instanceId?: string): Promise<boolean>;
 }
 
-function startOptions(value: unknown): { workspaceName: string; port?: number } {
+type StartRequest = ({ workspaceName: string } | { folder: string }) & { port?: number };
+
+/**
+ * `{ folder }` starts a workspace already in the list. `{ workspaceName }`
+ * always makes a new one: nothing is ever found by its name.
+ */
+function startOptions(value: unknown): StartRequest {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Choose a workspace name before starting hosting.");
-  const { workspaceName, port } = value as Record<string, unknown>;
+  const { workspaceName, folder, port } = value as Record<string, unknown>;
+  if (
+    port !== undefined &&
+    (typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > 65535)
+  )
+    throw new Error("The hosting port must be a whole number from 0 to 65535.");
+  if (folder !== undefined) {
+    if (typeof folder !== "string" || workspaceName !== undefined)
+      throw new Error("Choose one workspace to start.");
+    return { folder, port: port as number | undefined };
+  }
   if (
     typeof workspaceName !== "string" ||
     !workspaceName.trim() ||
@@ -124,19 +179,21 @@ function startOptions(value: unknown): { workspaceName: string; port?: number } 
     /\p{Cc}/u.test(workspaceName)
   )
     throw new Error("Use a workspace name of 1 to 80 characters without control characters.");
-  if (
-    port !== undefined &&
-    (typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > 65535)
-  )
-    throw new Error("The hosting port must be a whole number from 0 to 65535.");
   return { workspaceName: workspaceName.trim(), port: port as number | undefined };
 }
 
 /** Owns the embedded server, including operations accepted just before app shutdown. */
 export function createHostingController(options: HostingOptions) {
   let server: HostedServer | null = null;
-  let workspace: { workspaceName: string; dataDir: string } | null = null;
+  let workspace: { workspaceName: string; folder: string; dataDir: string } | null = null;
   let phase: HostingSnapshot["phase"] = "stopped";
+  const now = options.now ?? Date.now;
+  const read = options.readWorkspace ?? readWorkspace;
+  /** Every workspace hosted here, once read. Null until then, or while it cannot be. */
+  let registry: HostedWorkspace[] | null = null;
+  let registryLoad: Promise<HostedWorkspace[]> | null = null;
+  /** Folders adoption could not read, named until the registry is read again. */
+  let unreadableFolders: string[] = [];
   let warning: string | undefined;
   /**
    * Kept apart from `warning`, which saving settings clears on its next
@@ -265,10 +322,64 @@ export function createHostingController(options: HostingOptions) {
     }
   }
 
+  /**
+   * Reads the list of hosted workspaces once, adopting any folder it does not
+   * name. Nothing can start before this finishes, so adoption never opens a
+   * database a running server has open. A settings file that cannot be read
+   * is not taken as an empty list, and is tried again next time.
+   */
+  function loadRegistry(): Promise<HostedWorkspace[]> {
+    if (registry) return Promise.resolve(registry);
+    registryLoad ??= (async () => {
+      const stored = await options.settings.get(REGISTRY_KEY, { strict: true });
+      const known = parseRegistry(stored);
+      // Only the first start of this version converts what earlier ones kept.
+      const legacy =
+        stored === null
+          ? parseLastHosted(await options.settings.get("lastHosted").catch(() => null))
+          : null;
+      const { adopted, unreadable } = await adoptFolders({
+        dataRoot: options.dataRoot,
+        known,
+        lastHosted: legacy,
+        defaultPort: options.defaultPort,
+        now: now(),
+        read,
+      });
+      unreadableFolders = unreadable;
+      registry = [...known, ...adopted];
+      // Kept in memory if this fails, and written with the next change.
+      if (adopted.length > 0) await saveRegistry().catch(() => {});
+      return registry;
+    })().finally(() => {
+      registryLoad = null;
+    });
+    return registryLoad;
+  }
+
+  function saveRegistry(): Promise<void> {
+    return options.settings.set(REGISTRY_KEY, serializeRegistry(registry ?? []));
+  }
+
+  function updateEntry(folder: string, change: Partial<HostedWorkspace>): void {
+    registry = (registry ?? []).map((entry) =>
+      entry.folder === folder ? { ...entry, ...change } : entry,
+    );
+  }
+
   async function saveMetadata(): Promise<void> {
     if (!server || !workspace) return;
     try {
-      await options.saveLastHosted({ workspaceName: workspace.workspaceName, port: server.port });
+      await saveRegistry();
+      const entry = registry?.find((e) => e.folder === workspace!.folder);
+      // Earlier versions find a folder from its name. Name one to them only
+      // when that leads to this workspace, never to a different one.
+      await options.settings.set(
+        "lastHosted",
+        entry && entry.folder === legacyFolder(entry.name)
+          ? { workspaceName: entry.name, port: entry.port }
+          : null,
+      );
       metadataDirty = false;
       if (!stopFailed) warning = undefined;
     } catch {
@@ -291,7 +402,11 @@ export function createHostingController(options: HostingOptions) {
     return serialized(async () => {
       if (server) {
         if (stopFailed) throw new Error("Finish stopping the workspace before starting it again.");
-        if (workspace?.workspaceName !== requested.workspaceName)
+        const same =
+          "folder" in requested
+            ? requested.folder === workspace?.folder
+            : requested.workspaceName === workspace?.workspaceName;
+        if (!same)
           throw new Error(
             "Another workspace is already running. Stop it before starting this one.",
           );
@@ -303,15 +418,70 @@ export function createHostingController(options: HostingOptions) {
         return status();
       }
 
-      // Keep existing data folders exactly where earlier desktop builds put them.
-      const slug =
-        requested.workspaceName
-          .toLowerCase()
-          .replaceAll(/[^a-z0-9]+/g, "-")
-          .replaceAll(/^-|-$/g, "") || "workspace";
+      let list: HostedWorkspace[];
+      try {
+        list = await loadRegistry();
+      } catch {
+        throw new Error(
+          "Gatherline could not read its list of hosted workspaces, so it will not start one. Check that its settings file can be read, then try again.",
+        );
+      }
+      let entry: HostedWorkspace;
+      const created = !("folder" in requested);
+      if ("folder" in requested) {
+        const found = list.find((e) => e.folder === requested.folder);
+        if (!found) throw new Error("That workspace is not in the list hosted on this computer.");
+        const dataDir = join(options.dataRoot, found.folder);
+        // Never recreated empty: an empty folder would look like the workspace.
+        if (!existsSync(dataDir))
+          throw new Error(`The folder that held ${found.name} is missing, so it cannot start.`);
+        if (found.id) {
+          const inside = read(dataDir);
+          if (!inside)
+            throw new Error(
+              `${found.name}'s database is missing or unreadable, so it cannot start.`,
+            );
+          // A folder copied or swapped by hand holds some other workspace.
+          if (inside.id !== found.id)
+            throw new Error(
+              `The folder for ${found.name} holds a different workspace, so it will not start.`,
+            );
+        }
+        entry = found;
+      } else {
+        // A new folder that has nothing to do with the name. It is listed
+        // before the server starts in it, so the app can always find it again.
+        entry = {
+          id: null,
+          folder: newFolder(),
+          name: requested.workspaceName,
+          port: requested.port ?? options.defaultPort,
+          lastHostedAt: now(),
+        };
+        const dataDir = join(options.dataRoot, entry.folder);
+        await mkdir(options.dataRoot, { recursive: true });
+        await mkdir(dataDir);
+        registry = [...list, entry];
+        try {
+          await saveRegistry();
+        } catch {
+          registry = list;
+          await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+          throw new Error(
+            "Gatherline could not add the workspace to its settings, so it did not create it. Check that its settings folder is writable, then try again.",
+          );
+        }
+      }
       workspace = {
-        workspaceName: requested.workspaceName,
-        dataDir: join(options.dataRoot, slug),
+        workspaceName: entry.name,
+        folder: entry.folder,
+        dataDir: join(options.dataRoot, entry.folder),
+      };
+      const preferred = requested.port ?? (created ? options.defaultPort : entry.port);
+      const serverOptions = {
+        dataDir: workspace.dataDir,
+        // An existing workspace keeps the name it has; only a new one is given one.
+        ...(created ? { workspaceName: entry.name } : {}),
       };
       phase = "starting";
       warning = undefined;
@@ -320,10 +490,7 @@ export function createHostingController(options: HostingOptions) {
       let movedFrom: number | undefined;
       try {
         try {
-          server = await options.startServer({
-            ...workspace,
-            port: requested.port ?? options.defaultPort,
-          });
+          server = await options.startServer({ ...serverOptions, port: preferred });
         } catch (error) {
           // Only the automatic port choice may change behind the user's back.
           if (
@@ -331,19 +498,34 @@ export function createHostingController(options: HostingOptions) {
             (error as NodeJS.ErrnoException)?.code !== "EADDRINUSE"
           )
             throw error;
-          server = await options.startServer({ ...workspace, port: 0 });
+          server = await options.startServer({ ...serverOptions, port: 0 });
           // Whatever holds the usual port is still answering there. Anything
           // aimed at it now reaches that program instead of this workspace.
-          movedFrom = options.defaultPort;
+          movedFrom = preferred;
         }
       } catch (error) {
         // The caller reports the failure. A lasting warning would repeat it, and
         // would still be showing long after the next attempt was made elsewhere.
         phase = "stopped";
         workspace = null;
+        // A new workspace that never started holds nothing. Take it back out,
+        // so trying again does not leave empty workspaces in the list.
+        if (created) {
+          registry = list;
+          await saveRegistry()
+            .then(() => rm(join(options.dataRoot, entry.folder), { recursive: true, force: true }))
+            .catch(() => {});
+        }
         changed();
         throw error;
       }
+      updateEntry(entry.folder, {
+        id: server.workspaceId?.() ?? entry.id,
+        name: server.workspaceName?.() ?? entry.name,
+        port: server.port,
+        lastHostedAt: now(),
+      });
+      workspace.workspaceName = server.workspaceName?.() ?? entry.name;
       phase = "running";
       // A carrier forwards to one port and keeps forwarding there. Say so
       // while it can still be corrected, rather than letting Open to all
@@ -363,6 +545,38 @@ export function createHostingController(options: HostingOptions) {
       await saveMetadata();
       return status();
     });
+  }
+
+  /** Every workspace hosted here, most recent first, and the folders that could not be read. */
+  async function list(): Promise<{ workspaces: HostedWorkspaceSummary[]; unreadable: string[] }> {
+    const entries = await loadRegistry();
+    return {
+      workspaces: [...entries]
+        .sort((a, b) => b.lastHostedAt - a.lastHostedAt)
+        .map((entry) => ({
+          folder: entry.folder,
+          name: entry.name,
+          port: entry.port,
+          lastHostedAt: entry.lastHostedAt,
+          running: server !== null && workspace?.folder === entry.folder,
+          missing: !existsSync(join(options.dataRoot, entry.folder)),
+        })),
+      unreadable: unreadableFolders,
+    };
+  }
+
+  /** The workspace hosted most recently, for offering to start it again. */
+  async function lastHosted(): Promise<{
+    folder: string;
+    workspaceName: string;
+    port: number;
+  } | null> {
+    const entries = await loadRegistry().catch(() => []);
+    const latest = entries.reduce<HostedWorkspace | null>(
+      (best, entry) => (!best || entry.lastHostedAt > best.lastHostedAt ? entry : best),
+      null,
+    );
+    return latest ? { folder: latest.folder, workspaceName: latest.name, port: latest.port } : null;
   }
 
   async function stopCurrent(): Promise<void> {
@@ -591,6 +805,8 @@ export function createHostingController(options: HostingOptions) {
 
   return {
     status,
+    list,
+    lastHosted,
     start,
     stop,
     shutdown,

@@ -284,9 +284,36 @@ test("restarting offers to host the last workspace again instead of reconnecting
     // The saved sign-in still works, so the workspace opens with no password asked.
     await expect(page.locator("textarea")).toBeVisible();
     await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
-    expect(await page.evaluate(() => (window as any).slackoss.hostingStatus())).toMatchObject({
-      running: true,
+    const resumed = await page.evaluate(() => (window as any).slackoss.hostingStatus());
+    expect(resumed).toMatchObject({ running: true });
+
+    // A name that differs only by punctuation is a separate workspace. Earlier
+    // versions put both in one folder and renamed the first.
+    const named = async (port: number) =>
+      (await (await fetch(`http://127.0.0.1:${port}/api/server-info`)).json()).workspaceName;
+    const other = await page.evaluate(async () => {
+      const bridge = (window as any).slackoss;
+      await bridge.hostingStop();
+      return bridge.hostingStart({ workspaceName: "Resume-Test" });
     });
+    expect(other.folder).not.toBe(resumed.folder);
+    expect(await named(other.port)).toBe("Resume-Test");
+    const listed = await page.evaluate(async () => {
+      const bridge = (window as any).slackoss;
+      await bridge.hostingStop();
+      return bridge.hostingList();
+    });
+    expect(listed.workspaces.map((w: { name: string }) => w.name)).toEqual([
+      "Resume-Test",
+      "Resume Test",
+    ]);
+    const back = await page.evaluate(
+      (folder) => (window as any).slackoss.hostingStart({ folder }),
+      resumed.folder,
+    );
+    expect(back.port).toBe(resumed.port);
+    expect(await named(back.port)).toBe("Resume Test");
+    await expect(page.locator("textarea")).toBeVisible();
 
     // Leave nothing hosted behind: stop, then a plain close quits.
     await page.getByRole("button", { name: "Manage hosting", exact: true }).click();

@@ -1,6 +1,6 @@
 # Hosted workspace registry: design (roadmap C1)
 
-September 25, 2026. This is the design the roadmap's first sprint asked for in ticket 5, before any code. It covers how the desktop app finds the data of a workspace it hosts. Nothing here is implemented yet.
+September 25, 2026. This is the design the roadmap's first sprint asked for in ticket 5, before any code. It covers how the desktop app finds the data of a workspace it hosts. Steps 1 to 4 of the order of work are now built. Where the build differs from the first draft, the text below says what was built and why.
 
 ## The problem
 
@@ -51,7 +51,7 @@ The server then makes it worse. Every start passes the typed name, and the serve
     },
     {
       "id": "01J9…",
-      "folder": "w-01J9…",
+      "folder": "w-3f9c…",
       "name": "日本",
       "port": 8544,
       "lastHostedAt": 1727308800000
@@ -63,18 +63,19 @@ The server then makes it worse. Every start passes the typed name, and the serve
 - `id` is the server's `workspace_id`. It is `null` only for an adopted folder whose database has not recorded one yet (see adoption below).
 - `folder` is a name relative to `<userData>/hosted/`. It has to be a single path segment matching `^[a-z0-9-]{1,64}$`. Anything else is refused on read, so a hand-edited file cannot point the app outside `hosted/`.
 - `name` and `port` are a cache of what the server reported on its last start. The server remains the authority for the name.
-- `lastHosted` stays as the pointer to the most recent entry, now `{ id, port }`. It is still read in its old form, `{ workspaceName, port }` (see the migration).
+- The most recent entry is the one with the latest `lastHostedAt`, so no separate pointer is needed. The first draft kept `lastHosted` as a pointer, `{ id, port }`. As built, it is read only once, when this version first finds no registry (see the migration). It is still written in its old form, `{ workspaceName, port }`, for earlier versions, which reopen by name. It names a workspace only when the entry's folder is the one an earlier version would work out from that name, and is null otherwise. A downgraded app then offers nothing rather than the wrong folder.
 
 ### New workspaces get new folders
 
-Start hosting with a new name always creates a new entry. The folder is `w-` plus a fresh ULID, so it has nothing to do with the name. The order:
+Start hosting with a new name always creates a new entry. The folder is `w-` plus 32 random hexadecimal digits, so it has nothing to do with the name. The order:
 
 1. Validate the name as today (1–80 characters, no control characters).
 2. Create the folder, and fail if it already exists. Then write the registry entry with `id: null`. If the registry cannot be written, delete the empty folder and refuse to start. A workspace the app cannot find again must never exist.
 3. Start the server in that folder. It creates `workspace_id`.
 4. Record the ID and the port the server bound in the entry. If this write fails, hosting keeps running with the warning shown today for `lastHosted`, and adoption finds the ID on the next launch.
+5. If the server does not start, take the entry back out and delete the folder, so trying again leaves no empty workspaces in the list.
 
-Reopening an existing workspace goes by entry, never by name. `start` accepts either `{ id }`, for an existing entry, or `{ workspaceName }`, which always means a new workspace. Nothing will look up a workspace by its name.
+Reopening an existing workspace goes by entry, never by name. `start` accepts either `{ folder }`, for an existing entry, or `{ workspaceName }`, which always means a new workspace. Nothing will look up a workspace by its name. The first draft used `{ id }`. The folder was chosen because an adopted entry can lack an ID until it starts, and a folder never changes once an entry has it. An existing workspace is started without a name, so the server keeps the one it has. Before starting an entry with an ID, the app reads the ID in its database, and refuses if the folder is missing or holds another workspace.
 
 ### Adopting the folders earlier versions made
 
@@ -92,26 +93,29 @@ Old `lastHosted` values, `{ workspaceName, port }`, are converted by working out
 ### What the interface shows
 
 - The host dialog's name field starts a new workspace. If an entry with the same name exists, the dialog says so and offers to reopen that one. It never reopens it silently.
-- The join screen's resume offer ("Hosted on this computer") becomes a list of entries, with the most recent first, rather than only the last one. Each item has its name, its port and a Start hosting button.
+- The host dialog lists every entry, with the most recent first. Each item has its name, its port and a Start button, and a missing folder is shown as missing with the button disabled. The join screen's resume offer still names only the most recent entry, and now starts it by its folder.
 - Renaming stays out of this change. A later rename only updates the server's `workspace_name` and the registry's cached name; the folder does not move.
-- A new IPC call, `hosting:list`, returns `{ id, name, port, lastHostedAt, running }` for each entry. `hosting:start` accepts `{ id }` or `{ workspaceName, port? }`. `hosting:lastHosted` remains until the renderer uses the list.
+- A new IPC call, `hosting:list`, returns `{ workspaces, unreadable }`. Each workspace is `{ folder, name, port, lastHostedAt, running, missing }`, and `unreadable` names the folders adoption could not read. `hosting:start` accepts `{ folder, port? }` or `{ workspaceName, port? }`. `hosting:lastHosted` answers from the registry with `{ folder, workspaceName, port }`.
+- The name field no longer fills in the last workspace's name. It only ever makes a new workspace.
 
 ### Failure cases
 
-| Case                                        | Behaviour                                                                                                               |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `settings.json` unreadable                  | Existing entries cannot be listed. Starting a new workspace is refused, so nothing gets orphaned; the error says so.    |
-| Registry entry points at a missing folder   | Listed as missing, cannot be started, can be removed from the list. The folder is never recreated empty.                |
-| Entry's database has a different ID         | Refuse to start it, and say the folder holds another workspace. This is what a copied or swapped folder looks like.     |
-| Two entries claim one folder                | Keep the first and drop the other on read, with a warning.                                                              |
-| Folder name in the file is not a plain name | Drop the entry on read. It may not point outside `hosted/`.                                                             |
-| Downgrade to an older build                 | Slug folders reopen as before. `w-` folders are invisible to it but untouched, and they reappear after upgrading again. |
+| Case                                        | Behaviour                                                                                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `settings.json` unreadable                  | Existing entries cannot be listed. Starting a new workspace is refused, so nothing gets orphaned; the error says so.      |
+| Registry entry points at a missing folder   | Listed as missing and cannot be started. The folder is never recreated empty. Removing it from the list is not built yet. |
+| Entry's database has a different ID         | Refuse to start it, and say the folder holds another workspace. This is what a copied or swapped folder looks like.       |
+| Two entries claim one folder                | Keep the first and drop the other on read, with a warning.                                                                |
+| Folder name in the file is not a plain name | Drop the entry on read. It may not point outside `hosted/`.                                                               |
+| Downgrade to an older build                 | Slug folders reopen as before. `w-` folders are invisible to it but untouched, and they reappear after upgrading again.   |
 
 ## What stays the same
 
 The server, its database, the protocol and client storage scopes. Browser clients and the standalone server are not affected. `dataDir` for a server started outside the desktop app still means whatever path it is given.
 
-## Tests to write with the change
+## Tests
+
+The cases below are in the suites named, as built.
 
 In `apps/desktop/test/hosting.test.ts`, over the existing fake servers and a temporary `hosted/` folder:
 

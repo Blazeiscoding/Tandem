@@ -27,16 +27,17 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite                | Command                                   | Result                                                                                                                                                                                                                                                                                                                                                                                                                 | Last run   |
 | -------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed                                                                                                                                                                                                                                                                                                                                                            | 2026-09-25 |
-| Unit and integration | `pnpm test`                               | 770 tests: server 367, client-core 65, UI 246, protocol 12, desktop 80                                                                                                                                                                                                                                                                                                                                                 | 2026-09-25 |
+| Unit and integration | `pnpm test`                               | 782 tests: server 367, client-core 65, UI 250, protocol 12, desktop 88                                                                                                                                                                                                                                                                                                                                                 | 2026-09-25 |
 | Browser end to end   | `pnpm test:e2e`                           | 14 scenarios, passed; on an emulated phone each message's menu offers its actions and any emoji as a reaction, Back, Forward and a reload return to a conversation and its open thread, a search that finds nothing says so in the dialog's status, the newest message stays in view when a side panel opens after the pointer rested on a message, and refused pins and saves raise notices checked with real presses | 2026-09-25 |
-| Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed in CI, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again                                                                                                                                                                                                                       | 2026-09-21 |
-| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 476.6 kB in the browser client and 477.3 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                                                                                                                                                                                                                                                    | 2026-09-25 |
+| Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed locally on September 25 after the hosting registry, a second workspace named by punctuation alone kept apart from the first; earlier passed in CI, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again                                                                           | 2026-09-21 |
+| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 478.7 kB in the browser client after the hosting registry, and 477.3 kB in the desktop renderer before it, under the 500 kB limit CI enforces                                                                                                                                                                                                                                                              | 2026-09-25 |
 | Container            | `node tests/docker-smoke.mjs`             | passed; on 2026-09-17 only its new Compose checks ran here, without a Docker engine, and CI ran the rest                                                                                                                                                                                                                                                                                                               | 2026-09-05 |
 
 The last combined verification including tests used `pnpm exec turbo test typecheck build --force --concurrency=1`:
-all 15 tasks passed without cached results on September 25, including all 770 tests and the web,
+all 15 tasks passed without cached results on September 25, including all 782 tests and the web,
 desktop and server CLI builds. The bundle check and all 14 browser scenarios passed too. The
-packaged Windows suite was not rerun locally; both scenarios last passed in the September 21 CI job.
+packaged Windows suite was packaged and run locally the same day, and both scenarios passed; CI
+could not run it, because the account's Actions minutes for September were used up.
 An all-at-once attempt for this Apps change hit server and client-core setup-hook timeouts under contention; the serialized forced run passed without changes to those packages.
 An earlier forced run that day failed one timing-sensitive case in `apps/desktop/test/tunnel.test.ts`,
 "does not expose the address until Gatherline answers through Cloudflare", while every package ran
@@ -191,6 +192,27 @@ tests, seven package typechecks and three production builds without cached
 results, and all 14 browser scenarios and both bundle checks passed. Emulation is
 not a phone: long-press, safe areas and the software keyboard remain to be checked
 on real devices.
+
+The hosting-registry branch adds eight desktop cases and four UI cases. In
+`apps/desktop/test/hosting.test.ts`, over a temporary profile: a new workspace
+gets a `w-` folder and is listed with its ID; Team A, Team-A, "team a!", 日本 and
+Команда get five folders and keep five names; an entry reopens on its own port
+without being given a name; real SQLite folders `rocket-team` and `workspace`
+are adopted with their IDs, the old `lastHosted` resumes `rocket-team` on its
+port, and a second launch adds nothing; an unreadable database is named and left
+out; a folder holding another workspace's ID is refused; a missing folder is
+listed as missing and never recreated; a list that cannot be saved creates no
+folder; an unreadable settings file refuses new workspaces and is read again
+later; and malformed, repeated or escaping entries are dropped. The existing
+cases now start by folder or by a name that always means a new workspace. In the
+UI, the host dialog lists workspaces and starts one by folder, warns about a
+repeated name without filling one in, and reports an unreadable list; the resume
+offer starts by folder, and still by name on an app too old to send one. The
+packaged resume scenario hosts Resume-Test beside Resume Test, checks that each
+answers with its own name from its own folder, and reopens Resume Test on its old
+port. The serialized forced matrix passed all 782 tests, seven package typechecks
+and three production builds without cached results, all 14 browser scenarios
+passed, and the browser entry is 478.7 kB.
 
 Known gaps: the tray menu is read as the app builds it rather than clicked, and the native
 confirmations it and quitting show are not exercised. Component tests run in

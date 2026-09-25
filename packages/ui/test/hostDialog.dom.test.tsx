@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HostDialog, useHostingStatus } from "../src/components/HostDialog.js";
-import type { HostingStatus, Platform } from "../src/platform.js";
+import type { HostedWorkspaces, HostingStart, HostingStatus, Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 
 type Hosting = NonNullable<Platform["hosting"]>;
@@ -20,15 +20,20 @@ const running: HostingStatus = {
 };
 
 /** The desktop app's hosting bridge, with a status that can change underneath the dialog. */
-function fakeHosting(initial: HostingStatus) {
+function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
   let current = initial;
   const listeners = new Set<(status: HostingStatus) => void>();
   const hosting = {
     status: vi.fn(async () => current),
-    start: vi.fn(async ({ workspaceName }: { workspaceName: string; port?: number }) => {
+    start: vi.fn(async (request: HostingStart) => {
+      const workspaceName =
+        "folder" in request
+          ? hosted!.workspaces.find((w) => w.folder === request.folder)!.name
+          : request.workspaceName;
       current = { ...running, workspaceName };
       return current;
     }),
+    ...(hosted ? { list: vi.fn(async () => hosted) } : {}),
     stop: vi.fn(async () => {
       current = stopped;
     }),
@@ -125,6 +130,92 @@ describe("hosting a workspace from the host dialog", () => {
       expect(onStarted).toHaveBeenCalledWith(
         expect.objectContaining({ running: true, port: 8543 }),
       ),
+    );
+  });
+
+  it("lists the workspaces hosted here, and starts one by its entry rather than its name", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, {
+      workspaces: [
+        {
+          folder: "w-2",
+          name: "Team-A",
+          port: 8544,
+          lastHostedAt: 2,
+          running: false,
+          missing: false,
+        },
+        {
+          folder: "team-a",
+          name: "Team A",
+          port: 8543,
+          lastHostedAt: 1,
+          running: false,
+          missing: false,
+        },
+        {
+          folder: "gone",
+          name: "Old Club",
+          port: 8545,
+          lastHostedAt: 0,
+          running: false,
+          missing: true,
+        },
+      ],
+      unreadable: ["broken"],
+    });
+    render(<Harness hosting={hosting} />);
+
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      expect.stringContaining("Team-APort 8544"),
+      expect.stringContaining("Team APort 8543"),
+      expect.stringContaining("Old ClubIts folder is missing"),
+    ]);
+    expect(within(list).getByRole("button", { name: "Start hosting Old Club" })).toBeDisabled();
+    expect(list).toHaveTextContent("Could not read the workspace in the folder broken");
+    expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
+
+    await user.click(within(list).getByRole("button", { name: "Start hosting Team A" }));
+    expect(hosting.start).toHaveBeenCalledWith({ folder: "team-a" });
+  });
+
+  it("says a new workspace will be separate from one already hosted under that name", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, {
+      workspaces: [
+        {
+          folder: "team-a",
+          name: "Team A",
+          port: 8543,
+          lastHostedAt: 1,
+          running: false,
+          missing: false,
+        },
+      ],
+      unreadable: [],
+    });
+    render(<Harness hosting={hosting} />);
+
+    const name = await screen.findByRole("textbox", { name: "Workspace name" });
+    // Nothing is filled in for them: the field only ever makes a new workspace.
+    expect(name).toHaveValue("");
+    await user.type(name, " team a ");
+    expect(screen.getByText(/Team A is already hosted here/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Start new workspace" }));
+    expect(hosting.start).toHaveBeenCalledWith({ workspaceName: "team a" });
+  });
+
+  it("says when the list of hosted workspaces cannot be read", async () => {
+    const { hosting } = fakeHosting(stopped, { workspaces: [], unreadable: [] });
+    hosting.list!.mockRejectedValueOnce(new Error("settings unreadable"));
+    render(<Harness hosting={hosting} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Could not read the list of workspaces hosted on this computer/,
     );
   });
 
