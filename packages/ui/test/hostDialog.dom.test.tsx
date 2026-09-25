@@ -37,6 +37,10 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
       ? {
           list: vi.fn(async () => hosted),
           forget: vi.fn(async (_folder: string) => {}),
+          restore: vi.fn(async (): Promise<{ folder: string; name: string } | null> => ({
+            folder: "w-restored",
+            name: "Rocket Team",
+          })),
           backup: vi.fn(async (folder: string): Promise<{ path: string; at: number } | null> => ({
             path: `/backups/${folder}-2026-09-25T10-00-00`,
             at: Date.now(),
@@ -350,6 +354,36 @@ describe("hosting a workspace from the host dialog", () => {
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Hosted on this computer" })).toBeNull(),
     );
+  });
+
+  it("restores a backup into the list without starting it, or says why it did not", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, { workspaces: [], unreadable: [] });
+    hosting.restore!.mockResolvedValueOnce(null);
+    hosting.restore!.mockRejectedValueOnce(
+      new Error(
+        "Rocket Team is already hosted on this computer, so this backup was not restored over it.",
+      ),
+    );
+    render(<Harness hosting={hosting} />);
+    const restore = await screen.findByRole("button", { name: "Restore from a backup…" });
+
+    // No folder chosen: nothing to say.
+    await user.click(restore);
+    expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
+
+    await user.click(restore);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The backup was not restored. Rocket Team is already hosted on this computer",
+    );
+
+    const listReads = hosting.list!.mock.calls.length;
+    await user.click(restore);
+    expect(
+      await screen.findByText("Restored Rocket Team. Start it from the list when you are ready."),
+    ).toHaveAttribute("role", "status");
+    expect(hosting.start).not.toHaveBeenCalled();
+    await waitFor(() => expect(hosting.list!.mock.calls.length).toBeGreaterThan(listReads));
   });
 
   it("says when the list of hosted workspaces cannot be read", async () => {
