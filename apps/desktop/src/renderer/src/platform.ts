@@ -17,6 +17,7 @@ interface SlackossBridge {
   hostingStart: (opts: HostingStart) => Promise<HostingStatus>;
   hostingLastHosted: () => Promise<LastHosted | null>;
   hostingList: () => Promise<HostedWorkspaces>;
+  hostingBackup: (folder: string) => Promise<{ path: string; at: number } | null>;
   hostingStop: () => Promise<void>;
   hostingOpenToAll: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
   hostingEndOpenToAll: () => Promise<HostingStatus>;
@@ -83,6 +84,7 @@ export function electronPlatform(): Platform {
       start: (opts) => bridge.hostingStart(opts),
       lastHosted: () => bridge.hostingLastHosted(),
       list: () => bridge.hostingList(),
+      backup: (folder) => plainly(bridge.hostingBackup(folder)),
       stop: () => bridge.hostingStop(),
       openToAll: (opts) => plainly(bridge.hostingOpenToAll(opts)),
       endOpenToAll: () => bridge.hostingEndOpenToAll(),

@@ -33,7 +33,15 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
       current = { ...running, workspaceName };
       return current;
     }),
-    ...(hosted ? { list: vi.fn(async () => hosted) } : {}),
+    ...(hosted
+      ? {
+          list: vi.fn(async () => hosted),
+          backup: vi.fn(async (folder: string): Promise<{ path: string; at: number } | null> => ({
+            path: `/backups/${folder}-2026-09-25T10-00-00`,
+            at: Date.now(),
+          })),
+        }
+      : {}),
     stop: vi.fn(async () => {
       current = stopped;
     }),
@@ -142,6 +150,7 @@ describe("hosting a workspace from the host dialog", () => {
           name: "Team-A",
           port: 8544,
           lastHostedAt: 2,
+          lastBackupAt: null,
           running: false,
           missing: false,
         },
@@ -150,6 +159,7 @@ describe("hosting a workspace from the host dialog", () => {
           name: "Team A",
           port: 8543,
           lastHostedAt: 1,
+          lastBackupAt: null,
           running: false,
           missing: false,
         },
@@ -158,6 +168,7 @@ describe("hosting a workspace from the host dialog", () => {
           name: "Old Club",
           port: 8545,
           lastHostedAt: 0,
+          lastBackupAt: null,
           running: false,
           missing: true,
         },
@@ -193,6 +204,7 @@ describe("hosting a workspace from the host dialog", () => {
           name: "Team A",
           port: 8543,
           lastHostedAt: 1,
+          lastBackupAt: null,
           running: false,
           missing: false,
         },
@@ -208,6 +220,108 @@ describe("hosting a workspace from the host dialog", () => {
     expect(screen.getByText(/Team A is already hosted here/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Start new workspace" }));
     expect(hosting.start).toHaveBeenCalledWith({ workspaceName: "team a" });
+  });
+
+  it("backs up a listed workspace, says where it went, and when it last was", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, {
+      workspaces: [
+        {
+          folder: "team-a",
+          name: "Team A",
+          port: 8543,
+          lastHostedAt: 1,
+          lastBackupAt: null,
+          running: false,
+          missing: false,
+        },
+      ],
+      unreadable: [],
+    });
+    render(<Harness hosting={hosting} />);
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+    expect(list).toHaveTextContent("Port 8543 · Not backed up yet");
+
+    hosting.list!.mockResolvedValueOnce({
+      workspaces: [
+        {
+          folder: "team-a",
+          name: "Team A",
+          port: 8543,
+          lastHostedAt: 1,
+          lastBackupAt: Date.now(),
+          running: false,
+          missing: false,
+        },
+      ],
+      unreadable: [],
+    });
+    await user.click(within(list).getByRole("button", { name: "Back up Team A" }));
+    expect(hosting.backup).toHaveBeenCalledWith("team-a");
+    expect(
+      await screen.findByText("Backed up Team A to /backups/team-a-2026-09-25T10-00-00"),
+    ).toHaveAttribute("role", "status");
+    await waitFor(() => expect(list).toHaveTextContent(/Backed up today, /));
+  });
+
+  it("says why a backup did not finish, and nothing when no folder was chosen", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, {
+      workspaces: [
+        {
+          folder: "team-a",
+          name: "Team A",
+          port: 8543,
+          lastHostedAt: 1,
+          lastBackupAt: null,
+          running: false,
+          missing: false,
+        },
+      ],
+      unreadable: [],
+    });
+    hosting.backup!.mockResolvedValueOnce(null);
+    hosting.backup!.mockRejectedValueOnce(new Error("There is not enough free space there."));
+    render(<Harness hosting={hosting} />);
+    const button = await screen.findByRole("button", { name: "Back up Team A" });
+    await user.click(button);
+    expect(within(screen.getByRole("dialog")).queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The backup of Team A did not finish. There is not enough free space there.",
+    );
+  });
+
+  it("backs up the running workspace from where it is managed", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(
+      { ...running, folder: "team-a" },
+      {
+        workspaces: [
+          {
+            folder: "team-a",
+            name: "Rocket Team",
+            port: 8543,
+            lastHostedAt: 1,
+            lastBackupAt: null,
+            running: true,
+            missing: false,
+          },
+        ],
+        unreadable: [],
+      },
+    );
+    render(<Harness hosting={hosting} />);
+    expect(
+      await screen.findByText("This workspace has not been backed up from this computer yet."),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Back up now" }));
+    expect(hosting.backup).toHaveBeenCalledWith("team-a");
+    expect(await screen.findByText(/^Backed up Rocket Team to \/backups\/team-a-/)).toHaveAttribute(
+      "role",
+      "status",
+    );
   });
 
   it("says when the list of hosted workspaces cannot be read", async () => {

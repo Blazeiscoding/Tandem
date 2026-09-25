@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import type { Tunnel } from "./tunnel.js";
 import {
   REGISTRY_KEY,
@@ -66,6 +66,8 @@ export interface HostedWorkspaceSummary {
   name: string;
   port: number;
   lastHostedAt: number;
+  /** When a backup of it last finished, or null if none has here. */
+  lastBackupAt: number | null;
   running: boolean;
   /** Its folder is gone, so it cannot start. */
   missing: boolean;
@@ -121,6 +123,10 @@ interface HostingOptions {
   };
   /** Reads a workspace's identity from its folder without starting it. */
   readWorkspace?: typeof readWorkspace;
+  /** The server's verified backup: a consistent copy of the database and every attachment. */
+  backupWorkspace?(options: { dataDir: string; out: string }): Promise<{ files: unknown[] }>;
+  /** Bytes free on the disk holding `dir`. */
+  freeBytes?(dir: string): Promise<number>;
   now?: () => number;
   dataRoot: string;
   defaultPort: number;
@@ -180,6 +186,25 @@ function startOptions(value: unknown): StartRequest {
   )
     throw new Error("Use a workspace name of 1 to 80 characters without control characters.");
   return { workspaceName: workspaceName.trim(), port: port as number | undefined };
+}
+
+/** Everything under a folder, counted by size. Files that vanish while counting are skipped. */
+async function folderBytes(dir: string): Promise<number> {
+  let total = 0;
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) total += await folderBytes(path);
+    else if (entry.isFile())
+      total += await stat(path).then(
+        (info) => info.size,
+        () => 0,
+      );
+  }
+  return total;
+}
+
+function megabytes(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
 }
 
 /** Owns the embedded server, including operations accepted just before app shutdown. */
@@ -558,11 +583,54 @@ export function createHostingController(options: HostingOptions) {
           name: entry.name,
           port: entry.port,
           lastHostedAt: entry.lastHostedAt,
+          lastBackupAt: entry.lastBackupAt ?? null,
           running: server !== null && workspace?.folder === entry.folder,
           missing: !existsSync(join(options.dataRoot, entry.folder)),
         })),
       unreadable: unreadableFolders,
     };
+  }
+
+  /**
+   * Copies a hosted workspace into a new folder inside `destination`, running
+   * or not, and records when. It waits its turn behind starting and stopping,
+   * so the app cannot quit or change workspaces halfway through a copy.
+   */
+  function backup(value: unknown): Promise<{ path: string; at: number }> {
+    const { folder, destination } = (value ?? {}) as Record<string, unknown>;
+    if (typeof folder !== "string" || typeof destination !== "string" || !isAbsolute(destination))
+      return Promise.reject(new Error("Choose a workspace and a folder to back it up to."));
+    if (!options.backupWorkspace)
+      return Promise.reject(new Error("Backing up is not available in this app."));
+    return serialized(async () => {
+      if (closing) throw new Error("The app is quitting.");
+      const entry = (await loadRegistry()).find((e) => e.folder === folder);
+      if (!entry) throw new Error("That workspace is not in the list hosted on this computer.");
+      const dataDir = join(options.dataRoot, entry.folder);
+      if (!existsSync(dataDir))
+        throw new Error(
+          `The folder that held ${entry.name} is missing, so there is nothing to back up.`,
+        );
+      if (options.freeBytes) {
+        // The copy is about the size of the folder. A little over that leaves
+        // room for the database's snapshot to be larger than the file it came from.
+        const needed = Math.ceil((await folderBytes(dataDir)) * 1.1) + 16 * 1024 * 1024;
+        const free = await options.freeBytes(destination);
+        if (free < needed)
+          throw new Error(
+            `There is not enough free space there. The backup needs about ${megabytes(needed)}, and ${megabytes(free)} is free.`,
+          );
+      }
+      const stamp = new Date(now()).toISOString().slice(0, 19).replaceAll(":", "-");
+      const out = join(destination, `${legacyFolder(entry.name)}-${stamp}`);
+      await options.backupWorkspace!({ dataDir, out });
+      const at = now();
+      updateEntry(entry.folder, { lastBackupAt: at });
+      // The backup is made and verified either way. Only the date shown for it can be lost.
+      await saveRegistry().catch(() => {});
+      changed();
+      return { path: out, at };
+    });
   }
 
   /** The workspace hosted most recently, for offering to start it again. */
@@ -807,6 +875,7 @@ export function createHostingController(options: HostingOptions) {
     status,
     list,
     lastHosted,
+    backup,
     start,
     stop,
     shutdown,

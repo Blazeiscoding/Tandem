@@ -1,6 +1,6 @@
 import { test, expect, _electron as electron, type ElectronApplication } from "@playwright/test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -122,6 +122,25 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   await expect(live.getByText(String(status.port), { exact: true })).toBeVisible();
   // Already on screen, so there is nothing to open.
   await expect(live.getByRole("button", { name: "Open it", exact: true })).toHaveCount(0);
+
+  // Back it up while it runs, into a folder chosen in the system's own dialog.
+  const backups = mkdtempSync(join(tmpdir(), "slackoss-desktop-backup-"));
+  try {
+    await app.evaluate(({ dialog }, folder) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: [folder],
+      })) as unknown as typeof dialog.showOpenDialog;
+    }, backups);
+    await live.getByRole("button", { name: "Back up now", exact: true }).click();
+    await expect(live.getByText(/^Backed up Desktop Test to /)).toBeVisible();
+    const made = readdirSync(backups);
+    expect(made).toEqual([expect.stringMatching(/^desktop-test-/)]);
+    const manifest = JSON.parse(readFileSync(join(backups, made[0]!, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({ format: 1, workspaceName: "Desktop Test" });
+  } finally {
+    rmSync(backups, { recursive: true, force: true });
+  }
   await page.keyboard.press("Escape");
   await expect(live).toBeHidden();
   await expect(page.locator("textarea")).toBeVisible();

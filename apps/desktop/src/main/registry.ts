@@ -18,6 +18,8 @@ export interface HostedWorkspace {
   name: string;
   port: number;
   lastHostedAt: number;
+  /** When a backup of it last finished, if one has. */
+  lastBackupAt?: number;
 }
 
 /** The settings key the registry lives under. */
@@ -60,7 +62,7 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
   const entries: HostedWorkspace[] = [];
   for (const raw of workspaces) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const { id, folder, name, port, lastHostedAt } = raw as Record<string, unknown>;
+    const { id, folder, name, port, lastHostedAt, lastBackupAt } = raw as Record<string, unknown>;
     if (typeof folder !== "string" || !FOLDER.test(folder) || folders.has(folder)) continue;
     if (id !== null && (typeof id !== "string" || !id || ids.has(id))) continue;
     if (typeof name !== "string" || !name.trim() || name.length > 80) continue;
@@ -68,7 +70,16 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
     if (typeof lastHostedAt !== "number" || !Number.isFinite(lastHostedAt)) continue;
     folders.add(folder);
     if (id) ids.add(id);
-    entries.push({ id, folder, name, port, lastHostedAt });
+    entries.push({
+      id,
+      folder,
+      name,
+      port,
+      lastHostedAt,
+      ...(typeof lastBackupAt === "number" && Number.isFinite(lastBackupAt)
+        ? { lastBackupAt }
+        : {}),
+    });
   }
   return entries;
 }

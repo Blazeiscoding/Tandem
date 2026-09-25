@@ -77,6 +77,9 @@ function harness(
     databases: new Map<string, { id: string | null; name: string | null }>(),
     readFails: false,
     clock: 1000,
+    /** Each backup the server was asked for, and the free space the disk reports. */
+    backups: [] as { dataDir: string; out: string }[],
+    free: Number.MAX_SAFE_INTEGER,
     changes: [] as HostingSnapshot[],
     /** Runs as each server binds; throw to fail that attempt, or return a promise to hold it. */
     beforeBind: (_port: number): Promise<void> | void => {},
@@ -103,6 +106,11 @@ function harness(
     lanUrls: (port) => [`192.168.1.20:${port}`],
     now: () => h.clock++,
     readWorkspace: inside,
+    backupWorkspace: async (request) => {
+      h.backups.push(request);
+      return { files: [] };
+    },
+    freeBytes: async () => h.free,
     settings: {
       get: async (key, { strict } = {}) => {
         if (h.readFails && strict) throw new Error("Could not read settings.");
@@ -909,6 +917,51 @@ describe("the list of workspaces hosted on this computer", () => {
     ).toEqual([entry, { ...entry, id: null, folder: "adopted" }]);
     expect(parseRegistry({ version: 2, workspaces: [entry] })).toEqual([]);
     expect(parseRegistry(null)).toEqual([]);
+  });
+});
+
+describe("backing up a hosted workspace", () => {
+  it("copies it into a new folder where it was asked, and remembers when", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    const [entry] = registryOf(h);
+    const destination = profile();
+    const made = await h.controller.backup({ folder: entry!.folder, destination });
+    expect(h.backups).toEqual([
+      {
+        dataDir: join(h.dataRoot, entry!.folder),
+        out: expect.stringMatching(/rocket-team-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/),
+      },
+    ]);
+    expect(made.path).toBe(h.backups[0]!.out);
+    expect(made.path.startsWith(destination)).toBe(true);
+    // Running or not; and the date shown for it survives a restart.
+    expect(h.controller.status().running).toBe(true);
+    expect(registryOf(h)[0]!.lastBackupAt).toBe(made.at);
+    expect((await h.controller.list()).workspaces[0]!.lastBackupAt).toBe(made.at);
+  });
+
+  it("copies nothing when the disk has no room for it", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    const [entry] = registryOf(h);
+    h.free = 1024;
+    await expect(
+      h.controller.backup({ folder: entry!.folder, destination: profile() }),
+    ).rejects.toThrow(/not enough free space.*needs about 16 MB, and 1 MB is free/);
+    expect(h.backups).toEqual([]);
+    expect(registryOf(h)[0]!.lastBackupAt).toBeUndefined();
+  });
+
+  it("refuses a workspace it does not list, or a folder it cannot name", async () => {
+    const h = harness();
+    await expect(h.controller.backup({ folder: "nope", destination: profile() })).rejects.toThrow(
+      /not in the list/,
+    );
+    for (const bad of [undefined, { folder: "x" }, { folder: "x", destination: "relative/dir" }]) {
+      await expect(h.controller.backup(bad)).rejects.toThrow(/Choose a workspace/);
+    }
+    expect(h.backups).toEqual([]);
   });
 });
 
