@@ -27,14 +27,14 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Suite                | Command                                   | Result                                                                                                                                                                                                                                                                                                                                                                                                                 | Last run   |
 | -------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed                                                                                                                                                                                                                                                                                                                                                            | 2026-09-25 |
-| Unit and integration | `pnpm test`                               | 770 tests: server 367, client-core 65, UI 246, protocol 12, desktop 80                                                                                                                                                                                                                                                                                                                                                 | 2026-09-25 |
+| Unit and integration | `pnpm test`                               | 773 tests: server 367, client-core 65, UI 249, protocol 12, desktop 80                                                                                                                                                                                                                                                                                                                                                 | 2026-09-25 |
 | Browser end to end   | `pnpm test:e2e`                           | 14 scenarios, passed; on an emulated phone each message's menu offers its actions and any emoji as a reaction, Back, Forward and a reload return to a conversation and its open thread, a search that finds nothing says so in the dialog's status, the newest message stays in view when a side panel opens after the pointer rested on a message, and refused pins and saves raise notices checked with real presses | 2026-09-25 |
 | Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed in CI, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again                                                                                                                                                                                                                       | 2026-09-21 |
-| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 476.6 kB in the browser client and 477.3 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                                                                                                                                                                                                                                                    | 2026-09-25 |
+| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 477.3 kB in the browser client after the accessibility slice, and 477.3 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                                                                                                                                                                                                                     | 2026-09-25 |
 | Container            | `node tests/docker-smoke.mjs`             | passed; on 2026-09-17 only its new Compose checks ran here, without a Docker engine, and CI ran the rest                                                                                                                                                                                                                                                                                                               | 2026-09-05 |
 
 The last combined verification including tests used `pnpm exec turbo test typecheck build --force --concurrency=1`:
-all 15 tasks passed without cached results on September 25, including all 770 tests and the web,
+all 15 tasks passed without cached results on September 25, including all 773 tests and the web,
 desktop and server CLI builds. The bundle check and all 14 browser scenarios passed too. The
 packaged Windows suite was not rerun locally; both scenarios last passed in the September 21 CI job.
 An all-at-once attempt for this Apps change hit server and client-core setup-hook timeouts under contention; the serialized forced run passed without changes to those packages.
@@ -191,6 +191,20 @@ tests, seven package typechecks and three production builds without cached
 results, and all 14 browser scenarios and both bundle checks passed. Emulation is
 not a phone: long-press, safe areas and the software keyboard remain to be checked
 on real devices.
+
+The accessibility branch adds three UI cases, each with an axe check. The quick
+switcher's box is a combobox controlling a listbox named Matches; the first
+option, "design, channel", is selected and active, ArrowDown makes "leads,
+private channel" both, focus stays in the box, and a query with no matches
+collapses it and drops the active option. Channel details has a tablist with one
+selected tab and Tab stop; ArrowRight, End and a wrapping ArrowRight move focus
+and selection, and the tabpanel is named for its tab. A message's reactions form
+a group, read as "👍 2 reactions, from Priya Shah and you" (pressed) and "🎉 1
+reaction, from Priya Shah" (not pressed), and pressing one still toggles it. Two
+browser checks now find the switcher's box as a combobox, and the demo seed's
+reaction by who reacted. The serialized forced matrix passed all 773 tests, seven
+package typechecks and three production builds without cached results, all 14
+browser scenarios passed, and the browser entry is 477.3 kB.
 
 Known gaps: the tray menu is read as the app builds it rather than clicked, and the native
 confirmations it and quitting show are not exercised. Component tests run in

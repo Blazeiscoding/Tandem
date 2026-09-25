@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
@@ -19,6 +19,14 @@ const SWITCHER_ICON: Record<SwitcherRow["kind"], React.ReactNode> = {
   person: "@",
 };
 
+/** What each row is, for a screen reader, which cannot see its sign. */
+const SWITCHER_KIND: Record<SwitcherRow["kind"], string> = {
+  public: "channel",
+  private: "private channel",
+  conversation: "conversation",
+  person: "person",
+};
+
 /** Ctrl+K — jump to any channel, DM, or person. */
 export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: ID) => void }) {
   const client = useClient();
@@ -27,6 +35,7 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
   const selfId = useWorkspace((s) => s.self?.id);
   const [q, setQ] = useState("");
   const [index, setIndex] = useState(0);
+  const listId = useId();
   /** A person whose new direct conversation is being started, or failed to start. */
   const [opening, setOpening] = useState<SwitcherRow | null>(null);
   const [failed, setFailed] = useState<SwitcherRow | null>(null);
@@ -98,6 +107,12 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
     <Dialog title="Jump to" onClose={props.onClose} width={480}>
       <input
         autoFocus
+        role="combobox"
+        aria-label="Channel or person"
+        aria-autocomplete="list"
+        aria-expanded={results.length > 0}
+        aria-controls={listId}
+        aria-activedescendant={results[index] ? `${listId}-${index}` : undefined}
         value={q}
         onChange={(e) => {
           setQ(e.target.value);
@@ -135,21 +150,25 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
         }
         className="mt-2"
       />
-      <ul className="mt-2">
+      {/* Options, not buttons: the box keeps focus, and the arrow keys move the choice. */}
+      <ul id={listId} role="listbox" aria-label="Matches" className="mt-2">
         {results.map((r, i) => (
-          <li key={`${r.kind}:${r.id}`}>
-            <button
-              onClick={() => void open(r)}
-              onMouseEnter={() => setIndex(i)}
-              className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
-                i === index ? "bg-copper/15 text-copper" : "text-ink-dim"
-              }`}
-            >
-              <span aria-hidden className="flex w-4 justify-center text-ink-faint">
-                {SWITCHER_ICON[r.kind]}
-              </span>
-              {r.label}
-            </button>
+          <li
+            key={`${r.kind}:${r.id}`}
+            id={`${listId}-${i}`}
+            role="option"
+            aria-selected={i === index}
+            aria-label={`${r.label}, ${SWITCHER_KIND[r.kind]}`}
+            onClick={() => void open(r)}
+            onMouseEnter={() => setIndex(i)}
+            className={`flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
+              i === index ? "bg-copper/15 text-copper" : "text-ink-dim"
+            }`}
+          >
+            <span aria-hidden className="flex w-4 justify-center text-ink-faint">
+              {SWITCHER_ICON[r.kind]}
+            </span>
+            {r.label}
           </li>
         ))}
       </ul>

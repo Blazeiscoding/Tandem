@@ -991,3 +991,13 @@ Tickets 5 and 8 of the roadmap's first sprint asked for a written design before 
 [STATE-TABLES-2026-09.md](STATE-TABLES-2026-09.md) covers ticket 8. For four areas it records what the source does today, the states proposed and the cases to prototype before choosing: who can reach whom (DM policy, blocks and mutes, E1a), unread, subscription, follow-up and resolved as four independent states (B1–B3), what a workspace that isn't open still receives (A10), and the lifecycle of ringing someone (D8). The notification table extends `decideNotification`'s existing order and reasons rather than replacing them.
 
 Neither changes code. Every source reference in them was checked against `main` at `b8a2a09`.
+
+### The switcher, channel tabs and reactions read as what they are (A2, U04)
+
+The roadmap's A2 asks for an accessible switcher, tabs and reactions, and U04 named what was wrong with each. The quick switcher's box was a plain text field over a list of buttons, so a screen reader heard nothing as the arrow keys moved the highlight. The box is now a combobox that controls a list of options. The highlighted option is its active descendant and is marked selected, and the box says whether any options are showing. Each option's name says what it is, such as "leads, private channel" or "Priya Natarajan, person", which the sign beside it only showed. The options are no longer Tab stops, since the arrow keys choose among them from the box.
+
+Channel details had three buttons styled as tabs. They are now a tablist named Channel details, with one selected tab, one Tab stop, and the arrow keys, Home and End moving between them, as the sign-in tabs have done since #54. The content below is the tabpanel the selected tab names.
+
+A reaction was a button read as its emoji and a number. It is now read as, for example, "👍 2 reactions, from Priya Shah and you". It says whether you reacted with `aria-pressed`, and the reactions under a message form a group named Reactions. The hover title names the same people, with "you" in place of your own name.
+
+Three UI cases, each with an axe check, cover the switcher, the tabs and the reactions, and two browser checks now find the switcher's box as a combobox and a reaction by who reacted. The serialized forced matrix passed all 773 tests (server 367, client-core 65, UI 249, protocol 12, desktop 80), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed. The emoji chooser's combobox semantics and announcing new messages are still to do.

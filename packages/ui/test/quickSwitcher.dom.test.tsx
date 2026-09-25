@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import type { Channel, User } from "@slackoss/protocol";
 import { ClientContext } from "../src/context.js";
+import { accessibilityProblems } from "./accessibility.js";
 import { QuickSwitcher } from "../src/components/QuickSwitcher.js";
 
 const person = (id: string, handle: string, displayName: string, deactivated = false): User => ({
@@ -65,12 +66,33 @@ function switcherWith() {
   );
   const options = () =>
     within(screen.getByRole("dialog", { name: "Jump to" }))
-      .getAllByRole("listitem")
+      .getAllByRole("option")
       .map((item) => item.textContent);
   return { client, onOpen, openDm, options };
 }
 
 describe("jumping to a conversation", () => {
+  it("is a combobox whose highlighted match a screen reader follows", async () => {
+    const user = userEvent.setup();
+    switcherWith();
+    const box = screen.getByRole("combobox", { name: "Channel or person" });
+    const list = screen.getByRole("listbox", { name: "Matches" });
+    expect(box).toHaveAttribute("aria-controls", list.id);
+    expect(box).toHaveAttribute("aria-expanded", "true");
+    const first = within(list).getByRole("option", { name: "design, channel" });
+    expect(first).toHaveAttribute("aria-selected", "true");
+    expect(box).toHaveAttribute("aria-activedescendant", first.id);
+    await user.keyboard("{ArrowDown}");
+    const second = within(list).getByRole("option", { name: "leads, private channel" });
+    expect(second).toHaveAttribute("aria-selected", "true");
+    expect(box).toHaveAttribute("aria-activedescendant", second.id);
+    expect(box).toHaveFocus();
+    await user.type(box, "nothing like this");
+    expect(box).toHaveAttribute("aria-expanded", "false");
+    expect(box).not.toHaveAttribute("aria-activedescendant");
+    expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
+  });
+
   it("lists a person once, whether or not you already talk to them directly", () => {
     const { options } = switcherWith();
     expect(options()).toEqual([
@@ -86,7 +108,7 @@ describe("jumping to a conversation", () => {
   it("opens an existing direct conversation without asking the server for it", async () => {
     const user = userEvent.setup();
     const { onOpen, openDm } = switcherWith();
-    await user.click(screen.getByRole("button", { name: "Alex Chen" }));
+    await user.click(screen.getByRole("option", { name: "Alex Chen, person" }));
     expect(onOpen).toHaveBeenCalledWith("D_ALEX");
     expect(openDm).not.toHaveBeenCalled();
   });
@@ -94,7 +116,7 @@ describe("jumping to a conversation", () => {
   it("starts a direct conversation with someone you have not talked to yet", async () => {
     const user = userEvent.setup();
     const { onOpen, openDm } = switcherWith();
-    await user.click(screen.getByRole("button", { name: "Priya Natarajan" }));
+    await user.click(screen.getByRole("option", { name: "Priya Natarajan, person" }));
     expect(openDm).toHaveBeenCalledWith(["U_PRIYA"]);
     expect(onOpen).toHaveBeenCalledWith("D_PRIYA");
   });
@@ -134,7 +156,7 @@ describe("jumping to a conversation", () => {
     openDm.mockRejectedValueOnce(new Error("offline"));
     const input = screen.getByPlaceholderText("Channel or person");
     await user.type(input, "pri");
-    await user.click(screen.getByRole("button", { name: "Priya Natarajan" }));
+    await user.click(screen.getByRole("option", { name: "Priya Natarajan, person" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Could not open a conversation with Priya Natarajan.",
     );

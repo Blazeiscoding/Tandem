@@ -692,8 +692,8 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await page.keyboard.press("Control+f");
   await expect(dialog).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Search messages" })).toHaveCount(0);
-  const lastButton = dialog.getByRole("button").last();
-  await lastButton.focus();
+  // The box is the last thing to Tab to; the matches are chosen with the arrow keys.
+  await dialog.getByRole("combobox", { name: "Channel or person" }).focus();
   await page.keyboard.press("Tab");
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
@@ -764,7 +764,7 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   const switcher = page.getByRole("dialog", { name: "Jump to", exact: true });
   await expect(switcher).toBeVisible();
   await switcher
-    .getByRole("textbox")
+    .getByRole("combobox")
     .dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
   await expect(switcher).toBeVisible();
   await page.keyboard.press("Escape");
@@ -1691,7 +1691,8 @@ test("the demo seed fills a new workspace with something to try, and leaves one 
     await page.getByLabel("Password", { exact: true }).press("Enter");
     const sidebar = page.getByRole("navigation");
     await expect(page.getByText(/^Welcome to Gatherline, everyone!/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "🎉 3", exact: true })).toBeVisible();
+    // Read as who reacted, not only as an emoji and a number.
+    await expect(page.getByRole("button", { name: /^🎉 3 reactions, from .+/ })).toBeVisible();
 
     // The image arrived whole, with its thread beside it.
     await sidebar.getByRole("button", { name: /^#\s*design\b/ }).click();
