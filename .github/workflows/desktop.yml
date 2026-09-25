@@ -1,0 +1,51 @@
+name: Desktop
+# The packaged Windows app. Windows minutes count twice against the account's
+# free allowance, and this job used about two thirds of September's, so it runs
+# when a pull request changes something the packaged app itself depends on:
+# the desktop app, the server it embeds, the client and protocol under the
+# interface, the screens its suite drives, or what installs it. Anything else
+# can ask for it with a manual run: `gh workflow run desktop.yml --ref <branch>`.
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "packages/server/**"
+      - "packages/client-core/**"
+      - "packages/protocol/**"
+      - "packages/ui/src/App.tsx"
+      - "packages/ui/src/platform.ts"
+      - "packages/ui/src/screens/**"
+      - "packages/ui/src/components/HostDialog.tsx"
+      - "packages/ui/src/components/HuddleBar.tsx"
+      - "packages/ui/src/lib/resume.ts"
+      - "tests/e2e/desktop.spec.ts"
+      - "playwright.desktop.config.ts"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @slackoss/desktop package --win
+      - run: node scripts/check-web-bundle.mjs apps/desktop/out/renderer
+      # Packaging still has to succeed here, and test:desktop then launches the
+      # unpacked app it produced. What is no longer kept is the installer that
+      # same step writes beside it: uploading a 107 MB file on every push and
+      # holding it for ninety days used most of what this repository is given
+      # for artifacts, and nothing read them. A release workflow can publish
+      # one deliberately when there is something to hand out.
+      - run: pnpm test:desktop

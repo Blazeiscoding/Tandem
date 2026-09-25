@@ -517,4 +517,8 @@ Artifacts:
   will warn.
 - **CI covers Linux and Windows.** `.github/workflows/ci.yml` has passed on GitHub,
   including browser/container checks on Linux and the packaged Windows scenario
-  in run `34768567486`. macOS remains unverified.
+  in run `34768567486`. macOS remains unverified. Since September 25, 2026 the
+  packaged Windows scenarios (`desktop.yml`) and the container checks
+  (`container.yml`) run only on pull requests that change what they check, and
+  nothing runs again on `main` after a merge, to stay inside the free Actions
+  minutes. CONTRIBUTING.md lists which changes start which checks.

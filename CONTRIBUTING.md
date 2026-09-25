@@ -7,12 +7,34 @@ the applicable GitHub checks before merging. Keep unrelated follow-up work in
 separate PRs rather than expanding a finished change indefinitely. After merging,
 start the next branch from the updated `main`.
 
-CI runs on pull requests and on updates to `main`; feature-branch pushes do not
-create duplicate runs. A newer run for the same PR supersedes an older one. A
-manual workflow dispatch is available when a branch needs checking before a PR.
-If new tests are explicitly deferred for a development phase, record that limit
-in the PR. Keep existing CI checks enabled and distinguish passing existing tests
-from coverage of the new behavior.
+CI runs on pull requests, once for the code it checks. The account has 2,000
+free Actions minutes a month and no budget beyond them, and in September 2026
+checks used them up: every merge ran the whole suite again on `main`, and the
+packaged Windows app, whose minutes count twice, ran on every pull request. So:
+
+- `ci.yml` (Linux: formatting, types, unit and browser tests, both bundle
+  checks) runs on every pull request that changes more than documentation. It
+  does not run again on `main` after a merge. A pull request's run checks the
+  result of merging it, so rebase a branch and let it run again if `main` has
+  moved since.
+- `desktop.yml` (the packaged Windows app) runs when a pull request changes the
+  desktop app, the server, client or protocol, the screens its suite drives, or
+  the lockfile. For anything else the packaged app shows, run it locally
+  (below) or start it by hand: `gh workflow run desktop.yml --ref <branch>`.
+- `container.yml` (the Docker image) runs when the server, the image's files or
+  the lockfile change.
+- `caches.yml` runs on `main` only when the lockfile changes. It refills the
+  pnpm store and Chromium caches that pull requests restore, since a pull
+  request can only use caches made on `main`.
+- A pull request that changes only documentation starts nothing. Run
+  `pnpm format` and `pnpm exec prettier --check .` before pushing it.
+
+Push a branch when it is ready rather than after every commit: each push starts
+a run, and a newer run for the same pull request cancels the older one only
+after it has already been billed for a minute. If new tests are explicitly
+deferred for a development phase, record that limit in the PR. Keep existing CI
+checks enabled and distinguish passing existing tests from coverage of the new
+behavior.
 
 Do not upload build output as a CI artifact on every run. The account has
 half a gigabyte of Actions storage, and GitHub keeps artifacts for ninety days
@@ -72,7 +94,7 @@ then `pnpm test:desktop`. These tests use temporary workspaces and fake media.
 The script every visit to the client downloads has a 500 kB budget. After
 building, `node scripts/check-web-bundle.mjs` measures the browser client and
 `node scripts/check-web-bundle.mjs apps/desktop/out/renderer` the desktop
-renderer; CI runs both. A workspace package that others import declares
+renderer; CI runs both on Linux. A workspace package that others import declares
 `"sideEffects": false`, or the bundler keeps every module in it, used or not.
 A view opened now and then loads with `lazy()` inside `LazyPanel` or
 `LazyDialog`, which say what is loading and offer a way out if it fails, and a
