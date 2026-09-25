@@ -1029,3 +1029,19 @@ It reads only what the client calls live, meaning messages recorded after this c
 Six UI cases cover the wording (one message, a reply, a long message, several senders, more than three) and the timing (the first at once, the rest together after three seconds, then at once again after a quiet spell, only the last three kept), dropping on a move, and an axe check. A client-core case against a real server checks the contract the log relies on: after a reconnect, a message caught up on arrives marked not live and the next one live. The two-person browser scenario checks that Bob hears Alice's live message as "alice: Hello from Alice — live delivery".
 
 Checking replay in that browser scenario turned up something else. Its offline step does not close Bob's open WebSocket: the message sent "while Bob is offline" arrived live and was read with the next one as "2 new messages". Playwright's offline emulation stops new requests, not a socket that is already open. So the scenario never exercised reconnecting, despite its name. The client-core replay cases cover reconnecting instead. The browser entry grew 1.4 kB, to 479.1 kB.
+
+### Side panels take focus and hand it back (U04)
+
+The side panels (Saved, Pins, Threads, Scheduled, Activity and a thread) were already labelled complementary regions, but opening one left focus where it was. Somebody on a keyboard had to find the panel, and a screen reader said nothing had changed. Closing one dropped focus onto the page.
+
+`usePanelFocus` in `packages/ui/src/lib/usePanelFocus.ts` notes what had focus when the panel first rendered. That is before any box inside the panel focuses itself. Opened from the sidebar, the list panels then focus their heading, which a screen reader reads. A thread's reply box already takes focus, so the thread panel leaves focus there. The header's Pins, Saved and Scheduled buttons are pressed toggles, and a panel opened from one of them leaves focus on it. The toggle stays on screen, says the panel is open and closes it again, as a disclosure button does. The main browser scenario had already pinned this down: a keyboard user opening Pins keeps the toggle's tooltip. When a panel closes with focus inside it, focus goes back to the control that opened it. If that control can no longer take focus, it goes to the nearest focusable element around it. A message's toolbar button is shown only while the message has the pointer or focus, so there focus lands on the message. If somebody has moved on, for example into the composer, focus stays where they are.
+
+Five UI cases cover it:
+
+- the heading takes focus on open, focus returns to the opener on close, and an axe check passes
+- focus stays in the composer when the panel closes from outside
+- a panel whose own box takes focus leaves the heading alone and still hands focus back
+- a toggle that opened the panel keeps focus
+- focus falls back to the element around an opener that can no longer take it
+
+Removing the fallback, or the check that somebody has moved on, fails its case. The main browser scenario now checks two things. The Scheduled toggle keeps focus and gets it back from the panel's Close button. Saved, opened from the phone drawer, focuses its heading. One gap remains: when that Saved panel closes, focus drops to the page, because the drawer that opened it is closed by then.

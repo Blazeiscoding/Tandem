@@ -727,9 +727,13 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   const scheduledToggle = page.getByRole("button", { name: "Scheduled messages", exact: true });
   await scheduledToggle.click();
   const scheduled = page.getByRole("complementary", { name: "Scheduled messages", exact: true });
+  // The toggle that opened the panel keeps focus, and closing the panel from
+  // inside hands focus back to it.
   await expect(scheduled.getByRole("heading", { name: "Scheduled", exact: true })).toBeVisible();
-  await scheduledToggle.click();
+  await expect(scheduledToggle).toBeFocused();
+  await scheduled.getByRole("button", { name: "Close scheduled messages", exact: true }).click();
   await expect(scheduled).toHaveCount(0);
+  await expect(scheduledToggle).toBeFocused();
   await page.getByRole("heading", { name: "#design-studio", exact: true }).click();
   const details = page.getByRole("dialog", { name: "#design-studio", exact: true });
   await expect(details).toBeVisible();
@@ -821,6 +825,8 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   await page.getByRole("button", { name: "Saved", exact: true }).click();
   await expect(page.getByRole("navigation")).not.toBeVisible();
+  // Opened from the navigation rather than a toggle, the panel takes focus.
+  await expect(page.getByRole("heading", { name: "Saved", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await composer.fill("Sent from a small window");
   await page.getByRole("button", { name: "Send message", exact: true }).click();

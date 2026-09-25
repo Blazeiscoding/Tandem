@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileMeta, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Composer } from "./Composer.js";
+import { usePanelFocus } from "../lib/usePanelFocus.js";
 import { MessageItem } from "./MessageItem.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Icon } from "./Icon.js";
@@ -27,6 +28,8 @@ export function ThreadPanel({
   onOpenProfile,
 }: Props) {
   const client = useClient();
+  // The reply box takes focus itself; the panel only hands it back on closing.
+  const { panel } = usePanelFocus({ takeFocus: false });
   const page = useWorkspace((s) => s.threadPages[rootId]);
   const root = useWorkspace((s) =>
     s.threadPages[rootId]?.loaded
@@ -129,6 +132,7 @@ export function ThreadPanel({
 
   return (
     <aside
+      ref={panel}
       aria-label="Thread"
       className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
     >

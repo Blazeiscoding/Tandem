@@ -6,6 +6,7 @@ import { Avatar } from "./Avatar.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
 import { ListStatus } from "./ListStatus.js";
+import { usePanelFocus } from "../lib/usePanelFocus.js";
 
 interface Props {
   title: string;
@@ -86,14 +87,18 @@ export function MessageListPanel(props: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, props.reloadKey]);
+  const { panel, heading } = usePanelFocus({ takeFocus: true });
 
   return (
     <aside
+      ref={panel}
       aria-label={props.title}
       className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
     >
       <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
-        <h2 className="font-bold">{props.title}</h2>
+        <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
+          {props.title}
+        </h2>
         {props.headerExtra}
         <button
           disabled={busy}
