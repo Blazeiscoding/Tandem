@@ -1015,3 +1015,9 @@ The host dialog's list now has a Back up button for each workspace, and the runn
 Three desktop cases cover the copy, the free-space refusal and bad requests, and three UI cases cover the list's Back up, a failed or cancelled backup, and Back up now. The first packaged Windows scenario replaces the system folder dialog, backs up the running workspace, and reads the manifest it wrote. The serialized forced matrix passed all 788 tests (server 367, client-core 65, UI 253, protocol 12, desktop 91), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed.
 
 Restoring from the desktop app, backups on a schedule, and saying where a workspace's older backups are remain C2's next steps.
+
+### A workspace whose folder is gone can leave the list (C1, O03)
+
+The registry lists a workspace whose folder has been deleted or moved as missing, and never recreates the folder empty. Until now such an entry stayed in the list for good. The host dialog now offers Remove in place of Start for a missing workspace, and the main process answers `hosting:forget`. Only a missing workspace can be removed. One whose folder is still there would only be adopted again the next time the app starts, so the app refuses and says the workspace is still on this computer. A failed removal is reported in the dialog and leaves the list as it was.
+
+One desktop case and one UI case cover it. The serialized forced matrix passed all 790 tests (server 367, client-core 65, UI 254, protocol 12, desktop 92), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed.

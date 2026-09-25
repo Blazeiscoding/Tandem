@@ -865,6 +865,21 @@ describe("the list of workspaces hosted on this computer", () => {
     expect(existsSync(join(h.dataRoot, entry!.folder))).toBe(false);
   });
 
+  it("removes a workspace whose folder is gone, and keeps one still on this computer", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    await h.controller.start({ workspaceName: "Night Shift" });
+    await h.controller.stop();
+    const [kept, gone] = registryOf(h);
+    await expect(h.controller.forget(kept!.folder)).rejects.toThrow(/still on this computer/);
+    rmSync(join(h.dataRoot, gone!.folder), { recursive: true });
+    await h.controller.forget(gone!.folder);
+    expect(registryOf(h).map((entry) => entry.name)).toEqual(["Rocket Team"]);
+    // Nothing to do for one already gone from the list.
+    await expect(h.controller.forget(gone!.folder)).resolves.toBeUndefined();
+  });
+
   it("creates nothing it could not list, so every workspace can be found again", async () => {
     const h = harness();
     h.saveFails = true;

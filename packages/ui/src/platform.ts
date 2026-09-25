@@ -134,6 +134,8 @@ export interface Platform {
      * makes it there. Null when no folder was chosen.
      */
     backup?: (folder: string) => Promise<{ path: string; at: number } | null>;
+    /** Takes a workspace whose folder is gone out of the list. */
+    forget?: (folder: string) => Promise<void>;
   };
 }
 

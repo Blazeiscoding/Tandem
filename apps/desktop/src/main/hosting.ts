@@ -633,6 +633,30 @@ export function createHostingController(options: HostingOptions) {
     });
   }
 
+  /**
+   * Takes a workspace whose folder is gone out of the list. One whose folder
+   * is still there would only be adopted again on the next launch, so it stays.
+   */
+  function forget(value: unknown): Promise<void> {
+    if (typeof value !== "string")
+      return Promise.reject(new Error("Choose a workspace to remove."));
+    return serialized(async () => {
+      const list = await loadRegistry();
+      const entry = list.find((e) => e.folder === value);
+      if (!entry) return;
+      if (existsSync(join(options.dataRoot, entry.folder)))
+        throw new Error(`${entry.name} is still on this computer, so it stays in the list.`);
+      registry = list.filter((e) => e.folder !== entry.folder);
+      try {
+        await saveRegistry();
+      } catch (error) {
+        registry = list;
+        throw error;
+      }
+      changed();
+    });
+  }
+
   /** The workspace hosted most recently, for offering to start it again. */
   async function lastHosted(): Promise<{
     folder: string;
@@ -876,6 +900,7 @@ export function createHostingController(options: HostingOptions) {
     list,
     lastHosted,
     backup,
+    forget,
     start,
     stop,
     shutdown,

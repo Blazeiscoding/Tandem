@@ -357,6 +357,7 @@ ipcMain.handle("hosting:status", () => hostingStatus());
 // join screen simply shows no resume offer.
 ipcMain.handle("hosting:lastHosted", () => hosting.lastHosted());
 ipcMain.handle("hosting:list", () => hosting.list());
+ipcMain.handle("hosting:forget", (_e, folder: unknown) => hosting.forget(folder));
 ipcMain.handle("hosting:backup", async (event, folder: unknown) => {
   if (quitting) throw new Error("Gatherline is shutting down.");
   const owner = BrowserWindow.fromWebContents(event.sender);

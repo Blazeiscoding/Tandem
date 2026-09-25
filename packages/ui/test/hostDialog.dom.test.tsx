@@ -36,6 +36,7 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
     ...(hosted
       ? {
           list: vi.fn(async () => hosted),
+          forget: vi.fn(async (_folder: string) => {}),
           backup: vi.fn(async (folder: string): Promise<{ path: string; at: number } | null> => ({
             path: `/backups/${folder}-2026-09-25T10-00-00`,
             at: Date.now(),
@@ -187,7 +188,9 @@ describe("hosting a workspace from the host dialog", () => {
       expect.stringContaining("Team APort 8543"),
       expect.stringContaining("Old ClubIts folder is missing"),
     ]);
-    expect(within(list).getByRole("button", { name: "Start hosting Old Club" })).toBeDisabled();
+    expect(
+      within(list).getByRole("button", { name: "Remove Old Club from the list" }),
+    ).toBeEnabled();
     expect(list).toHaveTextContent("Could not read the workspace in the folder broken");
     expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
 
@@ -321,6 +324,31 @@ describe("hosting a workspace from the host dialog", () => {
     expect(await screen.findByText(/^Backed up Rocket Team to \/backups\/team-a-/)).toHaveAttribute(
       "role",
       "status",
+    );
+  });
+
+  it("takes a workspace whose folder is gone out of the list", async () => {
+    const user = userEvent.setup();
+    const gone = {
+      folder: "gone",
+      name: "Old Club",
+      port: 8545,
+      lastHostedAt: 0,
+      lastBackupAt: null,
+      running: false,
+      missing: true,
+    };
+    const { hosting } = fakeHosting(stopped, { workspaces: [gone], unreadable: [] });
+    render(<Harness hosting={hosting} />);
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+    expect(within(list).queryByRole("button", { name: "Start hosting Old Club" })).toBeNull();
+    expect(within(list).queryByRole("button", { name: "Back up Old Club" })).toBeNull();
+
+    hosting.list!.mockResolvedValueOnce({ workspaces: [], unreadable: [] });
+    await user.click(within(list).getByRole("button", { name: "Remove Old Club from the list" }));
+    expect(hosting.forget).toHaveBeenCalledWith("gone");
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Hosted on this computer" })).toBeNull(),
     );
   });
 
