@@ -129,7 +129,16 @@ export function HostDialog(props: {
   const { status, loading, error: statusError, refresh } = props.state;
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<
-    "starting" | "stopping" | "opening" | "closing" | "policy" | "address" | "backing-up" | null
+    | "starting"
+    | "stopping"
+    | "opening"
+    | "closing"
+    | "policy"
+    | "address"
+    | "backing-up"
+    | "removing"
+    | "restoring"
+    | null
   >(null);
   const operationPending = useRef(false);
   const [error, setError] = useState<{ message: string; tunnel?: boolean } | null>(null);
@@ -166,9 +175,50 @@ export function HostDialog(props: {
 
   const [listRevision, setListRevision] = useState(0);
   const { hosted, failed: listFailed } = useHostedWorkspaces(props.hosting, phase, listRevision);
-  /** What the last backup did, until another starts. */
+  /** What the last backup or removal from the list did, until another starts. */
   const [backupNote, setBackupNote] = useState<{ ok: boolean; text: string } | null>(null);
   const backupFn = props.hosting.backup;
+  const forgetFn = props.hosting.forget;
+  const restoreFn = props.hosting.restore;
+
+  async function restoreBackup() {
+    if (!restoreFn || operationPending.current || unavailable) return;
+    operationPending.current = true;
+    setBusy("restoring");
+    setBackupNote(null);
+    try {
+      const restored = await restoreFn();
+      if (restored)
+        setBackupNote({
+          ok: true,
+          text: `Restored ${restored.name}. Start it from the list when you are ready.`,
+        });
+    } catch (reason) {
+      const why = reason instanceof Error && reason.message ? ` ${reason.message}` : "";
+      setBackupNote({ ok: false, text: `The backup was not restored.${why}` });
+    } finally {
+      setListRevision((n) => n + 1);
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function removeMissing(folder: string, name: string) {
+    if (!forgetFn || operationPending.current || unavailable) return;
+    operationPending.current = true;
+    setBusy("removing");
+    setBackupNote(null);
+    try {
+      await forgetFn(folder);
+    } catch (reason) {
+      const why = reason instanceof Error && reason.message ? ` ${reason.message}` : "";
+      setBackupNote({ ok: false, text: `${name} could not be removed from the list.${why}` });
+    } finally {
+      setListRevision((n) => n + 1);
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
 
   async function backUp(folder: string, name: string) {
     if (!backupFn || operationPending.current || unavailable) return;
@@ -766,15 +816,27 @@ export function HostDialog(props: {
                         Back up
                       </button>
                     )}
-                    <button
-                      type="button"
-                      disabled={unavailable || w.missing}
-                      aria-label={`Start hosting ${w.name}`}
-                      onClick={() => void launch({ folder: w.folder })}
-                      className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink hover:border-copper disabled:opacity-40"
-                    >
-                      Start
-                    </button>
+                    {w.missing && forgetFn ? (
+                      <button
+                        type="button"
+                        disabled={unavailable}
+                        aria-label={`Remove ${w.name} from the list`}
+                        onClick={() => void removeMissing(w.folder, w.name)}
+                        className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={unavailable || w.missing}
+                        aria-label={`Start hosting ${w.name}`}
+                        onClick={() => void launch({ folder: w.folder })}
+                        className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink hover:border-copper disabled:opacity-40"
+                      >
+                        Start
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -819,6 +881,16 @@ export function HostDialog(props: {
                   : "Start hosting"}
             </button>
           </form>
+          {restoreFn && (
+            <button
+              type="button"
+              disabled={unavailable}
+              onClick={() => void restoreBackup()}
+              className="mt-3 w-full rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+            >
+              {busy === "restoring" ? "Restoring…" : "Restore from a backup…"}
+            </button>
+          )}
         </>
       ) : null}
     </Dialog>

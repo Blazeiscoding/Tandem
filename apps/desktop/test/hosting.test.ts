@@ -10,6 +10,12 @@ import {
 } from "../src/main/hosting.js";
 import { parseRegistry, readWorkspace, type HostedWorkspace } from "../src/main/registry.js";
 import type { Tunnel } from "../src/main/tunnel.js";
+import {
+  backupWorkspace,
+  createWorkspaceServer,
+  restoreWorkspace,
+  verifyBackup,
+} from "@slackoss/server";
 
 interface StartRequest {
   workspaceName?: string;
@@ -111,6 +117,8 @@ function harness(
       return { files: [] };
     },
     freeBytes: async () => h.free,
+    verifyBackup,
+    restoreWorkspace,
     settings: {
       get: async (key, { strict } = {}) => {
         if (h.readFails && strict) throw new Error("Could not read settings.");
@@ -865,6 +873,21 @@ describe("the list of workspaces hosted on this computer", () => {
     expect(existsSync(join(h.dataRoot, entry!.folder))).toBe(false);
   });
 
+  it("removes a workspace whose folder is gone, and keeps one still on this computer", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    await h.controller.start({ workspaceName: "Night Shift" });
+    await h.controller.stop();
+    const [kept, gone] = registryOf(h);
+    await expect(h.controller.forget(kept!.folder)).rejects.toThrow(/still on this computer/);
+    rmSync(join(h.dataRoot, gone!.folder), { recursive: true });
+    await h.controller.forget(gone!.folder);
+    expect(registryOf(h).map((entry) => entry.name)).toEqual(["Rocket Team"]);
+    // Nothing to do for one already gone from the list.
+    await expect(h.controller.forget(gone!.folder)).resolves.toBeUndefined();
+  });
+
   it("creates nothing it could not list, so every workspace can be found again", async () => {
     const h = harness();
     h.saveFails = true;
@@ -962,6 +985,98 @@ describe("backing up a hosted workspace", () => {
       await expect(h.controller.backup(bad)).rejects.toThrow(/Choose a workspace/);
     }
     expect(h.backups).toEqual([]);
+  });
+});
+
+describe("restoring a backup in the desktop app", () => {
+  /** A real workspace, backed up by the real server, as another computer would have made it. */
+  async function realBackup(): Promise<{ dir: string; id: string }> {
+    const elsewhere = profile();
+    const server = await createWorkspaceServer({
+      dataDir: join(elsewhere, "data"),
+      port: 0,
+      host: "127.0.0.1",
+      mdns: false,
+      workspaceName: "Rocket Team",
+      logger: false,
+    });
+    const id = server.store.getMeta("workspace_id")!;
+    await server.stop();
+    const dir = join(elsewhere, "backup");
+    await backupWorkspace({ dataDir: join(elsewhere, "data"), out: dir });
+    return { dir, id };
+  }
+
+  it("restores onto a fresh install as a new workspace, and starts nothing", async () => {
+    const backup = await realBackup();
+    const h = harness();
+    const restored = await h.controller.restore({ backupDir: backup.dir });
+    expect(restored).toEqual({ folder: expect.stringMatching(NEW_FOLDER), name: "Rocket Team" });
+    expect(registryOf(h)).toEqual([
+      expect.objectContaining({ id: backup.id, folder: restored.folder, name: "Rocket Team" }),
+    ]);
+    expect(readWorkspace(join(h.dataRoot, restored.folder))).toEqual({
+      id: backup.id,
+      name: "Rocket Team",
+    });
+    expect(h.starts).toEqual([]);
+    // Nothing but the restored folder is left behind in the hosted folder.
+    expect(readdirSync(h.dataRoot)).toEqual([restored.folder]);
+    // It starts from the list like any other, with its identity checked.
+    await h.controller.start({ folder: restored.folder });
+    expect(h.starts).toEqual([{ port: 8543, dataDir: join(h.dataRoot, restored.folder) }]);
+  });
+
+  it("brings a listed workspace whose folder is gone back into that folder", async () => {
+    const backup = await realBackup();
+    const settings = new Map<string, unknown>([
+      [
+        "hostedWorkspaces",
+        {
+          version: 1,
+          workspaces: [
+            { id: backup.id, folder: "rocket-team", name: "Rocket", port: 9001, lastHostedAt: 5 },
+          ],
+        },
+      ],
+    ]);
+    const h = harness({ settings });
+    expect(await h.controller.restore({ backupDir: backup.dir })).toEqual({
+      folder: "rocket-team",
+      name: "Rocket Team",
+    });
+    expect(registryOf(h)).toEqual([
+      expect.objectContaining({ folder: "rocket-team", port: 9001, name: "Rocket Team" }),
+    ]);
+    expect(existsSync(join(h.dataRoot, "rocket-team", "workspace.db"))).toBe(true);
+  });
+
+  it("leaves a workspace still on this computer alone", async () => {
+    const backup = await realBackup();
+    const root = profile();
+    workspaceDb(join(root, "hosted", "rocket-team"), backup.id, "Rocket Team");
+    const h = harness({ root });
+    await expect(h.controller.restore({ backupDir: backup.dir })).rejects.toThrow(
+      /already hosted on this computer/,
+    );
+    expect(readdirSync(h.dataRoot)).toEqual(["rocket-team"]);
+    expect(registryOf(h)).toHaveLength(1);
+  });
+
+  it("restores nothing without room for it, or from a damaged backup", async () => {
+    const backup = await realBackup();
+    const h = harness();
+    h.free = 1024;
+    await expect(h.controller.restore({ backupDir: backup.dir })).rejects.toThrow(
+      /not enough free space/,
+    );
+    h.free = Number.MAX_SAFE_INTEGER;
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(join(backup.dir, "workspace.db"), "damaged");
+    await expect(h.controller.restore({ backupDir: backup.dir })).rejects.toThrow(/damaged/);
+    await expect(h.controller.restore({ backupDir: "relative" })).rejects.toThrow(/Choose/);
+    expect(registryOf(h)).toEqual([]);
+    expect(existsSync(h.dataRoot) ? readdirSync(h.dataRoot) : []).toEqual([]);
   });
 });
 

@@ -100,14 +100,14 @@ Old `lastHosted` values, `{ workspaceName, port }`, are converted by working out
 
 ### Failure cases
 
-| Case                                        | Behaviour                                                                                                                 |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `settings.json` unreadable                  | Existing entries cannot be listed. Starting a new workspace is refused, so nothing gets orphaned; the error says so.      |
-| Registry entry points at a missing folder   | Listed as missing and cannot be started. The folder is never recreated empty. Removing it from the list is not built yet. |
-| Entry's database has a different ID         | Refuse to start it, and say the folder holds another workspace. This is what a copied or swapped folder looks like.       |
-| Two entries claim one folder                | Keep the first and drop the other on read, with a warning.                                                                |
-| Folder name in the file is not a plain name | Drop the entry on read. It may not point outside `hosted/`.                                                               |
-| Downgrade to an older build                 | Slug folders reopen as before. `w-` folders are invisible to it but untouched, and they reappear after upgrading again.   |
+| Case                                        | Behaviour                                                                                                                     |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `settings.json` unreadable                  | Existing entries cannot be listed. Starting a new workspace is refused, so nothing gets orphaned; the error says so.          |
+| Registry entry points at a missing folder   | Listed as missing and cannot be started. The folder is never recreated empty. It can be removed from the list, and only then. |
+| Entry's database has a different ID         | Refuse to start it, and say the folder holds another workspace. This is what a copied or swapped folder looks like.           |
+| Two entries claim one folder                | Keep the first and drop the other on read, with a warning.                                                                    |
+| Folder name in the file is not a plain name | Drop the entry on read. It may not point outside `hosted/`.                                                                   |
+| Downgrade to an older build                 | Slug folders reopen as before. `w-` folders are invisible to it but untouched, and they reappear after upgrading again.       |
 
 ## What stays the same
 
