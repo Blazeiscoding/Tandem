@@ -1967,8 +1967,8 @@ test("on a touchscreen each message offers its actions in a menu, and any emoji 
     const picker = page.getByRole("dialog", { name: "Add a reaction" });
     await expect(picker).toBeVisible();
     // Opening the picker does not raise the keyboard over the emoji.
-    await expect(picker.getByRole("textbox", { name: "Search emoji" })).not.toBeFocused();
-    await picker.getByRole("button", { name: "Celebrate party", exact: true }).tap();
+    await expect(picker.getByRole("combobox", { name: "Search emoji" })).not.toBeFocused();
+    await picker.getByRole("option", { name: "Celebrate party", exact: true }).tap();
     await expect(picker).toHaveCount(0);
     await expect(row.getByRole("button", { name: /🎉\s*1/ })).toBeVisible();
 

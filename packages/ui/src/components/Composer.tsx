@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ID, User, ScheduleMessageBody } from "@slackoss/protocol";
 import { ApiError } from "@slackoss/client-core";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
@@ -10,6 +10,7 @@ import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Tooltip } from "./Tooltip.js";
 import { caretToRestore, isImeKey, type PendingCaret } from "../lib/textInput.js";
+import { useListbox } from "../lib/useListbox.js";
 import {
   readWorkspaceStorage,
   workspaceStorageKey,
@@ -67,8 +68,6 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const savedDraft = useWorkspace((s) => s.drafts[draftKey] ?? "");
   const [text, setText] = useState(savedDraft);
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const [commandIndex, setCommandIndex] = useState(0);
   const [attached, setAttached] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -84,7 +83,6 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   /** Replies only: also show this one in the channel's own timeline. */
   const [alsoToChannel, setAlsoToChannel] = useState(false);
   const [attachmentNote, setAttachmentNote] = useState<string | null>(null);
-  const autocompleteId = useId();
   const box = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<PendingCaret | null>(null);
   const filePicker = useRef<HTMLInputElement>(null);
@@ -288,6 +286,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     const q = m[1]!.toLowerCase();
     return commands.filter((c) => c.command.startsWith(q)).slice(0, 6);
   }, [text, commands]);
+  const commandList = useListbox(commandCandidates.length);
+  const mentionList = useListbox(mentionQuery ? candidates.length : 0);
 
   function insertCommand(command: string) {
     if (scheduleLock.current || recoveryBlocksSend) return;
@@ -302,7 +302,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     const m = /(^|\s)@([a-z0-9._-]*)$/i.exec(upToCaret);
     if (m) {
       setMentionQuery({ start: caret - m[2]!.length - 1, query: m[2]! });
-      setMentionIndex(0);
+      mentionList.choose(0);
     } else {
       setMentionQuery(null);
     }
@@ -321,7 +321,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     pendingCaret.current = { start: pos, end: pos, text: next };
   }
 
-  useEffect(() => setCommandIndex(0), [commandCandidates.length]);
+  const chooseCommand = commandList.choose;
+  useEffect(() => chooseCommand(0), [commandCandidates.length, chooseCommand]);
 
   function send() {
     if (archived || scheduleLock.current || recoveryBlocksSend) return;
@@ -509,33 +510,19 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       }
     }
     if (commandCandidates.length > 0) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        setCommandIndex(
-          (i) =>
-            (i + (e.key === "ArrowDown" ? 1 : commandCandidates.length - 1)) %
-            commandCandidates.length,
-        );
-        return;
-      }
+      if (commandList.move(e)) return;
       if (e.key === "Tab") {
         e.preventDefault();
-        insertCommand(commandCandidates[commandIndex]!.command);
+        insertCommand(commandCandidates[commandList.active]!.command);
         return;
       }
       // Enter follows the send preference, rather than choosing a command.
     }
     if (mentionQuery && candidates.length > 0) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        setMentionIndex(
-          (i) => (i + (e.key === "ArrowDown" ? 1 : candidates.length - 1)) % candidates.length,
-        );
-        return;
-      }
+      if (mentionList.move(e)) return;
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
-        insertMention(candidates[mentionIndex]!);
+        insertMention(candidates[mentionList.active]!);
         return;
       }
       if (e.key === "Escape") {
@@ -582,81 +569,59 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       )}
       {!scheduling && commandCandidates.length > 0 && (
         <ul
-          id={autocompleteId}
-          role="listbox"
+          {...commandList.listProps}
           aria-label="Commands"
           className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl"
         >
           {commandCandidates.map((c, i) => (
             <li
               key={c.command}
-              id={`${autocompleteId}-${i}`}
-              role="option"
-              aria-selected={i === commandIndex}
+              {...commandList.optionProps(i)}
+              onClick={() => insertCommand(c.command)}
+              className={`flex w-full cursor-pointer items-baseline gap-2 px-3 py-2 text-left text-sm ${
+                i === commandList.active ? "bg-copper/15" : ""
+              }`}
             >
-              <button
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                }}
-                onClick={() => insertCommand(c.command)}
-                onMouseEnter={() => setCommandIndex(i)}
-                className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
-                  i === commandIndex ? "bg-copper/15" : ""
-                }`}
-              >
-                <span className="font-mono text-copper">/{c.command}</span>
-                {c.usageHint && (
-                  <span className="font-mono text-xs text-ink-faint">{c.usageHint}</span>
-                )}
-                <span className="min-w-0 flex-1 truncate text-xs text-ink-dim">
-                  {c.description}
-                </span>
-              </button>
+              <span className="font-mono text-copper">/{c.command}</span>
+              {c.usageHint && (
+                <span className="font-mono text-xs text-ink-faint">{c.usageHint}</span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-xs text-ink-dim">{c.description}</span>
             </li>
           ))}
         </ul>
       )}
       {!scheduling && mentionQuery && candidates.length > 0 && (
         <ul
-          id={autocompleteId}
-          role="listbox"
+          {...mentionList.listProps}
           aria-label="Mentions"
           className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl"
         >
           {candidates.map((c, i) => (
             <li
               key={c.kind === "user" ? c.user.id : c.token}
-              id={`${autocompleteId}-${i}`}
-              role="option"
-              aria-selected={i === mentionIndex}
+              {...mentionList.optionProps(i)}
+              onClick={() => insertMention(c)}
+              className={`flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left text-sm ${
+                i === mentionList.active ? "bg-copper/15" : ""
+              }`}
             >
-              <button
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                }}
-                onClick={() => insertMention(c)}
-                onMouseEnter={() => setMentionIndex(i)}
-                className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${
-                  i === mentionIndex ? "bg-copper/15" : ""
-                }`}
-              >
-                {c.kind === "user" ? (
-                  <>
-                    <Avatar user={c.user} size={22} />
-                    <span className="font-medium">{c.user.displayName}</span>
-                    <span className="font-mono text-xs text-ink-faint">@{c.user.handle}</span>
-                    {c.user.id === selfId && <span className="text-xs text-ink-faint">(you)</span>}
-                  </>
-                ) : (
-                  <>
-                    <span className="flex size-[22px] items-center justify-center rounded bg-copper/25 text-copper">
-                      <Icon name="at" size={14} />
-                    </span>
-                    <span className="font-medium">@{c.token}</span>
-                    <span className="text-xs text-ink-faint">{c.description}</span>
-                  </>
-                )}
-              </button>
+              {c.kind === "user" ? (
+                <>
+                  <Avatar user={c.user} size={22} />
+                  <span className="font-medium">{c.user.displayName}</span>
+                  <span className="font-mono text-xs text-ink-faint">@{c.user.handle}</span>
+                  {c.user.id === selfId && <span className="text-xs text-ink-faint">(you)</span>}
+                </>
+              ) : (
+                <>
+                  <span className="flex size-[22px] items-center justify-center rounded bg-copper/25 text-copper">
+                    <Icon name="at" size={14} />
+                  </span>
+                  <span className="font-medium">@{c.token}</span>
+                  <span className="text-xs text-ink-faint">{c.description}</span>
+                </>
+              )}
             </li>
           ))}
         </ul>
@@ -781,19 +746,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           rows={1}
           placeholder={dragging ? "Drop files to attach" : placeholder}
           aria-label={placeholder}
-          aria-autocomplete="list"
-          aria-controls={
-            (mentionQuery && candidates.length) || commandCandidates.length
-              ? autocompleteId
-              : undefined
-          }
-          aria-activedescendant={
-            mentionQuery && candidates.length
-              ? `${autocompleteId}-${mentionIndex}`
-              : commandCandidates.length
-                ? `${autocompleteId}-${commandIndex}`
-                : undefined
-          }
+          {...(mentionQuery && candidates.length ? mentionList : commandList).ownerProps}
           onPaste={(e) => {
             const files = [...e.clipboardData.files];
             if (files.length > 0) {

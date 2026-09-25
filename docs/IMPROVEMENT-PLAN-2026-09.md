@@ -1001,3 +1001,21 @@ Channel details had three buttons styled as tabs. They are now a tablist named C
 A reaction was a button read as its emoji and a number. It is now read as, for example, "👍 2 reactions, from Priya Shah and you". It says whether you reacted with `aria-pressed`, and the reactions under a message form a group named Reactions. The hover title names the same people, with "you" in place of your own name.
 
 Three UI cases, each with an axe check, cover the switcher, the tabs and the reactions, and two browser checks now find the switcher's box as a combobox and a reaction by who reacted. The serialized forced matrix passed all 773 tests (server 367, client-core 65, UI 249, protocol 12, desktop 80), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed. The emoji chooser's combobox semantics and announcing new messages are still to do.
+
+### One listbox for every suggestion list (U04)
+
+U04 asked for one listbox shared by the switcher, the composer's suggestions and the emoji chooser. `useListbox` in `packages/ui/src/lib/useListbox.ts` is that listbox. The box keeps focus, so typing goes on, and ArrowDown and ArrowUp move the choice, wrapping. The box names the chosen option as its active descendant, and the option is marked selected. Left, Right, Home and End stay with the box, because they move the caret and a screen reader uses them to read back what was typed. A pointer resting on an option chooses it without taking focus from the box. A keypress scrolls the choice into view; the pointer does not, since it already points at something visible.
+
+The quick switcher moved onto it unchanged. The composer's mention and command suggestions were options with a button inside each, which a screen reader announces twice or not at all. They are plain options now, and the text area points at the chosen one. It stays a text box rather than becoming a combobox, because a textarea may not take that role. Both emoji choosers, in the formatting toolbar and in the reaction picker, were grids of buttons reachable only with Tab. Their search boxes are now comboboxes over a listbox named Emoji, and Enter picks the chosen emoji. On a touchscreen the reaction picker still waits for the search box to be tapped, and a tap on an emoji still picks it.
+
+Seven UI cases cover it:
+
+- mentions: options with nothing focusable inside, arrow keys that wrap, Enter, and an axe check
+- a click that keeps focus in the text area
+- commands, completed with Tab
+- the composer's emoji chooser: arrow keys, Enter, focus back in the text area, and an axe check
+- an emoji search with no matches, which points at nothing
+- a keypress that scrolls the choice into view, where the pointer does not
+- a reaction picked from the keyboard
+
+Taking out the check that only keys scroll fails the scroll case. The serialized forced matrix passed all 780 tests (server 367, client-core 65, UI 256, protocol 12, desktop 80), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed. The browser entry grew 0.4 kB, to 477.7 kB. Announcing new messages is still to do.
