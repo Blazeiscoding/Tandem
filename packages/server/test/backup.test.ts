@@ -1,17 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { createServer, type Server } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   backupWorkspace,
+  inventoryBackup,
   restoreWorkspace,
   verifyBackup,
   type BackupManifest,
 } from "../src/backup.js";
 import { SCHEMA_VERSION } from "../src/db.js";
-import { createWorkspaceServer, type WorkspaceServer } from "../src/server.js";
+import { createWorkspaceServer, type ServerOptions, type WorkspaceServer } from "../src/server.js";
 
 let server: WorkspaceServer | undefined;
 let root: string;
@@ -30,13 +32,14 @@ async function api(path: string, token?: string, method = "GET", body?: unknown)
   return { status: response.status, body: (await response.json()) as any };
 }
 
-async function start() {
+async function start(extra: Partial<ServerOptions> = {}) {
   server = await createWorkspaceServer({
     dataDir,
     host: "127.0.0.1",
     port: 0,
     mdns: false,
     workspaceName: "Backed Up",
+    ...extra,
   });
   base = `http://127.0.0.1:${server.port}`;
 }
@@ -276,5 +279,134 @@ describe("backup and restore", () => {
     await server!.stop();
     await backupWorkspace({ dataDir, out });
     await expect(backupWorkspace({ dataDir, out })).rejects.toThrow(/not empty/);
+  });
+});
+
+describe("an isolated restore", () => {
+  let app: Server;
+  let appOrigin: string;
+  /** Every request the stand-in app received, other than the address check. */
+  let received: { url: string; body: string }[];
+  let answer: number;
+
+  beforeEach(async () => {
+    received = [];
+    answer = 200;
+    app = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk: Buffer) => (body += chunk.toString("utf8")));
+      req.on("end", () => {
+        const challenge = body.startsWith("{")
+          ? (JSON.parse(body) as { challenge?: string }).challenge
+          : undefined;
+        if (challenge) return res.end(JSON.stringify({ challenge }));
+        received.push({ url: req.url ?? "", body });
+        res.writeHead(answer, { "content-type": "application/json" }).end("{}");
+      });
+    });
+    await new Promise<void>((done) => app.listen(0, "127.0.0.1", done));
+    appOrigin = `http://127.0.0.1:${(app.address() as { port: number }).port}`;
+    // The stand-in app is on loopback, which apps may only use with this.
+    await server!.stop();
+    await start({ allowPrivateHooks: true });
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((done) => app.close(() => done()));
+  });
+
+  /** The populated workspace, plus an app that receives events and a command. */
+  async function withApp() {
+    const world = await populate();
+    const made = (await api("/api/apps", world.owner.token, "POST", { name: "Deploy Bot" })).body;
+    const subscribed = await api(
+      `/api/apps/${made.app.id}/subscriptions`,
+      world.owner.token,
+      "POST",
+      {
+        url: `${appOrigin}/events`,
+        eventTypes: ["message.created"],
+      },
+    );
+    expect(subscribed.status).toBe(201);
+    const command = await api(`/api/apps/${made.app.id}/commands`, world.owner.token, "POST", {
+      command: "/deploy",
+      url: `${appOrigin}/deploy`,
+    });
+    expect(command.status).toBe(201);
+    server!.store.addMember(world.general, made.botUser.id);
+    // Refused, so the event is still waiting when the backup is taken.
+    answer = 503;
+    await api(`/api/channels/${world.general}/messages`, world.owner.token, "POST", {
+      text: "an event the app has not had",
+    });
+    await server!.flushEventDeliveries();
+    expect(received.map((r) => r.url)).toContain("/events");
+    return world;
+  }
+
+  it("lists the apps, queued work and sign-ins a backup would bring with it", async () => {
+    await withApp();
+    const out = join(root, "backup");
+    await server!.stop();
+    await backupWorkspace({ dataDir, out });
+
+    const found = inventoryBackup(out);
+    expect(found.appAddresses).toEqual([{ origin: appOrigin, uses: ["commands", "events"] }]);
+    expect(found.scheduled.waiting).toBe(1);
+    expect(found.scheduled.earliestAt).toBeGreaterThan(Date.now());
+    expect(found.undeliveredEvents).toBe(1);
+    // The owner and the guest are both still signed in.
+    expect(found.sessions).toBe(2);
+    expect(inventoryBackup(out, Date.now() + 365 * 24 * 3600_000).sessions).toBe(0);
+  });
+
+  it("posts nothing and calls no app until the copy is started normally", async () => {
+    const world = await withApp();
+    const out = join(root, "backup");
+    await server!.stop();
+    await backupWorkspace({ dataDir, out });
+
+    // A fresh directory, where the scheduled message and the app's retry are
+    // both already due.
+    dataDir = join(root, "check");
+    await restoreWorkspace({ backupDir: out, dataDir });
+    const restored = new DatabaseSync(join(dataDir, "workspace.db"));
+    restored.prepare("UPDATE scheduled_messages SET send_at = 0").run();
+    restored.prepare("UPDATE event_deliveries SET next_attempt_at = 0").run();
+    restored.close();
+
+    answer = 200;
+    received = [];
+    await start({ allowPrivateHooks: true, isolated: true });
+    server!.flushScheduled();
+    await server!.flushEventDeliveries();
+    const owner = (
+      await api("/api/auth/login", undefined, "POST", { handle: "owner", password: "password123" })
+    ).body;
+    const texts = async () =>
+      (await api(`/api/channels/${world.private.id}/messages`, owner.token)).body.messages.map(
+        (m: { text: string }) => m.text,
+      );
+    expect(await texts()).not.toContain("still queued");
+    await api(`/api/channels/${world.general}/messages`, owner.token, "POST", {
+      text: "in the copy",
+    });
+    const ran = await api(`/api/channels/${world.general}/commands`, owner.token, "POST", {
+      text: "/deploy staging",
+    });
+    expect(ran.body).toEqual({ ok: false, error: "command_failed" });
+    await server!.flushEventDeliveries();
+    expect(received).toEqual([]);
+
+    // Started normally, the same data catches up on what it held back.
+    await server!.stop();
+    await start({ allowPrivateHooks: true });
+    expect(await texts()).toContain("still queued");
+    await server!.flushEventDeliveries();
+    const delivered = received
+      .filter((r) => r.url === "/events")
+      .map((r) => (JSON.parse(r.body) as { event: { text: string } }).event.text);
+    expect(delivered).toContain("an event the app has not had");
   });
 });

@@ -183,6 +183,16 @@ export interface ServerOptions {
    * backup taken before the sweep ran.
    */
   retentionDays?: number;
+  /**
+   * Starts a copy for looking at, such as a backup restored to check it. The
+   * copy holds the original's apps, their signing secrets and its queue of
+   * scheduled messages, so an ordinary start would post those messages a
+   * second time and call the same apps as the same workspace. An isolated one
+   * posts nothing that is due, delivers no app events, refuses every call to
+   * an app, and does not announce itself on the network. What was queued stays
+   * queued, and goes out if the same data is later started normally.
+   */
+  isolated?: boolean;
 }
 
 export interface WorkspaceServer {
@@ -525,6 +535,21 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   let closing = false;
   const shutdown = new AbortController();
 
+  /**
+   * Every request to an app goes through here, so an isolated copy has one
+   * place to refuse them. The refusal is a `blocked_host`, whose message the
+   * callers already show to whoever pressed the button or ran the command.
+   */
+  const postToApp: typeof postToUrl = (url, body, contentType, options) =>
+    opts.isolated
+      ? Promise.reject(
+          new OutboundError(
+            "blocked_host",
+            "this is an isolated copy of the workspace, which does not contact apps",
+          ),
+        )
+      : postToUrl(url, body, contentType, options);
+
   let eventDeliveryFlush: Promise<void> | null = null;
   /**
    * Delivers in sequence per subscription and in parallel across endpoints.
@@ -532,6 +557,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * before the row is deleted; event_id remains stable so it can deduplicate.
    */
   const flushEventDeliveries = (): Promise<void> => {
+    // Left queued rather than refused, so nothing is spent against an
+    // endpoint's attempts and it all goes out if this data is started normally.
+    if (opts.isolated) return Promise.resolve();
     if (eventDeliveryFlush) return eventDeliveryFlush;
     eventDeliveryFlush = (async () => {
       let remaining = 50;
@@ -549,7 +577,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
                       "x-slack-retry-reason": "http_error",
                     }
                   : {};
-              const res = await postToUrl(delivery.url, delivery.body, "application/json", {
+              const res = await postToApp(delivery.url, delivery.body, "application/json", {
                 allowPrivate: opts.allowPrivateHooks,
                 signal: shutdown.signal,
                 headers: {
@@ -2545,7 +2573,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     }).toString();
 
     try {
-      const res = await postToUrl(found.command.url, form, "application/x-www-form-urlencoded", {
+      const res = await postToApp(found.command.url, form, "application/x-www-form-urlencoded", {
         allowPrivate: opts.allowPrivateHooks,
         signal: shutdown.signal,
         headers: signatureHeaders(store.appSigningSecret(found.app.id) ?? "", form),
@@ -2934,7 +2962,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const form = new URLSearchParams({ payload }).toString();
 
     try {
-      const res = await postToUrl(
+      const res = await postToApp(
         owner.interactivityUrl,
         form,
         "application/x-www-form-urlencoded",
@@ -2988,7 +3016,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const probe = JSON.stringify({ type: "url_verification", token: "", challenge });
     let answered: string;
     try {
-      const res = await postToUrl(url, probe, "application/json", {
+      const res = await postToApp(url, probe, "application/json", {
         allowPrivate: opts.allowPrivateHooks,
         signal: shutdown.signal,
         headers: signatureHeaders(store.appSigningSecret(appId) ?? "", probe),
@@ -3112,7 +3140,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const form = new URLSearchParams({ payload }).toString();
 
     try {
-      const res = await postToUrl(
+      const res = await postToApp(
         owner.interactivityUrl,
         form,
         "application/x-www-form-urlencoded",
@@ -3552,7 +3580,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const actualPort = (app.server.address() as { port: number }).port;
 
   let mdnsHandle: MdnsHandle | null = null;
-  if (opts.mdns !== false) {
+  // An isolated copy shares the original's name, and would be offered to
+  // people looking for the real one.
+  if (opts.mdns !== false && !opts.isolated) {
     mdnsHandle = advertise({ name: workspaceName(), port: actualPort });
   }
 
@@ -3566,6 +3596,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * row; one they cannot fails it. Either way the reason is theirs to read.
    */
   const flushScheduled = () => {
+    if (opts.isolated) return;
     for (const item of store.dueScheduled()) {
       const channel = store.getChannel(item.channelId);
       const held = !channel
