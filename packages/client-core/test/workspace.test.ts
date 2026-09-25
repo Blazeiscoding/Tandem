@@ -174,6 +174,32 @@ describe("WorkspaceClient", () => {
     reconnected.destroy();
   });
 
+  it("says which incoming messages it caught up on, and which arrived live", async () => {
+    const client = new WorkspaceClient(base, aliceToken);
+    client.connect();
+    await until(client, (s) => s.status === "online");
+    const general = Object.values(client.state.channels).find((c) => c.name === "general")!;
+    const seqBefore = client.state.lastSeq;
+    client.destroy();
+    const bob = new Api(base, bobToken);
+    await bob.sendMessage(general.id, { text: "sent while you were away" });
+
+    const reconnected = new WorkspaceClient(base, aliceToken);
+    const heard: [string, boolean][] = [];
+    reconnected.onIncomingMessage = (message, { live }) => heard.push([message.text, live]);
+    reconnected.store.setState({ lastSeq: seqBefore });
+    reconnected.connect();
+    await until(reconnected, (s) => s.status === "online");
+    await bob.sendMessage(general.id, { text: "sent while you are here" });
+    await until(reconnected, () => heard.length === 2, "the live message");
+    // Notifications and the screen reader's new-message log both rely on this.
+    expect(heard).toEqual([
+      ["sent while you were away", false],
+      ["sent while you are here", true],
+    ]);
+    reconnected.destroy();
+  });
+
   it("applies reactions, pins and saves from events", async () => {
     const client = new WorkspaceClient(base, aliceToken);
     client.connect();

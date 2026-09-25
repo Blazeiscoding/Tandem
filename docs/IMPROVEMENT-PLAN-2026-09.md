@@ -1019,3 +1019,13 @@ Seven UI cases cover it:
 - a reaction picked from the keyboard
 
 Taking out the check that only keys scroll fails the scroll case. The serialized forced matrix passed all 780 tests (server 367, client-core 65, UI 256, protocol 12, desktop 80), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed. The browser entry grew 0.4 kB, to 477.7 kB. Announcing new messages is still to do.
+
+### New messages are read aloud in the open conversation (U04)
+
+Nothing told a screen reader that a message had arrived; somebody had to go and look. A log named New messages, out of sight, now reads what reaches the conversation on screen: a message in the open channel, a reply sent to the channel too, or a reply in the open thread. The first is read at once, as "Priya Shah: Launch is on Friday", or "Sam Rivera replied in the thread: Agreed". Any that follow within three seconds wait and are read together, as a count and who sent them, such as "3 new messages, from Priya Shah and Sam Rivera". A busy channel therefore does not talk over everything else. Long messages are cut at 200 characters, and more than three senders become "and 2 others".
+
+It reads only what the client calls live, meaning messages recorded after this connection began. What a reconnect catches up on is shown but not read, since it is history, not news. Your own messages are never read. Moving to another conversation drops anything still waiting. The log sits outside `main`, which goes inert while the phone drawer is open.
+
+Six UI cases cover the wording (one message, a reply, a long message, several senders, more than three) and the timing (the first at once, the rest together after three seconds, then at once again after a quiet spell, only the last three kept), dropping on a move, and an axe check. A client-core case against a real server checks the contract the log relies on: after a reconnect, a message caught up on arrives marked not live and the next one live. The two-person browser scenario checks that Bob hears Alice's live message as "alice: Hello from Alice — live delivery".
+
+Checking replay in that browser scenario turned up something else. Its offline step does not close Bob's open WebSocket: the message sent "while Bob is offline" arrived live and was read with the next one as "2 new messages". Playwright's offline emulation stops new requests, not a socket that is already open. So the scenario never exercised reconnecting, despite its name. The client-core replay cases cover reconnecting instead. The browser entry grew 1.4 kB, to 479.1 kB.

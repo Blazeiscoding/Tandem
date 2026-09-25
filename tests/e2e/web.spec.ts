@@ -238,6 +238,9 @@ test("two people register, chat, become friends, reconnect, and exchange real We
     await alice.locator("textarea").fill("Hello from Alice — live delivery");
     await alice.locator("textarea").press("Enter");
     await expect(bob.getByText("Hello from Alice — live delivery", { exact: true })).toBeVisible();
+    // A screen reader hears a message as it arrives in the open conversation.
+    const bobHears = bob.getByRole("log", { name: "New messages", exact: true });
+    await expect(bobHears).toHaveText("alice: Hello from Alice — live delivery");
     await alice.getByRole("button", { name: "Friends", exact: true }).click();
     await alice.getByRole("button", { name: "Add friends", exact: true }).click();
     await alice.getByRole("button", { name: "Add friend", exact: true }).click();
