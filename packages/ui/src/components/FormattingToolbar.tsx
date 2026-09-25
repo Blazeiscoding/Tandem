@@ -3,6 +3,7 @@ import { findEmoji } from "../lib/emoji.js";
 import { isImeKey } from "../lib/textInput.js";
 import { useListbox } from "../lib/useListbox.js";
 import { Icon } from "./Icon.js";
+import { Tooltip } from "./Tooltip.js";
 
 export const MESSAGE_LIMIT = 12_000;
 export const formattingShortcut = (key: string) => ({ b: "*", i: "_", e: "`" })[key.toLowerCase()];
@@ -66,48 +67,56 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
         className="flex flex-wrap items-center gap-0.5 border-b border-edge px-2 py-1 text-sm text-ink-dim"
       >
         {[
-          { label: "Bold", symbol: "B", marker: "*", style: "font-bold" },
-          { label: "Italic", symbol: "I", marker: "_", style: "italic" },
+          { label: "Bold", symbol: "B", marker: "*", style: "font-bold", keys: "Ctrl/Cmd+B" },
+          { label: "Italic", symbol: "I", marker: "_", style: "italic", keys: "Ctrl/Cmd+I" },
           { label: "Strikethrough", symbol: "S", marker: "~", style: "line-through" },
-          { label: "Inline code", symbol: "</>", marker: "`", style: "font-mono text-xs" },
+          {
+            label: "Inline code",
+            symbol: "</>",
+            marker: "`",
+            style: "font-mono text-xs",
+            keys: "Ctrl/Cmd+E",
+          },
         ].map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            aria-label={item.label}
-            title={item.label}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onFormat(item.marker, "text")}
-            className={`rounded px-2 py-1 hover:bg-lifted ${item.style}`}
-          >
-            {item.symbol}
-          </button>
+          <Tooltip key={item.label} label={item.label} keys={item.keys}>
+            <button
+              type="button"
+              aria-label={item.label}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onFormat(item.marker, "text")}
+              className={`rounded px-2 py-1 hover:bg-lifted ${item.style}`}
+            >
+              {item.symbol}
+            </button>
+          </Tooltip>
         ))}
-        <button
-          type="button"
-          aria-label="Code block"
-          title="Code block"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onFormat("```", "code", true)}
-          className="rounded px-2 py-1 font-mono text-xs hover:bg-lifted"
-        >
-          {"{ }"}
-        </button>
-        <button
-          ref={trigger}
-          type="button"
-          aria-label="Insert emoji"
-          title="Insert emoji"
-          aria-expanded={open}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            setOpen((v) => !v);
-            setQuery("");
-          }}
-          className="flex items-center rounded px-2 py-1 hover:bg-lifted"
-        >
-          <Icon name="smile" size={15} />
-        </button>
+        <Tooltip label="Code block">
+          <button
+            type="button"
+            aria-label="Code block"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onFormat("```", "code", true)}
+            className="rounded px-2 py-1 font-mono text-xs hover:bg-lifted"
+          >
+            {"{ }"}
+          </button>
+        </Tooltip>
+        <Tooltip label="Insert emoji">
+          <button
+            ref={trigger}
+            type="button"
+            aria-label="Insert emoji"
+            aria-expanded={open}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setOpen((v) => !v);
+              setQuery("");
+            }}
+            className="flex items-center rounded px-2 py-1 hover:bg-lifted"
+          >
+            <Icon name="smile" size={15} />
+          </button>
+        </Tooltip>
         <button
           type="button"
           aria-pressed={preview}

@@ -256,9 +256,9 @@ test("two people register, chat, become friends, reconnect, and exchange real We
     await alice.locator("textarea").press("Enter");
     await b.setOffline(false);
     await expect(bob.getByText("Message while Bob is offline", { exact: true })).toBeVisible();
-    await alice.getByTitle("Start a huddle", { exact: true }).click();
+    await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
     await expect(alice.getByText("Huddle in #general", { exact: true })).toBeVisible();
-    await bob.getByTitle("Join the huddle (1)", { exact: true }).click();
+    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
     for (const page of [alice, bob]) {
       await expect
         .poll(() =>

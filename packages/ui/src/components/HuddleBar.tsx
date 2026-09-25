@@ -6,6 +6,7 @@ import { channelTitle } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
 import { Icon } from "./Icon.js";
 import { HuddleControls } from "./HuddleControls.js";
+import { Tooltip } from "./Tooltip.js";
 import { huddleHasVideo, type HuddleView } from "./HuddleStage.js";
 
 export { HuddleStage } from "./HuddleStage.js";
@@ -196,31 +197,33 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
     );
   }
 
+  const label = count > 0 ? `Join the huddle (${count})` : "Start a huddle";
   return (
-    <button
-      onClick={join}
-      disabled={joining}
-      title={error ?? (count > 0 ? `Join the huddle (${count})` : "Start a huddle")}
-      aria-label={count > 0 ? `Join the huddle (${count})` : "Start a huddle"}
-      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
-        error
-          ? "border-alert text-alert"
-          : count > 0
-            ? "border-online text-online hover:bg-online/10"
-            : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
-      }`}
-    >
-      {error ? (
-        <span role="alert">{error}</span>
-      ) : joining ? (
-        "Joining…"
-      ) : (
-        <>
-          <Icon name="headphones" />
-          <span className="header-secondary">Huddle</span>
-          {count > 0 && <span className="font-mono text-[11px]">{count}</span>}
-        </>
-      )}
-    </button>
+    <Tooltip label={label}>
+      <button
+        onClick={join}
+        disabled={joining}
+        aria-label={label}
+        className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+          error
+            ? "border-alert text-alert"
+            : count > 0
+              ? "border-online text-online hover:bg-online/10"
+              : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+        }`}
+      >
+        {error ? (
+          <span role="alert">{error}</span>
+        ) : joining ? (
+          "Joining…"
+        ) : (
+          <>
+            <Icon name="headphones" />
+            <span className="header-secondary">Huddle</span>
+            {count > 0 && <span className="font-mono text-[11px]">{count}</span>}
+          </>
+        )}
+      </button>
+    </Tooltip>
   );
 }

@@ -4,6 +4,7 @@ import { useClient, useWorkspace } from "../context.js";
 import { channelTitle, formatTime } from "../lib/format.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
+import { Tooltip } from "./Tooltip.js";
 import { ListStatus } from "./ListStatus.js";
 import { usePanelFocus } from "../lib/usePanelFocus.js";
 
@@ -168,14 +169,15 @@ export function ActivityPanel({
                     Open in conversation
                   </button>
                   {unread && (
-                    <button
-                      title="Mark this conversation read through this message"
-                      onClick={() =>
-                        client.markRead(message.channelId, message.seq, { explicit: true })
-                      }
-                    >
-                      Read through here
-                    </button>
+                    <Tooltip label="Mark this conversation read through this message">
+                      <button
+                        onClick={() =>
+                          client.markRead(message.channelId, message.seq, { explicit: true })
+                        }
+                      >
+                        Read through here
+                      </button>
+                    </Tooltip>
                   )}
                 </div>
               </li>

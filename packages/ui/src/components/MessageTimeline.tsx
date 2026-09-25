@@ -8,6 +8,7 @@ import { ListStatus } from "./ListStatus.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
+import { Tooltip } from "./Tooltip.js";
 import { useRovingMessages } from "../lib/useRovingMessages.js";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -402,14 +403,15 @@ function EphemeralRow({ message, channelId }: { message: EphemeralMessage; chann
           <span className="font-mono text-[10px] uppercase tracking-widest text-ink-faint">
             Only visible to you
           </span>
-          <button
-            onClick={() => client.dismissEphemeral(channelId, message.id)}
-            className="ml-auto rounded p-1 text-ink-faint opacity-0 transition-opacity hover:bg-lifted hover:text-ink group-hover:opacity-100"
-            title="Dismiss"
-            aria-label="Dismiss"
-          >
-            <Icon name="close" size={14} />
-          </button>
+          <Tooltip label="Dismiss">
+            <button
+              onClick={() => client.dismissEphemeral(channelId, message.id)}
+              className="ml-auto rounded p-1 text-ink-faint opacity-0 transition-opacity hover:bg-lifted hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+              aria-label="Dismiss"
+            >
+              <Icon name="close" size={14} />
+            </button>
+          </Tooltip>
         </div>
         <div className="text-[15px] leading-relaxed text-ink-dim">
           <Mrkdwn text={message.text} users={users} channels={channels} />

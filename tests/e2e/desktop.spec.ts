@@ -101,7 +101,7 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   const web = await fetch(`http://127.0.0.1:${status.port}/`);
   expect(web.status).toBe(200);
   expect(await web.text()).toContain('<div id="root">');
-  await page.getByTitle("Start a huddle", { exact: true }).click();
+  await page.getByRole("button", { name: "Start a huddle", exact: true }).click();
   await expect(page.getByText("Huddle in #general", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Leave", exact: true }).click();
   await page.screenshot({ path: info.outputPath("desktop.png") });
