@@ -275,6 +275,10 @@ as messages arrive, until somebody has moved. The keyboard journey now reaches
 the newest of two messages from the composer, checks that the other one is out
 of the Tab order, moves up with ArrowUp and goes into its actions with Enter.
 
+The thread branch applies the same hook to a thread. The keyboard journey now
+checks that, after a reply, the reply is the thread's one Tab stop and the root
+is out of the Tab order, and that ArrowUp moves from the reply to the root.
+
 Known gaps: the tray menu is read as the app builds it rather than clicked, and the native
 confirmations it and quitting show are not exercised. Component tests run in
 jsdom for the dialog, the host dialog, the Apps, channel-members, audit-history and signed-in-devices lists, the modal layer, the app-owned confirmation, the tooltip and the notices,
