@@ -1059,3 +1059,20 @@ Three UI cases cover it:
 - a refused field is marked invalid, described by its error, and takes focus, with an axe check
 
 All three fail against the old form.
+
+### The main journey by keyboard alone (U04)
+
+U04's last listed check was one browser scenario that uses only the keyboard, from signing in to opening settings. It runs against its own server, with one channel and one message. It signs in by typing into the card, then does each of the following by keyboard:
+
+- switches to #design with Ctrl+K
+- goes back from the composer to the message with Shift+Tab, and Tabs to Reply in thread
+- replies in the thread, closes it, and lands back on the message
+- opens Add a reaction and types "rocket" then Enter, after which the reaction reads "🚀 1 reaction, from you"
+- searches with Ctrl+F
+- opens Account settings from the Workspace menu with the arrow keys, closes it with Escape, and lands back on the menu button
+
+The helper that presses a key until something has focus gives up after a set number of presses, so an unreachable control fails the scenario.
+
+Writing it found two real faults, both with the same cause. The composer is disabled until its saved scheduling state has been read, and a disabled box refuses focus, so the composer's request for focus on mount did nothing. After signing in, focus was left on the page itself. After opening a thread, it stayed on the Reply in thread button, so a thread's reply box never got the focus it asked for. The composer now remembers a refused request, along with what had focus at the time. Once it can take focus, it does, unless somebody has moved on meanwhile.
+
+Three UI cases cover that: focus after a slow load, focus taken from the button that opened a thread, and focus left alone when somebody has moved on. The first two fail against the old composer.
