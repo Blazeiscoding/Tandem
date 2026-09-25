@@ -2,7 +2,7 @@
 
 Written September 15, 2026, against `main` at `b36fec5`, the merge of PR #48, plus the uncommitted modal work on the `fix/modal-keyboard-ownership` branch.
 
-Updated September 23, 2026: phase 0 is done, in PRs #50 to #58. The counts in the next two sections are still September 15's. Today there are 792 unit and integration tests, 14 browser scenarios and 2 packaged Windows scenarios.
+Updated September 23, 2026: phase 0 is done, in PRs #50 to #58. The counts in the next two sections are still September 15's. Today there are 795 unit and integration tests, 14 browser scenarios and 2 packaged Windows scenarios.
 
 `IMPROVEMENT-PLAN-2026-09.md` holds the original assessment and a log of everything built since. This document looks forward. For every item it says what is still open, what I would do first, and how I would do each piece. It draws on four sources.
 
@@ -161,7 +161,7 @@ Several weeks. Later pieces build on earlier ones, so the order inside this phas
 2. **U04, keyboard and screen readers, in slices.**
    - One listbox hook using `aria-activedescendant`, with the combobox role on the input, shared by the switcher, the mention and channel autocomplete and the emoji chooser. Done: `useListbox` serves the switcher, the composer's mention and command suggestions, and the composer's and reaction picker's emoji. There is no channel autocomplete to share it with yet.
    - A tabs component with `tablist`, `tab` and `tabpanel` roles and arrow keys, for channel details and the sign-in card. Done for both, in #54 and #87, without a shared component yet.
-   - A label audit of every field. A placeholder is not a label.
+   - A label audit of every field. A placeholder is not a label. Done: every field with a placeholder also has a label, and the sign-in, account and hosting fields tie their hints to themselves. The last to do so, an app's form, now ties each field to its hint or error, marks refused and required fields, and takes focus to the first refused field.
    - Roving focus in the message list. The list is one Tab stop, arrow keys move between messages, and Enter opens a message's actions. Reactions read as "👍 2, from Sam and Priya, including you".
    - Side panels as labelled regions that take focus when they open and hand it back when they close. Done: opened from the sidebar, the list panels focus their heading and the thread its reply box. Opened from a header toggle, focus stays on the toggle. Closing any of them returns focus to what opened it. When Saved opened from the phone drawer closes, focus still drops to the page, because the drawer is closed by then.
    - A polite live region that announces new messages in the open conversation, throttled, and silent during replay and resync. Done: a log named New messages reads the first at once and any that follow within three seconds together, as a count and who sent them.

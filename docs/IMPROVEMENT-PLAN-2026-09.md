@@ -1045,3 +1045,17 @@ Five UI cases cover it:
 - focus falls back to the element around an opener that can no longer take it
 
 Removing the fallback, or the check that somebody has moved on, fails its case. The main browser scenario now checks two things. The Scheduled toggle keeps focus and gets it back from the panel's Close button. Saved, opened from the phone drawer, focuses its heading. One gap remains: when that Saved panel closes, focus drops to the page, because the drawer that opened it is closed by then.
+
+### An app's form ties its fields to their hints and errors (U04)
+
+U04 asked for a label audit of every field, because a placeholder is not a label. Every field with a placeholder already has a label, and the sign-in, account and hosting fields tie their hints to themselves. An app's form did not. A screen reader read a field's label but not the hint under it, and when the app refused a field, nothing said which one: the error was announced once and then left unattached. Each field is now described by its hint, or by its error when the app refused it, just as the error replaces the hint on screen. Refused fields are marked invalid, fields not marked optional are marked required, and after a refusal focus goes to the first refused field.
+
+The same work turned up a real bug. The form kept each value under its action id alone, but an action id need only be unique within its block. Two fields in different blocks that shared one, such as `value`, shared a value: typing an amount filled the reason too, and both went to the app with the same text. Values are now kept under block and action id together.
+
+Three UI cases cover it:
+
+- each field is described by its hint and says whether it is required, with an axe check
+- two fields that share an action id keep their own values, and the app receives both
+- a refused field is marked invalid, described by its error, and takes focus, with an axe check
+
+All three fail against the old form.
