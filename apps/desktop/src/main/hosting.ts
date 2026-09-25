@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import type { Tunnel } from "./tunnel.js";
 import {
   REGISTRY_KEY,
@@ -66,6 +66,8 @@ export interface HostedWorkspaceSummary {
   name: string;
   port: number;
   lastHostedAt: number;
+  /** When a backup of it last finished, or null if none has here. */
+  lastBackupAt: number | null;
   running: boolean;
   /** Its folder is gone, so it cannot start. */
   missing: boolean;
@@ -121,6 +123,18 @@ interface HostingOptions {
   };
   /** Reads a workspace's identity from its folder without starting it. */
   readWorkspace?: typeof readWorkspace;
+  /** The server's verified backup: a consistent copy of the database and every attachment. */
+  backupWorkspace?(options: { dataDir: string; out: string }): Promise<{ files: unknown[] }>;
+  /** Bytes free on the disk holding `dir`. */
+  freeBytes?(dir: string): Promise<number>;
+  /** The server's check of a backup's checksums and database, returning its manifest. */
+  verifyBackup?(dir: string): Promise<{
+    workspaceName: string;
+    database: { bytes: number };
+    files: { bytes: number }[];
+  }>;
+  /** The server's restore: verified, staged beside `dataDir`, then swapped in. */
+  restoreWorkspace?(options: { backupDir: string; dataDir: string }): Promise<unknown>;
   now?: () => number;
   dataRoot: string;
   defaultPort: number;
@@ -180,6 +194,25 @@ function startOptions(value: unknown): StartRequest {
   )
     throw new Error("Use a workspace name of 1 to 80 characters without control characters.");
   return { workspaceName: workspaceName.trim(), port: port as number | undefined };
+}
+
+/** Everything under a folder, counted by size. Files that vanish while counting are skipped. */
+async function folderBytes(dir: string): Promise<number> {
+  let total = 0;
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) total += await folderBytes(path);
+    else if (entry.isFile())
+      total += await stat(path).then(
+        (info) => info.size,
+        () => 0,
+      );
+  }
+  return total;
+}
+
+function megabytes(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
 }
 
 /** Owns the embedded server, including operations accepted just before app shutdown. */
@@ -558,11 +591,150 @@ export function createHostingController(options: HostingOptions) {
           name: entry.name,
           port: entry.port,
           lastHostedAt: entry.lastHostedAt,
+          lastBackupAt: entry.lastBackupAt ?? null,
           running: server !== null && workspace?.folder === entry.folder,
           missing: !existsSync(join(options.dataRoot, entry.folder)),
         })),
       unreadable: unreadableFolders,
     };
+  }
+
+  /**
+   * Copies a hosted workspace into a new folder inside `destination`, running
+   * or not, and records when. It waits its turn behind starting and stopping,
+   * so the app cannot quit or change workspaces halfway through a copy.
+   */
+  function backup(value: unknown): Promise<{ path: string; at: number }> {
+    const { folder, destination } = (value ?? {}) as Record<string, unknown>;
+    if (typeof folder !== "string" || typeof destination !== "string" || !isAbsolute(destination))
+      return Promise.reject(new Error("Choose a workspace and a folder to back it up to."));
+    if (!options.backupWorkspace)
+      return Promise.reject(new Error("Backing up is not available in this app."));
+    return serialized(async () => {
+      if (closing) throw new Error("The app is quitting.");
+      const entry = (await loadRegistry()).find((e) => e.folder === folder);
+      if (!entry) throw new Error("That workspace is not in the list hosted on this computer.");
+      const dataDir = join(options.dataRoot, entry.folder);
+      if (!existsSync(dataDir))
+        throw new Error(
+          `The folder that held ${entry.name} is missing, so there is nothing to back up.`,
+        );
+      if (options.freeBytes) {
+        // The copy is about the size of the folder. A little over that leaves
+        // room for the database's snapshot to be larger than the file it came from.
+        const needed = Math.ceil((await folderBytes(dataDir)) * 1.1) + 16 * 1024 * 1024;
+        const free = await options.freeBytes(destination);
+        if (free < needed)
+          throw new Error(
+            `There is not enough free space there. The backup needs about ${megabytes(needed)}, and ${megabytes(free)} is free.`,
+          );
+      }
+      const stamp = new Date(now()).toISOString().slice(0, 19).replaceAll(":", "-");
+      const out = join(destination, `${legacyFolder(entry.name)}-${stamp}`);
+      await options.backupWorkspace!({ dataDir, out });
+      const at = now();
+      updateEntry(entry.folder, { lastBackupAt: at });
+      // The backup is made and verified either way. Only the date shown for it can be lost.
+      await saveRegistry().catch(() => {});
+      changed();
+      return { path: out, at };
+    });
+  }
+
+  /**
+   * Restores a backup as a workspace hosted here, without starting it. A
+   * workspace this computer does not list gets a new folder. One it lists
+   * whose folder is gone comes back into that folder. One still here is left
+   * alone: replacing it is a separate, confirmed step.
+   */
+  function restore(value: unknown): Promise<{ folder: string; name: string }> {
+    const { backupDir } = (value ?? {}) as Record<string, unknown>;
+    if (typeof backupDir !== "string" || !isAbsolute(backupDir))
+      return Promise.reject(new Error("Choose the folder of a backup to restore."));
+    if (!options.verifyBackup || !options.restoreWorkspace)
+      return Promise.reject(new Error("Restoring is not available in this app."));
+    return serialized(async () => {
+      if (closing) throw new Error("The app is quitting.");
+      const list = await loadRegistry();
+      const manifest = await options.verifyBackup!(backupDir);
+      const id = read(backupDir)?.id ?? null;
+      const listed = id ? list.find((e) => e.id === id) : undefined;
+      if (listed && existsSync(join(options.dataRoot, listed.folder)))
+        throw new Error(
+          `${listed.name} is already hosted on this computer, so this backup was not restored over it.`,
+        );
+      await mkdir(options.dataRoot, { recursive: true });
+      if (options.freeBytes) {
+        const size = manifest.database.bytes + manifest.files.reduce((n, f) => n + f.bytes, 0);
+        // Staged beside its folder and checked before it is swapped in.
+        const needed = Math.ceil(size * 1.1) + 16 * 1024 * 1024;
+        const free = await options.freeBytes(options.dataRoot);
+        if (free < needed)
+          throw new Error(
+            `There is not enough free space for it. Restoring needs about ${megabytes(needed)}, and ${megabytes(free)} is free.`,
+          );
+      }
+      const entry: HostedWorkspace = listed ?? {
+        id,
+        folder: newFolder(),
+        name: manifest.workspaceName.trim().slice(0, 80) || "Restored workspace",
+        port: options.defaultPort,
+        lastHostedAt: now(),
+      };
+      // Listed first, as a new workspace is, so a restored one can always be found.
+      if (!listed) {
+        registry = [...list, entry];
+        try {
+          await saveRegistry();
+        } catch {
+          registry = list;
+          throw new Error(
+            "Gatherline could not add the workspace to its settings, so it did not restore it. Check that its settings folder is writable, then try again.",
+          );
+        }
+      }
+      try {
+        await options.restoreWorkspace!({
+          backupDir,
+          dataDir: join(options.dataRoot, entry.folder),
+        });
+      } catch (error) {
+        if (!listed) {
+          registry = list;
+          await saveRegistry().catch(() => {});
+        }
+        throw error;
+      }
+      const name = manifest.workspaceName.trim().slice(0, 80) || entry.name;
+      updateEntry(entry.folder, { name });
+      await saveRegistry().catch(() => {});
+      changed();
+      return { folder: entry.folder, name };
+    });
+  }
+
+  /**
+   * Takes a workspace whose folder is gone out of the list. One whose folder
+   * is still there would only be adopted again on the next launch, so it stays.
+   */
+  function forget(value: unknown): Promise<void> {
+    if (typeof value !== "string")
+      return Promise.reject(new Error("Choose a workspace to remove."));
+    return serialized(async () => {
+      const list = await loadRegistry();
+      const entry = list.find((e) => e.folder === value);
+      if (!entry) return;
+      if (existsSync(join(options.dataRoot, entry.folder)))
+        throw new Error(`${entry.name} is still on this computer, so it stays in the list.`);
+      registry = list.filter((e) => e.folder !== entry.folder);
+      try {
+        await saveRegistry();
+      } catch (error) {
+        registry = list;
+        throw error;
+      }
+      changed();
+    });
   }
 
   /** The workspace hosted most recently, for offering to start it again. */
@@ -807,6 +979,9 @@ export function createHostingController(options: HostingOptions) {
     status,
     list,
     lastHosted,
+    backup,
+    restore,
+    forget,
     start,
     stop,
     shutdown,

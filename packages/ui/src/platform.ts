@@ -37,6 +37,8 @@ export interface HostedWorkspaces {
     name: string;
     port: number;
     lastHostedAt: number;
+    /** When a backup of it last finished, or null if none has on this computer. */
+    lastBackupAt: number | null;
     running: boolean;
     /** Its folder is gone, so it cannot start. */
     missing: boolean;
@@ -127,6 +129,18 @@ export interface Platform {
     lastHosted?: () => Promise<LastHosted | null>;
     /** Every workspace hosted on this computer. Absent from apps older than the list. */
     list?: () => Promise<HostedWorkspaces>;
+    /**
+     * Asks where to save a backup of a hosted workspace, running or not, and
+     * makes it there. Null when no folder was chosen.
+     */
+    backup?: (folder: string) => Promise<{ path: string; at: number } | null>;
+    /** Takes a workspace whose folder is gone out of the list. */
+    forget?: (folder: string) => Promise<void>;
+    /**
+     * Asks for a backup's folder and restores it as a workspace hosted here,
+     * without starting it. Null when no folder was chosen.
+     */
+    restore?: () => Promise<{ folder: string; name: string } | null>;
   };
 }
 
