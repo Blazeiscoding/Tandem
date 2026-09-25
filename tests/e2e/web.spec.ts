@@ -2068,6 +2068,7 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
       ).json();
     const { channel: design } = await call("/api/channels", { type: "public", name: "design" });
     await call(`/api/channels/${design.id}/messages`, { text: "Which icon set are we using?" });
+    await call(`/api/channels/${design.id}/messages`, { text: "The review is on Friday." });
 
     const page = await context.newPage();
     await page.goto(origin);
@@ -2089,9 +2090,18 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     await expect(page.getByRole("heading", { name: "#design", exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Message #design" })).toBeFocused();
 
-    // Reply in a thread: back from the composer to the message, then into its actions.
+    // Reply in a thread. The list of messages is one Tab stop, the newest
+    // message; the arrow keys move between messages, and Enter goes into one's
+    // actions.
     const question = page.getByRole("article").filter({ hasText: "Which icon set are we using?" });
-    await pressUntilFocused(page, "Shift+Tab", question);
+    const review = page.getByRole("article").filter({ hasText: "The review is on Friday." });
+    await pressUntilFocused(page, "Shift+Tab", review);
+    await expect(question).toHaveAttribute("tabindex", "-1");
+    await page.keyboard.press("ArrowUp");
+    await expect(question).toBeFocused();
+    await expect(review).toHaveAttribute("tabindex", "-1");
+    await page.keyboard.press("Enter");
+    await expect(question.locator(".message-toolbar button").first()).toBeFocused();
     const replyButton = question.getByRole("button", { name: "Reply in thread", exact: true });
     await pressUntilFocused(page, "Tab", replyButton);
     await page.keyboard.press("Enter");
