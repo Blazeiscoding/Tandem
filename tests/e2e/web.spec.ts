@@ -1882,6 +1882,32 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     await expect(saved).toBeVisible();
     await expect(page.locator(".channel-header h2")).toHaveText("#design");
 
+    // Opened again with nothing in the address, the app goes back to the
+    // conversation this account last had open, not to #general.
+    const again = await context.newPage();
+    await again.goto(origin);
+    await expect(again.locator(".channel-header h2")).toHaveText("#design");
+    await expect(again).toHaveURL(`${origin}/#/c/${design.id}`);
+    // Back leaves the app rather than stopping in #general on the way.
+    await again.goBack();
+    await expect(again).toHaveURL("about:blank");
+    await again.close();
+    // Once that conversation is archived, the next start lands in #general.
+    await fetch(`${origin}/api/channels/${design.id}`, {
+      method: "PATCH",
+      headers: as(owner),
+      body: JSON.stringify({ archived: true }),
+    });
+    const later = await context.newPage();
+    await later.goto(origin);
+    await expect(later.locator(".channel-header h2")).toHaveText("#general");
+    await later.close();
+    await fetch(`${origin}/api/channels/${design.id}`, {
+      method: "PATCH",
+      headers: as(owner),
+      body: JSON.stringify({ archived: false }),
+    });
+
     // An address for a conversation this account cannot see says so, lands in
     // #general, and does not leave that address in the history to go Back to.
     await page.goto(`${origin}/#/c/${leads.id}`);
