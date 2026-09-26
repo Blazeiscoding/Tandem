@@ -1,0 +1,203 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { ApiError, WorkspaceClient } from "@slackoss/client-core";
+import type { Channel, User } from "@slackoss/protocol";
+import { ClientContext } from "../src/context.js";
+import { ChannelDetailsDialog } from "../src/components/ChannelDetailsDialog.js";
+
+/**
+ * Channel details: each change that cannot be undone by a click asks first,
+ * and a refusal is said in words rather than as the server's code.
+ */
+const sam: User = {
+  id: "U_SAM",
+  handle: "sam",
+  displayName: "Sam Rivera",
+  role: "owner",
+  statusText: "",
+  statusEmoji: "",
+  isBot: false,
+  deactivated: false,
+  dndUntil: null,
+  createdAt: 0,
+};
+const alex: User = {
+  ...sam,
+  id: "U_ALEX",
+  handle: "alex",
+  displayName: "Alex Chen",
+  role: "member",
+};
+
+const design: Channel = {
+  id: "C_DESIGN",
+  type: "public",
+  name: "design",
+  topic: "",
+  description: "",
+  creatorId: sam.id,
+  archived: false,
+  createdAt: 0,
+  managerIds: [],
+};
+
+afterEach(() => vi.restoreAllMocks());
+
+function details(channel: Channel = design) {
+  const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
+  client.store.setState({
+    self: sam,
+    users: { [sam.id]: sam, [alex.id]: alex },
+    channels: { [channel.id]: channel },
+    memberships: { [channel.id]: 0 },
+    status: "online",
+  });
+  const api = {
+    members: vi
+      .spyOn(client.api, "channelMembers")
+      .mockResolvedValue({ memberIds: [sam.id, alex.id] }),
+    update: vi
+      .spyOn(client.api, "updateChannel")
+      .mockImplementation(async (_id, patch) => ({ channel: { ...channel, ...patch } }) as never),
+    leave: vi.spyOn(client.api, "leaveChannel").mockResolvedValue({ ok: true } as never),
+    remove: vi.spyOn(client.api, "removeChannelMember").mockResolvedValue({ ok: true } as never),
+    manager: vi.spyOn(client.api, "setChannelManager").mockResolvedValue({ channel } as never),
+  };
+  const onLeft = vi.fn();
+  render(
+    <ClientContext.Provider value={client}>
+      <ChannelDetailsDialog
+        channelId={channel.id}
+        onClose={() => {}}
+        onLeft={onLeft}
+        onOpenProfile={() => {}}
+        onChangeParticipants={() => {}}
+      />
+    </ClientContext.Provider>,
+  );
+  const dialog = within(screen.getByRole("dialog"));
+  return { api, dialog, onLeft, user: userEvent.setup() };
+}
+
+describe("channel details", () => {
+  it("says in words why a save was refused, or that the workspace could not be reached", async () => {
+    const { api, dialog, user } = details();
+    api.update.mockRejectedValueOnce(new ApiError(409, "name_taken", "name_taken"));
+    const name = dialog.getByRole("textbox", { name: "Channel name" });
+    await user.clear(name);
+    await user.type(name, "general");
+    await user.click(dialog.getByRole("button", { name: "Save changes" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent(
+      "Another channel already has that name.",
+    );
+
+    api.update.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await user.click(dialog.getByRole("button", { name: "Save changes" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent(
+      "Could not save channel details. Check your connection and try again.",
+    );
+    expect(dialog.getByRole("alert")).not.toHaveTextContent("Failed to fetch");
+  });
+
+  it("asks before archiving, and Cancel leaves the channel open", async () => {
+    const { api, dialog, user } = details();
+    await user.click(dialog.getByRole("button", { name: "Archive channel" }));
+    expect(dialog.getByText("Archive #design for everyone?")).toBeVisible();
+    await user.click(dialog.getByRole("button", { name: "Cancel" }));
+    expect(api.update).not.toHaveBeenCalled();
+
+    await user.click(dialog.getByRole("button", { name: "Archive channel" }));
+    await user.click(dialog.getByRole("button", { name: "Confirm archive" }));
+    expect(api.update).toHaveBeenCalledWith(design.id, { archived: true });
+  });
+
+  it("leaves a public channel at once, since it can be joined again", async () => {
+    const { api, dialog, onLeft, user } = details();
+    await user.click(dialog.getByRole("button", { name: "Leave channel" }));
+    expect(api.leave).toHaveBeenCalledWith(design.id);
+    expect(onLeft).toHaveBeenCalledOnce();
+  });
+
+  it("asks before leaving a private channel, which only an invitation reopens", async () => {
+    const leads: Channel = { ...design, id: "C_LEADS", name: "leads", type: "private" };
+    const { api, dialog, onLeft, user } = details(leads);
+    await user.click(dialog.getByRole("button", { name: "Leave channel" }));
+    expect(dialog.getByText(/Leave #leads\? It is private/)).toBeVisible();
+    expect(dialog.queryByRole("button", { name: "Leave channel" })).toBeNull();
+    await user.click(dialog.getByRole("button", { name: "Cancel" }));
+    expect(api.leave).not.toHaveBeenCalled();
+
+    await user.click(dialog.getByRole("button", { name: "Leave channel" }));
+    await user.click(dialog.getByRole("button", { name: "Confirm leave" }));
+    expect(api.leave).toHaveBeenCalledWith(leads.id);
+    expect(onLeft).toHaveBeenCalledOnce();
+  });
+
+  it("stays open and says why when leaving fails", async () => {
+    const { api, dialog, onLeft, user } = details();
+    api.leave.mockRejectedValueOnce(new ApiError(404, "channel_not_found", "channel_not_found"));
+    await user.click(dialog.getByRole("button", { name: "Leave channel" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent(
+      "This conversation is no longer available to you.",
+    );
+    expect(onLeft).not.toHaveBeenCalled();
+  });
+
+  it("asks before removing someone, saying what they keep", async () => {
+    const { api, dialog, user } = details();
+    await user.click(dialog.getByRole("tab", { name: /Members/ }));
+    await user.click(await dialog.findByRole("button", { name: "Remove Alex Chen" }));
+    expect(
+      dialog.getByText(
+        "Remove Alex Chen from #design? This public channel remains readable, and they can rejoin. Their messages remain.",
+      ),
+    ).toBeVisible();
+    await user.click(dialog.getByRole("button", { name: "Cancel" }));
+    expect(api.remove).not.toHaveBeenCalled();
+
+    api.remove.mockRejectedValueOnce(
+      new ApiError(403, "channel_removal_forbidden", "channel_removal_forbidden"),
+    );
+    await user.click(dialog.getByRole("button", { name: "Remove Alex Chen" }));
+    await user.click(dialog.getByRole("button", { name: "Confirm removal" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent(
+      "You cannot remove this person from this channel.",
+    );
+    expect(dialog.getByRole("tab", { name: "Members (2)" })).toBeVisible();
+
+    await user.click(dialog.getByRole("button", { name: "Confirm removal" }));
+    expect(api.remove).toHaveBeenLastCalledWith(design.id, alex.id);
+    expect(await dialog.findByRole("tab", { name: "Members (1)" })).toBeVisible();
+  });
+
+  it("asks before making someone a manager, saying what they may then do", async () => {
+    const { api, dialog, user } = details();
+    await user.click(dialog.getByRole("tab", { name: /Members/ }));
+    await user.click(
+      await dialog.findByRole("button", { name: "Make channel manager: Alex Chen" }),
+    );
+    expect(
+      dialog.getByText(/Make Alex Chen a manager of #design\? They can edit, rename and archive/),
+    ).toBeVisible();
+    await user.click(dialog.getByRole("button", { name: "Confirm role change" }));
+    expect(api.manager).toHaveBeenCalledWith(design.id, alex.id, true);
+  });
+
+  it("asks before leaving a group conversation", async () => {
+    const group: Channel = {
+      ...design,
+      id: "G1",
+      type: "group_dm",
+      name: "",
+      memberIds: [sam.id, alex.id, "U_PRIYA"],
+    };
+    const { api, dialog, onLeft, user } = details(group);
+    await user.click(dialog.getByRole("tab", { name: /Members/ }));
+    await user.click(dialog.getByRole("button", { name: "Leave group conversation" }));
+    expect(dialog.getByText(/Leave this group conversation\?/)).toBeVisible();
+    await user.click(dialog.getByRole("button", { name: "Confirm leave" }));
+    expect(api.leave).toHaveBeenCalledWith("G1");
+    expect(onLeft).toHaveBeenCalledOnce();
+  });
+});

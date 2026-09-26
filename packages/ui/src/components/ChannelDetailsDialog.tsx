@@ -6,6 +6,7 @@ import {
   type ID,
   type NotifyLevel,
 } from "@slackoss/protocol";
+import { ApiError } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { useTabs } from "../lib/useTabs.js";
 import { Avatar } from "./Avatar.js";
@@ -17,6 +18,37 @@ type Tab = "about" | "members" | "notifications";
 const TABS: readonly Tab[] = ["about", "members", "notifications"];
 
 const DEFAULT_PREFS = { notifyLevel: "mentions" as NotifyLevel, muted: false };
+
+/**
+ * Why a change to the channel did not happen, in words. The server's refusals
+ * carry a code and, often, no message of their own, so without this the
+ * dialog showed "name_taken" or "Failed to fetch".
+ */
+function channelError(err: unknown, fallback: string): string {
+  if (!(err instanceof ApiError)) return `${fallback} Check your connection and try again.`;
+  switch (err.code) {
+    case "name_taken":
+      return "Another channel already has that name.";
+    case "invalid_request":
+      return "Check the name, topic and description, then try again.";
+    case "channel_management_required":
+      return "Only this channel's creator, its managers and workspace administrators can change it.";
+    case "channel_invite_forbidden":
+      return "You cannot add people to this channel.";
+    case "channel_removal_forbidden":
+      return "You cannot remove this person from this channel.";
+    case "channel_manager_assignment_forbidden":
+      return "You cannot change who manages this channel.";
+    case "channel_membership_required":
+      return "They need to be a member of this channel first.";
+    case "channel_archived":
+      return "This channel is archived. Reopen it first.";
+    case "channel_not_found":
+      return "This conversation is no longer available to you.";
+    default:
+      return fallback;
+  }
+}
 
 const LEVELS: { value: NotifyLevel; label: string; hint: string }[] = [
   { value: "all", label: "Every message", hint: "Notify me whenever anyone posts here." },
@@ -94,7 +126,7 @@ export function ChannelDetailsDialog(props: {
       await client.api.updateChannel(props.channelId, { name: name.trim(), topic, description });
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save channel details.");
+      setError(channelError(err, "Could not save channel details."));
     } finally {
       setBusy(false);
     }
@@ -108,7 +140,7 @@ export function ChannelDetailsDialog(props: {
       await client.api.inviteMember(props.channelId, userId);
       setMemberIds((prev) => [...new Set([...prev, userId])]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not add this person.");
+      setError(channelError(err, "Could not add this person."));
     } finally {
       setBusy(false);
     }
@@ -122,7 +154,7 @@ export function ChannelDetailsDialog(props: {
       await client.api.updateChannel(props.channelId, { archived });
       setConfirmArchive(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change archive status.");
+      setError(channelError(err, "Could not change archive status."));
     } finally {
       setBusy(false);
     }
@@ -137,7 +169,7 @@ export function ChannelDetailsDialog(props: {
       setMemberIds((ids) => ids.filter((id) => id !== userId));
       setRemovingId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not remove this person.");
+      setError(channelError(err, "Could not remove this person."));
     } finally {
       setBusy(false);
     }
@@ -151,7 +183,23 @@ export function ChannelDetailsDialog(props: {
       await client.api.setChannelManager(props.channelId, userId, manager);
       setManagerChange(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change channel manager.");
+      setError(channelError(err, "Could not change channel manager."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function leave() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.api.leaveChannel(props.channelId);
+      props.onLeft();
+    } catch (err) {
+      setError(
+        channelError(err, isRoom ? "Could not leave channel." : "Could not leave conversation."),
+      );
     } finally {
       setBusy(false);
     }
@@ -260,28 +308,45 @@ export function ChannelDetailsDialog(props: {
                     {busy ? "Saving…" : saved ? "Saved" : "Save changes"}
                   </button>
                 )}
-                {membership && channel.name !== "general" && (
+                {membership && channel.name !== "general" && !confirmLeave && (
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      setError(null);
-                      try {
-                        await client.api.leaveChannel(props.channelId);
-                        props.onLeft();
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : "Could not leave channel.");
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
+                    // A public channel can be joined again; a private one only
+                    // by invitation, so leaving it asks first.
+                    onClick={() =>
+                      channel.type === "private" ? setConfirmLeave(true) : void leave()
+                    }
                     className="rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim transition-colors hover:border-alert hover:text-alert"
                   >
                     Leave channel
                   </button>
                 )}
               </div>
+              {confirmLeave && channel.type === "private" && (
+                <div className="rounded-lg border border-edge p-3 text-sm">
+                  <p className="mb-2">
+                    Leave #{channel.name}? It is private, so you will lose its history and call
+                    until someone in it invites you back.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="text-alert underline"
+                    onClick={() => void leave()}
+                  >
+                    Confirm leave
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="ml-3"
+                    onClick={() => setConfirmLeave(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
               <div className="rounded-lg border border-edge p-3 text-sm">
                 <p className="mb-2 text-ink-dim">
                   {channel.archived
@@ -364,20 +429,7 @@ export function ChannelDetailsDialog(props: {
                     <button
                       disabled={busy}
                       className="text-alert underline"
-                      onClick={async () => {
-                        setBusy(true);
-                        setError(null);
-                        try {
-                          await client.api.leaveChannel(props.channelId);
-                          props.onLeft();
-                        } catch (err) {
-                          setError(
-                            err instanceof Error ? err.message : "Could not leave conversation.",
-                          );
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
+                      onClick={() => void leave()}
                     >
                       Confirm leave
                     </button>

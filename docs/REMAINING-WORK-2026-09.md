@@ -40,16 +40,16 @@ Done means the acceptance criteria are met. Mostly means a small remainder. Part
 
 ### A, accounts, privacy and policy
 
-| Item                                 | Status  | What is left                                                                                                                      |
-| ------------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| A01 safe owner setup                 | Done    |                                                                                                                                   |
-| A02 account lifecycle                | Done    |                                                                                                                                   |
-| A03 local credentials and drafts     | Mostly  | Browser sign-ins still live in localStorage; drafts and the outbox are plain text at rest; the desktop `settings.ts` has no tests |
-| A04 abuse and network trust          | Done    | CORS stays open on purpose, because sessions use bearer tokens and the client can be hosted apart from the server                 |
-| A05 permission policy                | Partial | Channel rules and invite permission exist. Workspace rules for creating channels, configuring apps and moderating do not          |
-| A06 retention and deletion           | Done    |                                                                                                                                   |
-| A07 second factor and preferences    | Open    | TOTP with recovery codes, notification privacy, status expiry, time zone                                                          |
-| A08 moderation and community control | Partial | Channel member removal exists. Reporting, a moderation queue, blocking and muting people do not                                   |
+| Item                                 | Status  | What is left                                                                                                             |
+| ------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------ |
+| A01 safe owner setup                 | Done    |                                                                                                                          |
+| A02 account lifecycle                | Done    |                                                                                                                          |
+| A03 local credentials and drafts     | Mostly  | Browser sign-ins still live in localStorage; drafts and the outbox are plain text at rest                                |
+| A04 abuse and network trust          | Done    | CORS stays open on purpose, because sessions use bearer tokens and the client can be hosted apart from the server        |
+| A05 permission policy                | Partial | Channel rules and invite permission exist. Workspace rules for creating channels, configuring apps and moderating do not |
+| A06 retention and deletion           | Done    |                                                                                                                          |
+| A07 second factor and preferences    | Open    | TOTP with recovery codes, notification privacy, status expiry, time zone                                                 |
+| A08 moderation and community control | Partial | Channel member removal exists. Reporting, a moderation queue, blocking and muting people do not                          |
 
 ### U, interface, onboarding and accessibility
 
@@ -120,7 +120,7 @@ Done means the acceptance criteria are met. Mostly means a small remainder. Part
 | -------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | E01 domain modules         | Open    | `server.ts` is 3,615 lines, `store.ts` 2,894 and the client's `workspace.ts` 2,006                                                                                                                                                                          |
 | E02 typing and lint        | Open    | There is no ESLint, and nothing typechecks `tests/`                                                                                                                                                                                                         |
-| E03 testing gaps           | Partial | See phase 2                                                                                                                                                                                                                                                 |
+| E03 testing gaps           | Done    | Phase 2's list is paid, in #113 and #114                                                                                                                                                                                                                    |
 | E04 UI validation          | Partial | DOM and axe tests cover the modal layer, dialogs, menus, the sidebar, sign-in fields and several panels. No visual fixtures; Chromium only                                                                                                                  |
 | E05 client memory and work | Partial | The entry chunk is back under 500 kB, 453.7 kB after hosting, the video stage and the form dialogs moved to chunks of their own, and CI fails a build over it. No budget for decoded images, and message rows subscribe to more of the store than they draw |
 | E06 server capacity        | Open    |                                                                                                                                                                                                                                                             |
@@ -173,7 +173,9 @@ Several weeks. Later pieces build on earlier ones, so the order inside this phas
 5. **U06, a visual system.** The palette is settled. Slate and periwinkle took the place of both navy and mint and the Workbench exploration archived under the tag `archive/ui-workbench-rework-2026-09-12`, its colour roles are written down, and line icons replaced the unicode glyphs. Spacing, radius, the type scale and the focus ring are now written down, with a test that holds components to them. Light, system and high-contrast themes are built on the same tokens, with a compact density, all chosen in Account settings, and timestamps come from `Intl.DateTimeFormat` formatters in the reader's locale. What remains is the moment of dark background a light theme shows before the page script runs.
 6. **U08, onboarding and help.** A dismissible first-run checklist for the owner, stored per account: create a channel, invite someone, turn on notifications, try a huddle. A Help menu with searchable shortcuts and a "Copy diagnostics" action that copies versions and connection state and never message content. Done: both are in the Workspace menu, and the report is shown before it is copied. The first-run checklist is done too: create a channel, invite someone, turn on notifications and try a huddle, each ticked off from what has happened, hidden once all are done or put away. Help beyond shortcuts, such as short guides, is still to write.
 
-### Phase 2. Pay down the test debt
+### Phase 2. Pay down the test debt, done
+
+Done September 27, in #113 for the server and #114 for client-core, the interface and the desktop settings file. Writing them found channel details showing the server's error codes and leaving a private channel at one click, both fixed in #114.
 
 Alongside phase 1. These features shipped without permanent tests. Every new test gets the usual check: take the behaviour out and watch the test fail.
 
@@ -187,10 +189,10 @@ On the server:
 
 In client-core and the UI:
 
-- The composer: formatting keeps the selection, the Enter setting, Enter from an input method, a failed send keeps the draft, the wording for a full workspace.
-- The message editor: the conflict flow, Cancel discarding, a failed save staying open.
-- The scheduled panel, channel details, People, Account settings, Activity and search: loading, error and retry states, and each confirmation.
-- Recent searches and the workspace-identity migration in client-core, and the desktop credential envelope in `settings.ts` against a fake key store.
+- The composer: formatting keeps the selection, the Enter setting, Enter from an input method, a failed send keeps the draft, the wording for a full workspace. Done.
+- The message editor: the conflict flow, Cancel discarding, a failed save staying open. Done.
+- The scheduled panel, channel details, People, Account settings, Activity and search: loading, error and retry states, and each confirmation. Done.
+- Recent searches and the workspace-identity migration, which live in the interface package rather than client-core, and the desktop credential envelope in `settings.ts` against a fake key store. Done.
 
 ### Phase 3. Hosting someone else can run
 
