@@ -1870,6 +1870,19 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     // Arriving names where the app landed, without adding a step to go Back through.
     await expect(page).toHaveURL(`${origin}/#/c/${general.id}`);
 
+    // The owner gets a short list of first steps. #design and omar already
+    // exist, so two are done; put away, it stays away after a reload.
+    const gettingStarted = page.getByRole("region", { name: "Getting started" });
+    await expect(gettingStarted).toContainText("2 of 4 left");
+    await expect(gettingStarted.getByText("Create a channel", { exact: false })).toContainText(
+      "done",
+    );
+    await gettingStarted.getByRole("button", { name: "Hide", exact: true }).click();
+    await expect(gettingStarted).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator("textarea")).toBeVisible();
+    await expect(gettingStarted).toHaveCount(0);
+
     const nav = page.getByRole("navigation", { name: "Workspace navigation" });
     const thread = page.getByRole("complementary", { name: "Thread", exact: true });
     const reply = thread.getByRole("textbox", { name: "Reply…", exact: true });
