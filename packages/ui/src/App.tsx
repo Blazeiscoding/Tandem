@@ -9,6 +9,7 @@ import { Dialog, primaryBtnCls } from "./components/Dialog.js";
 import { Icon } from "./components/Icon.js";
 import { LazyDialog } from "./components/LazyView.js";
 import { useHostingStatus, useLastHosted } from "./lib/hosting.js";
+import { useApplyAppearance } from "./lib/appearance.js";
 
 // Only the desktop app hosts, and only now and then, so its dialog loads on first use.
 const HostDialog = lazy(() =>
@@ -32,6 +33,12 @@ type Session =
       /** Set when a link to a message opened this workspace. */
       target?: { channelId: string; messageId: string } | null;
     };
+
+/** The chosen theme and density, on the document, for every screen. */
+function Appearance() {
+  useApplyAppearance();
+  return null;
+}
 
 function AppBoundary({ children }: { children: ReactNode }) {
   return (
@@ -283,6 +290,7 @@ export function App({ platform }: { platform: Platform }) {
 
   return (
     <PlatformContext.Provider value={platform}>
+      <Appearance />
       <AppBoundary>
         <div className="flex h-full flex-col">
           {platform.kind === "desktop" &&

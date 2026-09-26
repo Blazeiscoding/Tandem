@@ -491,7 +491,7 @@ function ChannelRow(props: {
       <button
         onClick={props.onClick}
         aria-current={props.active ? "page" : undefined}
-        className={`my-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-[8px] text-left text-sm transition-colors ${
+        className={`channel-row my-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-[8px] text-left text-sm transition-colors ${
           props.active
             ? "bg-copper/15 font-medium text-copper shadow-[inset_3px_0_var(--color-copper)]"
             : props.muted

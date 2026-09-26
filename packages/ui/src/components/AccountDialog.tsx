@@ -7,6 +7,7 @@ import { accountError, deviceLabel } from "../lib/account.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
 import type { AccountSection } from "../lib/accountSections.js";
 import { resumeTime, snoozeOptions } from "../lib/snooze.js";
+import { DENSITIES, THEMES, useAppearance, type Theme } from "../lib/appearance.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
 import { ProfileForm } from "./ProfileDialog.js";
@@ -21,6 +22,7 @@ export type { AccountSection };
 const SECTIONS: readonly { id: AccountSection; label: string }[] = [
   { id: "profile", label: "Profile" },
   { id: "notifications", label: "Notifications" },
+  { id: "appearance", label: "Appearance" },
   { id: "composing", label: "Composing" },
   { id: "security", label: "Security" },
   { id: "devices", label: "Devices" },
@@ -259,6 +261,7 @@ export function AccountDialog({
           )}
           {section === "profile" && <ProfileForm />}
           {section === "notifications" && <NotificationSettings />}
+          {section === "appearance" && <AppearanceSettings />}
           {section === "composing" && (
             <section aria-labelledby="account-composer-title">
               <h3 id="account-composer-title" className="font-semibold">
@@ -575,6 +578,72 @@ function NotificationSettings() {
       <p className="mt-6 border-t border-edge pt-5 text-sm text-ink-dim">
         What each channel notifies you about is in its details, under Notifications.
       </p>
+    </>
+  );
+}
+
+const THEME_LABELS: Record<Theme, { label: string; hint: string }> = {
+  system: { label: "Match this device", hint: "Light or dark, as the device is set" },
+  dark: { label: "Dark", hint: "Slate, as Gatherline has always looked" },
+  light: { label: "Light", hint: "For bright rooms" },
+  contrast: { label: "High contrast", hint: "Dark, with the strongest text and borders" },
+};
+
+/** How Gatherline looks on this device: its theme, and how much it fits in. */
+function AppearanceSettings() {
+  const appearance = useAppearance();
+  return (
+    <>
+      <fieldset disabled={!appearance.loaded}>
+        <legend className="font-semibold">Theme</legend>
+        <p className="mt-1 text-sm text-ink-dim">Applies to every workspace on this device.</p>
+        <div className="mt-3 space-y-2">
+          {THEMES.map((theme) => (
+            <label key={theme} className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="theme"
+                className="mt-1"
+                checked={appearance.theme === theme}
+                onChange={() => void appearance.set({ theme })}
+              />
+              <span>
+                {THEME_LABELS[theme].label}
+                <span className="block text-xs text-ink-faint">{THEME_LABELS[theme].hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset disabled={!appearance.loaded} className="mt-6 border-t border-edge pt-5">
+        <legend className="float-left w-full font-semibold">Density</legend>
+        <div className="clear-both mt-3 space-y-2 pt-1">
+          {DENSITIES.map((density) => (
+            <label key={density} className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="density"
+                className="mt-1"
+                checked={appearance.density === density}
+                onChange={() => void appearance.set({ density })}
+              />
+              <span>
+                {density === "compact" ? "Compact" : "Comfortable"}
+                <span className="block text-xs text-ink-faint">
+                  {density === "compact"
+                    ? "Smaller messages and closer rows, to see more at once"
+                    : "The usual size and spacing"}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {appearance.error && (
+        <p role="alert" className="mt-3 text-sm text-alert">
+          {appearance.error}
+        </p>
+      )}
     </>
   );
 }

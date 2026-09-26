@@ -12,8 +12,23 @@ export function formatBytes(bytes: number): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
+// One formatter each, in the reader's own locale, made once: the time is
+// formatted for every message on screen.
+const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const dayFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+});
+const fullFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" });
+
 export function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return timeFormat.format(ts);
+}
+
+/** The whole date and time, for a hint on a time that shows only the hour. */
+export function formatFull(ts: number): string {
+  return fullFormat.format(ts);
 }
 
 export function formatDay(ts: number): string {
@@ -23,7 +38,7 @@ export function formatDay(ts: number): string {
   yesterday.setDate(today.getDate() - 1);
   if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  return dayFormat.format(d);
 }
 
 export function sameDay(a: number, b: number): boolean {

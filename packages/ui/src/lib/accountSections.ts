@@ -2,6 +2,7 @@
 export const ACCOUNT_SECTIONS = [
   "profile",
   "notifications",
+  "appearance",
   "composing",
   "security",
   "devices",
