@@ -34,7 +34,13 @@ import { hasOpenModal } from "../components/Modal.js";
 import { Tooltip } from "../components/Tooltip.js";
 import { isImeKey } from "../lib/textInput.js";
 import { useLastConversation } from "../lib/lastConversation.js";
-import { ROUTE_VIEWS, currentRoute, writeRoute, type RouteView } from "../lib/route.js";
+import {
+  ROUTE_VIEWS,
+  currentRoute,
+  writeRoute,
+  type RouteDialog,
+  type RouteView,
+} from "../lib/route.js";
 import { useHistoryKeys } from "../lib/historyKeys.js";
 
 const ActivityPanel = lazy(() =>
@@ -90,6 +96,32 @@ type DialogKind =
   | { kind: "shortcuts" }
   | { kind: "apps" }
   | { kind: "people" };
+
+/** The dialog an address names, as the screen holds it. */
+function dialogFromRoute(dialog: RouteDialog | null | undefined): DialogKind {
+  if (!dialog) return { kind: "none" };
+  if (dialog.name === "account")
+    return dialog.section ? { kind: "account", section: dialog.section } : { kind: "account" };
+  if (dialog.name === "details") return { kind: "channel-details" };
+  return { kind: dialog.name };
+}
+
+/** The part of an open dialog the address keeps, if it keeps any. */
+function routeDialogOf(dialog: DialogKind): RouteDialog | null {
+  switch (dialog.kind) {
+    case "account":
+      return dialog.section ? { name: "account", section: dialog.section } : { name: "account" };
+    case "channel-details":
+      return { name: "details" };
+    case "people":
+    case "apps":
+    case "invite":
+    case "shortcuts":
+      return { name: dialog.kind };
+    default:
+      return null;
+  }
+}
 
 /** Only one right-hand panel is open at a time. */
 type SidePanel =
@@ -179,7 +211,7 @@ function WorkspaceInner({
         ? { kind: initialRoute.view }
         : { kind: "none" },
   );
-  const [dialog, setDialog] = useState<DialogKind>({ kind: "none" });
+  const [dialog, setDialog] = useState<DialogKind>(() => dialogFromRoute(initialRoute?.dialog));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [huddleView, setHuddleView] = useState<HuddleView>("docked");
   const huddleVideo = useWorkspace((s) => huddleHasVideo(s.huddle));
@@ -316,20 +348,69 @@ function WorkspaceInner({
   const routeView = (ROUTE_VIEWS as readonly string[]).includes(panel.kind)
     ? (panel.kind as RouteView)
     : null;
+  // A settings or list dialog is a place too, so Back closes it and a reload
+  // reopens it. Moving between Account settings' sections, or closing a
+  // dialog the account may not open, rewrites the entry instead of adding one.
+  const routeDialog = routeDialogOf(dialog);
+  const routeDialogName = routeDialog?.name ?? null;
+  const routeDialogSection = routeDialog?.section ?? null;
+  const replaceDialogStep = useRef(false);
+  /**
+   * Whether the history entry on screen is a step this screen added to open
+   * the dialog. Closing that dialog goes Back through it, so Back afterwards
+   * does not open again what was just dismissed.
+   */
+  const dialogStep = useRef(false);
+  /** The conversation, thread or panel last written, beneath any dialog. */
+  const lastPlace = useRef<string | null>(null);
   useEffect(() => {
     if (!activeChannelId) return;
-    const replace = replaceRoute.current === activeChannelId;
-    if (replace) replaceRoute.current = null;
-    writeRoute(
+    const replace = replaceRoute.current === activeChannelId || replaceDialogStep.current;
+    if (replaceRoute.current === activeChannelId) replaceRoute.current = null;
+    replaceDialogStep.current = false;
+    const place = `${activeChannelId}/${routeThread ?? ""}/${routeView ?? ""}`;
+    // Only a dialog opening over the same place makes the step to go Back through.
+    const openingDialog =
+      routeDialogName !== null && !dialogStep.current && lastPlace.current === place;
+    lastPlace.current = place;
+    const step = writeRoute(
       serverUrl,
       {
         channelId: activeChannelId,
         threadRootId: routeThread,
         ...(routeView ? { view: routeView } : {}),
+        ...(routeDialogName
+          ? {
+              dialog: {
+                name: routeDialogName,
+                ...(routeDialogSection ? { section: routeDialogSection } : {}),
+              },
+            }
+          : {}),
       },
       replace ? "replace" : "auto",
     );
-  }, [serverUrl, activeChannelId, routeThread, routeView, routeRequest]);
+    if (!routeDialogName) dialogStep.current = false;
+    else if (step === "push") dialogStep.current = openingDialog;
+  }, [
+    serverUrl,
+    activeChannelId,
+    routeThread,
+    routeView,
+    routeDialogName,
+    routeDialogSection,
+    routeRequest,
+  ]);
+
+  // People and Apps are for administrators. An address can name them all the
+  // same, so they close for anyone else once the account is known.
+  const isAdmin = self?.role === "owner" || self?.role === "admin";
+  useEffect(() => {
+    if (self && !isAdmin && (dialog.kind === "people" || dialog.kind === "apps")) {
+      replaceDialogStep.current = true;
+      setDialog({ kind: "none" });
+    }
+  }, [self, isAdmin, dialog.kind]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -355,7 +436,8 @@ function WorkspaceInner({
               ? p
               : { kind: "none" },
       );
-      setDialog({ kind: "none" });
+      dialogStep.current = false;
+      setDialog(dialogFromRoute(route.dialog));
       setSidebarOpen(false);
       setRouteRequest((n) => n + 1);
     };
@@ -467,7 +549,15 @@ function WorkspaceInner({
     jumpTo.current(channelId, messageId);
   }, []);
 
-  const closeDialog = () => setDialog({ kind: "none" });
+  const closeDialog = () => {
+    if (dialogStep.current) {
+      // The entry before this one is the same place without the dialog.
+      dialogStep.current = false;
+      window.history.back();
+      return;
+    }
+    setDialog({ kind: "none" });
+  };
 
   const announcer = useMessageAnnouncer();
   const { hear, forget } = announcer;
@@ -570,16 +660,8 @@ function WorkspaceInner({
         onOpenWorkspace={onOpenWorkspace}
         onEditProfile={() => setDialog({ kind: "account", section: "profile" })}
         onAccountSettings={() => setDialog({ kind: "account" })}
-        onManageApps={
-          self?.role === "owner" || self?.role === "admin"
-            ? () => setDialog({ kind: "apps" })
-            : undefined
-        }
-        onManagePeople={
-          self?.role === "owner" || self?.role === "admin"
-            ? () => setDialog({ kind: "people" })
-            : undefined
-        }
+        onManageApps={isAdmin ? () => setDialog({ kind: "apps" }) : undefined}
+        onManagePeople={isAdmin ? () => setDialog({ kind: "people" }) : undefined}
         connectionLabel={connectionLabel}
       />
 
@@ -777,7 +859,8 @@ function WorkspaceInner({
         </LazyDialog>
       )}
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
-      {(dialog.kind === "apps" || dialog.kind === "people" || dialog.kind === "account") && (
+      {(((dialog.kind === "apps" || dialog.kind === "people") && isAdmin) ||
+        dialog.kind === "account") && (
         <LazyDialog key={dialog.kind} loading="Loading settings" onClose={closeDialog}>
           {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
           {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}
@@ -786,6 +869,10 @@ function WorkspaceInner({
               onClose={closeDialog}
               onSignedOut={onSignedOut}
               section={dialog.section}
+              onSectionChange={(section) => {
+                replaceDialogStep.current = true;
+                setDialog({ kind: "account", section });
+              }}
             />
           )}
         </LazyDialog>
@@ -812,7 +899,9 @@ function WorkspaceInner({
             }
             onClose={closeDialog}
             onLeft={() => {
-              closeDialog();
+              // Going somewhere else at once, so no step Back to wait for.
+              dialogStep.current = false;
+              setDialog({ kind: "none" });
               setActiveChannelId(null);
             }}
             onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}

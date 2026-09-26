@@ -47,6 +47,90 @@ describe("reading a place in a workspace from the address", () => {
   });
 });
 
+describe("a dialog open over a place", () => {
+  it("reads settings and lists after the conversation, thread or panel", () => {
+    expect(parseRouteHash("#/c/C_DESIGN/d/account/security")).toEqual({
+      channelId: "C_DESIGN",
+      threadRootId: null,
+      dialog: { name: "account", section: "security" },
+    });
+    expect(parseRouteHash("#/c/C_DESIGN/t/M_ROOT/d/people")).toEqual({
+      channelId: "C_DESIGN",
+      threadRootId: "M_ROOT",
+      dialog: { name: "people" },
+    });
+    expect(parseRouteHash("#/c/C_DESIGN/p/saved/d/details")).toEqual({
+      channelId: "C_DESIGN",
+      threadRootId: null,
+      view: "saved",
+      dialog: { name: "details" },
+    });
+    for (const route of [
+      { channelId: "C_DESIGN", threadRootId: null, dialog: { name: "account" as const } },
+      {
+        channelId: "C_DESIGN",
+        threadRootId: "M_ROOT",
+        dialog: { name: "account" as const, section: "devices" as const },
+      },
+      {
+        channelId: "C_DESIGN",
+        threadRootId: null,
+        view: "pins" as const,
+        dialog: { name: "invite" as const },
+      },
+    ]) {
+      expect(parseRouteHash(routeHash(route))).toEqual(route);
+    }
+  });
+
+  it("leaves out forms and search, and anything it does not know", () => {
+    for (const hash of [
+      "#/c/C_DESIGN/d/search",
+      "#/c/C_DESIGN/d/new-channel",
+      "#/c/C_DESIGN/d/",
+      "#/c/C_DESIGN/d/account/billing",
+      "#/c/C_DESIGN/d/people/security",
+      "#/c/C_DESIGN/d/account/security/more",
+      "#/c/C_DESIGN/d/people/t/M_ROOT",
+    ]) {
+      expect(parseRouteHash(hash)).toBeNull();
+    }
+  });
+
+  it("is kept in a history entry, and one it does not know is dropped", () => {
+    const server = "http://10.0.0.5:8543";
+    const address = { hash: "", origin: location.origin };
+    const entry = (dialog: unknown) => ({
+      gatherline: { server, channelId: "C_OPS", threadRootId: null, dialog },
+    });
+    expect(currentRoute(server, address, entry({ name: "account", section: "devices" }))).toEqual({
+      channelId: "C_OPS",
+      threadRootId: null,
+      dialog: { name: "account", section: "devices" },
+    });
+    for (const dialog of [{ name: "search" }, { name: "apps", section: "profile" }, "people"]) {
+      expect(currentRoute(server, address, entry(dialog))).not.toHaveProperty("dialog");
+    }
+  });
+
+  it("is a step of its own to open, and a section change rewrites it", () => {
+    const server = location.origin;
+    writeRoute(server, { channelId: "C_GENERAL", threadRootId: null });
+    const start = window.history.length;
+    const account = (section?: "security") => ({
+      channelId: "C_GENERAL",
+      threadRootId: null,
+      dialog: section ? { name: "account" as const, section } : { name: "account" as const },
+    });
+    expect(writeRoute(server, account())).toBe("push");
+    expect(writeRoute(server, account("security"), "replace")).toBe("replace");
+    expect(writeRoute(server, account("security"))).toBe("unchanged");
+    expect(window.history.length).toBe(start + 1);
+    expect(location.hash).toBe("#/c/C_GENERAL/d/account/security");
+    window.history.replaceState(null, "", "/");
+  });
+});
+
 describe("the place a history entry remembers", () => {
   const here = () => location.origin;
   afterEach(() => window.history.replaceState(null, "", "/"));
