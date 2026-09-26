@@ -3,6 +3,7 @@ import type { FileMeta, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Composer } from "./Composer.js";
 import { usePanelFocus } from "../lib/usePanelFocus.js";
+import { useRovingMessages } from "../lib/useRovingMessages.js";
 import { MessageItem } from "./MessageItem.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Icon } from "./Icon.js";
@@ -41,6 +42,8 @@ export function ThreadPanel({
   const pending = useWorkspace((s) => s.pending).filter((p) => p.threadRootId === rootId);
   const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  // The root and its replies are one Tab stop, as the channel's messages are.
+  const roving = useRovingMessages(scroller);
   const follow = useRef(!targetId);
   const anchor = useRef<{ id: string; top: number } | null>(null);
   const targetPositioned = useRef(false);
@@ -166,6 +169,8 @@ export function ThreadPanel({
       </header>
       <div
         ref={scroller}
+        onFocus={roving.onFocus}
+        onKeyDown={roving.onKeyDown}
         onScroll={() => {
           const el = scroller.current;
           if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;

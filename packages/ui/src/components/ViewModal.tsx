@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ModalField } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
@@ -18,10 +18,23 @@ export function ViewModal() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Set by a refused submission, so the first field the app refused takes focus. */
+  const showError = useRef(false);
+
+  useEffect(() => {
+    if (!showError.current || !view) return;
+    showError.current = false;
+    const refused = view.fields.find((field) => errors[field.blockId]);
+    if (refused) document.getElementById(fieldId(refused))?.focus();
+  }, [errors, view]);
 
   if (!view) return null;
 
-  const valueOf = (field: ModalField) => values[field.actionId] ?? field.initialValue;
+  // Keyed by block as well: an action id need only be unique within its block,
+  // and two fields sharing one would otherwise share a value.
+  const valueOf = (field: ModalField) => values[fieldId(field)] ?? field.initialValue;
+  const setValue = (field: ModalField, value: string) =>
+    setValues((v) => ({ ...v, [fieldId(field)]: value }));
 
   function close() {
     setValues({});
@@ -46,6 +59,7 @@ export function ViewModal() {
         setValues({});
         setErrors({});
       } else {
+        showError.current = true;
         setErrors(result.errors ?? {});
         setMessage(result.message ?? null);
       }
@@ -66,61 +80,72 @@ export function ViewModal() {
         )}
 
         <div className="space-y-3.5">
-          {view.fields.map((field) => (
-            <div key={`${field.blockId}.${field.actionId}`}>
-              <label
-                htmlFor={`${field.blockId}.${field.actionId}`}
-                className="mb-1 block text-[13px] font-medium"
-              >
-                {field.label}
-                {field.optional && (
-                  <span className="ml-1.5 text-[11px] font-normal text-ink-faint">optional</span>
+          {view.fields.map((field) => {
+            const id = fieldId(field);
+            const error = errors[field.blockId];
+            // The error replaces the hint on screen, and so in what is read.
+            const described = error ? `${id}-error` : field.hint ? `${id}-hint` : undefined;
+            const shared = {
+              id,
+              "aria-describedby": described,
+              "aria-invalid": error ? true : undefined,
+              "aria-required": !field.optional,
+            };
+            return (
+              <div key={id}>
+                <label htmlFor={id} className="mb-1 block text-[13px] font-medium">
+                  {field.label}
+                  {field.optional && (
+                    <span className="ml-1.5 text-[11px] font-normal text-ink-faint">optional</span>
+                  )}
+                </label>
+
+                {field.type === "select" ? (
+                  <select
+                    {...shared}
+                    value={valueOf(field)}
+                    onChange={(e) => setValue(field, e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="">{field.placeholder || "Choose one…"}</option>
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.text}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === "textarea" ? (
+                  <textarea
+                    {...shared}
+                    value={valueOf(field)}
+                    placeholder={field.placeholder}
+                    rows={4}
+                    onChange={(e) => setValue(field, e.target.value)}
+                    className={`${inputCls} resize-y`}
+                  />
+                ) : (
+                  <input
+                    {...shared}
+                    value={valueOf(field)}
+                    placeholder={field.placeholder}
+                    onChange={(e) => setValue(field, e.target.value)}
+                    className={inputCls}
+                  />
                 )}
-              </label>
 
-              {field.type === "select" ? (
-                <select
-                  id={`${field.blockId}.${field.actionId}`}
-                  value={valueOf(field)}
-                  onChange={(e) => setValues((v) => ({ ...v, [field.actionId]: e.target.value }))}
-                  className={inputCls}
-                >
-                  <option value="">{field.placeholder || "Choose one…"}</option>
-                  {field.options.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.text}
-                    </option>
-                  ))}
-                </select>
-              ) : field.type === "textarea" ? (
-                <textarea
-                  id={`${field.blockId}.${field.actionId}`}
-                  value={valueOf(field)}
-                  placeholder={field.placeholder}
-                  rows={4}
-                  onChange={(e) => setValues((v) => ({ ...v, [field.actionId]: e.target.value }))}
-                  className={`${inputCls} resize-y`}
-                />
-              ) : (
-                <input
-                  id={`${field.blockId}.${field.actionId}`}
-                  value={valueOf(field)}
-                  placeholder={field.placeholder}
-                  onChange={(e) => setValues((v) => ({ ...v, [field.actionId]: e.target.value }))}
-                  className={inputCls}
-                />
-              )}
-
-              {field.hint && !errors[field.blockId] && (
-                <p className="mt-1 text-[11px] text-ink-faint">{field.hint}</p>
-              )}
-              {errors[field.blockId] && (
-                <p role="alert" className="mt-1 text-[11px] text-alert">
-                  {errors[field.blockId]}
-                </p>
-              )}
-            </div>
-          ))}
+                {field.hint && !error && (
+                  <p id={`${id}-hint`} className="mt-1 text-[11px] text-ink-faint">
+                    {field.hint}
+                  </p>
+                )}
+                {error && (
+                  <p id={`${id}-error`} role="alert" className="mt-1 text-[11px] text-alert">
+                    {error}
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {message && (
@@ -144,4 +169,9 @@ export function ViewModal() {
       </form>
     </Dialog>
   );
+}
+
+/** A field's element id, and the key its value is kept under. */
+function fieldId(field: ModalField) {
+  return `${field.blockId}.${field.actionId}`;
 }
