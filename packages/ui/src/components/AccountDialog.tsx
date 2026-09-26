@@ -1,26 +1,60 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { SessionInfo, StorageUsage } from "@slackoss/protocol";
 import { ApiError } from "@slackoss/client-core";
 import { formatBytes } from "../lib/format.js";
-import { useClient, useWorkspace } from "../context.js";
+import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { accountError, deviceLabel } from "../lib/account.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
+import { resumeTime, snoozeOptions } from "../lib/snooze.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
+import { ProfileForm } from "./ProfileDialog.js";
 
 const button =
   "rounded-lg border border-edge px-3 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink disabled:opacity-40";
 type Confirmation =
   { kind: "device"; session: SessionInfo } | { kind: "others" } | { kind: "signout" };
 
+export type AccountSection =
+  "profile" | "notifications" | "composing" | "security" | "devices" | "storage";
+
+const SECTIONS: readonly { id: AccountSection; label: string }[] = [
+  { id: "profile", label: "Profile" },
+  { id: "notifications", label: "Notifications" },
+  { id: "composing", label: "Composing" },
+  { id: "security", label: "Security" },
+  { id: "devices", label: "Devices" },
+  { id: "storage", label: "Storage" },
+];
+
+/** Where an arrow key, Home or End moves from one section, wrapping at either end. */
+function sectionAfter(key: string, current: AccountSection): AccountSection | null {
+  const at = SECTIONS.findIndex((s) => s.id === current);
+  const last = SECTIONS.length - 1;
+  if (key === "ArrowDown" || key === "ArrowRight") return SECTIONS[at === last ? 0 : at + 1]!.id;
+  if (key === "ArrowUp" || key === "ArrowLeft") return SECTIONS[at === 0 ? last : at - 1]!.id;
+  if (key === "Home") return SECTIONS[0]!.id;
+  if (key === "End") return SECTIONS[last]!.id;
+  return null;
+}
+
+/**
+ * Everything about your own account in one place, a section at a time:
+ * profile, notifications, composing, security, devices and storage.
+ */
 export function AccountDialog({
   onClose,
   onSignedOut,
+  section: initialSection = "profile",
 }: {
   onClose: () => void;
   onSignedOut: () => void;
+  /** The section to open on. */
+  section?: AccountSection;
 }) {
   const client = useClient();
+  const tabsId = useId();
+  const [section, setSection] = useState<AccountSection>(initialSection);
   const self = useWorkspace((s) => s.self);
   const composer = useComposerPreferences();
   const alive = useRef(true);
@@ -140,247 +174,406 @@ export function AccountDialog({
     }
   }
 
+  function choose(next: AccountSection) {
+    if (next === section) return;
+    setSection(next);
+    // What was said, or about to be confirmed, belongs to the section it came from.
+    setError(null);
+    setNotice(null);
+    setConfirmation(null);
+  }
+
   const otherSessions = sessions.filter((session) => !session.current);
+  const askToConfirm = (value: Confirmation) => {
+    setConfirmation(value);
+    setError(null);
+  };
   return (
-    <Dialog title="Account settings" onClose={onClose} width={620}>
-      <p className="mb-5 text-sm text-ink-dim">
+    <Dialog title="Account settings" onClose={onClose} width={720}>
+      <p className="mb-4 text-sm text-ink-dim">
         Signed in as <span className="font-medium text-ink">{self?.displayName}</span> · @
         {self?.handle}
       </p>
-      {error && (
-        <p
-          role="alert"
-          className="mb-4 rounded-lg border border-alert/30 bg-alert/10 p-3 text-sm text-alert"
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div
+          role="tablist"
+          aria-label="Account settings"
+          aria-orientation="vertical"
+          className="flex shrink-0 gap-1 overflow-x-auto rounded-lg bg-ground p-1 sm:w-40 sm:flex-col sm:self-start"
+          onKeyDown={(event) => {
+            const next = sectionAfter(event.key, section);
+            if (!next) return;
+            event.preventDefault();
+            choose(next);
+            document.getElementById(`${tabsId}-tab-${next}`)?.focus();
+          }}
         >
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p
-          role="status"
-          className="mb-4 rounded-lg border border-online/30 bg-online/10 p-3 text-sm text-online"
-        >
-          {notice}
-        </p>
-      )}
-      <section aria-labelledby="account-composer-title" className="mb-6">
-        <h3 id="account-composer-title" className="font-semibold">
-          Writing messages
-        </h3>
-        <label className="mt-3 block text-sm">
-          When I press Enter
-          <select
-            className={`${inputCls} mt-1`}
-            value={composer.enterSends ? "send" : "newline"}
-            disabled={!composer.loaded || composer.saving}
-            onChange={(event) => void composer.setEnterSends(event.target.value === "send")}
-          >
-            <option value="send">Send the message</option>
-            <option value="newline">Start a new line</option>
-          </select>
-        </label>
-        <p className="mt-2 text-sm text-ink-dim">
-          Applies to channels and threads across workspaces on this device. Ctrl+Enter or Cmd+Enter
-          always sends; Shift+Enter adds a new line.
-        </p>
-        {composer.saving && (
-          <p role="status" className="mt-2 text-sm text-ink-dim">
-            Saving preference…
-          </p>
-        )}
-        {composer.error && (
-          <p role="alert" className="mt-2 text-sm text-alert">
-            {composer.error}
-          </p>
-        )}
-      </section>
-      <section aria-labelledby="account-password-title">
-        <h3 id="account-password-title" className="font-semibold">
-          Change password
-        </h3>
-        <p className="mb-3 mt-1 text-sm text-ink-dim">
-          Changing your password signs out your other devices.
-        </p>
-        <form onSubmit={(event) => void changePassword(event)}>
-          <fieldset disabled={busy || confirmation !== null} className="space-y-3">
-            <label className="block text-sm">
-              Current password
-              <input
-                className={`${inputCls} mt-1`}
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                required
-                maxLength={256}
-              />
-            </label>
-            <label className="block text-sm">
-              New password
-              <input
-                className={`${inputCls} mt-1`}
-                type={showPassword ? "text" : "password"}
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                minLength={8}
-                maxLength={256}
-                aria-describedby="account-password-hint"
-              />
-            </label>
-            <p id="account-password-hint" className="text-xs text-ink-faint">
-              Use at least 8 characters. A long, unique password is best.
-            </p>
-            <label className="block text-sm">
-              Confirm new password
-              <input
-                className={`${inputCls} mt-1`}
-                type={showPassword ? "text" : "password"}
-                autoComplete="new-password"
-                value={repeatPassword}
-                onChange={(e) => setRepeatPassword(e.target.value)}
-                required
-                minLength={8}
-                maxLength={256}
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm text-ink-dim">
-              <input
-                type="checkbox"
-                checked={showPassword}
-                onChange={(e) => setShowPassword(e.target.checked)}
-              />
-              Show passwords
-            </label>
-            <button className={primaryBtnCls} type="submit">
-              {busy && !confirmation ? "Saving…" : "Update password"}
+          {SECTIONS.map((s) => (
+            <button
+              key={s.id}
+              id={`${tabsId}-tab-${s.id}`}
+              type="button"
+              role="tab"
+              aria-selected={section === s.id}
+              aria-controls={`${tabsId}-panel`}
+              tabIndex={section === s.id ? 0 : -1}
+              onClick={() => choose(s.id)}
+              className={`shrink-0 rounded-md px-3 py-1.5 text-left text-sm font-medium transition-colors ${
+                section === s.id ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
+              }`}
+            >
+              {s.label}
             </button>
-          </fieldset>
-        </form>
-      </section>
-
-      <section aria-labelledby="account-devices-title" className="mt-6 border-t border-edge pt-5">
-        <div className="flex items-center justify-between gap-3">
-          <h3 id="account-devices-title" className="font-semibold">
-            Signed-in devices
-          </h3>
-          <button className={button} disabled={busy || loading} onClick={() => void load()}>
-            Refresh
-          </button>
+          ))}
         </div>
-        <p className="mt-1 text-sm text-ink-dim">
-          Each sign-in appears separately. Remove a device you no longer use.
-        </p>
-        <ListStatus
-          className="mt-3"
-          loading={loading}
-          placeholder={!loaded}
-          loadingLabel="Loading devices…"
-          error={loadError}
-          onRetry={() => void load()}
-          empty={
-            loaded && !loadError && sessions.length === 0
-              ? "No active devices were returned. Refresh to check your session."
-              : null
-          }
-        />
-        <ul
-          aria-label="Signed-in devices"
-          className="mt-3 divide-y divide-edge"
-          aria-busy={loading}
+        <div
+          id={`${tabsId}-panel`}
+          role="tabpanel"
+          aria-labelledby={`${tabsId}-tab-${section}`}
+          className="min-w-0 flex-1"
         >
-          {sessions.map((session) => (
-            <li key={session.id} className="flex flex-wrap items-center gap-3 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
-                  {deviceLabel(session.userAgent)}{" "}
-                  {session.current && <span className="ml-1 text-xs text-online">This device</span>}
+          {error && (
+            <p
+              role="alert"
+              className="mb-4 rounded-lg border border-alert/30 bg-alert/10 p-3 text-sm text-alert"
+            >
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p
+              role="status"
+              className="mb-4 rounded-lg border border-online/30 bg-online/10 p-3 text-sm text-online"
+            >
+              {notice}
+            </p>
+          )}
+          {section === "profile" && <ProfileForm />}
+          {section === "notifications" && <NotificationSettings />}
+          {section === "composing" && (
+            <section aria-labelledby="account-composer-title">
+              <h3 id="account-composer-title" className="font-semibold">
+                Writing messages
+              </h3>
+              <label className="mt-3 block text-sm">
+                When I press Enter
+                <select
+                  className={`${inputCls} mt-1`}
+                  value={composer.enterSends ? "send" : "newline"}
+                  disabled={!composer.loaded || composer.saving}
+                  onChange={(event) => void composer.setEnterSends(event.target.value === "send")}
+                >
+                  <option value="send">Send the message</option>
+                  <option value="newline">Start a new line</option>
+                </select>
+              </label>
+              <p className="mt-2 text-sm text-ink-dim">
+                Applies to channels and threads across workspaces on this device. Ctrl+Enter or
+                Cmd+Enter always sends; Shift+Enter adds a new line.
+              </p>
+              {composer.saving && (
+                <p role="status" className="mt-2 text-sm text-ink-dim">
+                  Saving preference…
                 </p>
-                <p className="mt-1 text-xs text-ink-faint">
-                  Last active {new Date(session.lastSeenAt).toLocaleString()}
+              )}
+              {composer.error && (
+                <p role="alert" className="mt-2 text-sm text-alert">
+                  {composer.error}
                 </p>
-                <p className="mt-0.5 text-xs text-ink-faint">
-                  Signed in {new Date(session.createdAt).toLocaleString()}
+              )}
+            </section>
+          )}
+          {section === "security" && (
+            <>
+              <section aria-labelledby="account-password-title">
+                <h3 id="account-password-title" className="font-semibold">
+                  Change password
+                </h3>
+                <p className="mb-3 mt-1 text-sm text-ink-dim">
+                  Changing your password signs out your other devices.
                 </p>
-              </div>
-              {!session.current && (
+                <form onSubmit={(event) => void changePassword(event)}>
+                  <fieldset disabled={busy || confirmation !== null} className="space-y-3">
+                    <label className="block text-sm">
+                      Current password
+                      <input
+                        className={`${inputCls} mt-1`}
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        required
+                        maxLength={256}
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      New password
+                      <input
+                        className={`${inputCls} mt-1`}
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        required
+                        minLength={8}
+                        maxLength={256}
+                        aria-describedby="account-password-hint"
+                      />
+                    </label>
+                    <p id="account-password-hint" className="text-xs text-ink-faint">
+                      Use at least 8 characters. A long, unique password is best.
+                    </p>
+                    <label className="block text-sm">
+                      Confirm new password
+                      <input
+                        className={`${inputCls} mt-1`}
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        value={repeatPassword}
+                        onChange={(e) => setRepeatPassword(e.target.value)}
+                        required
+                        minLength={8}
+                        maxLength={256}
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-ink-dim">
+                      <input
+                        type="checkbox"
+                        checked={showPassword}
+                        onChange={(e) => setShowPassword(e.target.checked)}
+                      />
+                      Show passwords
+                    </label>
+                    <button className={primaryBtnCls} type="submit">
+                      {busy && !confirmation ? "Saving…" : "Update password"}
+                    </button>
+                  </fieldset>
+                </form>
+              </section>
+              <section
+                aria-labelledby="account-signout-title"
+                className="mt-6 border-t border-edge pt-5"
+              >
+                <h3 id="account-signout-title" className="font-semibold">
+                  Sign out
+                </h3>
+                <p className="mb-3 mt-1 text-sm text-ink-dim">
+                  Switching workspaces keeps you signed in. Signing out removes this device's saved
+                  sign-in.
+                </p>
                 <button
                   className={button}
                   disabled={busy || confirmation !== null}
-                  aria-label={`Sign out ${deviceLabel(session.userAgent)}, signed in ${new Date(session.createdAt).toLocaleString()}`}
-                  onClick={() => {
-                    setConfirmation({ kind: "device", session });
-                    setError(null);
-                  }}
+                  onClick={() => askToConfirm({ kind: "signout" })}
                 >
-                  Sign out
+                  Sign out of this workspace
+                </button>
+              </section>
+            </>
+          )}
+          {section === "devices" && (
+            <section aria-labelledby="account-devices-title">
+              <div className="flex items-center justify-between gap-3">
+                <h3 id="account-devices-title" className="font-semibold">
+                  Signed-in devices
+                </h3>
+                <button className={button} disabled={busy || loading} onClick={() => void load()}>
+                  Refresh
+                </button>
+              </div>
+              <p className="mt-1 text-sm text-ink-dim">
+                Each sign-in appears separately. Remove a device you no longer use.
+              </p>
+              <ListStatus
+                className="mt-3"
+                loading={loading}
+                placeholder={!loaded}
+                loadingLabel="Loading devices…"
+                error={loadError}
+                onRetry={() => void load()}
+                empty={
+                  loaded && !loadError && sessions.length === 0
+                    ? "No active devices were returned. Refresh to check your session."
+                    : null
+                }
+              />
+              <ul
+                aria-label="Signed-in devices"
+                className="mt-3 divide-y divide-edge"
+                aria-busy={loading}
+              >
+                {sessions.map((session) => (
+                  <li key={session.id} className="flex flex-wrap items-center gap-3 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">
+                        {deviceLabel(session.userAgent)}{" "}
+                        {session.current && (
+                          <span className="ml-1 text-xs text-online">This device</span>
+                        )}
+                      </p>
+                      <p className="mt-1 text-xs text-ink-faint">
+                        Last active {new Date(session.lastSeenAt).toLocaleString()}
+                      </p>
+                      <p className="mt-0.5 text-xs text-ink-faint">
+                        Signed in {new Date(session.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    {!session.current && (
+                      <button
+                        className={button}
+                        disabled={busy || confirmation !== null}
+                        aria-label={`Sign out ${deviceLabel(session.userAgent)}, signed in ${new Date(session.createdAt).toLocaleString()}`}
+                        onClick={() => askToConfirm({ kind: "device", session })}
+                      >
+                        Sign out
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {otherSessions.length > 0 && (
+                <button
+                  className={`${button} mt-3`}
+                  disabled={busy || confirmation !== null}
+                  onClick={() => askToConfirm({ kind: "others" })}
+                >
+                  Sign out all other devices
                 </button>
               )}
-            </li>
-          ))}
-        </ul>
-        {otherSessions.length > 0 && (
-          <button
-            className={`${button} mt-3`}
-            disabled={busy || confirmation !== null}
-            onClick={() => {
-              setConfirmation({ kind: "others" });
-              setError(null);
-            }}
-          >
-            Sign out all other devices
+            </section>
+          )}
+          {section === "storage" && <WorkspaceStorage />}
+          {confirmation && (
+            <section
+              ref={confirmationPanel}
+              tabIndex={-1}
+              aria-label="Confirm sign out"
+              className="mt-4 rounded-xl border border-alert/40 bg-ground p-4"
+            >
+              <h3 className="font-semibold">
+                {confirmation.kind === "signout"
+                  ? "Sign out of this workspace?"
+                  : confirmation.kind === "others"
+                    ? "Sign out your other devices?"
+                    : `Sign out ${deviceLabel(confirmation.session.userAgent)}?`}
+              </h3>
+              <p className="mt-2 text-sm text-ink-dim">
+                {confirmation.kind === "signout"
+                  ? "You will need your password to sign in again. Your account's saved drafts stay on this device."
+                  : "Affected devices will need to sign in again. Your current device stays connected."}
+              </p>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <button className={button} disabled={busy} onClick={() => setConfirmation(null)}>
+                  Cancel
+                </button>
+                <button className={primaryBtnCls} disabled={busy} onClick={() => void confirm()}>
+                  {busy ? "Signing out…" : "Confirm sign out"}
+                </button>
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/** What this device does with notifications, and a pause that follows the account. */
+function NotificationSettings() {
+  const platform = usePlatform();
+  const client = useClient();
+  const dndUntil = useWorkspace((s) => s.self?.dndUntil ?? null);
+  const [permission, setPermission] = useState(browserPermission);
+  const [asking, setAsking] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const paused = dndUntil !== null && dndUntil > now.getTime();
+
+  // A pause ends by itself; say so without waiting for another render.
+  useEffect(() => {
+    if (!paused) return;
+    const timer = setTimeout(() => setNow(new Date()), Math.max(0, dndUntil - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [paused, dndUntil]);
+
+  async function ask() {
+    if (asking) return;
+    setAsking(true);
+    try {
+      setPermission(await Notification.requestPermission());
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  return (
+    <>
+      <section aria-labelledby="account-device-notifications-title">
+        <h3 id="account-device-notifications-title" className="font-semibold">
+          On this device
+        </h3>
+        <p className="mt-1 text-sm text-ink-dim">
+          {platform.kind === "desktop"
+            ? "The desktop app shows notifications for mentions and direct messages itself."
+            : permission === "granted"
+              ? "Notifications are on in this browser."
+              : permission === "denied"
+                ? "This browser blocks notifications from Gatherline. Allow them in the browser's site settings, then reload the page."
+                : permission === "unsupported"
+                  ? "This browser cannot show notifications."
+                  : "Notifications are off in this browser. Turn them on to hear about mentions while Gatherline is in the background."}
+        </p>
+        {platform.kind !== "desktop" && permission === "default" && (
+          <button className={`${button} mt-3`} disabled={asking} onClick={() => void ask()}>
+            {asking ? "Turning on…" : "Turn on notifications"}
           </button>
         )}
       </section>
-
-      <div className="mt-5 border-t border-edge pt-4">
-        <button
-          className={button}
-          disabled={busy || confirmation !== null}
-          onClick={() => {
-            setConfirmation({ kind: "signout" });
-            setError(null);
-          }}
-        >
-          Sign out of this workspace
-        </button>
-        <p className="mt-2 text-xs text-ink-faint">
-          Switching workspaces keeps you signed in. Signing out removes this device's saved sign-in.
+      <section aria-labelledby="account-pause-title" className="mt-6 border-t border-edge pt-5">
+        <h3 id="account-pause-title" className="font-semibold">
+          Pause notifications
+        </h3>
+        <p role="status" className="mt-1 text-sm text-ink-dim">
+          {paused
+            ? `Paused until ${resumeTime(dndUntil, now)}, on every device you use.`
+            : "Pausing holds notifications on every device you use."}
         </p>
-      </div>
-      {confirmation && (
-        <section
-          ref={confirmationPanel}
-          tabIndex={-1}
-          aria-label="Confirm sign out"
-          className="mt-4 rounded-xl border border-alert/40 bg-ground p-4"
-        >
-          <h3 className="font-semibold">
-            {confirmation.kind === "signout"
-              ? "Sign out of this workspace?"
-              : confirmation.kind === "others"
-                ? "Sign out your other devices?"
-                : `Sign out ${deviceLabel(confirmation.session.userAgent)}?`}
-          </h3>
-          <p className="mt-2 text-sm text-ink-dim">
-            {confirmation.kind === "signout"
-              ? "You will need your password to sign in again. Your account's saved drafts stay on this device."
-              : "Affected devices will need to sign in again. Your current device stays connected."}
-          </p>
-          <div className="mt-4 flex flex-wrap justify-end gap-2">
-            <button className={button} disabled={busy} onClick={() => setConfirmation(null)}>
-              Cancel
+        <div className="mt-3 flex flex-wrap gap-2">
+          {paused ? (
+            <button className={button} onClick={() => client.snoozeNotificationsUntil(null)}>
+              Resume notifications
             </button>
-            <button className={primaryBtnCls} disabled={busy} onClick={() => void confirm()}>
-              {busy ? "Signing out…" : "Confirm sign out"}
-            </button>
-          </div>
-        </section>
-      )}
-      <WorkspaceStorage />
-    </Dialog>
+          ) : (
+            snoozeOptions(now).map((option) => (
+              <button
+                key={option.label}
+                className={button}
+                aria-label={
+                  option.label.startsWith("Until")
+                    ? `Pause ${option.label.toLowerCase()}`
+                    : `Pause for ${option.label}`
+                }
+                onClick={() => {
+                  client.snoozeNotificationsUntil(option.until());
+                  setNow(new Date());
+                }}
+              >
+                {option.label}
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+      <p className="mt-6 border-t border-edge pt-5 text-sm text-ink-dim">
+        What each channel notifies you about is in its details, under Notifications.
+      </p>
+    </>
   );
+}
+
+/** What the browser currently allows, or that it cannot ask at all. */
+function browserPermission(): NotificationPermission | "unsupported" {
+  if (typeof Notification === "undefined") return "unsupported";
+  return Notification.permission;
 }
 
 function WorkspaceStorage() {

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { ApiError, WorkspaceClient } from "@slackoss/client-core";
 import type { Channel, User } from "@slackoss/protocol";
 import { ClientContext } from "../src/context.js";
-import { EditProfileDialog, ProfileDialog } from "../src/components/ProfileDialog.js";
+import { ProfileDialog, ProfileForm } from "../src/components/ProfileDialog.js";
 import { accessibilityProblems } from "./accessibility.js";
 
 const person = (id: string, handle: string, displayName: string): User => ({
@@ -79,17 +79,16 @@ describe("someone else's profile", () => {
 });
 
 describe("editing your own profile", () => {
-  it("keeps what was typed when saving fails, and closes once it saves", async () => {
+  it("keeps what was typed when saving fails, and says so once it saves", async () => {
     const user = userEvent.setup();
     const client = workspace();
     const updateMe = vi
       .spyOn(client.api, "updateMe")
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce({ user: { ...sam, statusText: "Heads down" } });
-    const onClose = vi.fn();
     render(
       <ClientContext.Provider value={client}>
-        <EditProfileDialog onClose={onClose} />
+        <ProfileForm />
       </ClientContext.Provider>,
     );
     const name = screen.getByRole("textbox", { name: "Display name" });
@@ -97,22 +96,28 @@ describe("editing your own profile", () => {
     await user.clear(name);
     await user.type(name, "Sam R.");
     await user.type(status, "Heads down");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Your profile was not saved. Check your connection and try again.",
     );
-    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
     expect(name).toHaveValue("Sam R.");
     expect(status).toHaveValue("Heads down");
 
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
     expect(updateMe).toHaveBeenLastCalledWith({
       displayName: "Sam R.",
       statusEmoji: "",
       statusText: "Heads down",
     });
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("status")).toHaveTextContent("Profile saved.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // Changing it again takes the confirmation away until it is saved.
+    await user.type(status, "!");
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    await user.click(screen.getByRole("button", { name: /Heads down/ }));
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("explains a refused profile and limits each field to what the server accepts", async () => {
@@ -121,7 +126,7 @@ describe("editing your own profile", () => {
     vi.spyOn(client.api, "updateMe").mockRejectedValueOnce(new ApiError(400, "invalid_request"));
     render(
       <ClientContext.Provider value={client}>
-        <EditProfileDialog onClose={() => {}} />
+        <ProfileForm />
       </ClientContext.Provider>,
     );
     expect(screen.getByRole("textbox", { name: "Display name" })).toHaveAttribute(
@@ -136,7 +141,7 @@ describe("editing your own profile", () => {
       "maxlength",
       "120",
     );
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "A display name can be up to 80 characters and a status up to 120.",
     );

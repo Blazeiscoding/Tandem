@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import type { SessionInfo, User } from "@slackoss/protocol";
 import { ClientContext, PlatformContext } from "../src/context.js";
-import { AccountDialog } from "../src/components/AccountDialog.js";
+import { AccountDialog, type AccountSection } from "../src/components/AccountDialog.js";
 import type { Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 
@@ -62,17 +62,20 @@ function accountDialog() {
     notify: () => {},
   };
   const user = userEvent.setup();
-  function renderDialog() {
+  function renderDialog(section: AccountSection = "devices") {
     render(
       <PlatformContext.Provider value={platform}>
         <ClientContext.Provider value={client}>
-          <AccountDialog onClose={() => {}} onSignedOut={() => {}} />
+          <AccountDialog onClose={() => {}} onSignedOut={() => {}} section={section} />
         </ClientContext.Provider>
       </PlatformContext.Provider>,
     );
     const dialog = screen.getByRole("dialog", { name: "Account settings" });
-    const devices = within(dialog).getByRole("region", { name: "Signed-in devices" });
-    return { dialog, devices };
+    const devices =
+      section === "devices"
+        ? within(dialog).getByRole("region", { name: "Signed-in devices" })
+        : null;
+    return { dialog, devices: devices! };
   }
   return { client, user, renderDialog };
 }
@@ -157,23 +160,24 @@ describe("Signed-in devices list status", () => {
       .mockImplementationOnce(() => firstLoad.promise)
       .mockResolvedValueOnce({ sessions: [current] });
     vi.spyOn(client.api, "changePassword").mockResolvedValue({ ok: true });
-    const { dialog, devices } = renderDialog();
+    const { dialog } = renderDialog("security");
 
     await user.type(within(dialog).getByLabelText("Current password"), "previous-password");
     await user.type(within(dialog).getByLabelText("New password"), "replacement-password");
     await user.type(within(dialog).getByLabelText("Confirm new password"), "replacement-password");
     await user.click(within(dialog).getByRole("button", { name: "Update password" }));
-    expect(await within(devices).findByText("Chrome · Windows")).toBeVisible();
-    expect(listSessions).toHaveBeenCalledTimes(2);
-
-    await act(async () => firstLoad.resolve({ sessions: [current, other] }));
-    expect(within(devices).getByText("Chrome · Windows")).toBeVisible();
-    expect(within(devices).queryByText("Firefox · macOS")).not.toBeInTheDocument();
     expect(
-      within(dialog).getByText(
+      await within(dialog).findByText(
         "Password changed. Your other devices have been signed out; this device stays signed in.",
       ),
     ).toHaveAttribute("role", "status");
+    await waitFor(() => expect(listSessions).toHaveBeenCalledTimes(2));
+
+    await act(async () => firstLoad.resolve({ sessions: [current, other] }));
+    await user.click(within(dialog).getByRole("tab", { name: "Devices" }));
+    const devices = within(dialog).getByRole("region", { name: "Signed-in devices" });
+    expect(within(devices).getByText("Chrome · Windows")).toBeVisible();
+    expect(within(devices).queryByText("Firefox · macOS")).not.toBeInTheDocument();
   });
 
   it("removes a successfully revoked device even if the follow-up list refresh fails", async () => {

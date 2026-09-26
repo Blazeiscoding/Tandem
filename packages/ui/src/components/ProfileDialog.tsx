@@ -98,8 +98,8 @@ const STATUS_PRESETS = [
   { emoji: "🤒", text: "Off sick" },
 ];
 
-/** Edit your own name and status. */
-export function EditProfileDialog(props: { onClose: () => void }) {
+/** Edit your own name and status, in Account settings. */
+export function ProfileForm() {
   const client = useClient();
   const self = useWorkspace((s) => s.self);
   const [displayName, setDisplayName] = useState(self?.displayName ?? "");
@@ -107,19 +107,21 @@ export function EditProfileDialog(props: { onClose: () => void }) {
   const [statusText, setStatusText] = useState(self?.statusText ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const id = useId();
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setSaved(false);
     try {
       await client.api.updateMe({
         displayName: displayName.trim() || self?.handle || "",
         statusEmoji: statusEmoji.trim(),
         statusText: statusText.trim(),
       });
-      props.onClose();
+      setSaved(true);
     } catch (err) {
       // What was typed stays in the form, so saving again is one press.
       setError(
@@ -135,87 +137,97 @@ export function EditProfileDialog(props: { onClose: () => void }) {
   }
 
   return (
-    <Dialog title="Your profile" onClose={props.onClose}>
-      <form onSubmit={save} className="space-y-4">
-        <div className="flex items-center gap-3">
-          <Avatar user={self ?? undefined} size={48} />
-          <div className="min-w-0 flex-1">
-            <label
-              htmlFor={`${id}-display-name`}
-              className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint"
-            >
-              Display name
-            </label>
-            <input
-              id={`${id}-display-name`}
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              maxLength={80}
-              className={inputCls}
-            />
-          </div>
+    <form
+      onSubmit={save}
+      // A change after saving is not saved yet, so the confirmation goes.
+      onChange={() => setSaved(false)}
+      aria-label="Your profile"
+      className="space-y-4"
+    >
+      <div className="flex items-center gap-3">
+        <Avatar user={self ?? undefined} size={48} />
+        <div className="min-w-0 flex-1">
+          <label
+            htmlFor={`${id}-display-name`}
+            className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint"
+          >
+            Display name
+          </label>
+          <input
+            id={`${id}-display-name`}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            maxLength={80}
+            className={inputCls}
+          />
         </div>
+      </div>
 
-        <fieldset>
-          <legend className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-            Status
-          </legend>
-          <div className="flex gap-2">
-            <input
-              aria-label="Status emoji"
-              value={statusEmoji}
-              onChange={(e) => setStatusEmoji(e.target.value)}
-              maxLength={32}
-              placeholder="🙂"
-              className={`${inputCls} w-16 text-center`}
-            />
-            <input
-              aria-label="Status text"
-              value={statusText}
-              onChange={(e) => setStatusText(e.target.value)}
-              maxLength={120}
-              placeholder="What's happening?"
-              className={inputCls}
-            />
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {STATUS_PRESETS.map((p) => (
-              <button
-                key={p.text}
-                type="button"
-                onClick={() => {
-                  setStatusEmoji(p.emoji);
-                  setStatusText(p.text);
-                }}
-                className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-copper hover:text-ink"
-              >
-                {p.emoji} {p.text}
-              </button>
-            ))}
-            {(statusEmoji || statusText) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setStatusEmoji("");
-                  setStatusText("");
-                }}
-                className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-faint transition-colors hover:border-alert hover:text-alert"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </fieldset>
+      <fieldset>
+        <legend className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
+          Status
+        </legend>
+        <div className="flex gap-2">
+          <input
+            aria-label="Status emoji"
+            value={statusEmoji}
+            onChange={(e) => setStatusEmoji(e.target.value)}
+            maxLength={32}
+            placeholder="🙂"
+            className={`${inputCls} w-16 text-center`}
+          />
+          <input
+            aria-label="Status text"
+            value={statusText}
+            onChange={(e) => setStatusText(e.target.value)}
+            maxLength={120}
+            placeholder="What's happening?"
+            className={inputCls}
+          />
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {STATUS_PRESETS.map((p) => (
+            <button
+              key={p.text}
+              type="button"
+              onClick={() => {
+                setStatusEmoji(p.emoji);
+                setStatusText(p.text);
+                setSaved(false);
+              }}
+              className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-copper hover:text-ink"
+            >
+              {p.emoji} {p.text}
+            </button>
+          ))}
+          {(statusEmoji || statusText) && (
+            <button
+              type="button"
+              onClick={() => {
+                setStatusEmoji("");
+                setStatusText("");
+                setSaved(false);
+              }}
+              className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-faint transition-colors hover:border-alert hover:text-alert"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </fieldset>
 
-        {error && (
-          <p role="alert" className="text-sm text-alert">
-            {error}
-          </p>
-        )}
-        <button type="submit" disabled={busy} className={`${primaryBtnCls} w-full`}>
-          {busy ? "Saving…" : "Save"}
-        </button>
-      </form>
-    </Dialog>
+      {error && (
+        <p role="alert" className="text-sm text-alert">
+          {error}
+        </p>
+      )}
+      {/* Always present, so the confirmation is announced when it appears. */}
+      <p role="status" className="text-sm text-online empty:hidden">
+        {saved ? "Profile saved." : ""}
+      </p>
+      <button type="submit" disabled={busy} className={`${primaryBtnCls} w-full`}>
+        {busy ? "Saving…" : "Save profile"}
+      </button>
+    </form>
   );
 }

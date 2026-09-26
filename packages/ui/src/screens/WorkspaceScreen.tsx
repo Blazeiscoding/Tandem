@@ -17,7 +17,8 @@ import {
 } from "../components/dialogs.js";
 import { QuickSwitcher } from "../components/QuickSwitcher.js";
 import { PinsPanel, SavedPanel, ThreadsPanel } from "../components/MessageListPanel.js";
-import { EditProfileDialog, ProfileDialog } from "../components/ProfileDialog.js";
+import { ProfileDialog } from "../components/ProfileDialog.js";
+import type { AccountSection } from "../components/AccountDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
 import { LazyDialog, LazyPanel } from "../components/LazyView.js";
@@ -80,8 +81,7 @@ type DialogKind =
   | { kind: "invite" }
   | { kind: "switcher" }
   | { kind: "search" }
-  | { kind: "edit-profile" }
-  | { kind: "account" }
+  | { kind: "account"; section?: AccountSection }
   | { kind: "profile"; userId: ID }
   | { kind: "channel-details" }
   | { kind: "shortcuts" }
@@ -555,7 +555,7 @@ function WorkspaceInner({
         onNewDm={() => setDialog({ kind: "new-dm" })}
         onInvite={() => setDialog({ kind: "invite" })}
         onSwitchWorkspace={onLeaveWorkspace}
-        onEditProfile={() => setDialog({ kind: "edit-profile" })}
+        onEditProfile={() => setDialog({ kind: "account", section: "profile" })}
         onAccountSettings={() => setDialog({ kind: "account" })}
         onManageApps={
           self?.role === "owner" || self?.role === "admin"
@@ -769,14 +769,17 @@ function WorkspaceInner({
           {dialog.kind === "apps" && <AppsDialog onClose={closeDialog} />}
           {dialog.kind === "people" && <PeopleDialog onClose={closeDialog} />}
           {dialog.kind === "account" && (
-            <AccountDialog onClose={closeDialog} onSignedOut={onSignedOut} />
+            <AccountDialog
+              onClose={closeDialog}
+              onSignedOut={onSignedOut}
+              section={dialog.section}
+            />
           )}
         </LazyDialog>
       )}
       {/* Not one of the workspace's own dialogs: an app asked for this one, so
           it shows itself whenever one arrives. */}
       <ViewModal />
-      {dialog.kind === "edit-profile" && <EditProfileDialog onClose={closeDialog} />}
       {dialog.kind === "friends" && (
         <FriendsDialog
           onClose={closeDialog}
