@@ -131,6 +131,40 @@ describe("a dialog open over a place", () => {
   });
 });
 
+describe("the phone's drawer", () => {
+  it("is a step in history that never reaches the address", () => {
+    const server = location.origin;
+    writeRoute(server, { channelId: "C_GENERAL", threadRootId: null });
+    const start = window.history.length;
+    expect(writeRoute(server, { channelId: "C_GENERAL", threadRootId: null, drawer: true })).toBe(
+      "push",
+    );
+    expect(location.hash).toBe("#/c/C_GENERAL");
+    expect(window.history.length).toBe(start + 1);
+    expect(currentRoute(server)).toEqual({
+      channelId: "C_GENERAL",
+      threadRootId: null,
+      drawer: true,
+    });
+    // Going somewhere from it rewrites its step.
+    expect(writeRoute(server, { channelId: "C_DESIGN", threadRootId: null }, "replace")).toBe(
+      "replace",
+    );
+    expect(window.history.length).toBe(start + 1);
+    expect(currentRoute(server)).toEqual({ channelId: "C_DESIGN", threadRootId: null });
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("is open only when an entry says so plainly", () => {
+    const server = "http://10.0.0.5:8543";
+    const address = { hash: "", origin: location.origin };
+    for (const drawer of ["yes", 1, null]) {
+      const entry = { gatherline: { server, channelId: "C_OPS", threadRootId: null, drawer } };
+      expect(currentRoute(server, address, entry)).not.toHaveProperty("drawer");
+    }
+  });
+});
+
 describe("the place a history entry remembers", () => {
   const here = () => location.origin;
   afterEach(() => window.history.replaceState(null, "", "/"));

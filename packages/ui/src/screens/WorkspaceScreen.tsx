@@ -97,6 +97,14 @@ type DialogKind =
   | { kind: "apps" }
   | { kind: "people" };
 
+/** The opposite of the query in theme.css that turns the sidebar into a drawer. */
+const WIDE = "(min-width: 761px) and (min-height: 481px)";
+
+/** Whether the sidebar is a drawer now, so a history entry's open drawer can open. */
+function drawerLayout(): boolean {
+  return typeof window.matchMedia === "function" && !window.matchMedia(WIDE).matches;
+}
+
 /** The dialog an address names, as the screen holds it. */
 function dialogFromRoute(dialog: RouteDialog | null | undefined): DialogKind {
   if (!dialog) return { kind: "none" };
@@ -212,7 +220,26 @@ function WorkspaceInner({
         : { kind: "none" },
   );
   const [dialog, setDialog] = useState<DialogKind>(() => dialogFromRoute(initialRoute?.dialog));
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => initialRoute?.drawer === true && drawerLayout(),
+  );
+  const sidebarOpenRef = useRef(sidebarOpen);
+  sidebarOpenRef.current = sidebarOpen;
+  /**
+   * Whether the history entry on screen is a step this screen added to open
+   * the phone drawer. Closing the drawer without going anywhere goes Back
+   * through it, so a phone's Back button closes the drawer, and afterwards
+   * leaves the conversation as it would have before.
+   */
+  const drawerStep = useRef(false);
+  const closeDrawer = useCallback(() => {
+    if (drawerStep.current) {
+      drawerStep.current = false;
+      window.history.back();
+      return;
+    }
+    setSidebarOpen(false);
+  }, []);
   const [huddleView, setHuddleView] = useState<HuddleView>("docked");
   const huddleVideo = useWorkspace((s) => huddleHasVideo(s.huddle));
   // Once the video is gone, the next video starts in view again, above the chat.
@@ -266,14 +293,13 @@ function WorkspaceInner({
   }, [sidebarOpen]);
 
   useEffect(() => {
-    // The opposite of the query in theme.css that turns the sidebar into a drawer.
-    const wide = window.matchMedia("(min-width: 761px) and (min-height: 481px)");
+    const wide = window.matchMedia(WIDE);
     const onResize = () => {
-      if (wide.matches) setSidebarOpen(false);
+      if (wide.matches && sidebarOpenRef.current) closeDrawer();
     };
     wide.addEventListener("change", onResize);
     return () => wide.removeEventListener("change", onResize);
-  }, []);
+  }, [closeDrawer]);
 
   // Load the linked message's surrounding history, then navigate to it. This
   // must set state rather than rely on the useState initialisers above: the
@@ -365,13 +391,19 @@ function WorkspaceInner({
   const lastPlace = useRef<string | null>(null);
   useEffect(() => {
     if (!activeChannelId) return;
-    const replace = replaceRoute.current === activeChannelId || replaceDialogStep.current;
+    // Going somewhere from the drawer takes the drawer's step's place, so Back
+    // from there returns to where things were before the drawer opened.
+    const leavingDrawer = drawerStep.current && !sidebarOpen;
+    const replace =
+      replaceRoute.current === activeChannelId || replaceDialogStep.current || leavingDrawer;
     if (replaceRoute.current === activeChannelId) replaceRoute.current = null;
     replaceDialogStep.current = false;
     const place = `${activeChannelId}/${routeThread ?? ""}/${routeView ?? ""}`;
-    // Only a dialog opening over the same place makes the step to go Back through.
-    const openingDialog =
-      routeDialogName !== null && !dialogStep.current && lastPlace.current === place;
+    // Only a dialog or the drawer opening over the same place makes a step
+    // of its own to go Back through.
+    const samePlace = lastPlace.current === place;
+    const openingDialog = routeDialogName !== null && !dialogStep.current && samePlace;
+    const openingDrawer = sidebarOpen && !drawerStep.current && samePlace && !routeDialogName;
     lastPlace.current = place;
     const step = writeRoute(
       serverUrl,
@@ -387,11 +419,14 @@ function WorkspaceInner({
               },
             }
           : {}),
+        ...(sidebarOpen ? { drawer: true } : {}),
       },
       replace ? "replace" : "auto",
     );
     if (!routeDialogName) dialogStep.current = false;
     else if (step === "push") dialogStep.current = openingDialog;
+    if (!sidebarOpen) drawerStep.current = false;
+    else if (step === "push") drawerStep.current = openingDrawer;
   }, [
     serverUrl,
     activeChannelId,
@@ -399,6 +434,7 @@ function WorkspaceInner({
     routeView,
     routeDialogName,
     routeDialogSection,
+    sidebarOpen,
     routeRequest,
   ]);
 
@@ -437,8 +473,9 @@ function WorkspaceInner({
               : { kind: "none" },
       );
       dialogStep.current = false;
+      drawerStep.current = false;
       setDialog(dialogFromRoute(route.dialog));
-      setSidebarOpen(false);
+      setSidebarOpen(route.drawer === true && drawerLayout());
       setRouteRequest((n) => n + 1);
     };
     window.addEventListener("popstate", onPopState);
@@ -470,15 +507,16 @@ function WorkspaceInner({
         e.preventDefault();
         setDialog((d) => (d.kind === "shortcuts" ? { kind: "none" } : { kind: "shortcuts" }));
       }
-      // Dialogs close themselves on Escape; this clears the side panel.
+      // Dialogs close themselves on Escape; this closes the phone drawer, or
+      // with none open, the side panel.
       if (e.key === "Escape") {
-        setPanel((p) => (p.kind === "none" ? p : { kind: "none" }));
-        setSidebarOpen(false);
+        if (sidebarOpenRef.current) closeDrawer();
+        else setPanel((p) => (p.kind === "none" ? p : { kind: "none" }));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [closeDrawer]);
 
   const activeChannel = activeChannelId ? channels[activeChannelId] : undefined;
   const title = activeChannel ? channelTitle(activeChannel, users, self?.id) : "";
@@ -627,7 +665,7 @@ function WorkspaceInner({
         <button
           className="sidebar-dismiss fixed inset-0 z-30 bg-black/60"
           aria-label="Close navigation"
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeDrawer}
         />
       )}
       <Sidebar

@@ -822,6 +822,25 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(page.getByRole("navigation")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeFocused();
+  // The drawer is a step in history, not a place: a phone's Back closes it,
+  // and the address stays as it was.
+  const conversation = page.url();
+  expect(conversation).toMatch(/#\/c\/[^/]+$/);
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  await expect(page.getByRole("navigation")).toBeVisible();
+  expect(page.url()).toBe(conversation);
+  await page.goBack();
+  await expect(page.getByRole("navigation")).not.toBeVisible();
+  await expect(page).toHaveURL(conversation);
+  // Going somewhere from the drawer takes the drawer's step, so Back returns
+  // to the conversation as it was, not to the open drawer.
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  await page.getByRole("button", { name: "Saved", exact: true }).click();
+  await expect(page).toHaveURL(`${conversation}/p/saved`);
+  await page.goBack();
+  await expect(page).toHaveURL(conversation);
+  await expect(page.getByRole("navigation")).not.toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Saved", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   await page.getByRole("button", { name: "Saved", exact: true }).click();
   await expect(page.getByRole("navigation")).not.toBeVisible();
