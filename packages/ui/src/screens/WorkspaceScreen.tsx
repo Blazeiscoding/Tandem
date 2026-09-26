@@ -1,4 +1,4 @@
-import { lazy, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss/client-core";
 import { ClientContext, OpenMessageContext, useClient, useWorkspace } from "../context.js";
@@ -8,19 +8,14 @@ import { Sidebar, type OtherWorkspace } from "../components/Sidebar.js";
 import { JumpToLatestBar, MessageTimeline } from "../components/MessageTimeline.js";
 import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
-import { huddleHasVideo, type HuddleView } from "../components/HuddleStage.js";
-import {
-  BrowseChannelsDialog,
-  InviteDialog,
-  NewChannelDialog,
-  NewDmDialog,
-} from "../components/dialogs.js";
+import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 import { QuickSwitcher } from "../components/QuickSwitcher.js";
 import { PinsPanel, SavedPanel, ThreadsPanel } from "../components/MessageListPanel.js";
 import { ProfileDialog } from "../components/ProfileDialog.js";
 import type { AccountSection } from "../components/AccountDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
-import { HuddleBar, HuddleButton, HuddleStage } from "../components/HuddleBar.js";
+import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
+import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { LazyDialog, LazyPanel } from "../components/LazyView.js";
 import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
@@ -62,6 +57,25 @@ const ScheduledPanel = lazy(() =>
 );
 const SearchDialog = lazy(() =>
   import("../components/SearchDialog.js").then((module) => ({ default: module.SearchDialog })),
+);
+// Forms opened now and then, and the video stage shown only during a call
+// with video, load on first use too.
+const NewChannelDialog = lazy(() =>
+  import("../components/dialogs.js").then((module) => ({ default: module.NewChannelDialog })),
+);
+const BrowseChannelsDialog = lazy(() =>
+  import("../components/dialogs.js").then((module) => ({
+    default: module.BrowseChannelsDialog,
+  })),
+);
+const NewDmDialog = lazy(() =>
+  import("../components/dialogs.js").then((module) => ({ default: module.NewDmDialog })),
+);
+const InviteDialog = lazy(() =>
+  import("../components/dialogs.js").then((module) => ({ default: module.InviteDialog })),
+);
+const HuddleStage = lazy(() =>
+  import("../components/HuddleStage.js").then((module) => ({ default: module.HuddleStage })),
 );
 const ChannelDetailsDialog = lazy(() =>
   import("../components/ChannelDetailsDialog.js").then((module) => ({
@@ -807,7 +821,22 @@ function WorkspaceInner({
           <>
             {/* The stage sits above the chat, and when expanded, over it. */}
             <div className="relative flex min-h-0 flex-1 flex-col">
-              <HuddleStage view={huddleView} onViewChange={setHuddleView} />
+              {/* Mounted while there is video at all, even put away: the stage brings
+                  itself back when someone starts sharing. */}
+              {huddleVideo && (
+                <ErrorBoundary
+                  fallback={
+                    <p role="alert" className="border-b border-edge px-5 py-3 text-sm text-ink-dim">
+                      The huddle's video could not load. The call carries on; reload the app to see
+                      video.
+                    </p>
+                  }
+                >
+                  <Suspense fallback={null}>
+                    <HuddleStage view={huddleView} onViewChange={setHuddleView} />
+                  </Suspense>
+                </ErrorBoundary>
+              )}
               <div inert={chatCovered} className="flex min-h-0 flex-1 flex-col">
                 <MessageTimeline
                   readActive={
@@ -876,20 +905,38 @@ function WorkspaceInner({
         </LazyPanel>
       )}
 
-      {dialog.kind === "new-channel" && (
-        <NewChannelDialog onClose={closeDialog} onCreated={(ch) => openChannel(ch.id)} />
-      )}
-      {dialog.kind === "browse" && (
-        <BrowseChannelsDialog onClose={closeDialog} onOpen={openChannel} />
-      )}
-      {dialog.kind === "new-dm" && (
-        <NewDmDialog
-          initialMemberIds={dialog.initialMemberIds}
+      {(dialog.kind === "new-channel" ||
+        dialog.kind === "browse" ||
+        dialog.kind === "new-dm" ||
+        dialog.kind === "invite") && (
+        <LazyDialog
+          loading={
+            dialog.kind === "new-channel"
+              ? "Loading new channel"
+              : dialog.kind === "browse"
+                ? "Loading channels"
+                : dialog.kind === "new-dm"
+                  ? "Loading new message"
+                  : "Loading invite"
+          }
           onClose={closeDialog}
-          onOpen={openChannel}
-        />
+        >
+          {dialog.kind === "new-channel" && (
+            <NewChannelDialog onClose={closeDialog} onCreated={(ch) => openChannel(ch.id)} />
+          )}
+          {dialog.kind === "browse" && (
+            <BrowseChannelsDialog onClose={closeDialog} onOpen={openChannel} />
+          )}
+          {dialog.kind === "new-dm" && (
+            <NewDmDialog
+              initialMemberIds={dialog.initialMemberIds}
+              onClose={closeDialog}
+              onOpen={openChannel}
+            />
+          )}
+          {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
+        </LazyDialog>
       )}
-      {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
       {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
       {dialog.kind === "search" && (
         <LazyDialog loading="Loading search" onClose={closeDialog}>

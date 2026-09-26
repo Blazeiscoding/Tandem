@@ -6,84 +6,12 @@ import type {
   LastHosted,
   Platform,
 } from "../platform.js";
+import { useHostingStatus } from "../lib/hosting.js";
 import { useCopy } from "../lib/useCopy.js";
 import { formatDay, formatTime } from "../lib/format.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 
 type Hosting = NonNullable<Platform["hosting"]>;
-
-/** One live status shared by the host dialog and the surrounding workspace. */
-export function useHostingStatus(hosting: Platform["hosting"]) {
-  const [status, setStatus] = useState<HostingStatus | null>(null);
-  const [loading, setLoading] = useState(!!hosting);
-  const [error, setError] = useState(false);
-  const revision = useRef(0);
-
-  const refresh = useCallback(async () => {
-    if (!hosting) return;
-    const request = ++revision.current;
-    setLoading(true);
-    setError(false);
-    try {
-      const next = await hosting.status();
-      if (request !== revision.current) return;
-      setStatus(next);
-    } catch {
-      if (request === revision.current) setError(true);
-    } finally {
-      if (request === revision.current) setLoading(false);
-    }
-  }, [hosting]);
-
-  useEffect(() => {
-    setStatus(null);
-    if (!hosting) {
-      setLoading(false);
-      setError(false);
-      return;
-    }
-    const unsubscribe = hosting.subscribe?.((next) => {
-      // A live change takes precedence over an older in-flight status read.
-      revision.current++;
-      setStatus(next);
-      setLoading(false);
-      setError(false);
-    });
-    void refresh();
-    return () => {
-      revision.current++;
-      unsubscribe?.();
-    };
-  }, [hosting, refresh]);
-
-  // Only the first read is "loading". Re-reading a status already on screen must
-  // not blank it, or every refresh flickers the controls it is about.
-  return { status, loading: loading && status === null, error, refresh };
-}
-
-/**
- * The workspace this computer hosted last, for offering to host it again.
- * Read again whenever hosting starts or stops, since either can change it.
- */
-export function useLastHosted(hosting: Platform["hosting"], status: HostingStatus | null) {
-  const [lastHosted, setLastHosted] = useState<LastHosted | null>(null);
-  const phase = status ? (status.phase ?? (status.running ? "running" : "stopped")) : null;
-  const hosted = status?.running ? `${status.workspaceName ?? ""}:${status.port ?? ""}` : "";
-  useEffect(() => {
-    if (!hosting?.lastHosted) return;
-    let alive = true;
-    hosting
-      .lastHosted()
-      .then((value) => {
-        if (alive) setLastHosted(value);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [hosting, phase, hosted]);
-  return lastHosted;
-}
 
 /**
  * Every workspace hosted on this computer, read again whenever hosting

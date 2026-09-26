@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { normalizeServerUrl, WorkspaceClient } from "@slackoss/client-core";
 import { PlatformContext } from "./context.js";
 import type { Platform, SavedServer } from "./platform.js";
@@ -7,7 +7,13 @@ import { JoinScreen } from "./screens/JoinScreen.js";
 import { WorkspaceScreen } from "./screens/WorkspaceScreen.js";
 import { Dialog, primaryBtnCls } from "./components/Dialog.js";
 import { Icon } from "./components/Icon.js";
-import { HostDialog, useHostingStatus, useLastHosted } from "./components/HostDialog.js";
+import { LazyDialog } from "./components/LazyView.js";
+import { useHostingStatus, useLastHosted } from "./lib/hosting.js";
+
+// Only the desktop app hosts, and only now and then, so its dialog loads on first use.
+const HostDialog = lazy(() =>
+  import("./components/HostDialog.js").then((module) => ({ default: module.HostDialog })),
+);
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { ConfirmProvider } from "./components/Confirm.js";
 import { ToastProvider } from "./components/Toast.js";
@@ -399,26 +405,28 @@ export function App({ platform }: { platform: Platform }) {
               />
             )}
             {hostDialogOpen && platform.hosting && (
-              <HostDialog
-                hosting={platform.hosting}
-                state={hosting}
-                viewingHosted={
-                  session.view === "workspace" &&
-                  hosting.status?.port !== undefined &&
-                  session.server.url === normalizeServerUrl(`localhost:${hosting.status.port}`)
-                }
-                onClose={() => setHostDialogOpen(false)}
-                onStarted={(status) => {
-                  setHostDialogOpen(false);
-                  // A host that finishes starting must not replace a newer deep-link navigation.
-                  if (navigation.current !== renderedNavigation) return;
-                  const url = normalizeServerUrl(`localhost:${status.port}`);
-                  // Already on screen, from Manage hosting: there is nothing to open.
-                  if (openServerUrl.current === url) return;
-                  leaveWorkspace();
-                  setSession({ view: "join", autoProbe: url });
-                }}
-              />
+              <LazyDialog loading="Loading hosting" onClose={() => setHostDialogOpen(false)}>
+                <HostDialog
+                  hosting={platform.hosting}
+                  state={hosting}
+                  viewingHosted={
+                    session.view === "workspace" &&
+                    hosting.status?.port !== undefined &&
+                    session.server.url === normalizeServerUrl(`localhost:${hosting.status.port}`)
+                  }
+                  onClose={() => setHostDialogOpen(false)}
+                  onStarted={(status) => {
+                    setHostDialogOpen(false);
+                    // A host that finishes starting must not replace a newer deep-link navigation.
+                    if (navigation.current !== renderedNavigation) return;
+                    const url = normalizeServerUrl(`localhost:${status.port}`);
+                    // Already on screen, from Manage hosting: there is nothing to open.
+                    if (openServerUrl.current === url) return;
+                    leaveWorkspace();
+                    setSession({ view: "join", autoProbe: url });
+                  }}
+                />
+              </LazyDialog>
             )}
             {forgetConfirm && (
               <Dialog
