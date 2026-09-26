@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_PORT } from "@slackoss/protocol";
 import { createWorkspaceServer, SERVER_VERSION } from "./server.js";
-import { backupWorkspace, restoreWorkspace, verifyBackup } from "./backup.js";
+import { backupWorkspace, inventoryBackup, restoreWorkspace, verifyBackup } from "./backup.js";
 import { listAccounts, recoverAccount } from "./recover.js";
 import { parseIceServers } from "./rtc.js";
 import {
@@ -34,7 +34,7 @@ const { values, positionals } = (() => {
         out: { type: "string" },
         from: { type: "string" },
         port: { type: "string", default: String(DEFAULT_PORT) },
-        host: { type: "string", default: "0.0.0.0" },
+        host: { type: "string" },
         name: { type: "string" },
         "invite-only": { type: "boolean" },
         "no-mdns": { type: "boolean", default: false },
@@ -47,6 +47,7 @@ const { values, positionals } = (() => {
         "no-rate-limits": { type: "boolean", default: false },
         "trust-proxy": { type: "boolean", default: false },
         "skip-upgrade-backup": { type: "boolean", default: false },
+        isolated: { type: "boolean", default: false },
         handle: { type: "string" },
         "make-owner": { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
@@ -73,7 +74,7 @@ Usage: slackoss-server [options]
 
   --data <dir>      Data directory (default ./data)
   --port <port>     Port to listen on (default ${DEFAULT_PORT})
-  --host <host>     Host to bind (default 0.0.0.0)
+  --host <host>     Host to bind (default 0.0.0.0, or 127.0.0.1 with --isolated)
   --name <name>     Workspace name (persisted on first run)
   --invite-only     Require an invite code to register
   --no-mdns         Do not advertise on the local network
@@ -122,6 +123,14 @@ Usage: slackoss-server [options]
                     have just taken a backup yourself and have no disk space
                     for a second copy.
 
+  --isolated        Start a copy only to look at it, such as a backup restored
+                    to check it. Messages scheduled in it are not posted, apps
+                    are sent nothing, and it is not announced on the network,
+                    so the copy cannot repeat what the original already did.
+                    It listens on this machine only unless --host says
+                    otherwise. Started again without it, the same data posts
+                    and delivers whatever is waiting.
+
   --allow-private-hooks
                     Let slash commands and event subscriptions call private
                     addresses (192.168.x, 10.x, localhost). Off by default:
@@ -135,10 +144,15 @@ Backups
                   a consistent snapshot, every attachment, and a manifest with
                   checksums and the schema version. Stop the server first for a
                   backup that is certain to be complete.
-  verify-backup   Check a backup's checksums and database without restoring it.
+  verify-backup   Check a backup's checksums and database without restoring it,
+                  and list what starting it would reach outside itself: the
+                  addresses of its apps, messages waiting to be posted, app
+                  events not yet delivered and sign-ins it would accept.
   restore         Replace --data with a backup, after verifying it. The old
                   directory is renamed rather than deleted. Stop the server
-                  before restoring.
+                  before restoring. To check a backup without replacing
+                  anything, restore it into a new directory and start that
+                  with --isolated.
 
 Recovery
 
@@ -188,6 +202,42 @@ if (command === "verify-backup" || command === "restore") {
       console.log(`
   Backup of "${manifest.workspaceName}" is intact`);
       console.log(`  Taken ${when} by server v${manifest.serverVersion}, schema v${manifest.schemaVersion}
+`);
+      const found = inventoryBackup(resolve(values.from));
+      const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+      console.log("  Starting it would reach outside the backup:");
+      if (found.appAddresses.length === 0) console.log("    No app addresses.");
+      else {
+        console.log(`    ${count(found.appAddresses.length, "app address", "app addresses")}:`);
+        for (const { origin, uses } of found.appAddresses) {
+          console.log(`      ${origin} (${uses.join(", ")})`);
+        }
+        console.log("    Their signing secrets are in the backup, so a copy calls them");
+        console.log("    as this workspace.");
+      }
+      const { waiting, earliestAt } = found.scheduled;
+      if (waiting > 0) {
+        console.log(
+          `    ${count(waiting, "scheduled message waits", "scheduled messages wait")} to be posted, the earliest at ${new Date(earliestAt!).toISOString()}.`,
+        );
+        console.log("    Any already due are posted as soon as it starts.");
+      }
+      if (found.undeliveredEvents > 0) {
+        console.log(
+          `    ${count(found.undeliveredEvents, "app event waits", "app events wait")} to be delivered.`,
+        );
+      }
+      console.log(
+        `    ${count(found.sessions, "sign-in", "sign-ins")} still valid, including any ended since it was taken.`,
+      );
+      console.log(`
+  Not in any backup, so set them again where it is restored: --public-url,
+  --retention-days, --storage-limit-mb, --allow-private-hooks, --trust-proxy,
+  GATHERLINE_ICE_SERVERS, and any proxy or certificate in front of the server.
+
+  To look inside it first, restore it into a new directory and start that
+  with --isolated. Its apps and scheduled messages wait until it is started
+  without it.
 `);
     } else {
       const { manifest, supersededDir } = await restoreWorkspace({
@@ -327,16 +377,22 @@ if (abandonedUploadHours <= 0) {
   process.exit(1);
 }
 
+// An isolated copy stays on this machine unless told otherwise, since the
+// people who use the original would otherwise find a second one to sign in to.
+const host = values.host ?? (values.isolated ? "127.0.0.1" : "0.0.0.0");
+const loopbackOnly = ["127.0.0.1", "localhost", "::1"].includes(host);
+
 const server = await createWorkspaceServer({
   dataDir: resolve(values.data),
   maxStorageBytes: Math.round(storageLimitMb * 1024 * 1024),
   abandonedUploadTtlMs: Math.round(abandonedUploadHours * 3600_000),
   retentionDays,
   port,
-  host: values.host,
+  host,
   workspaceName: values.name,
   inviteOnly: values["invite-only"],
   mdns: !values["no-mdns"],
+  isolated: values.isolated,
   webDistPath,
   publicUrl,
   allowPrivateHooks: values["allow-private-hooks"],
@@ -345,7 +401,7 @@ const server = await createWorkspaceServer({
   rateLimits: values["no-rate-limits"] || envSetting("RATE_LIMITS") === "off" ? false : undefined,
   logger: true,
   iceServers: parseIceServers(envSetting("ICE_SERVERS")),
-}).catch((err: unknown) => refuse(describeStartupError(err, { port, host: values.host })));
+}).catch((err: unknown) => refuse(describeStartupError(err, { port, host })));
 
 console.log(`\n  Gatherline server v${SERVER_VERSION} is running`);
 console.log(`  Data: ${resolve(values.data)}`);
@@ -353,12 +409,16 @@ if (server.upgradeBackup) {
   console.log(`  Upgraded this workspace; the copy from before is at ${server.upgradeBackup}`);
 }
 console.log(`  Local:   http://localhost:${server.port}`);
+if (values.isolated) {
+  console.log("  Isolated: scheduled messages wait, apps are sent nothing, and it is");
+  console.log("  not announced. Start it without --isolated to let them go.");
+}
 if (retentionDays > 0) {
   // Said out loud on every start. A setting that quietly discards history is
   // one somebody should be reminded they turned on.
   console.log(`  Retention: conversation older than ${retentionDays} days is discarded`);
 }
-for (const addr of lanAddresses()) {
+for (const addr of loopbackOnly ? [] : lanAddresses()) {
   console.log(`  Network: http://${addr}:${server.port}  <- share this with your team`);
 }
 if (server.claimCode) {
