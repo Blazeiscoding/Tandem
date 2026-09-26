@@ -179,11 +179,11 @@ Alongside phase 1. These features shipped without permanent tests. Every new tes
 
 On the server:
 
-- Editing a scheduled message's text: a compare-and-set conflict, repeating an accepted edit, editing while delivery is due.
-- Download tickets: single use, the 60-second expiry, the issuing session signing out, losing access to a private room, the 64-ticket cap.
-- Channel managers: the full allow and deny matrix for creator, manager, admin, owner, member and former member.
-- Member removal and group conversations: removal events and call eviction, leaving a group, starting again with the same people.
-- Activity, saved and pinned paging: tied timestamps at page boundaries, access lost between pages.
+- Editing a scheduled message's text: a compare-and-set conflict, repeating an accepted edit, editing while delivery is due. Done.
+- Download tickets: single use, the 60-second expiry, the issuing session signing out, losing access to a private room, the 64-ticket cap. Done.
+- Channel managers: the full allow and deny matrix for creator, manager, admin, owner, member and former member. Done.
+- Member removal and group conversations: removal events and call eviction, leaving a group, starting again with the same people. Done.
+- Activity, saved and pinned paging: tied timestamps at page boundaries, access lost between pages. Done.
 
 In client-core and the UI:
 
