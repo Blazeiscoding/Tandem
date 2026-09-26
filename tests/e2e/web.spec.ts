@@ -2203,6 +2203,12 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     await page.keyboard.press("Enter");
     const settings = page.getByRole("dialog", { name: "Account settings" });
     await expect(settings).toBeVisible();
+    // One dialog, a section at a time, opening on the profile.
+    await expect(settings.getByRole("tab", { name: "Profile" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(settings.getByRole("form", { name: "Your profile" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
     await expect(workspaceMenu).toBeFocused();

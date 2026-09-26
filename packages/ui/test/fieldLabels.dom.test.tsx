@@ -6,7 +6,7 @@ import type { ServerInfo, User } from "@slackoss/protocol";
 import { ClientContext } from "../src/context.js";
 import { AppsDialog } from "../src/components/AppsDialog.js";
 import { ConfirmProvider } from "../src/components/Confirm.js";
-import { EditProfileDialog } from "../src/components/ProfileDialog.js";
+import { ProfileForm } from "../src/components/ProfileDialog.js";
 import { JoinScreen } from "../src/screens/JoinScreen.js";
 import type { Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
@@ -143,10 +143,10 @@ describe("account and administration dialogs", () => {
   it("ties your profile's labels to their fields", async () => {
     render(
       <ClientContext.Provider value={workspace()}>
-        <EditProfileDialog onClose={() => {}} />
+        <ProfileForm />
       </ClientContext.Provider>,
     );
-    const dialog = screen.getByRole("dialog", { name: "Your profile" });
+    const dialog = screen.getByRole("form", { name: "Your profile" });
     expect(within(dialog).getByLabelText("Display name")).toHaveValue("Sam Rivera");
     const status = within(dialog).getByRole("group", { name: "Status" });
     expect(within(status).getByLabelText("Status emoji")).toHaveValue("🎧");
