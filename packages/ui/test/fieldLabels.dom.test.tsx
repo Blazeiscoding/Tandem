@@ -102,6 +102,13 @@ describe("signing in", () => {
     );
     await user.keyboard("{Home}");
     expect(signIn).toHaveFocus();
+    // Left from the first tab wraps to the last, and Right from the last to the first.
+    await user.keyboard("{ArrowLeft}");
+    expect(create).toHaveFocus();
+    expect(create).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowRight}");
+    expect(signIn).toHaveFocus();
+    expect(screen.getByRole("tabpanel", { name: "Sign in" })).toBeVisible();
     // A click is a choice of form, so the cursor goes to its first field.
     await user.click(create);
     expect(screen.getByLabelText("Username")).toHaveFocus();

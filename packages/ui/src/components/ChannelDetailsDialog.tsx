@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   channelPermissions,
   canRemoveChannelMember,
@@ -7,6 +7,7 @@ import {
   type NotifyLevel,
 } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
+import { useTabs } from "../lib/useTabs.js";
 import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
@@ -14,16 +15,6 @@ import { buttonClass } from "./Button.js";
 
 type Tab = "about" | "members" | "notifications";
 const TABS: readonly Tab[] = ["about", "members", "notifications"];
-
-/** Where an arrow key, Home or End moves from one tab, wrapping at either end. */
-function tabAfter(key: string, current: Tab): Tab | null {
-  const at = TABS.indexOf(current);
-  if (key === "ArrowRight") return TABS[(at + 1) % TABS.length]!;
-  if (key === "ArrowLeft") return TABS[(at + TABS.length - 1) % TABS.length]!;
-  if (key === "Home") return TABS[0]!;
-  if (key === "End") return TABS[TABS.length - 1]!;
-  return null;
-}
 
 const DEFAULT_PREFS = { notifyLevel: "mentions" as NotifyLevel, muted: false };
 
@@ -49,7 +40,7 @@ export function ChannelDetailsDialog(props: {
   const selfId = self?.id;
   const membership = useWorkspace((s) => props.channelId in s.memberships);
   const [tab, setTab] = useState<Tab>("about");
-  const tabsId = useId();
+  const tabs = useTabs({ label: "Channel details", tabs: TABS, selected: tab, onSelect: setTab });
   const [memberIds, setMemberIds] = useState<ID[]>([]);
   const [topic, setTopic] = useState(channel?.topic ?? "");
   const [name, setName] = useState(channel?.name ?? "");
@@ -181,28 +172,11 @@ export function ChannelDetailsDialog(props: {
           {error}
         </p>
       )}
-      <div
-        role="tablist"
-        aria-label="Channel details"
-        className="mb-4 flex gap-1 rounded-lg bg-ground p-1"
-        onKeyDown={(event) => {
-          const next = tabAfter(event.key, tab);
-          if (!next) return;
-          event.preventDefault();
-          setTab(next);
-          document.getElementById(`${tabsId}-tab-${next}`)?.focus();
-        }}
-      >
+      <div {...tabs.listProps} className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
         {TABS.map((t) => (
           <button
             key={t}
-            id={`${tabsId}-tab-${t}`}
-            type="button"
-            role="tab"
-            aria-selected={tab === t}
-            aria-controls={`${tabsId}-panel`}
-            tabIndex={tab === t ? 0 : -1}
-            onClick={() => setTab(t)}
+            {...tabs.tabProps(t)}
             className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
               tab === t ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
             }`}
@@ -218,7 +192,7 @@ export function ChannelDetailsDialog(props: {
         ))}
       </div>
 
-      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-tab-${tab}`}>
+      <div {...tabs.panelProps}>
         {tab === "notifications" ? (
           <NotificationSettings channelId={props.channelId} />
         ) : tab === "about" ? (

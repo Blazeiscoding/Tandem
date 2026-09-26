@@ -242,12 +242,12 @@ test("two people register, chat, become friends, reconnect, and exchange real We
     const bobHears = bob.getByRole("log", { name: "New messages", exact: true });
     await expect(bobHears).toHaveText("alice: Hello from Alice — live delivery");
     await alice.getByRole("button", { name: "Friends", exact: true }).click();
-    await alice.getByRole("button", { name: "Add friends", exact: true }).click();
+    await alice.getByRole("tab", { name: "Add friends", exact: true }).click();
     await alice.getByRole("button", { name: "Add friend", exact: true }).click();
     await bob.getByRole("button", { name: "Friends 1" }).click();
-    await bob.getByRole("button", { name: "Requests (1)", exact: true }).click();
+    await bob.getByRole("tab", { name: "Requests (1)", exact: true }).click();
     await bob.getByRole("button", { name: "Accept", exact: true }).click();
-    await alice.getByRole("button", { name: "Friends", exact: true }).last().click();
+    await alice.getByRole("tab", { name: "Friends", exact: true }).click();
     await expect(alice.getByRole("button", { name: "Remove friend" })).toBeVisible();
     await alice.keyboard.press("Escape");
     await bob.keyboard.press("Escape");
