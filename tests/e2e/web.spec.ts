@@ -2398,3 +2398,168 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     rmSync(keyboardData, { recursive: true, force: true });
   }
 });
+
+test("the layout holds at phone, tablet, laptop and short-window sizes", async ({
+  browser,
+}, info) => {
+  test.setTimeout(120_000);
+  const port = 18549;
+  const origin = `http://127.0.0.1:${port}`;
+  const layoutData = mkdtempSync(join(tmpdir(), "slackoss-e2e-layout-"));
+  const layoutServer = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      layoutData,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Layout Team",
+      "--no-rate-limits",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  try {
+    await expect
+      .poll(async () => {
+        try {
+          return (await fetch(`${origin}/api/health`)).status;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(200);
+    const { token } = await (
+      await fetch(`${origin}/api/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "hana", displayName: "Hana", password: "password123" }),
+      })
+    ).json();
+    const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const { channels } = await (await fetch(`${origin}/api/channels`, { headers: auth })).json();
+    const general = channels.find((c: { name: string }) => c.name === "general");
+    let root = "";
+    for (let i = 1; i <= 30; i++) {
+      const { message } = await (
+        await fetch(`${origin}/api/channels/${general.id}/messages`, {
+          method: "POST",
+          headers: auth,
+          body: JSON.stringify({
+            text:
+              i === 30
+                ? "The newest message, long enough to wrap on a phone: " +
+                  "a-very-long-unbroken-address-that-must-not-push-the-page-sideways.example.com"
+                : `Line ${i}`,
+          }),
+        })
+      ).json();
+      if (i === 29) root = message.id;
+    }
+    await fetch(`${origin}/api/channels/${general.id}/messages`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ text: "A reply", threadRootId: root }),
+    });
+
+    // Pixel baselines would compare this browser's fonts with CI's, so the
+    // layout is measured instead; screenshots are kept for a person to look at.
+    for (const size of [
+      { name: "phone", width: 390, height: 844 },
+      { name: "tablet", width: 768, height: 1024 },
+      { name: "laptop", width: 1024, height: 768 },
+      { name: "short", width: 1280, height: 600 },
+    ]) {
+      const context = await browser.newContext({
+        viewport: { width: size.width, height: size.height },
+      });
+      const page = await context.newPage();
+      await page.goto(origin);
+      await page.evaluate(
+        (server) => localStorage.setItem("slackoss:servers", JSON.stringify([server])),
+        { url: origin, token, workspaceName: "Layout Team", handle: "hana", lastUsedAt: 1 },
+      );
+      await page.goto(`${origin}/#/c/${general.id}`);
+      await page.reload();
+      const composer = page.locator("textarea");
+      await expect(composer).toBeVisible();
+      const newest = page.getByText("The newest message", { exact: false });
+      await expect(newest).toBeInViewport();
+
+      const box = async (locator: import("@playwright/test").Locator) =>
+        (await locator.boundingBox())!;
+      const header = await box(page.locator(".channel-header"));
+      const timeline = await box(page.locator('[aria-label="Message history"]'));
+      const composerShell = await box(page.locator(".composer-shell"));
+      const where = `${size.name} ${size.width}×${size.height}`;
+      // Nothing makes the page scroll sideways, not even a long address.
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        where,
+      ).toBe(true);
+      // Header, timeline and composer stack in order, inside the window.
+      expect(header.y, where).toBeGreaterThanOrEqual(0);
+      expect(header.y + header.height, where).toBeLessThanOrEqual(timeline.y + 1);
+      expect(timeline.y + timeline.height, where).toBeLessThanOrEqual(composerShell.y + 1);
+      expect(composerShell.y + composerShell.height, where).toBeLessThanOrEqual(size.height + 1);
+      expect(timeline.height, where).toBeGreaterThan(size.height / 4);
+      // The newest message sits above the composer, not under it.
+      const newestBox = await box(newest);
+      expect(newestBox.y + newestBox.height, where).toBeLessThanOrEqual(composerShell.y + 1);
+
+      const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
+      const openNavigation = page.getByRole("button", { name: "Open navigation", exact: true });
+      const drawer = size.width <= 760 || size.height <= 480;
+      if (drawer) {
+        await expect(navigation, where).toBeHidden();
+        await expect(openNavigation, where).toBeVisible();
+      } else {
+        await expect(navigation, where).toBeVisible();
+        await expect(openNavigation, where).toBeHidden();
+        expect((await box(navigation)).width, where).toBe(264);
+      }
+      await page.screenshot({ path: info.outputPath(`layout-${size.name}.png`) });
+
+      // A thread sits beside the conversation where there is room, and
+      // covers it as a sheet on a phone.
+      const rootRow = page.locator(`[data-mid="${root}"]`);
+      await page.getByRole("button", { name: "1 reply", exact: true }).click();
+      const thread = page.getByRole("complementary", { name: "Thread", exact: true });
+      await expect(thread).toBeVisible();
+      const threadBox = await box(thread);
+      if (size.width <= 760) {
+        expect(threadBox.width, where).toBe(size.width);
+        await expect(page.locator("main"), where).toHaveAttribute("inert", "");
+      } else if (size.width < 1024) {
+        // Between a phone and a laptop it is a sheet over the conversation,
+        // which would otherwise be squeezed to a sliver beside it.
+        expect(threadBox.x + threadBox.width, where).toBeCloseTo(size.width, 0);
+        expect(threadBox.width, where).toBe(420);
+        await expect(page.locator("main"), where).toHaveAttribute("inert", "");
+      } else {
+        expect(threadBox.x + threadBox.width, where).toBeLessThanOrEqual(size.width + 1);
+        const narrowed = await box(page.locator('[aria-label="Message history"]'));
+        expect(narrowed.x + narrowed.width, where).toBeLessThanOrEqual(threadBox.x + 1);
+        expect(narrowed.width, where).toBeGreaterThan(280);
+        await expect(rootRow, where).toBeVisible();
+      }
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        where,
+      ).toBe(true);
+      await page.screenshot({ path: info.outputPath(`layout-${size.name}-thread.png`) });
+      await context.close();
+    }
+  } finally {
+    if (layoutServer.exitCode === null) {
+      const exited = new Promise((resolve) => layoutServer.once("exit", resolve));
+      layoutServer.kill();
+      await exited;
+    }
+    rmSync(layoutData, { recursive: true, force: true });
+  }
+});
