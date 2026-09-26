@@ -54,15 +54,29 @@ function settings(section?: AccountSection, kind: Platform["kind"] = "web") {
     storage: { get: async () => null, set: async () => {} },
     notify: () => {},
   };
-  render(
+  const onSectionChange = vi.fn();
+  const view = (at?: AccountSection) => (
     <PlatformContext.Provider value={platform}>
       <ClientContext.Provider value={client}>
-        <AccountDialog onClose={() => {}} onSignedOut={() => {}} section={section} />
+        <AccountDialog
+          onClose={() => {}}
+          onSignedOut={() => {}}
+          section={at}
+          onSectionChange={onSectionChange}
+        />
       </ClientContext.Provider>
-    </PlatformContext.Provider>,
+    </PlatformContext.Provider>
   );
+  const { rerender } = render(view(section));
   const dialog = screen.getByRole("dialog", { name: "Account settings" });
-  return { client, dialog, updateMe, user: userEvent.setup() };
+  return {
+    client,
+    dialog,
+    updateMe,
+    onSectionChange,
+    moveTo: (at: AccountSection) => rerender(view(at)),
+    user: userEvent.setup(),
+  };
 }
 
 describe("account settings, a section at a time", () => {
@@ -106,6 +120,19 @@ describe("account settings, a section at a time", () => {
     expect(tab("Storage")).toHaveFocus();
     await user.keyboard("{Home}");
     expect(tab("Profile")).toHaveFocus();
+  });
+
+  it("says when someone chooses a section, and follows one chosen for it, as Back does", async () => {
+    browserNotifications("granted");
+    const { dialog, onSectionChange, moveTo, user } = settings("profile");
+    await user.click(within(dialog).getByRole("tab", { name: "Devices" }));
+    expect(onSectionChange).toHaveBeenLastCalledWith("devices");
+    moveTo("composing");
+    expect(within(dialog).getByRole("tab", { name: "Composing" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(within(dialog).getByRole("tabpanel", { name: "Composing" })).toBeVisible();
   });
 
   it("opens on the section it was asked for", () => {

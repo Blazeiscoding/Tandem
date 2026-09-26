@@ -1882,6 +1882,62 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     await expect(saved).toBeVisible();
     await expect(page.locator(".channel-header h2")).toHaveText("#design");
 
+    // A settings dialog is a place too. Opening it adds a step, moving
+    // between its sections rewrites that step, and closing it goes Back
+    // through it, so Back afterwards does not open it again.
+    const here = `${origin}/#/c/${design.id}/p/saved`;
+    await expect(page).toHaveURL(here);
+    const steps = await page.evaluate(() => history.length);
+    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Account settings" }).click();
+    const settings = page.getByRole("dialog", { name: "Account settings" });
+    await expect(settings).toBeVisible();
+    await expect(page).toHaveURL(`${here}/d/account`);
+    await settings.getByRole("tab", { name: "Security" }).click();
+    await expect(page).toHaveURL(`${here}/d/account/security`);
+    expect(await page.evaluate(() => history.length)).toBe(steps + 1);
+    await page.keyboard.press("Escape");
+    await expect(settings).toHaveCount(0);
+    await expect(page).toHaveURL(here);
+    await expect(saved).toBeVisible();
+    // Back from here leaves the Saved panel, as it did before the dialog.
+    await page.goBack();
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/t/${root.id}`);
+    await page.goForward();
+    await expect(page).toHaveURL(here);
+
+    // An address can name a dialog and its section, and a reload keeps it.
+    await page.goto(`${origin}/#/c/${design.id}/d/account/devices`);
+    await expect(settings.getByRole("tab", { name: "Devices" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await page.reload();
+    await expect(settings.getByRole("tab", { name: "Devices" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(settings.getByRole("region", { name: "Signed-in devices" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(settings).toHaveCount(0);
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
+
+    // People is for administrators, whatever the address says.
+    // A context of its own, so the owner's saved sign-in stays as it was.
+    const memberContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+    const member = await memberContext.newPage();
+    await member.goto(origin);
+    await member.evaluate(
+      (server) => localStorage.setItem("slackoss:servers", JSON.stringify([server])),
+      { url: origin, token: other, workspaceName: "Route Team", handle: "omar", lastUsedAt: 2 },
+    );
+    await member.goto(`${origin}/#/c/${general.id}/d/people`);
+    await member.reload();
+    await expect(member.locator("textarea")).toBeVisible();
+    await expect(member).toHaveURL(`${origin}/#/c/${general.id}`);
+    await expect(member.getByRole("dialog", { name: "People" })).toHaveCount(0);
+    await memberContext.close();
+
     // Opened again with nothing in the address, the app goes back to the
     // conversation this account last had open, not to #general.
     const again = await context.newPage();
@@ -1914,8 +1970,9 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     await expect(page.getByRole("alert")).toContainText("That conversation is not available");
     await expect(page).toHaveURL(`${origin}/#/c/${general.id}`);
     await expect(page.locator(".channel-header h2")).toHaveText("#general");
+    // Back returns to where the dialog steps above left off.
     await page.goBack();
-    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/p/saved`);
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
   } finally {
     await context.close().catch(() => {});
     if (routeServer.exitCode === null) {

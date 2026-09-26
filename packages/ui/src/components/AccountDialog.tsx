@@ -5,6 +5,7 @@ import { formatBytes } from "../lib/format.js";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { accountError, deviceLabel } from "../lib/account.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
+import type { AccountSection } from "../lib/accountSections.js";
 import { resumeTime, snoozeOptions } from "../lib/snooze.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
@@ -15,8 +16,7 @@ const button =
 type Confirmation =
   { kind: "device"; session: SessionInfo } | { kind: "others" } | { kind: "signout" };
 
-export type AccountSection =
-  "profile" | "notifications" | "composing" | "security" | "devices" | "storage";
+export type { AccountSection };
 
 const SECTIONS: readonly { id: AccountSection; label: string }[] = [
   { id: "profile", label: "Profile" },
@@ -46,11 +46,14 @@ export function AccountDialog({
   onClose,
   onSignedOut,
   section: initialSection = "profile",
+  onSectionChange,
 }: {
   onClose: () => void;
   onSignedOut: () => void;
-  /** The section to open on. */
+  /** The section to open on, and to move to when it changes, as Back and Forward do. */
   section?: AccountSection;
+  /** Told when someone chooses another section, so the address can follow. */
+  onSectionChange?: (section: AccountSection) => void;
 }) {
   const client = useClient();
   const tabsId = useId();
@@ -177,11 +180,17 @@ export function AccountDialog({
   function choose(next: AccountSection) {
     if (next === section) return;
     setSection(next);
+    onSectionChange?.(next);
     // What was said, or about to be confirmed, belongs to the section it came from.
     setError(null);
     setNotice(null);
     setConfirmation(null);
   }
+
+  // Back and Forward can name another section while the dialog stays open.
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
+  useEffect(() => chooseRef.current(initialSection), [initialSection]);
 
   const otherSessions = sessions.filter((session) => !session.current);
   const askToConfirm = (value: Confirmation) => {
