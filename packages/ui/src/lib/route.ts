@@ -50,6 +50,12 @@ export interface WorkspaceRoute {
   threadRootId: ID | null;
   view?: RouteView | null;
   dialog?: RouteDialog | null;
+  /**
+   * The phone's navigation drawer is open over it. Kept in the history entry
+   * only, never in the address: it is a step to go Back through, not a place
+   * to link to.
+   */
+  drawer?: boolean;
 }
 
 /** Channel and message ids never contain anything else. */
@@ -64,6 +70,7 @@ interface RouteState {
   threadRootId: ID | null;
   view?: RouteView | null;
   dialog?: RouteDialog | null;
+  drawer?: boolean;
 }
 
 /**
@@ -143,6 +150,7 @@ export function currentRoute(
     if (!threadRootId && isView(remembered.view)) route.view = remembered.view;
     const dialog = readDialog(remembered.dialog?.name, remembered.dialog?.section);
     if (dialog) route.dialog = dialog;
+    if (remembered.drawer === true) route.drawer = true;
     return route;
   }
   return servesPage(serverUrl, location.origin) ? parseRouteHash(location.hash) : null;
@@ -154,7 +162,8 @@ export function sameRoute(a: WorkspaceRoute | null, b: WorkspaceRoute | null): b
     (a?.threadRootId ?? null) === (b?.threadRootId ?? null) &&
     (a?.view ?? null) === (b?.view ?? null) &&
     (a?.dialog?.name ?? null) === (b?.dialog?.name ?? null) &&
-    (a?.dialog?.section ?? null) === (b?.dialog?.section ?? null)
+    (a?.dialog?.section ?? null) === (b?.dialog?.section ?? null) &&
+    (a?.drawer ?? false) === (b?.drawer ?? false)
   );
 }
 
