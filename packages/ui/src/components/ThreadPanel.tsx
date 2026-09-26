@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileMeta, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Composer } from "./Composer.js";
+import { usePanelFocus } from "../lib/usePanelFocus.js";
+import { useRovingMessages } from "../lib/useRovingMessages.js";
 import { MessageItem } from "./MessageItem.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Icon } from "./Icon.js";
@@ -27,6 +29,8 @@ export function ThreadPanel({
   onOpenProfile,
 }: Props) {
   const client = useClient();
+  // The reply box takes focus itself; the panel only hands it back on closing.
+  const { panel } = usePanelFocus({ takeFocus: false });
   const page = useWorkspace((s) => s.threadPages[rootId]);
   const root = useWorkspace((s) =>
     s.threadPages[rootId]?.loaded
@@ -38,6 +42,8 @@ export function ThreadPanel({
   const pending = useWorkspace((s) => s.pending).filter((p) => p.threadRootId === rootId);
   const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  // The root and its replies are one Tab stop, as the channel's messages are.
+  const roving = useRovingMessages(scroller);
   const follow = useRef(!targetId);
   const anchor = useRef<{ id: string; top: number } | null>(null);
   const targetPositioned = useRef(false);
@@ -129,6 +135,7 @@ export function ThreadPanel({
 
   return (
     <aside
+      ref={panel}
       aria-label="Thread"
       className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
     >
@@ -162,6 +169,8 @@ export function ThreadPanel({
       </header>
       <div
         ref={scroller}
+        onFocus={roving.onFocus}
+        onKeyDown={roving.onKeyDown}
         onScroll={() => {
           const el = scroller.current;
           if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;

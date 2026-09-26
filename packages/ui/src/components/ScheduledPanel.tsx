@@ -8,6 +8,7 @@ import { Mrkdwn } from "./Mrkdwn.js";
 import { MESSAGE_LIMIT } from "./FormattingToolbar.js";
 import { Icon } from "./Icon.js";
 import { ListStatus } from "./ListStatus.js";
+import { usePanelFocus } from "../lib/usePanelFocus.js";
 
 function draftText(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -24,6 +25,7 @@ function draftText(value: string | undefined): string | undefined {
 /** Messages queued to go out later, with the option to call them back. */
 export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId: ID) => void }) {
   const client = useClient();
+  const { panel, heading } = usePanelFocus({ takeFocus: true });
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   const selfId = useWorkspace((s) => s.self?.id);
@@ -152,11 +154,14 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
 
   return (
     <aside
+      ref={panel}
       aria-label="Scheduled messages"
       className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
     >
       <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
-        <h2 className="font-bold">Scheduled</h2>
+        <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
+          Scheduled
+        </h2>
         <button
           className="ml-auto mr-2 text-xs text-copper disabled:opacity-40"
           disabled={loading || busy !== null}

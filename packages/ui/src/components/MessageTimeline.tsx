@@ -8,6 +8,7 @@ import { ListStatus } from "./ListStatus.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
+import { useRovingMessages } from "../lib/useRovingMessages.js";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -161,6 +162,7 @@ export const MessageTimeline = memo(function MessageTimeline({
   // one, change the size of what it holds. Neither runs the effect above, so a
   // reader at the bottom would find the newest message under the composer.
   const content = useRef<HTMLDivElement>(null);
+  const roving = useRovingMessages(content);
   useEffect(() => {
     const el = scroller.current;
     const inner = content.current;
@@ -286,7 +288,7 @@ export const MessageTimeline = memo(function MessageTimeline({
       className="timeline-scroll min-h-0 flex-1 overflow-y-auto pb-3"
       aria-busy={loadingHistory !== null}
     >
-      <div ref={content}>
+      <div ref={content} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown}>
         <ListStatus
           className="px-5"
           // A cached conversation refreshing on open says nothing; paging
