@@ -13,6 +13,7 @@ import { Tooltip } from "../components/Tooltip.js";
 import { connectionFailure, host, incompatibleWorkspace } from "../lib/connection.js";
 import { resumeTarget } from "../lib/resume.js";
 import { buttonClass } from "../components/Button.js";
+import { useTabs } from "../lib/useTabs.js";
 
 interface Props {
   platform: Platform;
@@ -664,13 +665,19 @@ function AuthCard(props: {
   const [confirmPassword, setConfirmPassword] = useState("");
   const id = useId();
 
-  // Arrow keys move between the two tabs and leave focus on them, as in any
-  // tab list. Anything else that changes the form puts the cursor in it.
-  const keepTabFocus = useRef(false);
-  useEffect(() => {
-    if (keepTabFocus.current) keepTabFocus.current = false;
-    else firstField.current?.focus();
-  }, [mode]);
+  useEffect(() => firstField.current?.focus(), []);
+  const tabs = useTabs({
+    label: "Account",
+    tabs: MODES,
+    selected: mode,
+    onSelect(next, how) {
+      setMode(next);
+      // A click is a choice of form, so the cursor goes to its first field,
+      // which both forms share. The arrow keys leave focus on the tabs, as in
+      // any tab list.
+      if (how === "click") firstField.current?.focus();
+    },
+  });
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -821,31 +828,11 @@ function AuthCard(props: {
           )}
 
           {hasUsers && (
-            <div
-              role="tablist"
-              aria-label="Account"
-              className="mb-4 flex gap-1 rounded-lg bg-ground p-1"
-              onKeyDown={(event) => {
-                const next = TAB_KEYS[event.key];
-                if (!next) return;
-                event.preventDefault();
-                if (next !== mode) {
-                  keepTabFocus.current = true;
-                  setMode(next);
-                }
-                document.getElementById(`${id}-tab-${next}`)?.focus();
-              }}
-            >
-              {(["login", "register"] as const).map((m) => (
+            <div {...tabs.listProps} className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
+              {MODES.map((m) => (
                 <button
                   key={m}
-                  id={`${id}-tab-${m}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={mode === m}
-                  aria-controls={`${id}-account-form`}
-                  tabIndex={mode === m ? 0 : -1}
-                  onClick={() => setMode(m)}
+                  {...tabs.tabProps(m)}
                   className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                     mode === m ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
                   }`}
@@ -856,10 +843,7 @@ function AuthCard(props: {
             </div>
           )}
 
-          <div
-            id={`${id}-account-form`}
-            {...(hasUsers ? { role: "tabpanel", "aria-labelledby": `${id}-tab-${mode}` } : {})}
-          >
+          <div {...(hasUsers ? tabs.panelProps : {})}>
             <form onSubmit={submit} className="space-y-3">
               <div>
                 <label className={labelCls} htmlFor={`${id}-handle`}>
@@ -974,13 +958,7 @@ function AuthCard(props: {
   );
 }
 
-/** Which tab each key moves to. With two tabs, the ends and the neighbours are the same. */
-const TAB_KEYS: Record<string, "login" | "register"> = {
-  ArrowLeft: "login",
-  ArrowRight: "register",
-  Home: "login",
-  End: "register",
-};
+const MODES = ["login", "register"] as const;
 
 function errorMessage(err: unknown, mode: "login" | "register"): string {
   if (err instanceof ApiError) {
