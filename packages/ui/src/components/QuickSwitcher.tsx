@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
@@ -6,6 +6,7 @@ import { Dialog, inputCls } from "./Dialog.js";
 import { isImeKey } from "../lib/textInput.js";
 import { Icon } from "./Icon.js";
 import { ListStatus } from "./ListStatus.js";
+import { useListbox } from "../lib/useListbox.js";
 
 type SwitcherRow =
   | { kind: "public" | "private" | "conversation"; id: ID; label: string }
@@ -34,8 +35,6 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
   const [q, setQ] = useState("");
-  const [index, setIndex] = useState(0);
-  const listId = useId();
   /** A person whose new direct conversation is being started, or failed to start. */
   const [opening, setOpening] = useState<SwitcherRow | null>(null);
   const [failed, setFailed] = useState<SwitcherRow | null>(null);
@@ -83,6 +82,7 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
     }
     return rows.slice(0, 12);
   }, [q, channels, users, selfId]);
+  const list = useListbox(results.length);
 
   async function open(r: SwitcherRow) {
     if (r.kind !== "person") return props.onOpen(r.id);
@@ -107,31 +107,21 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
     <Dialog title="Jump to" onClose={props.onClose} width={480}>
       <input
         autoFocus
-        role="combobox"
+        {...list.comboboxProps}
         aria-label="Channel or person"
-        aria-autocomplete="list"
-        aria-expanded={results.length > 0}
-        aria-controls={listId}
-        aria-activedescendant={results[index] ? `${listId}-${index}` : undefined}
         value={q}
         onChange={(e) => {
           setQ(e.target.value);
-          setIndex(0);
+          list.choose(0);
           setFailed(null);
         }}
         onKeyDown={(e) => {
           // Enter chooses among an input method's candidates. Jumping to a
           // channel on it would take somebody out of the box mid-word.
           if (isImeKey(e.nativeEvent)) return;
-          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-            e.preventDefault();
-            if (results.length === 0) return;
-            setIndex(
-              (i) => (i + (e.key === "ArrowDown" ? 1 : results.length - 1)) % results.length,
-            );
-          } else if (e.key === "Enter" && results[index]) {
-            void open(results[index]);
-          }
+          if (list.move(e)) return;
+          const chosen = results[list.active];
+          if (e.key === "Enter" && chosen) void open(chosen);
         }}
         placeholder="Channel or person"
         className={inputCls}
@@ -151,18 +141,15 @@ export function QuickSwitcher(props: { onClose: () => void; onOpen: (channelId: 
         className="mt-2"
       />
       {/* Options, not buttons: the box keeps focus, and the arrow keys move the choice. */}
-      <ul id={listId} role="listbox" aria-label="Matches" className="mt-2">
+      <ul {...list.listProps} aria-label="Matches" className="mt-2">
         {results.map((r, i) => (
           <li
             key={`${r.kind}:${r.id}`}
-            id={`${listId}-${i}`}
-            role="option"
-            aria-selected={i === index}
+            {...list.optionProps(i)}
             aria-label={`${r.label}, ${SWITCHER_KIND[r.kind]}`}
             onClick={() => void open(r)}
-            onMouseEnter={() => setIndex(i)}
             className={`flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
-              i === index ? "bg-copper/15 text-copper" : "text-ink-dim"
+              i === list.active ? "bg-copper/15 text-copper" : "text-ink-dim"
             }`}
           >
             <span aria-hidden className="flex w-4 justify-center text-ink-faint">

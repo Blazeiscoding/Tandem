@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import { findEmoji } from "../lib/emoji.js";
+import { isImeKey } from "../lib/textInput.js";
+import { useListbox } from "../lib/useListbox.js";
 import { Icon } from "./Icon.js";
 
 export const MESSAGE_LIMIT = 12_000;
@@ -51,6 +53,11 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const matches = findEmoji(query);
+  const list = useListbox(matches.length);
+  function insert(emoji: string) {
+    onInsert(emoji);
+    setOpen(false);
+  }
   return (
     <>
       <div
@@ -126,30 +133,44 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
         >
           <input
             autoFocus
+            {...list.comboboxProps}
             aria-label="Search emoji"
             placeholder="Search emoji"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              list.choose(0);
+            }}
+            onKeyDown={(e) => {
+              if (isImeKey(e.nativeEvent) || list.move(e)) return;
+              const chosen = matches[list.active];
+              if (e.key === "Enter" && chosen) {
+                e.preventDefault();
+                insert(chosen[0]);
+              }
+            }}
             className="mb-2 w-full rounded border border-edge bg-ground px-2 py-1 text-sm outline-none focus:border-copper"
           />
-          <div className="grid max-h-36 grid-cols-6 gap-1 overflow-y-auto">
-            {matches.map(([emoji, label]) => (
-              <button
-                type="button"
+          <ul
+            {...list.listProps}
+            aria-label="Emoji"
+            className="grid max-h-36 grid-cols-6 gap-1 overflow-y-auto"
+          >
+            {matches.map(([emoji, label], i) => (
+              <li
                 key={label}
+                {...list.optionProps(i)}
                 aria-label={label}
                 title={label}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onInsert(emoji);
-                  setOpen(false);
-                }}
-                className="rounded p-1 text-xl hover:bg-lifted"
+                onClick={() => insert(emoji)}
+                className={`cursor-pointer rounded p-1 text-center text-xl hover:bg-lifted ${
+                  i === list.active ? "bg-copper/15" : ""
+                }`}
               >
                 {emoji}
-              </button>
+              </li>
             ))}
-          </div>
+          </ul>
           {!matches.length && (
             <p role="status" className="py-2 text-sm text-ink-faint">
               No emoji matched. Try another word.

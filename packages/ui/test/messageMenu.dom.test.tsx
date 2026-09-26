@@ -151,8 +151,8 @@ describe("adding a reaction", () => {
     await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Add a reaction…"));
     const picker = screen.getByRole("dialog", { name: "Add a reaction" });
     expect(await accessibilityProblems(picker)).toEqual([]);
-    await user.type(within(picker).getByRole("textbox", { name: "Search emoji" }), "rocket");
-    await user.click(within(picker).getByRole("button", { name: "Rocket launch" }));
+    await user.type(within(picker).getByRole("combobox", { name: "Search emoji" }), "rocket");
+    await user.click(within(picker).getByRole("option", { name: "Rocket launch" }));
     expect(react).toHaveBeenCalledWith(expect.objectContaining({ id: "M_1" }), "🚀");
     expect(screen.queryByRole("dialog", { name: "Add a reaction" })).not.toBeInTheDocument();
   });
@@ -161,7 +161,7 @@ describe("adding a reaction", () => {
     const { react, user } = messageFrom(sam, sam);
     await user.click(screen.getByRole("button", { name: "Add a reaction" }));
     const picker = screen.getByRole("dialog", { name: "Add a reaction" });
-    const search = within(picker).getByRole("textbox", { name: "Search emoji" });
+    const search = within(picker).getByRole("combobox", { name: "Search emoji" });
     expect(search).toHaveFocus();
     await user.type(search, "zzzz");
     expect(within(picker).getByRole("status")).toHaveTextContent("No emoji matched");

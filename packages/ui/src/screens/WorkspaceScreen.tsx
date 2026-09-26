@@ -26,6 +26,7 @@ import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
 import { NotificationBanner } from "../components/NotificationBanner.js";
+import { useMessageAnnouncer } from "../components/MessageAnnouncer.js";
 import { WorkspaceStorageGate } from "../components/WorkspaceStorageGate.js";
 import { ShareableServerProvider } from "../components/ShareableServer.js";
 import { hasOpenModal } from "../components/Modal.js";
@@ -421,11 +422,28 @@ function WorkspaceInner({
 
   const closeDialog = () => setDialog({ kind: "none" });
 
+  const announcer = useMessageAnnouncer();
+  const { hear, forget } = announcer;
+  const openThreadId = panel.kind === "thread" ? panel.rootId : null;
+  // What the last conversation received is not news in the next one.
+  useEffect(() => forget(), [activeChannelId, forget]);
+
   // Desktop notifications for incoming messages, gated by channel preferences,
   // mute and Do Not Disturb (the rules live in client-core so they're testable).
   useEffect(() => {
     clientFromCtx.onIncomingMessage = (msg, { live }) => {
       const state = clientFromCtx.state;
+      // Read to a screen reader what reaches the conversation on screen, but
+      // not what a reconnect catches up on: that is history, not news.
+      const inChannel = msg.channelId === activeChannelId && (!msg.threadRootId || msg.broadcast);
+      const inThread = msg.threadRootId !== null && msg.threadRootId === openThreadId;
+      if (live && (inChannel || inThread)) {
+        hear({
+          from: state.users[msg.userId]?.displayName ?? "Someone",
+          text: notificationBody(state, msg),
+          inThread: !inChannel,
+        });
+      }
       // A message you're already looking at needs no notification.
       if (document.hasFocus() && msg.channelId === activeChannelId) return;
       if (!decideNotification(state, msg, { live }).notify) return;
@@ -442,7 +460,7 @@ function WorkspaceInner({
     return () => {
       clientFromCtx.onIncomingMessage = null;
     };
-  }, [clientFromCtx, activeChannelId, openMessage, platform]);
+  }, [clientFromCtx, activeChannelId, openThreadId, hear, openMessage, platform]);
 
   const connectionLabel =
     status === "online"
@@ -466,6 +484,8 @@ function WorkspaceInner({
   const screen = (
     <div className={`workspace-shell relative flex h-full ${sidebarOpen ? "sidebar-open" : ""}`}>
       <DraftPersistence platform={platform} />
+      {/* Outside main, which goes inert while the phone drawer is open. */}
+      {announcer.region}
       {sidebarOpen && (
         <button
           className="sidebar-dismiss fixed inset-0 z-30 bg-black/60"
