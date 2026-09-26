@@ -30,7 +30,7 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 | Unit and integration | `pnpm test`                               | 865 tests: server 369, client-core 66, UI 322, protocol 12, desktop 96                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 2026-09-26 |
 | Browser end to end   | `pnpm test:e2e`                           | 15 scenarios, passed; one runs sign-in, switching channel, a thread reply, a reaction, search and settings by keyboard alone; on an emulated phone each message's menu offers its actions and any emoji as a reaction, Back, Forward and a reload return to a conversation and its open thread, a search that finds nothing says so in the dialog's status, the newest message stays in view when a side panel opens after the pointer rested on a message, and refused pins and saves raise notices checked with real presses | 2026-09-26 |
 | Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed locally on September 25 after the hosting registry and desktop backups: a second workspace named by punctuation alone kept apart from the first, a running workspace backed up through the folder dialog, and a workspace whose folder was deleted restored from its backup; earlier passed in CI, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again                                   | 2026-09-21 |
-| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 493.6 kB in the browser client after reading positions joined history, under the 500 kB limit CI enforces; the desktop renderer was last measured at 477.3 kB                                                                                                                                                                                                                                                                                                                                                      | 2026-09-26 |
+| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 453.7 kB in the browser client and 454.6 kB in the desktop renderer, after hosting, the video stage and the form dialogs moved to chunks of their own, under the 500 kB limit CI enforces; the desktop renderer was last measured at 477.3 kB                                                                                                                                                                                                                                                                      | 2026-09-26 |
 | Container            | `node tests/docker-smoke.mjs`             | passed; on 2026-09-17 only its new Compose checks ran here, without a Docker engine, and CI ran the rest                                                                                                                                                                                                                                                                                                                                                                                                                       | 2026-09-05 |
 
 The last combined verification including tests used `pnpm exec turbo test typecheck build --force --concurrency=1`:
@@ -453,6 +453,16 @@ again from the sidebar starts at the newest message. Without the timeline
 change it fails where the position should be noted. `pnpm test` passed 865
 tests, and all 15 browser scenarios passed on the pre-installed Chromium 141
 against a fresh build.
+
+The entry-headroom branch adds no tests: it changes when code downloads, not
+what it does. The existing cases for the host dialog, the huddle stage and the
+invite dialog import those components directly and still pass, the host and
+resume cases now take the hosting hooks from `lib/hosting.ts`, and the browser
+scenarios that open the invite, new channel and new message dialogs and run a
+huddle with video pass against the split build. `pnpm test` passed 865 tests,
+all 15 browser scenarios passed on the pre-installed Chromium 141, and both
+bundle checks passed: 453.7 kB for the browser and 454.6 kB for the desktop
+renderer, from 493.6 kB.
 
 Known gaps: the tray menu is read as the app builds it rather than clicked, and the native
 confirmations it and quitting show are not exercised. Component tests run in

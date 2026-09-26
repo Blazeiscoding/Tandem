@@ -1211,3 +1211,9 @@ Back, Forward and a reload returned to the right conversation but always at its 
 If the conversation loads without that message, because it is older than what a fresh load brings, the view starts at the newest rather than fetching far back on its own. A thread's scroll position is not kept yet; that belongs with C03.
 
 Three route cases cover noting and reading positions, and the route browser scenario scrolls a long channel halfway and checks that Back and a reload each return to the same message at the same height. Without the timeline change it fails where the position should be noted. With this, U02 is mostly done.
+
+### Room under the entry chunk again (E05)
+
+The script every visit downloads had grown to 493.6 kB against the 500 kB limit CI enforces, so the next piece of interface would have failed the build. A per-module measurement of the entry chunk showed React DOM first, then the workspace client, the composer, the join screen, the desktop hosting dialog, the workspace screen and the huddle's video stage. The hosting dialog is never opened in a browser and rarely in the desktop app, the stage only during a call with video, and the new channel, browse channels, new message and invite forms now and then, so they now load on first use, as settings, search and channel details already did. The hooks the app needs on every visit, hosting status and the last hosted workspace, moved to `packages/ui/src/lib/hosting.ts`, and the huddle's view type and video check to `packages/ui/src/lib/huddleView.ts`, so importing them no longer drags the components in. The stage stays mounted whenever there is video, even put away, because it brings itself back when someone starts sharing; if its download fails, a line says the call carries on without video.
+
+The browser entry is 453.7 kB and the desktop renderer 454.6 kB. The join screen and the composer are the next candidates if it grows again.
