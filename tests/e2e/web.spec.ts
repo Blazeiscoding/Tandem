@@ -727,9 +727,13 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   const scheduledToggle = page.getByRole("button", { name: "Scheduled messages", exact: true });
   await scheduledToggle.click();
   const scheduled = page.getByRole("complementary", { name: "Scheduled messages", exact: true });
+  // The toggle that opened the panel keeps focus, and closing the panel from
+  // inside hands focus back to it.
   await expect(scheduled.getByRole("heading", { name: "Scheduled", exact: true })).toBeVisible();
-  await scheduledToggle.click();
+  await expect(scheduledToggle).toBeFocused();
+  await scheduled.getByRole("button", { name: "Close scheduled messages", exact: true }).click();
   await expect(scheduled).toHaveCount(0);
+  await expect(scheduledToggle).toBeFocused();
   await page.getByRole("heading", { name: "#design-studio", exact: true }).click();
   const details = page.getByRole("dialog", { name: "#design-studio", exact: true });
   await expect(details).toBeVisible();
@@ -821,6 +825,8 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   await page.getByRole("button", { name: "Saved", exact: true }).click();
   await expect(page.getByRole("navigation")).not.toBeVisible();
+  // Opened from the navigation rather than a toggle, the panel takes focus.
+  await expect(page.getByRole("heading", { name: "Saved", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await composer.fill("Sent from a small window");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
@@ -1989,5 +1995,183 @@ test("on a touchscreen each message offers its actions in a menu, and any emoji 
       await exited;
     }
     rmSync(touchData, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Presses a key until `target` has focus, as somebody without a pointer would.
+ * Fails rather than looping forever when the target is not reachable that way.
+ */
+async function pressUntilFocused(page: Page, key: string, target: Locator, limit = 40) {
+  for (let presses = 0; presses < limit; presses++) {
+    if (await target.evaluate((element) => element === document.activeElement).catch(() => false))
+      return;
+    await page.keyboard.press(key);
+  }
+  await expect(target, `${key} never reached it`).toBeFocused({ timeout: 1 });
+}
+
+test("somebody with only a keyboard signs in, switches channel, replies, reacts, searches and opens settings", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const port = 18548;
+  const origin = `http://127.0.0.1:${port}`;
+  const keyboardData = mkdtempSync(join(tmpdir(), "slackoss-e2e-keyboard-"));
+  const keyboardServer = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      keyboardData,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Keys Team",
+      "--no-rate-limits",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  try {
+    await expect
+      .poll(async () => {
+        try {
+          return (await fetch(`${origin}/api/health`)).status;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(200);
+    const register = async (handle: string) =>
+      (
+        await (
+          await fetch(`${origin}/api/auth/register`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ handle, displayName: handle, password: "password123" }),
+          })
+        ).json()
+      ).token as string;
+    const owner = await register("hana");
+    await register("kai");
+    const call = async (path: string, body: unknown) =>
+      (
+        await fetch(`${origin}${path}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${owner}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      ).json();
+    const { channel: design } = await call("/api/channels", { type: "public", name: "design" });
+    await call(`/api/channels/${design.id}/messages`, { text: "Which icon set are we using?" });
+    await call(`/api/channels/${design.id}/messages`, { text: "The review is on Friday." });
+
+    const page = await context.newPage();
+    await page.goto(origin);
+
+    // Sign in. The card puts the cursor in the first field.
+    const username = page.getByLabel("Username", { exact: true });
+    await expect(username).toBeFocused();
+    await page.keyboard.type("kai");
+    await pressUntilFocused(page, "Tab", page.getByLabel("Password", { exact: true }));
+    await page.keyboard.type("password123");
+    await page.keyboard.press("Enter");
+    const composer = page.getByRole("textbox", { name: /^Message #/ });
+    await expect(composer).toBeFocused();
+
+    // Switch channel from the switcher.
+    await page.keyboard.press("Control+k");
+    await page.keyboard.type("design");
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "#design", exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Message #design" })).toBeFocused();
+
+    // Reply in a thread. The list of messages is one Tab stop, the newest
+    // message; the arrow keys move between messages, and Enter goes into one's
+    // actions.
+    const question = page.getByRole("article").filter({ hasText: "Which icon set are we using?" });
+    const review = page.getByRole("article").filter({ hasText: "The review is on Friday." });
+    await pressUntilFocused(page, "Shift+Tab", review);
+    await expect(question).toHaveAttribute("tabindex", "-1");
+    await page.keyboard.press("ArrowUp");
+    await expect(question).toBeFocused();
+    await expect(review).toHaveAttribute("tabindex", "-1");
+    await page.keyboard.press("Enter");
+    await expect(question.locator(".message-toolbar button").first()).toBeFocused();
+    const replyButton = question.getByRole("button", { name: "Reply in thread", exact: true });
+    await pressUntilFocused(page, "Tab", replyButton);
+    await page.keyboard.press("Enter");
+    const thread = page.getByRole("complementary", { name: "Thread", exact: true });
+    await expect(thread.getByRole("textbox", { name: "Reply…" })).toBeFocused();
+    await page.keyboard.type("The line set");
+    await page.keyboard.press("Enter");
+    await expect(thread.getByText("The line set", { exact: true })).toBeVisible();
+    // A thread is one Tab stop too, its newest reply, with the arrow keys up to the root.
+    const threadReply = thread.getByRole("article").filter({ hasText: "The line set" });
+    const threadRoot = thread.getByRole("article").filter({ hasText: "Which icon set" });
+    await expect(threadReply).toHaveAttribute("tabindex", "0");
+    await expect(threadRoot).toHaveAttribute("tabindex", "-1");
+    await pressUntilFocused(page, "Shift+Tab", threadReply);
+    await page.keyboard.press("ArrowUp");
+    await expect(threadRoot).toBeFocused();
+    // Closing the thread hands focus back to where it was opened from.
+    await pressUntilFocused(
+      page,
+      "Shift+Tab",
+      thread.getByRole("button", { name: "Close thread" }),
+    );
+    await page.keyboard.press("Enter");
+    await expect(thread).toHaveCount(0);
+    await expect(question).toBeFocused();
+
+    // React, choosing the emoji by name.
+    const addReaction = question.getByRole("button", { name: "Add a reaction", exact: true });
+    await pressUntilFocused(page, "Tab", addReaction);
+    await page.keyboard.press("Enter");
+    const picker = page.getByRole("dialog", { name: "Add a reaction" });
+    await expect(picker.getByRole("combobox", { name: "Search emoji" })).toBeFocused();
+    await page.keyboard.type("rocket");
+    await page.keyboard.press("Enter");
+    await expect(picker).toHaveCount(0);
+    await expect(question.getByRole("button", { name: /^🚀 1 reaction, from you$/ })).toBeVisible();
+
+    // Search.
+    await page.keyboard.press("Control+f");
+    const search = page.getByRole("dialog", { name: "Search messages", exact: true });
+    await expect(search.getByRole("textbox", { name: "Search messages" })).toBeFocused();
+    await page.keyboard.type("icon set");
+    await page.keyboard.press("Enter");
+    await expect(search.getByText("Which icon set are we using?")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(search).toHaveCount(0);
+
+    // Settings, from the workspace menu.
+    const workspaceMenu = page.getByRole("button", { name: "Workspace", exact: true });
+    await pressUntilFocused(page, "Shift+Tab", workspaceMenu, 80);
+    await page.keyboard.press("Enter");
+    const menu = page.getByRole("menu", { name: "Workspace" });
+    await pressUntilFocused(
+      page,
+      "ArrowDown",
+      menu.getByRole("menuitem", { name: "Account settings" }),
+    );
+    await page.keyboard.press("Enter");
+    const settings = page.getByRole("dialog", { name: "Account settings" });
+    await expect(settings).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(settings).toHaveCount(0);
+    await expect(workspaceMenu).toBeFocused();
+  } finally {
+    await context.close().catch(() => {});
+    if (keyboardServer.exitCode === null) {
+      const exited = new Promise((resolve) => keyboardServer.once("exit", resolve));
+      keyboardServer.kill();
+      await exited;
+    }
+    rmSync(keyboardData, { recursive: true, force: true });
   }
 });

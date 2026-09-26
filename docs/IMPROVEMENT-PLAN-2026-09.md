@@ -1029,3 +1029,62 @@ It reads only what the client calls live, meaning messages recorded after this c
 Six UI cases cover the wording (one message, a reply, a long message, several senders, more than three) and the timing (the first at once, the rest together after three seconds, then at once again after a quiet spell, only the last three kept), dropping on a move, and an axe check. A client-core case against a real server checks the contract the log relies on: after a reconnect, a message caught up on arrives marked not live and the next one live. The two-person browser scenario checks that Bob hears Alice's live message as "alice: Hello from Alice — live delivery".
 
 Checking replay in that browser scenario turned up something else. Its offline step does not close Bob's open WebSocket: the message sent "while Bob is offline" arrived live and was read with the next one as "2 new messages". Playwright's offline emulation stops new requests, not a socket that is already open. So the scenario never exercised reconnecting, despite its name. The client-core replay cases cover reconnecting instead. The browser entry grew 1.4 kB, to 479.1 kB.
+
+### Side panels take focus and hand it back (U04)
+
+The side panels (Saved, Pins, Threads, Scheduled, Activity and a thread) were already labelled complementary regions, but opening one left focus where it was. Somebody on a keyboard had to find the panel, and a screen reader said nothing had changed. Closing one dropped focus onto the page.
+
+`usePanelFocus` in `packages/ui/src/lib/usePanelFocus.ts` notes what had focus when the panel first rendered. That is before any box inside the panel focuses itself. Opened from the sidebar, the list panels then focus their heading, which a screen reader reads. A thread's reply box already takes focus, so the thread panel leaves focus there. The header's Pins, Saved and Scheduled buttons are pressed toggles, and a panel opened from one of them leaves focus on it. The toggle stays on screen, says the panel is open and closes it again, as a disclosure button does. The main browser scenario had already pinned this down: a keyboard user opening Pins keeps the toggle's tooltip. When a panel closes with focus inside it, focus goes back to the control that opened it. If that control can no longer take focus, it goes to the nearest focusable element around it. A message's toolbar button is shown only while the message has the pointer or focus, so there focus lands on the message. If somebody has moved on, for example into the composer, focus stays where they are.
+
+Five UI cases cover it:
+
+- the heading takes focus on open, focus returns to the opener on close, and an axe check passes
+- focus stays in the composer when the panel closes from outside
+- a panel whose own box takes focus leaves the heading alone and still hands focus back
+- a toggle that opened the panel keeps focus
+- focus falls back to the element around an opener that can no longer take it
+
+Removing the fallback, or the check that somebody has moved on, fails its case. The main browser scenario now checks two things. The Scheduled toggle keeps focus and gets it back from the panel's Close button. Saved, opened from the phone drawer, focuses its heading. One gap remains: when that Saved panel closes, focus drops to the page, because the drawer that opened it is closed by then.
+
+### An app's form ties its fields to their hints and errors (U04)
+
+U04 asked for a label audit of every field, because a placeholder is not a label. Every field with a placeholder already has a label, and the sign-in, account and hosting fields tie their hints to themselves. An app's form did not. A screen reader read a field's label but not the hint under it, and when the app refused a field, nothing said which one: the error was announced once and then left unattached. Each field is now described by its hint, or by its error when the app refused it, just as the error replaces the hint on screen. Refused fields are marked invalid, fields not marked optional are marked required, and after a refusal focus goes to the first refused field.
+
+The same work turned up a real bug. The form kept each value under its action id alone, but an action id need only be unique within its block. Two fields in different blocks that shared one, such as `value`, shared a value: typing an amount filled the reason too, and both went to the app with the same text. Values are now kept under block and action id together.
+
+Three UI cases cover it:
+
+- each field is described by its hint and says whether it is required, with an axe check
+- two fields that share an action id keep their own values, and the app receives both
+- a refused field is marked invalid, described by its error, and takes focus, with an axe check
+
+All three fail against the old form.
+
+### The main journey by keyboard alone (U04)
+
+U04's last listed check was one browser scenario that uses only the keyboard, from signing in to opening settings. It runs against its own server, with one channel and one message. It signs in by typing into the card, then does each of the following by keyboard:
+
+- switches to #design with Ctrl+K
+- goes back from the composer to the message with Shift+Tab, and Tabs to Reply in thread
+- replies in the thread, closes it, and lands back on the message
+- opens Add a reaction and types "rocket" then Enter, after which the reaction reads "🚀 1 reaction, from you"
+- searches with Ctrl+F
+- opens Account settings from the Workspace menu with the arrow keys, closes it with Escape, and lands back on the menu button
+
+The helper that presses a key until something has focus gives up after a set number of presses, so an unreachable control fails the scenario.
+
+Writing it found two real faults, both with the same cause. The composer is disabled until its saved scheduling state has been read, and a disabled box refuses focus, so the composer's request for focus on mount did nothing. After signing in, focus was left on the page itself. After opening a thread, it stayed on the Reply in thread button, so a thread's reply box never got the focus it asked for. The composer now remembers a refused request, along with what had focus at the time. Once it can take focus, it does, unless somebody has moved on meanwhile.
+
+Three UI cases cover that: focus after a slow load, focus taken from the button that opened a thread, and focus left alone when somebody has moved on. The first two fail against the old composer.
+
+### The message list is one Tab stop (U04)
+
+Every message in a channel was its own Tab stop, and so was every control inside it: the author's picture and name, links, reactions and, once a message had focus, up to fourteen toolbar buttons. Getting from the header to the composer with Tab meant passing hundreds of stops in a busy channel.
+
+`useRovingMessages` in `packages/ui/src/lib/useRovingMessages.ts` makes the timeline one Tab stop, the current message. That is the newest until somebody moves. Only the current message and its own controls stay in the Tab order. The others' controls are taken out, and put back when their message becomes current. A mutation observer keeps this true as messages arrive, change and leave without the list rendering again. ArrowUp and ArrowDown move between messages, and Home and End go to the first and last. Enter goes into the message's actions, and Escape comes back out to the message. A control that uses Escape itself, such as the message editor, keeps it. Clicking into a message makes it current. Nothing changes for a pointer or for a screen reader's reading cursor, only the sequential Tab order.
+
+Six UI cases cover the Tab stops, the keys, the editor keeping its Escape, clicking into a message, and new messages arriving. The keyboard journey now uses ArrowUp and Enter in a real browser. A thread's replies are not roving yet.
+
+### A thread is one Tab stop too (U04)
+
+The thread panel's root and replies now use `useRovingMessages` as the channel's timeline does. The newest reply is the thread's one Tab stop until somebody moves, and the arrow keys, Home, End, Enter and Escape work the same way. The keyboard journey checks that, after replying, the reply is the thread's one Tab stop and the root is out of the Tab order, and that ArrowUp moves from the reply to the root.

@@ -1,0 +1,120 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import { describe, expect, it } from "vitest";
+import { usePanelFocus } from "../src/lib/usePanelFocus.js";
+import { accessibilityProblems } from "./accessibility.js";
+
+function Panel(props: { takeFocus: boolean; onClose: () => void }) {
+  const { panel, heading } = usePanelFocus({ takeFocus: props.takeFocus });
+  return (
+    <aside ref={panel} aria-label="Saved">
+      <h2 ref={heading} tabIndex={-1}>
+        Saved
+      </h2>
+      <input aria-label="Reply" />
+      <button onClick={props.onClose}>Close saved</button>
+    </aside>
+  );
+}
+
+/** A page with a control that opens the panel, and something else to go to. */
+function Page(props: { takeFocus?: boolean; openerGoesAway?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [opened, setOpened] = useState(false);
+  return (
+    <>
+      <div tabIndex={0} aria-label="Message from Sam">
+        <button
+          disabled={props.openerGoesAway && opened}
+          onClick={() => {
+            setOpen(true);
+            setOpened(true);
+          }}
+        >
+          Open saved
+        </button>
+      </div>
+      <textarea aria-label="Message #general" />
+      {open && <Panel takeFocus={props.takeFocus ?? true} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/** A panel opened and closed from outside it. */
+function Shown(props: { open: boolean }) {
+  return (
+    <>
+      <button>Opener</button>
+      <textarea aria-label="Message #general" />
+      {props.open && <Panel takeFocus onClose={() => {}} />}
+    </>
+  );
+}
+
+describe("a side panel", () => {
+  it("puts focus on its heading when it opens, and back on its opener when it closes", async () => {
+    const user = userEvent.setup();
+    render(<Page />);
+    await user.click(screen.getByRole("button", { name: "Open saved" }));
+    const heading = screen.getByRole("heading", { name: "Saved" });
+    expect(heading).toHaveFocus();
+    expect(await accessibilityProblems(screen.getByRole("complementary"))).toEqual([]);
+
+    await user.click(screen.getByRole("button", { name: "Close saved" }));
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open saved" })).toHaveFocus();
+  });
+
+  it("leaves focus alone when somebody has moved on before it closes", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Shown open={false} />);
+    await user.click(screen.getByRole("button", { name: "Opener" }));
+    rerender(<Shown open />);
+    const composer = screen.getByRole("textbox", { name: "Message #general" });
+    await user.click(composer);
+    // Closed from elsewhere, the way opening another channel closes a thread.
+    rerender(<Shown open={false} />);
+    expect(composer).toHaveFocus();
+  });
+
+  it("does not take focus when its own box does, and still hands it back", async () => {
+    const user = userEvent.setup();
+    render(<Page takeFocus={false} />);
+    await user.click(screen.getByRole("button", { name: "Open saved" }));
+    expect(screen.getByRole("heading", { name: "Saved" })).not.toHaveFocus();
+    await user.click(screen.getByRole("textbox", { name: "Reply" }));
+    await user.click(screen.getByRole("button", { name: "Close saved" }));
+    expect(screen.getByRole("button", { name: "Open saved" })).toHaveFocus();
+  });
+
+  it("leaves focus on a toggle that opened it, which can close it again", async () => {
+    const user = userEvent.setup();
+    function Toggled() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button aria-pressed={open} onClick={() => setOpen((o) => !o)}>
+            Pinned messages
+          </button>
+          {open && <Panel takeFocus onClose={() => setOpen(false)} />}
+        </>
+      );
+    }
+    render(<Toggled />);
+    const toggle = screen.getByRole("button", { name: "Pinned messages" });
+    await user.click(toggle);
+    expect(screen.getByRole("heading", { name: "Saved" })).toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Close saved" }));
+    expect(toggle).toHaveFocus();
+  });
+
+  it("hands focus to what holds the opener when the opener can no longer take it", async () => {
+    const user = userEvent.setup();
+    render(<Page openerGoesAway />);
+    await user.click(screen.getByRole("button", { name: "Open saved" }));
+    await user.click(screen.getByRole("button", { name: "Close saved" }));
+    expect(screen.getByLabelText("Message from Sam")).toHaveFocus();
+  });
+});

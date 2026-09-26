@@ -5,6 +5,7 @@ import { channelTitle, formatTime } from "../lib/format.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
 import { ListStatus } from "./ListStatus.js";
+import { usePanelFocus } from "../lib/usePanelFocus.js";
 
 export function ActivityPanel({
   onClose,
@@ -17,6 +18,7 @@ export function ActivityPanel({
   const channels = useWorkspace((s) => s.channels);
   const users = useWorkspace((s) => s.users);
   const memberships = useWorkspace((s) => s.memberships);
+  const { panel, heading } = usePanelFocus({ takeFocus: true });
   const [mode, setMode] = useState<"unread" | "mentions">("unread");
   const [cursors, setCursors] = useState<(ID | undefined)[]>([undefined]);
   const [result, setResult] = useState<Awaited<ReturnType<typeof client.api.activity>> | null>(
@@ -56,11 +58,14 @@ export function ActivityPanel({
 
   return (
     <aside
+      ref={panel}
       aria-label="Activity"
       className="flex w-[420px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
     >
       <header className="flex h-[53px] shrink-0 items-center justify-between gap-2 border-b border-edge px-4">
-        <h2 className="font-bold">Activity</h2>
+        <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
+          Activity
+        </h2>
         <button
           className="ml-auto text-xs text-copper disabled:opacity-40"
           disabled={loading}

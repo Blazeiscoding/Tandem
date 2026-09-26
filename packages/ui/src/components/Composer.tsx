@@ -258,9 +258,27 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     replaceSelection(emoji, start, end, start + emoji.length);
   }
 
+  // The box is disabled until its saved scheduling state has loaded, and a
+  // disabled box refuses focus. Signing in, or opening a thread, used to leave
+  // focus nowhere or on the button pressed. So a refused request waits, holding
+  // what had focus then, and is granted once the box can take it, unless
+  // somebody has moved on meanwhile.
+  const focusWanted = useRef<Element | null | undefined>(undefined);
   useEffect(() => {
-    if (autoFocus) box.current?.focus();
+    if (!autoFocus) return;
+    const before = document.activeElement;
+    box.current?.focus();
+    focusWanted.current = document.activeElement === box.current ? undefined : before;
   }, [autoFocus, channelId, threadRootId]);
+
+  const blocked = archived || recoveryBlocksSend;
+  useEffect(() => {
+    if (blocked || focusWanted.current === undefined) return;
+    const before = focusWanted.current;
+    focusWanted.current = undefined;
+    const now = document.activeElement;
+    if (!now || now === document.body || now === before) box.current?.focus();
+  }, [blocked]);
 
   const candidates = useMemo((): Candidate[] => {
     if (!mentionQuery) return [];
