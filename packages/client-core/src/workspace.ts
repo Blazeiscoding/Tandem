@@ -335,6 +335,13 @@ export class WorkspaceClient {
   private threadLoads = new Map<ID, { events: EventEnvelope[]; overflow: boolean }>();
   private messageJump = 0;
   private timelineRequests = new Map<ID, object>();
+  /**
+   * Live messages that arrived while a conversation's first or newest page was
+   * on its way. The server may have read that page before they existed, and a
+   * timeline not loaded yet has nowhere to put them, so they wait for the page
+   * that request brings and join it when it lands.
+   */
+  private timelineHolds = new Map<ID, { ticket: object; messages: Message[] }>();
   private timelineRecency = new Map<ID, true>();
   private threadRecency = new Map<ID, true>();
   private activeConversation: ID | null = null;
@@ -565,6 +572,7 @@ export class WorkspaceClient {
   private resetHistory(): void {
     this.historyEpoch++;
     this.timelineRequests.clear();
+    this.timelineHolds.clear();
     this.timelineRecency.clear();
     this.threadRecency.clear();
     this.clearReadRequests();
@@ -594,6 +602,7 @@ export class WorkspaceClient {
 
   private removeChannel(channelId: ID): void {
     this.timelineRequests.delete(channelId);
+    this.timelineHolds.delete(channelId);
     this.timelineRecency.delete(channelId);
     this.pendingReads.delete(channelId);
     this.readRequests.get(channelId)?.abort();
@@ -685,6 +694,8 @@ export class WorkspaceClient {
         }
         const appendToTimeline = (from: WorkspaceState["timelines"]) => {
           const tl = from[message.channelId];
+          // A page on its way may predate this message; it joins that page too.
+          this.timelineHolds.get(message.channelId)?.messages.push(message);
           // Appending to an anchored view would fake adjacency across a gap.
           if (!tl?.loaded || tl.hasMoreNewer) return undefined;
           return {
@@ -745,6 +756,11 @@ export class WorkspaceClient {
         break;
       }
       case "message.updated": {
+        const hold = this.timelineHolds.get(event.message.channelId);
+        if (hold)
+          hold.messages = hold.messages.map((m) =>
+            m.id === event.message.id ? { ...m, ...event.message } : m,
+          );
         patch.timelines = this.patchMessage(s, event.message.channelId, event.message.id, () => ({
           ...event.message,
         }));
@@ -752,6 +768,8 @@ export class WorkspaceClient {
         break;
       }
       case "message.deleted": {
+        const hold = this.timelineHolds.get(event.channelId);
+        if (hold) hold.messages = hold.messages.filter((m) => m.id !== event.messageId);
         const tl = s.timelines[event.channelId];
         if (tl?.loaded) {
           patch.timelines = {
@@ -1088,6 +1106,7 @@ export class WorkspaceClient {
       delete timelines[victim];
       this.timelineRecency.delete(victim);
       this.timelineRequests.delete(victim);
+      this.timelineHolds.delete(victim);
       this.reloadChannels.delete(victim);
     }
     for (const victim of threadVictims) {
@@ -1118,12 +1137,24 @@ export class WorkspaceClient {
     if (tl?.loaded && !opts.older && !opts.latest) return;
     if (opts.older && (!tl?.hasMore || tl.items.length === 0)) return;
     const ticket = this.beginTimelineRequest(channelId);
+    if (!opts.older) this.timelineHolds.set(channelId, { ticket, messages: [] });
+    const releaseHold = () => {
+      const hold = this.timelineHolds.get(channelId);
+      if (hold?.ticket !== ticket) return [];
+      this.timelineHolds.delete(channelId);
+      return hold.messages;
+    };
 
     const before = opts.older ? tl!.items[0]!.id : undefined;
-    const { messages, readThroughSeq } = await this.api.listMessages(channelId, {
-      before,
-      limit: 50,
-    });
+    let answer: Awaited<ReturnType<Api["listMessages"]>>;
+    try {
+      answer = await this.api.listMessages(channelId, { before, limit: 50 });
+    } catch (err) {
+      releaseHold();
+      throw err;
+    }
+    const { messages, readThroughSeq } = answer;
+    const held = releaseHold();
     if (
       this.stopped ||
       epoch !== this.historyEpoch ||
@@ -1137,7 +1168,10 @@ export class WorkspaceClient {
       const existing = s.timelines[channelId];
       const items = opts.older
         ? [...page, ...(existing?.items ?? [])]
-        : page.reduce(sortedInsert, opts.latest ? [] : (existing?.items ?? []));
+        : held.reduce(
+            sortedInsert,
+            page.reduce(sortedInsert, opts.latest ? [] : (existing?.items ?? [])),
+          );
       return {
         timelines: {
           ...s.timelines,

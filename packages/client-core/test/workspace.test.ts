@@ -297,6 +297,52 @@ describe("WorkspaceClient", () => {
     expect(client.state.drafts).toEqual({ C2: "another one" });
     client.destroy();
   });
+  it("keeps a message that arrives while the first page is on its way", async () => {
+    const api = new Api(base, aliceToken);
+    const { channel } = await api.createChannel({ type: "public", name: "first-page-race" });
+    await api.sendMessage(channel.id, { text: "before anyone looked" });
+    const bob = new Api(base, bobToken);
+    await bob.joinChannel(channel.id);
+
+    const client = new WorkspaceClient(base, aliceToken);
+    onTestFinished(() => client.destroy());
+    client.connect();
+    await until(client, (s) => s.status === "online");
+
+    // The server reads the page, then a message is posted and arrives live,
+    // and only then does the page reach the client.
+    const read = client.api.listMessages.bind(client.api);
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    client.api.listMessages = async (...args) => {
+      const page = await read(...args);
+      await released;
+      return page;
+    };
+    const loading = client.loadTimeline(channel.id);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const { message: late } = await bob.sendMessage(channel.id, { text: "posted meanwhile" });
+    const { message: gone } = await bob.sendMessage(channel.id, { text: "deleted meanwhile" });
+    const { message: edited } = await bob.sendMessage(channel.id, { text: "first draft" });
+    await bob.editMessage(edited.id, "edited meanwhile");
+    await bob.deleteMessage(gone.id);
+    await until(
+      client,
+      (s) => (s.channelLastSeq[channel.id] ?? 0) >= edited.seq,
+      "the live messages",
+    );
+    // The edit and the deletion follow on the same socket, in order.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(client.state.timelines[channel.id]?.loaded).not.toBe(true);
+    release();
+    await loading;
+
+    const texts = client.state.timelines[channel.id]!.items.map((m) => m.text);
+    expect(texts).toEqual(["before anyone looked", "posted meanwhile", "edited meanwhile"]);
+    expect(texts).not.toContain("deleted meanwhile");
+    expect(client.state.timelines[channel.id]!.items.map((m) => m.id)).toContain(late.id);
+  });
+
   it("keeps a bounded window of messages while scrolling a long channel", async () => {
     // A channel far longer than the window, so paging has to drop the far end.
     const api = new Api(base, aliceToken);
