@@ -10,6 +10,11 @@ import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
 import { Tooltip } from "./Tooltip.js";
 import { useRovingMessages } from "../lib/useRovingMessages.js";
+import {
+  rememberReadingPosition,
+  rememberedReadingPosition,
+  type ReadingPosition,
+} from "../lib/route.js";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -75,16 +80,40 @@ export const MessageTimeline = memo(function MessageTimeline({
   const lastScrollTop = useRef(0);
   /** Suppresses paging while a jump's programmatic scroll settles. */
   const settlingJump = useRef(false);
+  /**
+   * Where Back, Forward or a reload says this conversation was being read,
+   * waiting for its message to render before the view goes back there.
+   */
+  const pendingPosition = useRef<ReadingPosition | null>(null);
+  /** Where this conversation is being read now, noted as the reader scrolls. */
+  const reading = useRef<{ channelId: ID; position: ReadingPosition | null } | null>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteReading = (flush: boolean) => {
+    if (noteTimer.current !== null) clearTimeout(noteTimer.current);
+    noteTimer.current = null;
+    const write = () => {
+      noteTimer.current = null;
+      const now = reading.current;
+      if (now) rememberReadingPosition(client.baseUrl, now.channelId, now.position);
+    };
+    if (flush) write();
+    else noteTimer.current = setTimeout(write, 200);
+  };
 
   useEffect(() => {
     historyRequest.current = null;
     historyAnchor.current = null;
     setHistoryError(null);
     setLoadingHistory(null);
-    // A jump anchors the view; only a plain channel open tails the newest.
+    // A jump anchors the view. Arriving by Back, Forward or a reload returns
+    // to where the conversation was being read; anything else tails the newest.
     if (!highlightMessageId) {
-      pinnedToBottom.current = true;
+      const position = rememberedReadingPosition(client.baseUrl, channelId);
+      pendingPosition.current = position;
+      pinnedToBottom.current = position === null;
       void requestHistory("initial");
+    } else {
+      pendingPosition.current = null;
     }
     return () => {
       historyRequest.current = null;
@@ -220,6 +249,36 @@ export const MessageTimeline = memo(function MessageTimeline({
     lastScrollTop.current = scroller.current?.scrollTop ?? 0;
   }, [channelId]);
 
+  // Put the reader back where this entry says, once that message is on
+  // screen. If the conversation has loaded without it, read from the newest.
+  useLayoutEffect(() => {
+    const position = pendingPosition.current;
+    const el = scroller.current;
+    if (!position || !el) return;
+    if (el.querySelector(`[data-mid="${CSS.escape(position.messageId)}"]`)) {
+      pendingPosition.current = null;
+      restoreAnchor(el, { id: position.messageId, offset: position.offset });
+      pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+      lastScrollTop.current = el.scrollTop;
+      return;
+    }
+    if (timeline?.loaded && loadingHistory === null) {
+      pendingPosition.current = null;
+      pinnedToBottom.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
+  });
+
+  // What was noted last is written before leaving the conversation, or the page.
+  useEffect(() => {
+    const flush = () => noteReading(true);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [client, channelId]);
+
   function readVisibleTail() {
     if (
       !readActive ||
@@ -258,6 +317,15 @@ export const MessageTimeline = memo(function MessageTimeline({
     if (!el) return;
     pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     readVisibleTail();
+    // Not while a position waits to be put back: that would overwrite it.
+    if (!pendingPosition.current) {
+      const anchor = pinnedToBottom.current ? null : topAnchor(el);
+      reading.current = {
+        channelId,
+        position: anchor ? { messageId: anchor.id, offset: anchor.offset } : null,
+      };
+      noteReading(false);
+    }
 
     // Page forward only when the user actively scrolls down to the bottom of
     // an anchored view — otherwise a window shorter than the viewport would

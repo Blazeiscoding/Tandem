@@ -1992,6 +1992,47 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     // Back returns to where the dialog steps above left off.
     await page.goBack();
     await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
+
+    // Back, Forward and a reload return to where a conversation was being
+    // read, not just to the conversation.
+    for (let i = 1; i <= 80; i++) {
+      await call(owner, `/api/channels/${general.id}/messages`, { text: `Line ${i} of the log` });
+    }
+    const timeline = page.locator('[aria-label="Message history"]');
+    /** The message at the top of the view, and how far above the top its row starts. */
+    const topOfView = () =>
+      timeline.evaluate((el) => {
+        for (const row of el.querySelectorAll<HTMLElement>("[data-mid]")) {
+          if (row.offsetTop + row.offsetHeight > el.scrollTop)
+            return { id: row.dataset.mid!, offset: Math.round(row.offsetTop - el.scrollTop) };
+        }
+        return null;
+      });
+    await nav.getByRole("button", { name: /^#\s*general\b/ }).click();
+    await expect(page.getByText("Line 80 of the log", { exact: true })).toBeInViewport();
+    await timeline.evaluate((el) => {
+      el.scrollTop = el.scrollHeight / 2;
+    });
+    await expect(page.getByText("Line 80 of the log", { exact: true })).not.toBeInViewport();
+    const reading = await topOfView();
+    expect(reading).not.toBeNull();
+    // Noted as it scrolls, a moment later.
+    await expect
+      .poll(() => page.evaluate(() => history.state?.gatherline?.scroll?.messageId))
+      .toBe(reading!.id);
+
+    await nav.getByRole("button", { name: /^#\s*design\b/ }).click();
+    await expect(page.locator(".channel-header h2")).toHaveText("#design");
+    await page.goBack();
+    await expect(page.locator(".channel-header h2")).toHaveText("#general");
+    await expect.poll(topOfView).toEqual(reading);
+    await page.reload();
+    await expect(page.locator(".channel-header h2")).toHaveText("#general");
+    await expect.poll(topOfView).toEqual(reading);
+    // Opening it afresh from the sidebar starts at the newest message.
+    await nav.getByRole("button", { name: /^#\s*design\b/ }).click();
+    await nav.getByRole("button", { name: /^#\s*general\b/ }).click();
+    await expect(page.getByText("Line 80 of the log", { exact: true })).toBeInViewport();
   } finally {
     await context.close().catch(() => {});
     if (routeServer.exitCode === null) {
