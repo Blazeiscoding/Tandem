@@ -1732,7 +1732,7 @@ test("the demo seed fills a new workspace with something to try, and leaves one 
   }
 });
 
-test("Back, Forward and a reload return to the conversation and thread someone was in", async ({
+test("Back, Forward and a reload return to the conversation, thread and panel someone was in", async ({
   browser,
 }) => {
   test.setTimeout(90_000);
@@ -1857,6 +1857,21 @@ test("Back, Forward and a reload return to the conversation and thread someone w
     await expect(thread.getByText("The line set, I think", { exact: true })).toBeVisible();
     await expect(reply).toHaveValue("Half a reply, not sent yet");
 
+    // A side panel is a place too: Back closes it, and a reload keeps it open.
+    const saved = page.getByRole("complementary", { name: "Saved", exact: true });
+    await page.getByRole("button", { name: "Saved messages", exact: true }).click();
+    await expect(saved).toBeVisible();
+    await expect(thread).toHaveCount(0);
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/p/saved`);
+    await page.goBack();
+    await expect(saved).toHaveCount(0);
+    await expect(thread).toBeVisible();
+    await page.goForward();
+    await expect(saved).toBeVisible();
+    await page.reload();
+    await expect(saved).toBeVisible();
+    await expect(page.locator(".channel-header h2")).toHaveText("#design");
+
     // An address for a conversation this account cannot see says so, lands in
     // #general, and does not leave that address in the history to go Back to.
     await page.goto(`${origin}/#/c/${leads.id}`);
@@ -1864,7 +1879,7 @@ test("Back, Forward and a reload return to the conversation and thread someone w
     await expect(page).toHaveURL(`${origin}/#/c/${general.id}`);
     await expect(page.locator(".channel-header h2")).toHaveText("#general");
     await page.goBack();
-    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/t/${root.id}`);
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/p/saved`);
   } finally {
     await context.close().catch(() => {});
     if (routeServer.exitCode === null) {
