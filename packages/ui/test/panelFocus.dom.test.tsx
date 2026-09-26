@@ -134,6 +134,37 @@ describe("a side panel", () => {
     expect(toggle).toHaveFocus();
   });
 
+  it("hands focus to the control a hidden container names, when nothing nearer can take it", async () => {
+    const user = userEvent.setup();
+    function Drawer() {
+      const [open, setOpen] = useState(false);
+      const [drawerClosed, setDrawerClosed] = useState(false);
+      return (
+        <>
+          <button id="open-navigation">Open navigation</button>
+          {/* The drawer closes as the panel opens, so its button can no longer take focus. */}
+          <nav aria-label="Workspace navigation" data-focus-fallback="open-navigation">
+            <button
+              disabled={drawerClosed}
+              onClick={() => {
+                setOpen(true);
+                setDrawerClosed(true);
+              }}
+            >
+              Saved
+            </button>
+          </nav>
+          {open && <Panel takeFocus onClose={() => setOpen(false)} />}
+        </>
+      );
+    }
+    render(<Drawer />);
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(screen.getByRole("heading", { name: "Saved" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Close saved" }));
+    expect(screen.getByRole("button", { name: "Open navigation" })).toHaveFocus();
+  });
+
   it("hands focus to what holds the opener when the opener can no longer take it", async () => {
     const user = userEvent.setup();
     render(<Page openerGoesAway />);
