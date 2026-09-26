@@ -2110,6 +2110,14 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     await page.keyboard.type("The line set");
     await page.keyboard.press("Enter");
     await expect(thread.getByText("The line set", { exact: true })).toBeVisible();
+    // A thread is one Tab stop too, its newest reply, with the arrow keys up to the root.
+    const threadReply = thread.getByRole("article").filter({ hasText: "The line set" });
+    const threadRoot = thread.getByRole("article").filter({ hasText: "Which icon set" });
+    await expect(threadReply).toHaveAttribute("tabindex", "0");
+    await expect(threadRoot).toHaveAttribute("tabindex", "-1");
+    await pressUntilFocused(page, "Shift+Tab", threadReply);
+    await page.keyboard.press("ArrowUp");
+    await expect(threadRoot).toBeFocused();
     // Closing the thread hands focus back to where it was opened from.
     await pressUntilFocused(
       page,
