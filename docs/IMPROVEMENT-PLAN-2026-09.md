@@ -1059,3 +1059,32 @@ Three UI cases cover it:
 - a refused field is marked invalid, described by its error, and takes focus, with an axe check
 
 All three fail against the old form.
+
+### The main journey by keyboard alone (U04)
+
+U04's last listed check was one browser scenario that uses only the keyboard, from signing in to opening settings. It runs against its own server, with one channel and one message. It signs in by typing into the card, then does each of the following by keyboard:
+
+- switches to #design with Ctrl+K
+- goes back from the composer to the message with Shift+Tab, and Tabs to Reply in thread
+- replies in the thread, closes it, and lands back on the message
+- opens Add a reaction and types "rocket" then Enter, after which the reaction reads "🚀 1 reaction, from you"
+- searches with Ctrl+F
+- opens Account settings from the Workspace menu with the arrow keys, closes it with Escape, and lands back on the menu button
+
+The helper that presses a key until something has focus gives up after a set number of presses, so an unreachable control fails the scenario.
+
+Writing it found two real faults, both with the same cause. The composer is disabled until its saved scheduling state has been read, and a disabled box refuses focus, so the composer's request for focus on mount did nothing. After signing in, focus was left on the page itself. After opening a thread, it stayed on the Reply in thread button, so a thread's reply box never got the focus it asked for. The composer now remembers a refused request, along with what had focus at the time. Once it can take focus, it does, unless somebody has moved on meanwhile.
+
+Three UI cases cover that: focus after a slow load, focus taken from the button that opened a thread, and focus left alone when somebody has moved on. The first two fail against the old composer.
+
+### The message list is one Tab stop (U04)
+
+Every message in a channel was its own Tab stop, and so was every control inside it: the author's picture and name, links, reactions and, once a message had focus, up to fourteen toolbar buttons. Getting from the header to the composer with Tab meant passing hundreds of stops in a busy channel.
+
+`useRovingMessages` in `packages/ui/src/lib/useRovingMessages.ts` makes the timeline one Tab stop, the current message. That is the newest until somebody moves. Only the current message and its own controls stay in the Tab order. The others' controls are taken out, and put back when their message becomes current. A mutation observer keeps this true as messages arrive, change and leave without the list rendering again. ArrowUp and ArrowDown move between messages, and Home and End go to the first and last. Enter goes into the message's actions, and Escape comes back out to the message. A control that uses Escape itself, such as the message editor, keeps it. Clicking into a message makes it current. Nothing changes for a pointer or for a screen reader's reading cursor, only the sequential Tab order.
+
+Six UI cases cover the Tab stops, the keys, the editor keeping its Escape, clicking into a message, and new messages arriving. The keyboard journey now uses ArrowUp and Enter in a real browser. A thread's replies are not roving yet.
+
+### A thread is one Tab stop too (U04)
+
+The thread panel's root and replies now use `useRovingMessages` as the channel's timeline does. The newest reply is the thread's one Tab stop until somebody moves, and the arrow keys, Home, End, Enter and Escape work the same way. The keyboard journey checks that, after replying, the reply is the thread's one Tab stop and the root is out of the Tab order, and that ArrowUp moves from the reply to the root.

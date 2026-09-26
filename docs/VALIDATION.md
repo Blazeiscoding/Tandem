@@ -24,18 +24,18 @@ docker build -f docker/Dockerfile -t slackoss:local . && node tests/docker-smoke
 
 ## Automated suites
 
-| Suite                | Command                                   | Result                                                                                                                                                                                                                                                                                                                                                                                                                 | Last run   |
-| -------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed                                                                                                                                                                                                                                                                                                                                                            | 2026-09-26 |
-| Unit and integration | `pnpm test`                               | 795 tests: server 367, client-core 66, UI 270, protocol 12, desktop 80                                                                                                                                                                                                                                                                                                                                                 | 2026-09-26 |
-| Browser end to end   | `pnpm test:e2e`                           | 14 scenarios, passed; on an emulated phone each message's menu offers its actions and any emoji as a reaction, Back, Forward and a reload return to a conversation and its open thread, a search that finds nothing says so in the dialog's status, the newest message stays in view when a side panel opens after the pointer rested on a message, and refused pins and saves raise notices checked with real presses | 2026-09-26 |
-| Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed in CI, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again                                                                                                                                                                                                                       | 2026-09-21 |
-| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 480.1 kB in the browser client after the app-form fix, and 477.3 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                                                                                                                                                                                                                            | 2026-09-26 |
-| Container            | `node tests/docker-smoke.mjs`             | passed; on 2026-09-17 only its new Compose checks ran here, without a Docker engine, and CI ran the rest                                                                                                                                                                                                                                                                                                               | 2026-09-05 |
+| Suite                | Command                                   | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Last run   |
+| -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| Types                | `pnpm exec turbo typecheck build --force` | 7 packages typechecked; all 10 typecheck/build tasks passed                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 2026-09-26 |
+| Unit and integration | `pnpm test`                               | 804 tests: server 367, client-core 66, UI 279, protocol 12, desktop 80                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 2026-09-26 |
+| Browser end to end   | `pnpm test:e2e`                           | 15 scenarios, passed; one runs sign-in, switching channel, a thread reply, a reaction, search and settings by keyboard alone; on an emulated phone each message's menu offers its actions and any emoji as a reaction, Back, Forward and a reload return to a conversation and its open thread, a search that finds nothing says so in the dialog's status, the newest message stays in view when a side panel opens after the pointer rested on a message, and refused pins and saves raise notices checked with real presses | 2026-09-26 |
+| Packaged Windows app | `pnpm test:desktop`                       | 2 scenarios, passed in CI, packaged with the new icon, the window's new colours and the huddle stage; the app shows its own notifications, and a restart offers to host the last workspace again                                                                                                                                                                                                                                                                                                                               | 2026-09-21 |
+| Client size          | `node scripts/check-web-bundle.mjs`       | Entry chunk 481.9 kB in the browser client after roving focus, and 477.3 kB in the desktop renderer, under the 500 kB limit CI enforces                                                                                                                                                                                                                                                                                                                                                                                        | 2026-09-26 |
+| Container            | `node tests/docker-smoke.mjs`             | passed; on 2026-09-17 only its new Compose checks ran here, without a Docker engine, and CI ran the rest                                                                                                                                                                                                                                                                                                                                                                                                                       | 2026-09-05 |
 
 The last combined verification including tests used `pnpm exec turbo test typecheck build --force --concurrency=1`:
-all 15 tasks passed without cached results on September 26, including all 795 tests and the web,
-desktop and server CLI builds. The bundle check and all 14 browser scenarios passed too. The
+all 15 tasks passed without cached results on September 26, including all 804 tests and the web,
+desktop and server CLI builds. The bundle check and all 15 browser scenarios passed too. The
 packaged Windows suite was not rerun locally; both scenarios last passed in the September 21 CI job.
 An all-at-once attempt for this Apps change hit server and client-core setup-hook timeouts under contention; the serialized forced run passed without changes to those packages.
 An earlier forced run that day failed one timing-sensitive case in `apps/desktop/test/tunnel.test.ts`,
@@ -251,6 +251,33 @@ marked required; the optional Reason field is not, and axe finds nothing. Typing
 share the action id `value`, and before the fix they shared a value too. When
 the app refuses the amount, the field is marked invalid, is described by "Enter
 an amount above zero." in place of its hint, and takes focus.
+
+The keyboard branch adds one browser scenario and three UI cases. Against its
+own server, a person signs in by typing and Enter, and lands in the composer.
+They switch to #design with Ctrl+K and reach the message with Shift+Tab. They
+Tab to Reply in thread and reply. Closing the thread returns focus to the
+message. They react by typing "rocket" into the emoji search, and the reaction
+then reads "🚀 1 reaction, from you". They search with Ctrl+F, and open Account
+settings from the Workspace menu with the arrow keys; Escape closes it and
+returns focus to the menu button. Without the composer fix, focus after signing
+in was on the page itself, and a thread's reply box never took focus. The UI
+cases cover a composer taking focus once its saved state has loaded, taking it
+from the button that opened a thread, and leaving focus where somebody moved
+it. The first two fail against the old composer.
+
+The roving branch adds six UI cases. In a list of three messages, Tab stops on
+the newest message, its own two controls and then the composer, and nothing
+else. ArrowUp moves to the middle message and the Tab stops follow. Home and End
+go to the ends, and nothing moves past either. Enter goes to the message's first
+action and Escape comes back, but an editor that uses Escape keeps it. Clicking
+into an older message makes it current. The Tab stop follows the newest message
+as messages arrive, until somebody has moved. The keyboard journey now reaches
+the newest of two messages from the composer, checks that the other one is out
+of the Tab order, moves up with ArrowUp and goes into its actions with Enter.
+
+The thread branch applies the same hook to a thread. The keyboard journey now
+checks that, after a reply, the reply is the thread's one Tab stop and the root
+is out of the Tab order, and that ArrowUp moves from the reply to the root.
 
 Known gaps: the tray menu is read as the app builds it rather than clicked, and the native
 confirmations it and quitting show are not exercised. Component tests run in
