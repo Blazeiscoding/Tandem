@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { ModalField } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
+import { buttonClass } from "./Button.js";
 
 /**
  * A form an app asked for. The answers go straight back to that app, so this
@@ -162,7 +163,7 @@ export function ViewModal() {
           >
             {view.closeLabel}
           </button>
-          <button type="submit" disabled={busy} className={primaryBtnCls}>
+          <button type="submit" disabled={busy} className={buttonClass("primary")}>
             {busy ? "Sending…" : view.submitLabel}
           </button>
         </div>

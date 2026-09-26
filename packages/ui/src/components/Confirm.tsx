@@ -9,7 +9,8 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { Dialog, primaryBtnCls } from "./Dialog.js";
+import { Dialog } from "./Dialog.js";
+import { buttonClass } from "./Button.js";
 
 export interface ConfirmRequest {
   /** The question, as something a person can answer yes or no to. */
@@ -51,9 +52,6 @@ export function useConfirm(): Ask {
   if (!service) throw new Error("ConfirmContext missing");
   return ask;
 }
-
-const destructiveBtnCls =
-  "rounded-lg bg-alert px-4 py-2.5 text-sm font-semibold text-ground transition-colors hover:opacity-90 disabled:opacity-40";
 
 interface Pending {
   id: number;
@@ -158,7 +156,7 @@ function ConfirmDialog({
           type="button"
           autoFocus={!destructive}
           onClick={() => settle(true)}
-          className={destructive ? destructiveBtnCls : primaryBtnCls}
+          className={destructive ? buttonClass("danger") : buttonClass("primary")}
         >
           {confirmLabel}
         </button>

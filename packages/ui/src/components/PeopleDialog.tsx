@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ID, User } from "@slackoss/protocol";
 import { ApiError } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
 import { Menu, type MenuItem } from "./Menu.js";
 import { Avatar } from "./Avatar.js";
 import { formatDay } from "../lib/format.js";
 import { accountError } from "../lib/account.js";
 import { useCopy } from "../lib/useCopy.js";
 import { AuditHistory } from "./AuditHistory.js";
+import { buttonClass } from "./Button.js";
 
 type Person = User & { lastSeenAt: number | null };
 
@@ -185,7 +186,7 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
             on this device.
           </p>
           <button
-            className={`${primaryBtnCls} mt-5`}
+            className={buttonClass("primary", "mt-5")}
             disabled={!!busy}
             onClick={() => {
               setIssued(null);
@@ -240,7 +241,7 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
                 Cancel
               </button>
               <button
-                className={primaryBtnCls}
+                className={buttonClass("primary")}
                 type="submit"
                 disabled={
                   !!busy || (action.kind === "transfer" && confirmation !== action.person.handle)

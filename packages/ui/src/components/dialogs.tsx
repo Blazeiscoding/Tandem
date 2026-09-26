@@ -5,9 +5,10 @@ import { browserLink, desktopLink, serverAddress } from "../lib/deeplink.js";
 import type { Channel, ID, Invite, InviteStatus } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
 import { useConfirm } from "./Confirm.js";
 import { useShareableServer } from "./ShareableServer.js";
+import { buttonClass } from "./Button.js";
 
 export function NewChannelDialog(props: { onClose: () => void; onCreated: (ch: Channel) => void }) {
   const client = useClient();
@@ -54,7 +55,7 @@ export function NewChannelDialog(props: { onClose: () => void; onCreated: (ch: C
           Private — only invited members can see it
         </label>
         {error && <p className="text-sm text-alert">{error}</p>}
-        <button type="submit" disabled={!slug} className={`${primaryBtnCls} w-full`}>
+        <button type="submit" disabled={!slug} className={buttonClass("primary", "w-full")}>
           Create {slug ? `#${slug}` : "channel"}
         </button>
       </form>
@@ -243,7 +244,7 @@ export function NewDmDialog(props: {
       <button
         onClick={start}
         disabled={busy || picked.length === 0 || picked.length > 8}
-        className={`${primaryBtnCls} w-full`}
+        className={buttonClass("primary", "w-full")}
       >
         {busy ? "Opening…" : "Start conversation"}
       </button>
@@ -450,7 +451,7 @@ export function InviteDialog(props: { onClose: () => void }) {
         <button
           onClick={() => void generate()}
           disabled={busy}
-          className={`${primaryBtnCls} w-full`}
+          className={buttonClass("primary", "w-full")}
         >
           Generate invite code
         </button>

@@ -8,8 +8,9 @@ import {
 } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
+import { buttonClass } from "./Button.js";
 
 type Tab = "about" | "members" | "notifications";
 const TABS: readonly Tab[] = ["about", "members", "notifications"];
@@ -281,7 +282,7 @@ export function ChannelDetailsDialog(props: {
               </div>
               <div className="flex items-center gap-3">
                 {permissions.manage && (
-                  <button type="submit" disabled={busy} className={primaryBtnCls}>
+                  <button type="submit" disabled={busy} className={buttonClass("primary")}>
                     {busy ? "Saving…" : saved ? "Saved" : "Save changes"}
                   </button>
                 )}
@@ -318,7 +319,7 @@ export function ChannelDetailsDialog(props: {
                     <button
                       type="button"
                       disabled={busy}
-                      className={primaryBtnCls}
+                      className={buttonClass("primary")}
                       onClick={() => void setArchived(false)}
                     >
                       Reopen channel
@@ -329,7 +330,7 @@ export function ChannelDetailsDialog(props: {
                       <button
                         type="button"
                         disabled={busy}
-                        className={primaryBtnCls}
+                        className={buttonClass("primary")}
                         onClick={() => void setArchived(true)}
                       >
                         Confirm archive
@@ -370,7 +371,7 @@ export function ChannelDetailsDialog(props: {
                 </p>
                 <button
                   disabled={busy || membersLoading || membersError}
-                  className={primaryBtnCls}
+                  className={buttonClass("primary")}
                   onClick={() => props.onChangeParticipants(memberIds)}
                 >
                   Change participants

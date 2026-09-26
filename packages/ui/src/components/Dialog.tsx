@@ -50,6 +50,3 @@ export function Dialog({
 
 export const inputCls =
   "w-full rounded-lg border border-edge bg-ground px-3 py-2.5 text-sm outline-none placeholder:text-ink-faint focus:border-copper";
-
-export const primaryBtnCls =
-  "rounded-lg bg-copper px-4 py-2.5 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40";
