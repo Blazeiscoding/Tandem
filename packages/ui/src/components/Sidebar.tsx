@@ -29,6 +29,16 @@ interface Props {
   onManageApps?: () => void;
   onManagePeople?: () => void;
   connectionLabel: string | null;
+  /** This device's other saved sign-ins, most recently used first. */
+  otherWorkspaces?: OtherWorkspace[];
+  onOpenWorkspace?: (url: string) => void;
+}
+
+/** A saved sign-in to another workspace, without its credentials. */
+export interface OtherWorkspace {
+  url: string;
+  name: string;
+  handle: string;
 }
 
 export function Sidebar(props: Props) {
@@ -98,8 +108,13 @@ export function Sidebar(props: Props) {
       </header>
 
       <div className="sidebar-scroll flex-1 overflow-y-auto px-3 py-4">
-        <h1 className="mb-3 truncate px-2 text-[15px] font-semibold" title={baseHost}>
-          {workspaceName || "Connecting…"}
+        <h1 className="mb-3 text-[15px] font-semibold">
+          <WorkspaceSwitcher
+            name={workspaceName || "Connecting…"}
+            others={props.otherWorkspaces ?? []}
+            onOpen={props.onOpenWorkspace}
+            onAdd={props.onSwitchWorkspace}
+          />
         </h1>
         {/* Its words and shortcut are on the button already, so it needs no
             hint. A tooltip would also open when the phone drawer puts focus
@@ -278,7 +293,6 @@ export function Sidebar(props: Props) {
           onInvite={props.onInvite}
           onManagePeople={props.onManagePeople}
           onManageApps={props.onManageApps}
-          onSwitchWorkspace={props.onSwitchWorkspace}
           onAccountSettings={props.onAccountSettings}
         />
       </footer>
@@ -295,7 +309,6 @@ function WorkspaceMenu(props: {
   onInvite: () => void;
   onManagePeople?: () => void;
   onManageApps?: () => void;
-  onSwitchWorkspace: () => void;
   onAccountSettings: () => void;
 }) {
   const items: MenuItem[] = [{ id: "invite", label: "Invite people", onSelect: props.onInvite }];
@@ -303,10 +316,7 @@ function WorkspaceMenu(props: {
     items.push({ id: "people", label: "People", onSelect: props.onManagePeople });
   if (props.onManageApps)
     items.push({ id: "apps", label: "Apps and integrations", onSelect: props.onManageApps });
-  items.push(
-    { id: "switch", label: "Switch workspace", onSelect: props.onSwitchWorkspace },
-    { id: "account", label: "Account settings", onSelect: props.onAccountSettings },
-  );
+  items.push({ id: "account", label: "Account settings", onSelect: props.onAccountSettings });
   return (
     <Menu
       label="Workspace"
@@ -316,6 +326,44 @@ function WorkspaceMenu(props: {
         <>
           <Icon name="menu" size={15} />
           <span className="flex-1">Workspace</span>
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * The workspace's name, at the top of the sidebar, opens a menu of this
+ * device's other saved workspaces, each opened with its saved sign-in, and a
+ * way to add or join another. Two sign-ins to workspaces with the same name
+ * are told apart by the account and the address.
+ */
+function WorkspaceSwitcher(props: {
+  name: string;
+  others: OtherWorkspace[];
+  onOpen?: (url: string) => void;
+  onAdd: () => void;
+}) {
+  const names = props.others.map((w) => w.name);
+  const items: MenuItem[] = props.others.map((w) => {
+    const shared = names.filter((n) => n === w.name).length > 1 || w.name === props.name;
+    return {
+      id: w.url,
+      label: `${w.name} · @${w.handle}${shared ? ` · ${w.url.replace(/^https?:\/\//, "")}` : ""}`,
+      onSelect: () => props.onOpen?.(w.url),
+    };
+  });
+  items.push({ id: "add", label: "Add or join a workspace…", onSelect: props.onAdd });
+  return (
+    <Menu
+      label="Switch workspace"
+      items={items}
+      triggerClassName="flex w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-lifted"
+      triggerContent={
+        <>
+          <span className="min-w-0 truncate">{props.name}</span>
+          <span className="sr-only">, switch workspace</span>
+          <Icon name="chevronDown" size={14} className="shrink-0 text-ink-faint" />
         </>
       }
     />

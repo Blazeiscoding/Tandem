@@ -385,6 +385,17 @@ export function App({ platform }: { platform: Platform }) {
                 initialTarget={session.target ?? null}
                 onLeaveWorkspace={leaveWorkspace}
                 onSignedOut={() => endSession(session.server, session.client)}
+                otherWorkspaces={savedServers
+                  .filter((saved) => saved.url !== session.server.url)
+                  .map((saved) => ({
+                    url: saved.url,
+                    name: saved.workspaceName,
+                    handle: saved.handle,
+                  }))}
+                onOpenWorkspace={(url) => {
+                  const saved = savedServersRef.current.find((s) => s.url === url);
+                  if (saved) openWorkspace(saved, savedServersRef.current);
+                }}
               />
             )}
             {hostDialogOpen && platform.hosting && (
