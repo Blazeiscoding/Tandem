@@ -10,14 +10,20 @@ import {
   shell,
   Tray,
 } from "electron";
+import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { networkInterfaces } from "node:os";
 import { pathToFileURL } from "node:url";
 import { Bonjour, type Service } from "bonjour-service";
 import { DEEP_LINK_PROTOCOLS, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
-import { createWorkspaceServer } from "@slackoss/server";
+import {
+  backupWorkspace,
+  createWorkspaceServer,
+  restoreWorkspace,
+  verifyBackup,
+} from "@slackoss/server";
 import { createSettingsStorage } from "./settings.js";
-import { createHostingController, parseLastHosted } from "./hosting.js";
+import { createHostingController } from "./hosting.js";
 import {
   findCloudflared,
   openConfiguredAddress,
@@ -267,7 +273,14 @@ const hosting = createHostingController({
   dataRoot: join(app.getPath("userData"), "hosted"),
   defaultPort: DEFAULT_PORT,
   lanUrls,
-  saveLastHosted: (value) => writeSetting("lastHosted", value),
+  settings,
+  backupWorkspace,
+  verifyBackup,
+  restoreWorkspace,
+  freeBytes: async (dir) => {
+    const info = await statfs(dir);
+    return info.bavail * info.bsize;
+  },
   onChange: publishHostingStatus,
   startServer: async ({ dataDir, port, workspaceName }) => {
     const server = await createWorkspaceServer({
@@ -287,6 +300,8 @@ const hosting = createHostingController({
     return {
       port: server.port,
       instanceId: server.instanceId,
+      workspaceId: () => server.store.getMeta("workspace_id") ?? null,
+      workspaceName: () => server.store.getMeta("workspace_name") ?? workspaceName ?? "",
       stop: () => server.stop(),
       setPublicUrl: (url) => server.setPublicUrl(url),
       // cloudflared reaches this embedded server from loopback. Believe its
@@ -345,11 +360,39 @@ const hosting = createHostingController({
 });
 
 ipcMain.handle("hosting:status", () => hostingStatus());
-ipcMain.handle("hosting:lastHosted", async () => {
-  // Unreadable settings mean no remembered workspace, not a failed call:
-  // the join screen simply shows no resume offer.
-  const stored = await settings.get("lastHosted").catch(() => null);
-  return parseLastHosted(stored);
+// Unreadable settings mean no remembered workspace, not a failed call: the
+// join screen simply shows no resume offer.
+ipcMain.handle("hosting:lastHosted", () => hosting.lastHosted());
+ipcMain.handle("hosting:list", () => hosting.list());
+ipcMain.handle("hosting:forget", (_e, folder: unknown) => hosting.forget(folder));
+ipcMain.handle("hosting:restore", async (event) => {
+  if (quitting) throw new Error("Gatherline is shutting down.");
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  const options = {
+    title: "Choose the folder of a backup to restore",
+    buttonLabel: "Restore",
+    properties: ["openDirectory"] as "openDirectory"[],
+  };
+  const choice = owner
+    ? await dialog.showOpenDialog(owner, options)
+    : await dialog.showOpenDialog(options);
+  if (choice.canceled || !choice.filePaths[0]) return null;
+  return hosting.restore({ backupDir: choice.filePaths[0] });
+});
+ipcMain.handle("hosting:backup", async (event, folder: unknown) => {
+  if (quitting) throw new Error("Gatherline is shutting down.");
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  const options = {
+    title: "Choose where to save the backup",
+    buttonLabel: "Back up here",
+    properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[],
+  };
+  const choice = owner
+    ? await dialog.showOpenDialog(owner, options)
+    : await dialog.showOpenDialog(options);
+  // Choosing no folder is not a failure: nothing happens.
+  if (choice.canceled || !choice.filePaths[0]) return null;
+  return hosting.backup({ folder, destination: choice.filePaths[0] });
 });
 ipcMain.handle("hosting:start", async (_e, opts: unknown) => {
   if (quitting) throw new Error("Gatherline is shutting down. Try again after reopening it.");

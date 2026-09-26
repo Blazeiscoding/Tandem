@@ -16,10 +16,43 @@ export interface SavedServer {
   lastUsedAt: number;
 }
 
+/**
+ * What starts hosting: `folder` for a workspace already hosted on this
+ * computer, or `workspaceName` for a new one. A name never finds an old one.
+ */
+export type HostingStart = ({ folder: string } | { workspaceName: string }) & { port?: number };
+
+/** The workspace this computer hosted most recently. */
+export interface LastHosted {
+  /** Absent from an app older than the list of hosted workspaces. */
+  folder?: string;
+  workspaceName: string;
+  port: number;
+}
+
+/** Every workspace hosted on this computer, most recent first. */
+export interface HostedWorkspaces {
+  workspaces: {
+    folder: string;
+    name: string;
+    port: number;
+    lastHostedAt: number;
+    /** When a backup of it last finished, or null if none has on this computer. */
+    lastBackupAt: number | null;
+    running: boolean;
+    /** Its folder is gone, so it cannot start. */
+    missing: boolean;
+  }[];
+  /** Folders holding a workspace that could not be read. */
+  unreadable: string[];
+}
+
 export interface HostingStatus {
   running: boolean;
   phase?: "stopped" | "starting" | "running" | "stopping";
   workspaceName?: string;
+  /** The running workspace's entry in the list of hosted workspaces. */
+  folder?: string;
   port?: number;
   dataDir?: string;
   lanUrls?: string[];
@@ -79,7 +112,7 @@ export interface Platform {
   hosting?: {
     status: () => Promise<HostingStatus>;
     subscribe?: (cb: (status: HostingStatus) => void) => () => void;
-    start: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
+    start: (opts: HostingStart) => Promise<HostingStatus>;
     stop: () => Promise<void>;
     /** Publish/unpublish the hosted workspace at a public address. */
     openToAll?: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
@@ -93,7 +126,21 @@ export interface Platform {
      */
     setPublicAddress?: (address: string) => Promise<HostingStatus>;
     /** The workspace this computer hosted last, if it remembers. */
-    lastHosted?: () => Promise<{ workspaceName: string; port: number } | null>;
+    lastHosted?: () => Promise<LastHosted | null>;
+    /** Every workspace hosted on this computer. Absent from apps older than the list. */
+    list?: () => Promise<HostedWorkspaces>;
+    /**
+     * Asks where to save a backup of a hosted workspace, running or not, and
+     * makes it there. Null when no folder was chosen.
+     */
+    backup?: (folder: string) => Promise<{ path: string; at: number } | null>;
+    /** Takes a workspace whose folder is gone out of the list. */
+    forget?: (folder: string) => Promise<void>;
+    /**
+     * Asks for a backup's folder and restores it as a workspace hosted here,
+     * without starting it. Null when no folder was chosen.
+     */
+    restore?: () => Promise<{ folder: string; name: string } | null>;
   };
 }
 

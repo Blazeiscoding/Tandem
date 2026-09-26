@@ -1,7 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ServerInfo } from "@slackoss/protocol";
 import { Api, ApiError, normalizeServerUrl } from "@slackoss/client-core";
-import type { DiscoveredServer, HostingStatus, Platform, SavedServer } from "../platform.js";
+import type {
+  DiscoveredServer,
+  HostingStatus,
+  LastHosted,
+  Platform,
+  SavedServer,
+} from "../platform.js";
 import { BrandMark, Icon } from "../components/Icon.js";
 import { connectionFailure, host, incompatibleWorkspace } from "../lib/connection.js";
 import { resumeTarget } from "../lib/resume.js";
@@ -19,7 +25,7 @@ interface Props {
   hostingStatus?: HostingStatus | null;
   hostingStatusError?: boolean;
   hostingStatusLoading?: boolean;
-  lastHosted?: { workspaceName: string; port: number } | null;
+  lastHosted?: LastHosted | null;
 }
 
 type Stage =
@@ -300,7 +306,7 @@ function ResumeHosted(props: {
   platform: Platform;
   savedServers: SavedServer[];
   hostingStatus?: HostingStatus | null;
-  lastHosted: { workspaceName: string; port: number } | null;
+  lastHosted: LastHosted | null;
   onOpenSaved: (saved: SavedServer) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -310,7 +316,7 @@ function ResumeHosted(props: {
   // Plain locals: narrowing does not reach into the async handler below.
   const { saved, workspaceName } = target;
   const { start } = props.platform.hosting;
-  const { port } = props.lastHosted;
+  const { port, folder } = props.lastHosted;
   const onOpenSaved = props.onOpenSaved;
 
   async function resume() {
@@ -320,7 +326,7 @@ function ResumeHosted(props: {
     try {
       // The remembered port keeps the saved sign-in's address working; a
       // fallback port would open somewhere the sign-in does not point.
-      await start({ workspaceName, port });
+      await start(folder ? { folder, port } : { workspaceName, port });
       // Its own sign-in still works, so reopening it asks for no password;
       // one that stopped working falls back to the sign-in form.
       onOpenSaved(saved);
@@ -343,7 +349,7 @@ function ResumeHosted(props: {
           <p role="alert" className="mt-2 text-alert">
             Could not start {workspaceName} on port {port}. Something else may be using that port,
             or the workspace&rsquo;s folder may not be writable. To start it on a free port, choose
-            Host a workspace on this computer and enter the same name.
+            Host a workspace on this computer and start it from the list there.
           </p>
         )}
         <button
@@ -371,7 +377,7 @@ function BrowseCard(props: {
   hostingStatus?: HostingStatus | null;
   hostingStatusError?: boolean;
   hostingStatusLoading?: boolean;
-  lastHosted?: { workspaceName: string; port: number } | null;
+  lastHosted?: LastHosted | null;
   platform: Platform;
   onSelect: (address: string) => void;
   onOpenSaved: (saved: SavedServer) => void;
