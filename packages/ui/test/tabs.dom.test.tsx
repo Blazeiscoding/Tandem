@@ -1,9 +1,16 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { WorkspaceClient } from "@slackoss/client-core";
+import type { User } from "@slackoss/protocol";
+import { ActivityPanel } from "../src/components/ActivityPanel.js";
+import { FriendsDialog } from "../src/components/FriendsDialog.js";
+import { ClientContext } from "../src/context.js";
 import { useTabs, type TabChoice } from "../src/lib/useTabs.js";
 import { accessibilityProblems } from "./accessibility.js";
+
+afterEach(() => vi.restoreAllMocks());
 
 const SEASONS = ["spring", "summer", "autumn"] as const;
 type Season = (typeof SEASONS)[number];
@@ -120,5 +127,111 @@ describe("a row of tabs", () => {
     }
     // Keys a tab has no use for are not taken either.
     expect(fireEvent.keyDown(tab("Spring"), { key: "ArrowDown" })).toBe(true);
+  });
+});
+
+const person = (id: string, handle: string, displayName: string): User => ({
+  id,
+  handle,
+  displayName,
+  role: "member",
+  statusText: "",
+  statusEmoji: "",
+  isBot: false,
+  deactivated: false,
+  dndUntil: null,
+  createdAt: 0,
+});
+const sam = person("U_SAM", "sam", "Sam Rivera");
+const priya = person("U_PRIYA", "priya", "Priya Shah");
+const alex = person("U_ALEX", "alex", "Alex Kim");
+
+/** A workspace client that never connects: Sam, a friend in Alex and a request from Priya. */
+function offlineClient() {
+  const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
+  client.store.setState({
+    self: sam,
+    users: { [sam.id]: sam, [priya.id]: priya, [alex.id]: alex },
+    friends: [
+      { userId: alex.id, status: "accepted", createdAt: 0 },
+      { userId: priya.id, status: "incoming", createdAt: 0 },
+    ],
+    status: "online",
+  });
+  return client;
+}
+
+describe("views that were pressed buttons", () => {
+  it("Friends switches between friends, requests and adding friends as tabs", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClientContext.Provider value={offlineClient()}>
+        <FriendsDialog onClose={() => {}} onOpenProfile={() => {}} />
+      </ClientContext.Provider>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Friends" });
+    const list = within(dialog).getByRole("tablist", { name: "People filters" });
+    const friends = within(list).getByRole("tab", { name: "Friends" });
+    expect(friends).toHaveAttribute("aria-selected", "true");
+    expect(
+      within(list)
+        .getAllByRole("tab")
+        .map((t) => t.tabIndex),
+    ).toEqual([0, -1, -1]);
+    const panel = within(dialog).getByRole("tabpanel", { name: "Friends" });
+    expect(within(panel).getByRole("textbox", { name: "Find people" })).toBeVisible();
+    expect(within(panel).getByText("Alex Kim")).toBeVisible();
+    expect(within(dialog).queryByRole("button", { pressed: true })).not.toBeInTheDocument();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+
+    friends.focus();
+    await user.keyboard("{ArrowRight}");
+    const requests = within(list).getByRole("tab", { name: "Requests (1)" });
+    expect(requests).toHaveFocus();
+    expect(requests).toHaveAttribute("aria-selected", "true");
+    const requestsPanel = within(dialog).getByRole("tabpanel", { name: "Requests (1)" });
+    expect(within(requestsPanel).getByText("Priya Shah")).toBeVisible();
+    expect(within(requestsPanel).getByRole("button", { name: "Accept" })).toBeVisible();
+    await user.keyboard("{End}");
+    expect(within(list).getByRole("tab", { name: "Add friends" })).toHaveFocus();
+    expect(within(dialog).getByRole("tabpanel", { name: "Add friends" })).toBeVisible();
+    await user.keyboard("{ArrowRight}");
+    expect(friends).toHaveFocus();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+
+  it("Activity switches between unread messages and mentions as tabs", async () => {
+    const user = userEvent.setup();
+    const client = offlineClient();
+    const activity = vi
+      .spyOn(client.api, "activity")
+      .mockResolvedValue({ messages: [], nextCursor: null });
+    render(
+      <main>
+        <ClientContext.Provider value={client}>
+          <ActivityPanel onClose={() => {}} onJump={() => {}} />
+        </ClientContext.Provider>
+      </main>,
+    );
+    const panel = screen.getByRole("complementary", { name: "Activity" });
+    const list = within(panel).getByRole("tablist", { name: "Activity filter" });
+    const unread = within(list).getByRole("tab", { name: "Unread" });
+    expect(unread).toHaveAttribute("aria-selected", "true");
+    expect(within(panel).getByRole("tabpanel", { name: "Unread" })).toHaveTextContent(
+      "Unread messages in conversations you joined.",
+    );
+    expect(await within(panel).findByText("You're caught up.")).toBeVisible();
+    expect(await accessibilityProblems(panel)).toEqual([]);
+
+    unread.focus();
+    await user.keyboard("{ArrowLeft}");
+    const mentions = within(list).getByRole("tab", { name: "Mentions" });
+    expect(mentions).toHaveFocus();
+    expect(mentions).toHaveAttribute("aria-selected", "true");
+    expect(within(panel).getByRole("tabpanel", { name: "Mentions" })).toHaveTextContent(
+      "Direct and room-wide mentions in conversations you joined.",
+    );
+    await waitFor(() => expect(activity).toHaveBeenLastCalledWith("mentions", expect.anything()));
+    expect(await within(panel).findByText("No mentions yet.")).toBeVisible();
   });
 });

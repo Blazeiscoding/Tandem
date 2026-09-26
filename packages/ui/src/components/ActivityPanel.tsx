@@ -7,6 +7,10 @@ import { Icon } from "./Icon.js";
 import { Tooltip } from "./Tooltip.js";
 import { ListStatus } from "./ListStatus.js";
 import { usePanelFocus } from "../lib/usePanelFocus.js";
+import { useTabs } from "../lib/useTabs.js";
+
+const MODES = ["unread", "mentions"] as const;
+type ActivityMode = (typeof MODES)[number];
 
 export function ActivityPanel({
   onClose,
@@ -20,8 +24,17 @@ export function ActivityPanel({
   const users = useWorkspace((s) => s.users);
   const memberships = useWorkspace((s) => s.memberships);
   const { panel, heading } = usePanelFocus({ takeFocus: true });
-  const [mode, setMode] = useState<"unread" | "mentions">("unread");
+  const [mode, setMode] = useState<ActivityMode>("unread");
   const [cursors, setCursors] = useState<(ID | undefined)[]>([undefined]);
+  const tabs = useTabs({
+    label: "Activity filter",
+    tabs: MODES,
+    selected: mode,
+    onSelect(next) {
+      setMode(next);
+      setCursors([undefined]);
+    },
+  });
   const [result, setResult] = useState<Awaited<ReturnType<typeof client.api.activity>> | null>(
     null,
   );
@@ -85,26 +98,18 @@ export function ActivityPanel({
           <Icon name="close" size={16} />
         </button>
       </header>
-      <div
-        role="group"
-        aria-label="Activity filter"
-        className="flex gap-2 border-b border-edge p-3"
-      >
-        {(["unread", "mentions"] as const).map((value) => (
+      <div {...tabs.listProps} className="flex gap-2 border-b border-edge p-3">
+        {MODES.map((value) => (
           <button
             key={value}
-            aria-pressed={mode === value}
+            {...tabs.tabProps(value)}
             className={`flex-1 rounded-lg px-3 py-2 text-sm ${mode === value ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-lifted"}`}
-            onClick={() => {
-              setMode(value);
-              setCursors([undefined]);
-            }}
           >
             {value === "unread" ? "Unread" : "Mentions"}
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={loading}>
+      <div {...tabs.panelProps} className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={loading}>
         <p className="mb-3 text-xs text-ink-faint">
           {mode === "unread"
             ? "Unread messages in conversations you joined."

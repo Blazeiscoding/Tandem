@@ -1,9 +1,13 @@
 import { useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
+import { useTabs } from "../lib/useTabs.js";
 import { Avatar, PresenceDot } from "./Avatar.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { buttonClass } from "./Button.js";
+
+const FRIENDS_TABS = ["friends", "requests", "people"] as const;
+type FriendsTab = (typeof FRIENDS_TABS)[number];
 
 export function FriendActions({ userId }: { userId: ID }) {
   const client = useClient();
@@ -78,7 +82,13 @@ export function FriendsDialog({
   const selfId = useWorkspace((s) => s.self?.id);
   const presence = useWorkspace((s) => s.presence);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<"friends" | "requests" | "people">("friends");
+  const [tab, setTab] = useState<FriendsTab>("friends");
+  const tabs = useTabs({
+    label: "People filters",
+    tabs: FRIENDS_TABS,
+    selected: tab,
+    onSelect: setTab,
+  });
   const incoming = friends.filter((f) => f.status === "incoming").length;
   const rows = Object.values(users)
     .filter((u) => {
@@ -94,60 +104,59 @@ export function FriendsDialog({
       <p className="mb-4 text-sm text-ink-dim">
         Connect with people in this workspace. Your friends and requests stay on this server.
       </p>
-      <div className="mb-4 flex gap-2" aria-label="People filters">
-        {(
-          [
-            ["friends", "Friends"],
-            ["requests", `Requests${incoming ? ` (${incoming})` : ""}`],
-            ["people", "Add friends"],
-          ] as const
-        ).map(([value, label]) => (
+      <div {...tabs.listProps} className="mb-4 flex gap-2">
+        {FRIENDS_TABS.map((value) => (
           <button
             key={value}
-            aria-pressed={tab === value}
-            onClick={() => setTab(value)}
+            {...tabs.tabProps(value)}
             className={`rounded-lg px-3 py-2 text-sm ${tab === value ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-lifted"}`}
           >
-            {label}
+            {value === "friends"
+              ? "Friends"
+              : value === "requests"
+                ? `Requests${incoming ? ` (${incoming})` : ""}`
+                : "Add friends"}
           </button>
         ))}
       </div>
-      <input
-        aria-label="Find people"
-        placeholder="Search by name or handle"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className={inputCls}
-      />
-      <div className="mt-4 max-h-[50vh] space-y-3 overflow-y-auto">
-        {rows.length === 0 && (
-          <p className="py-8 text-center text-sm text-ink-faint">
-            {tab === "friends"
-              ? "No friends yet. Find someone in Add friends to send a request."
-              : tab === "requests"
-                ? "No pending requests."
-                : "No people found."}
-          </p>
-        )}
-        {rows.map((user) => (
-          <div key={user.id} className="rounded-xl border border-edge bg-ground p-3">
-            <button
-              onClick={() => onOpenProfile(user.id)}
-              className="mb-3 flex w-full items-center gap-3 text-left"
-            >
-              <Avatar user={user} size={36} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{user.displayName}</span>
-                <span className="text-xs text-ink-faint">@{user.handle}</span>
-              </span>
-              <PresenceDot online={presence[user.id] === "online"} />
-            </button>
-            {friends.find((f) => f.userId === user.id)?.status === "outgoing" && (
-              <p className="mb-2 text-xs text-ink-faint">Request sent</p>
-            )}
-            <FriendActions userId={user.id} />
-          </div>
-        ))}
+      <div {...tabs.panelProps}>
+        <input
+          aria-label="Find people"
+          placeholder="Search by name or handle"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className={inputCls}
+        />
+        <div className="mt-4 max-h-[50vh] space-y-3 overflow-y-auto">
+          {rows.length === 0 && (
+            <p className="py-8 text-center text-sm text-ink-faint">
+              {tab === "friends"
+                ? "No friends yet. Find someone in Add friends to send a request."
+                : tab === "requests"
+                  ? "No pending requests."
+                  : "No people found."}
+            </p>
+          )}
+          {rows.map((user) => (
+            <div key={user.id} className="rounded-xl border border-edge bg-ground p-3">
+              <button
+                onClick={() => onOpenProfile(user.id)}
+                className="mb-3 flex w-full items-center gap-3 text-left"
+              >
+                <Avatar user={user} size={36} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{user.displayName}</span>
+                  <span className="text-xs text-ink-faint">@{user.handle}</span>
+                </span>
+                <PresenceDot online={presence[user.id] === "online"} />
+              </button>
+              {friends.find((f) => f.userId === user.id)?.status === "outgoing" && (
+                <p className="mb-2 text-xs text-ink-faint">Request sent</p>
+              )}
+              <FriendActions userId={user.id} />
+            </div>
+          ))}
+        </div>
       </div>
     </Dialog>
   );
