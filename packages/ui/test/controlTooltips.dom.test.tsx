@@ -105,6 +105,35 @@ describe("compact controls explain themselves with the shared tooltip", () => {
     expect(onFormat).toHaveBeenLastCalledWith("```", "code", true);
   });
 
+  it("folds the formatting buttons behind one, which says what it shows and hides", async () => {
+    const user = userEvent.setup();
+    const onFormat = vi.fn();
+    render(
+      <FormattingToolbar
+        onFormat={onFormat}
+        onInsert={() => {}}
+        preview={false}
+        onTogglePreview={() => {}}
+      />,
+    );
+    const toggle = screen.getByRole("button", { name: "Formatting" });
+    const buttons = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    expect(buttons).toContainElement(screen.getByRole("button", { name: "Bold" }));
+    expect(buttons).toContainElement(screen.getByRole("button", { name: "Code block" }));
+    // Emoji and Preview stay out of the fold.
+    expect(buttons).not.toContainElement(screen.getByRole("button", { name: "Insert emoji" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(buttons).not.toHaveAttribute("data-expanded");
+
+    expect(await tabTo(user, toggle)).toHaveTextContent("Formatting");
+    await user.keyboard("{Enter}");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(buttons).toHaveAttribute("data-expanded");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Hide formatting");
+    await user.click(screen.getByRole("button", { name: "Italic" }));
+    expect(onFormat).toHaveBeenCalledWith("_", "text");
+  });
+
   it("keeps the emoji button's own focus return when its chooser closes", async () => {
     const user = userEvent.setup();
     render(

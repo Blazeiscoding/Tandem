@@ -163,6 +163,15 @@ textarea {
   }
 }
 
+/*
+ * The composer's formatting buttons take a row of their own. On a phone that
+ * row is room the message needs, so they fold behind one button there; the
+ * keyboard shortcuts still work either way.
+ */
+.formatting-toggle {
+  display: none;
+}
+
 @media (max-width: 760px) {
   .channel-header {
     gap: 6px;
@@ -170,6 +179,12 @@ textarea {
   }
   .header-secondary,
   .composer-hint {
+    display: none;
+  }
+  .formatting-toggle {
+    display: inline-flex;
+  }
+  .formatting-buttons:not([data-expanded]) {
     display: none;
   }
   .workspace-shell > aside {

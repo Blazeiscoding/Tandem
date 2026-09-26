@@ -110,6 +110,30 @@ describe("a side panel", () => {
     expect(toggle).toHaveFocus();
   });
 
+  it("takes focus from a toggle it covers, as on a phone, and gives it back when it closes", async () => {
+    const user = userEvent.setup();
+    function Covering() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          {/* On a phone the panel covers the page, which goes inert beneath it. */}
+          <main inert={open}>
+            <button aria-pressed={open} onClick={() => setOpen((o) => !o)}>
+              Pinned messages
+            </button>
+          </main>
+          {open && <Panel takeFocus onClose={() => setOpen(false)} />}
+        </>
+      );
+    }
+    render(<Covering />);
+    const toggle = screen.getByRole("button", { name: "Pinned messages" });
+    await user.click(toggle);
+    expect(screen.getByRole("heading", { name: "Saved" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Close saved" }));
+    expect(toggle).toHaveFocus();
+  });
+
   it("hands focus to what holds the opener when the opener can no longer take it", async () => {
     const user = userEvent.setup();
     render(<Page openerGoesAway />);
