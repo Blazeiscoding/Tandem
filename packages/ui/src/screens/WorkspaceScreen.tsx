@@ -16,6 +16,7 @@ import type { AccountSection } from "../components/AccountDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
+import { GettingStarted } from "../components/GettingStarted.js";
 import { LazyDialog, LazyPanel } from "../components/LazyView.js";
 import { ViewModal } from "../components/ViewModal.js";
 import { FriendsDialog } from "../components/FriendsDialog.js";
@@ -725,6 +726,25 @@ function WorkspaceInner({
         onEditProfile={() => setDialog({ kind: "account", section: "profile" })}
         onAccountSettings={() => setDialog({ kind: "account" })}
         onShortcuts={() => setDialog({ kind: "shortcuts" })}
+        gettingStarted={
+          <GettingStarted
+            onNewChannel={() => setDialog({ kind: "new-channel" })}
+            onInvite={() => setDialog({ kind: "invite" })}
+            onNotifications={() => setDialog({ kind: "account", section: "notifications" })}
+            activeChannelName={activeChannel && isRoom ? `#${activeChannel.name}` : null}
+            onTryHuddle={() => {
+              if (!activeChannelId) return;
+              setSidebarOpen(false);
+              clientFromCtx.joinHuddle(activeChannelId).catch((err: unknown) => {
+                setNavigationError(
+                  err instanceof Error
+                    ? `Could not start a huddle: ${err.message}`
+                    : "Could not start a huddle. Check your connection and try again.",
+                );
+              });
+            }}
+          />
+        }
         onDiagnostics={() => setDialog({ kind: "diagnostics" })}
         onManageApps={isAdmin ? () => setDialog({ kind: "apps" }) : undefined}
         onManagePeople={isAdmin ? () => setDialog({ kind: "people" }) : undefined}

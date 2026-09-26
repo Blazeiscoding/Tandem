@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { unreadThreadCount } from "@slackoss/client-core";
@@ -27,6 +27,8 @@ interface Props {
   onAccountSettings: () => void;
   onShortcuts?: () => void;
   onDiagnostics?: () => void;
+  /** Shown under the Jump button, such as the owner's first steps. */
+  gettingStarted?: ReactNode;
   /** Admins only; absent for members. */
   onManageApps?: () => void;
   onManagePeople?: () => void;
@@ -132,6 +134,7 @@ export function Sidebar(props: Props) {
             Ctrl K
           </kbd>
         </button>
+        {props.gettingStarted}
         <button
           onClick={props.onActivity}
           className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink"
