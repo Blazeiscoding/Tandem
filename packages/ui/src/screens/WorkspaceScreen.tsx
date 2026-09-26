@@ -32,6 +32,7 @@ import { ShareableServerProvider } from "../components/ShareableServer.js";
 import { hasOpenModal } from "../components/Modal.js";
 import { Tooltip } from "../components/Tooltip.js";
 import { isImeKey } from "../lib/textInput.js";
+import { useLastConversation } from "../lib/lastConversation.js";
 import { ROUTE_VIEWS, currentRoute, writeRoute, type RouteView } from "../lib/route.js";
 import { useHistoryKeys } from "../lib/historyKeys.js";
 
@@ -259,6 +260,11 @@ function WorkspaceInner({
    */
   const [routeRequest, setRouteRequest] = useState(0);
 
+  // With nothing in the address or history to say where to be, open the
+  // conversation this account last had open here, once it has been read.
+  const lastConversation = useLastConversation();
+  const restoring = useRef(!initialTarget && !initialRoute);
+
   // Pick #general (or the first channel) once the snapshot lands, and move
   // there from a conversation this account cannot see or that has gone.
   useEffect(() => {
@@ -266,6 +272,16 @@ function WorkspaceInner({
       const list = Object.values(channels).filter((c) => !c.archived);
       const general = list.find((c) => c.name === "general") ?? list[0];
       if (!general) return;
+      if (!activeChannelId && restoring.current) {
+        if (lastConversation.remembered === undefined) return;
+        restoring.current = false;
+        const last = lastConversation.remembered && channels[lastConversation.remembered];
+        if (last && !last.archived) {
+          replaceRoute.current = last.id;
+          setActiveChannelId(last.id);
+          return;
+        }
+      }
       if (activeChannelId) {
         setNavigationError(
           "That conversation is not available. It may have been deleted, or you may not have access to it.",
@@ -275,7 +291,13 @@ function WorkspaceInner({
       replaceRoute.current = general.id;
       setActiveChannelId(general.id);
     }
-  }, [channels, activeChannelId, status]);
+  }, [channels, activeChannelId, status, lastConversation.remembered]);
+
+  const { remember } = lastConversation;
+  useEffect(() => {
+    if (activeChannelId && status === "online" && channels[activeChannelId])
+      remember(activeChannelId);
+  }, [activeChannelId, channels, status, remember]);
 
   // The address follows the conversation and the thread or panel beside it,
   // so Back, Forward and a reload return to them, and Back closes a panel.
