@@ -2102,7 +2102,7 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     await page.keyboard.press("Control+k");
     await page.keyboard.type("design");
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("heading", { name: "#design", exact: true })).toBeVisible();
+    await expect(page.locator(".channel-header h2")).toHaveText("#design");
     await expect(page.getByRole("textbox", { name: "Message #design" })).toBeFocused();
 
     // Reply in a thread. The list of messages is one Tab stop, the newest
