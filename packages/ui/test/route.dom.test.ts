@@ -15,8 +15,33 @@ describe("reading a place in a workspace from the address", () => {
     );
   });
 
+  it("reads a side panel open beside a conversation", () => {
+    expect(parseRouteHash("#/c/C_DESIGN/p/saved")).toEqual({
+      channelId: "C_DESIGN",
+      threadRootId: null,
+      view: "saved",
+    });
+    for (const view of ["pins", "saved", "threads", "scheduled", "activity"] as const) {
+      const route = { channelId: "C_DESIGN", threadRootId: null, view };
+      expect(parseRouteHash(routeHash(route))).toEqual(route);
+    }
+    // A thread is its own place; it never carries a panel with it.
+    expect(routeHash({ channelId: "C_DESIGN", threadRootId: "M_ROOT", view: "saved" })).toBe(
+      "#/c/C_DESIGN/t/M_ROOT",
+    );
+  });
+
   it("leaves links to a message, and anything else, alone", () => {
-    for (const hash of ["", "#", "#/join/ABCD", "#/c/C_DESIGN/m/M_PLAN", "#/c/", "#/c/a%2Fb"]) {
+    for (const hash of [
+      "",
+      "#",
+      "#/join/ABCD",
+      "#/c/C_DESIGN/m/M_PLAN",
+      "#/c/",
+      "#/c/a%2Fb",
+      "#/c/C_DESIGN/p/settings",
+      "#/c/C_DESIGN/p/",
+    ]) {
       expect(parseRouteHash(hash)).toBeNull();
     }
   });
@@ -37,6 +62,32 @@ describe("the place a history entry remembers", () => {
     });
     // Another workspace's entry, in a desktop app with more than one.
     expect(currentRoute("http://10.0.0.9:8543", address, state)).toBeNull();
+  });
+
+  it("remembers a side panel, and ignores one it does not know", () => {
+    const server = "http://10.0.0.5:8543";
+    const address = { hash: "", origin: here() };
+    const entry = (view: unknown, threadRootId: string | null = null) => ({
+      gatherline: { server, channelId: "C_OPS", threadRootId, view },
+    });
+    expect(currentRoute(server, address, entry("activity"))).toEqual({
+      channelId: "C_OPS",
+      threadRootId: null,
+      view: "activity",
+    });
+    for (const state of [entry("settings"), entry("saved", "M_ROOT")]) {
+      expect(currentRoute(server, address, state)).not.toHaveProperty("view");
+    }
+  });
+
+  it("adds a step when a panel opens or closes, so Back closes it", () => {
+    const server = here();
+    writeRoute(server, { channelId: "C_GENERAL", threadRootId: null });
+    const start = window.history.length;
+    writeRoute(server, { channelId: "C_GENERAL", threadRootId: null, view: "saved" });
+    expect(location.hash).toBe("#/c/C_GENERAL/p/saved");
+    writeRoute(server, { channelId: "C_GENERAL", threadRootId: null });
+    expect(window.history.length).toBe(start + 2);
   });
 
   it("reads a typed or shared address only on the page the workspace serves", () => {

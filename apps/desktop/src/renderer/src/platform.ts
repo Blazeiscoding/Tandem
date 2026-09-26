@@ -1,4 +1,11 @@
-import type { DiscoveredServer, HostingStatus, Platform } from "@slackoss/ui";
+import type {
+  DiscoveredServer,
+  HostedWorkspaces,
+  HostingStart,
+  HostingStatus,
+  LastHosted,
+  Platform,
+} from "@slackoss/ui";
 
 interface SlackossBridge {
   downloadFile: (url: string) => Promise<void>;
@@ -7,8 +14,12 @@ interface SlackossBridge {
   lanSnapshot: () => Promise<DiscoveredServer[]>;
   onLanServers: (cb: (servers: DiscoveredServer[]) => void) => () => void;
   hostingStatus: () => Promise<HostingStatus>;
-  hostingStart: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
-  hostingLastHosted: () => Promise<{ workspaceName: string; port: number } | null>;
+  hostingStart: (opts: HostingStart) => Promise<HostingStatus>;
+  hostingLastHosted: () => Promise<LastHosted | null>;
+  hostingList: () => Promise<HostedWorkspaces>;
+  hostingBackup: (folder: string) => Promise<{ path: string; at: number } | null>;
+  hostingForget: (folder: string) => Promise<void>;
+  hostingRestore: () => Promise<{ folder: string; name: string } | null>;
   hostingStop: () => Promise<void>;
   hostingOpenToAll: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
   hostingEndOpenToAll: () => Promise<HostingStatus>;
@@ -74,6 +85,10 @@ export function electronPlatform(): Platform {
       status: () => bridge.hostingStatus(),
       start: (opts) => bridge.hostingStart(opts),
       lastHosted: () => bridge.hostingLastHosted(),
+      list: () => bridge.hostingList(),
+      backup: (folder) => plainly(bridge.hostingBackup(folder)),
+      forget: (folder) => plainly(bridge.hostingForget(folder)),
+      restore: () => plainly(bridge.hostingRestore()),
       stop: () => bridge.hostingStop(),
       openToAll: (opts) => plainly(bridge.hostingOpenToAll(opts)),
       endOpenToAll: () => bridge.hostingEndOpenToAll(),

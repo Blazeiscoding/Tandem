@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { HostingStatus, Platform } from "../platform.js";
+import type {
+  HostedWorkspaces,
+  HostingStart,
+  HostingStatus,
+  LastHosted,
+  Platform,
+} from "../platform.js";
 import { useCopy } from "../lib/useCopy.js";
+import { formatDay, formatTime } from "../lib/format.js";
 import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
 
 type Hosting = NonNullable<Platform["hosting"]>;
@@ -59,9 +66,7 @@ export function useHostingStatus(hosting: Platform["hosting"]) {
  * Read again whenever hosting starts or stops, since either can change it.
  */
 export function useLastHosted(hosting: Platform["hosting"], status: HostingStatus | null) {
-  const [lastHosted, setLastHosted] = useState<{ workspaceName: string; port: number } | null>(
-    null,
-  );
+  const [lastHosted, setLastHosted] = useState<LastHosted | null>(null);
   const phase = status ? (status.phase ?? (status.running ? "running" : "stopped")) : null;
   const hosted = status?.running ? `${status.workspaceName ?? ""}:${status.port ?? ""}` : "";
   useEffect(() => {
@@ -80,6 +85,39 @@ export function useLastHosted(hosting: Platform["hosting"], status: HostingStatu
   return lastHosted;
 }
 
+/**
+ * Every workspace hosted on this computer, read again whenever hosting
+ * starts or stops. Null until read, and on an app with no list to read.
+ */
+function useHostedWorkspaces(hosting: Hosting, phase: string, revision: number) {
+  const [hosted, setHosted] = useState<HostedWorkspaces | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!hosting.list) return;
+    let alive = true;
+    hosting
+      .list()
+      .then((value) => {
+        if (!alive) return;
+        setHosted(value);
+        setFailed(false);
+      })
+      .catch(() => {
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [hosting, phase, revision]);
+  return { hosted, failed };
+}
+
+/** "today, 3:04 PM" or "Monday, September 22, 3:04 PM". */
+function backedUpWhen(at: number): string {
+  const day = formatDay(at);
+  return `${day === "Today" || day === "Yesterday" ? day.toLowerCase() : day}, ${formatTime(at)}`;
+}
+
 export function HostDialog(props: {
   hosting: Hosting;
   state: ReturnType<typeof useHostingStatus>;
@@ -91,7 +129,16 @@ export function HostDialog(props: {
   const { status, loading, error: statusError, refresh } = props.state;
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<
-    "starting" | "stopping" | "opening" | "closing" | "policy" | "address" | null
+    | "starting"
+    | "stopping"
+    | "opening"
+    | "closing"
+    | "policy"
+    | "address"
+    | "backing-up"
+    | "removing"
+    | "restoring"
+    | null
   >(null);
   const operationPending = useRef(false);
   const [error, setError] = useState<{ message: string; tunnel?: boolean } | null>(null);
@@ -123,21 +170,101 @@ export function HostDialog(props: {
   }, [phase]);
 
   useEffect(() => {
-    if (status?.workspaceName) setName(status.workspaceName);
-  }, [status?.workspaceName]);
-
-  useEffect(() => {
     if (status?.inviteOnly !== undefined) setRequireInvite(status.inviteOnly);
   }, [status?.inviteOnly]);
 
-  async function start(e: React.FormEvent) {
+  const [listRevision, setListRevision] = useState(0);
+  const { hosted, failed: listFailed } = useHostedWorkspaces(props.hosting, phase, listRevision);
+  /** What the last backup or removal from the list did, until another starts. */
+  const [backupNote, setBackupNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const backupFn = props.hosting.backup;
+  const forgetFn = props.hosting.forget;
+  const restoreFn = props.hosting.restore;
+
+  async function restoreBackup() {
+    if (!restoreFn || operationPending.current || unavailable) return;
+    operationPending.current = true;
+    setBusy("restoring");
+    setBackupNote(null);
+    try {
+      const restored = await restoreFn();
+      if (restored)
+        setBackupNote({
+          ok: true,
+          text: `Restored ${restored.name}. Start it from the list when you are ready.`,
+        });
+    } catch (reason) {
+      const why = reason instanceof Error && reason.message ? ` ${reason.message}` : "";
+      setBackupNote({ ok: false, text: `The backup was not restored.${why}` });
+    } finally {
+      setListRevision((n) => n + 1);
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function removeMissing(folder: string, name: string) {
+    if (!forgetFn || operationPending.current || unavailable) return;
+    operationPending.current = true;
+    setBusy("removing");
+    setBackupNote(null);
+    try {
+      await forgetFn(folder);
+    } catch (reason) {
+      const why = reason instanceof Error && reason.message ? ` ${reason.message}` : "";
+      setBackupNote({ ok: false, text: `${name} could not be removed from the list.${why}` });
+    } finally {
+      setListRevision((n) => n + 1);
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function backUp(folder: string, name: string) {
+    if (!backupFn || operationPending.current || unavailable) return;
+    operationPending.current = true;
+    setBusy("backing-up");
+    setBackupNote(null);
+    try {
+      const made = await backupFn(folder);
+      if (made) setBackupNote({ ok: true, text: `Backed up ${name} to ${made.path}` });
+    } catch (reason) {
+      const why = reason instanceof Error && reason.message ? ` ${reason.message}` : "";
+      setBackupNote({ ok: false, text: `The backup of ${name} did not finish.${why}` });
+    } finally {
+      setListRevision((n) => n + 1);
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
+
+  const backupStatus = backupNote && (
+    <p
+      role={backupNote.ok ? "status" : "alert"}
+      className={`mb-3 break-words text-sm ${backupNote.ok ? "text-ink-dim" : "text-alert"}`}
+    >
+      {backupNote.text}
+    </p>
+  );
+
+  const existing = hosted?.workspaces ?? [];
+  const runningEntry = existing.find((w) => w.running);
+  const typed = name.trim().toLowerCase();
+  const sameName = typed ? existing.find((w) => w.name.trim().toLowerCase() === typed) : undefined;
+
+  function start(e: React.FormEvent) {
     e.preventDefault();
-    if (operationPending.current || unavailable || !name.trim()) return;
+    if (!name.trim()) return;
+    void launch({ workspaceName: name.trim() });
+  }
+
+  async function launch(request: HostingStart) {
+    if (operationPending.current || unavailable) return;
     operationPending.current = true;
     setBusy("starting");
     setError(null);
     try {
-      const next = await props.hosting.start({ workspaceName: name.trim() });
+      const next = await props.hosting.start(request);
       void refresh();
       if (next.running && next.phase !== "stopping" && next.port !== undefined)
         props.onStarted(next);
@@ -601,6 +728,12 @@ export function HostDialog(props: {
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
+            {backupStatus && <div className="w-full">{backupStatus}</div>}
+            {runningEntry && runningEntry.lastBackupAt === null && backupFn && (
+              <p className="w-full text-xs text-ink-dim">
+                This workspace has not been backed up from this computer yet.
+              </p>
+            )}
             {!props.viewingHosted && (
               <button
                 type="button"
@@ -622,6 +755,16 @@ export function HostDialog(props: {
             >
               Stop hosting
             </button>
+            {backupFn && status.folder && (
+              <button
+                type="button"
+                disabled={unavailable}
+                className="rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+                onClick={() => void backUp(status.folder!, status.workspaceName ?? "the workspace")}
+              >
+                {busy === "backing-up" ? "Backing up…" : "Back up now"}
+              </button>
+            )}
           </div>
         )
       ) : !loading && !statusError && status ? (
@@ -630,6 +773,85 @@ export function HostDialog(props: {
             Your computer becomes the server. Teammates on your network can connect while Gatherline
             is running. Messages, files and accounts are stored on this machine.
           </p>
+          {listFailed && (
+            <p role="alert" className="mb-4 text-sm text-alert">
+              Could not read the list of workspaces hosted on this computer, so none can start.
+              Check that Gatherline&rsquo;s settings file can be read, then open this again.
+            </p>
+          )}
+          {backupStatus}
+          {existing.length > 0 && (
+            <section aria-label="Hosted on this computer" className="mb-5">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-dim">
+                Hosted on this computer
+              </h3>
+              <ul className="space-y-2">
+                {existing.map((w) => (
+                  <li
+                    key={w.folder}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-edge px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-ink">{w.name}</p>
+                      <p className="text-xs text-ink-dim">
+                        {w.missing
+                          ? "Its folder is missing, so it cannot start"
+                          : `Port ${w.port}${
+                              backupFn
+                                ? w.lastBackupAt === null
+                                  ? " · Not backed up yet"
+                                  : ` · Backed up ${backedUpWhen(w.lastBackupAt)}`
+                                : ""
+                            }`}
+                      </p>
+                    </div>
+                    {backupFn && !w.missing && (
+                      <button
+                        type="button"
+                        disabled={unavailable}
+                        aria-label={`Back up ${w.name}`}
+                        onClick={() => void backUp(w.folder, w.name)}
+                        className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+                      >
+                        Back up
+                      </button>
+                    )}
+                    {w.missing && forgetFn ? (
+                      <button
+                        type="button"
+                        disabled={unavailable}
+                        aria-label={`Remove ${w.name} from the list`}
+                        onClick={() => void removeMissing(w.folder, w.name)}
+                        className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={unavailable || w.missing}
+                        aria-label={`Start hosting ${w.name}`}
+                        onClick={() => void launch({ folder: w.folder })}
+                        className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink hover:border-copper disabled:opacity-40"
+                      >
+                        Start
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {hosted!.unreadable.length > 0 && (
+                <p className="mt-2 text-xs text-ink-dim">
+                  Could not read the workspace in{" "}
+                  {hosted!.unreadable.length === 1 ? "the folder" : "the folders"}{" "}
+                  {hosted!.unreadable.join(", ")}, so it is not listed.
+                </p>
+              )}
+              <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide text-ink-dim">
+                New workspace
+              </h3>
+            </section>
+          )}
           <form onSubmit={start} className="space-y-3">
             <input
               autoFocus
@@ -641,14 +863,34 @@ export function HostDialog(props: {
               placeholder="Workspace name (e.g. Rocket Team)"
               className={inputCls}
             />
+            {sameName && (
+              <p className="text-xs text-ink-dim">
+                {sameName.name} is already hosted here. Start it from the list to keep its messages;
+                this starts a separate, empty workspace.
+              </p>
+            )}
             <button
               type="submit"
               disabled={!name.trim() || unavailable}
               className={`${primaryBtnCls} w-full`}
             >
-              {busy === "starting" ? "Starting…" : "Start hosting"}
+              {busy === "starting"
+                ? "Starting…"
+                : existing.length > 0
+                  ? "Start new workspace"
+                  : "Start hosting"}
             </button>
           </form>
+          {restoreFn && (
+            <button
+              type="button"
+              disabled={unavailable}
+              onClick={() => void restoreBackup()}
+              className="mt-3 w-full rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+            >
+              {busy === "restoring" ? "Restoring…" : "Restore from a backup…"}
+            </button>
+          )}
         </>
       ) : null}
     </Dialog>

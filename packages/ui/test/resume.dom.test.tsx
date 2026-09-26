@@ -6,7 +6,13 @@ import type { ServerInfo, User } from "@slackoss/protocol";
 import { JoinScreen } from "../src/screens/JoinScreen.js";
 import { useLastHosted } from "../src/components/HostDialog.js";
 import { hostedButStopped, resumeTarget } from "../src/lib/resume.js";
-import type { HostingStatus, Platform, SavedServer } from "../src/platform.js";
+import type {
+  HostingStart,
+  HostingStatus,
+  LastHosted,
+  Platform,
+  SavedServer,
+} from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 
 const saved: SavedServer = {
@@ -47,7 +53,7 @@ const running: HostingStatus = {
   workspaceName: "Rocket Team",
   port: 8543,
 };
-const remembered = { workspaceName: "Rocket Team", port: 8543 };
+const remembered = { folder: "w-rocket", workspaceName: "Rocket Team", port: 8543 };
 
 describe("finding the workspace to resume", () => {
   it("matches a saved sign-in by loopback address and port, not by name", () => {
@@ -95,8 +101,8 @@ describe("finding the workspace to resume", () => {
 /** The join screen over a desktop platform whose hosting answers from stubs. */
 function joinWith(options: {
   hostingStatus?: HostingStatus | null;
-  lastHosted?: { workspaceName: string; port: number } | null;
-  start?: (opts: { workspaceName: string; port?: number }) => Promise<HostingStatus>;
+  lastHosted?: LastHosted | null;
+  start?: (opts: HostingStart) => Promise<HostingStatus>;
 }) {
   const start =
     options.start ??
@@ -139,11 +145,21 @@ describe("resuming a hosted workspace", () => {
     expect(await accessibilityProblems(card)).toEqual([]);
 
     await user.click(screen.getByRole("button", { name: "Start hosting Rocket Team" }));
-    expect(start).toHaveBeenCalledWith({ workspaceName: "Rocket Team", port: 8543 });
+    // By its entry: a name could belong to another workspace hosted here.
+    expect(start).toHaveBeenCalledWith({ folder: "w-rocket", port: 8543 });
     // Started on its remembered port, the saved sign-in still works there.
     await waitFor(() => expect(onConnected).toHaveBeenCalledWith(saved));
     expect(me.mock.contexts[0]).toMatchObject({ baseUrl: saved.url });
     expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
+  it("starts it by name on an app too old to name its entry", async () => {
+    vi.spyOn(Api.prototype, "me").mockResolvedValue({ user: owner });
+    const { start, user } = joinWith({
+      lastHosted: { workspaceName: "Rocket Team", port: 8543 },
+    });
+    await user.click(screen.getByRole("button", { name: "Start hosting Rocket Team" }));
+    expect(start).toHaveBeenCalledWith({ workspaceName: "Rocket Team", port: 8543 });
   });
 
   it("asks for the password only when the saved sign-in stopped working", async () => {
@@ -166,7 +182,9 @@ describe("resuming a hosted workspace", () => {
     await user.click(screen.getByRole("button", { name: "Start hosting Rocket Team" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Could not start Rocket Team on port 8543.");
-    expect(alert).toHaveTextContent(/choose Host a workspace on this computer/);
+    expect(alert).toHaveTextContent(
+      /choose Host a workspace on this computer and start it from the list/,
+    );
     expect(screen.getByRole("button", { name: "Host a workspace on this computer" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Start hosting Rocket Team" })).toBeEnabled();
     expect(onConnected).not.toHaveBeenCalled();

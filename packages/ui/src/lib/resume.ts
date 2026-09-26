@@ -1,11 +1,7 @@
-import type { SavedServer } from "../platform.js";
+import type { LastHosted, SavedServer } from "../platform.js";
 import { isLoopbackUrl } from "./deeplink.js";
 
-/** What this computer hosted last, as remembered in its settings. */
-export interface LastHosted {
-  workspaceName: string;
-  port: number;
-}
+export type { LastHosted };
 
 interface HostingState {
   running: boolean;

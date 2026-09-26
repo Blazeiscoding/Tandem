@@ -274,6 +274,93 @@ export async function verifyBackup(backupDir: string): Promise<BackupManifest> {
   return manifest;
 }
 
+/** What a backup reaches or sets off outside itself once it is started. */
+export interface BackupInventory {
+  /** Each place apps are sent something, with what goes there. */
+  appAddresses: { origin: string; uses: ("events" | "commands" | "buttons")[] }[];
+  /** Messages waiting to be posted, and when the earliest is due. */
+  scheduled: { waiting: number; earliestAt: number | null };
+  /** App events accepted but not yet delivered. */
+  undeliveredEvents: number;
+  /** Sign-ins a restored copy accepts, including any ended after the backup. */
+  sessions: number;
+}
+
+/**
+ * Lists what starting this backup would reach or set off outside it. Call it
+ * on a backup `verifyBackup` has passed. It opens the database read-only, and
+ * reads a backup from an older schema as it is, without upgrading it.
+ */
+export function inventoryBackup(backupDir: string, now = Date.now()): BackupInventory {
+  const db = new DatabaseSync(join(resolve(backupDir), DATABASE), { readOnly: true });
+  try {
+    const columns = (table: string) =>
+      new Set(
+        (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+      );
+    const apps = columns("apps");
+    const subscriptions = columns("event_subscriptions");
+    const commands = columns("slash_commands");
+    const queue = columns("scheduled_messages");
+    const sessions = columns("sessions");
+    const deliveries = columns("event_deliveries");
+
+    const targets = [
+      subscriptions.has("url") && `SELECT url, 'events' AS use FROM event_subscriptions`,
+      commands.has("url") && `SELECT url, 'commands' AS use FROM slash_commands`,
+      apps.has("interactivity_url") &&
+        `SELECT interactivity_url AS url, 'buttons' AS use FROM apps WHERE interactivity_url != ''`,
+    ].flatMap((sql) =>
+      sql
+        ? (db.prepare(sql).all() as { url: string; use: "events" | "commands" | "buttons" }[])
+        : [],
+    );
+    const byOrigin = new Map<string, Set<"events" | "commands" | "buttons">>();
+    for (const { url, use } of targets) {
+      let origin: string;
+      try {
+        origin = new URL(url).origin;
+      } catch {
+        origin = url;
+      }
+      byOrigin.set(origin, (byOrigin.get(origin) ?? new Set()).add(use));
+    }
+    // Before v11 a scheduled message was deleted once sent, so every row waits.
+    const scheduled = db
+      .prepare(
+        `SELECT COUNT(*) AS n, MIN(send_at) AS earliest FROM scheduled_messages
+         ${queue.has("status") ? "WHERE status IN ('queued', 'held')" : ""}`,
+      )
+      .get() as { n: number; earliest: number | null };
+    const undeliveredEvents = deliveries.has("failed_at")
+      ? (
+          db
+            .prepare("SELECT COUNT(*) AS n FROM event_deliveries WHERE failed_at IS NULL")
+            .get() as { n: number }
+        ).n
+      : 0;
+    // Before v12 sessions had no expiry. That upgrade gives each one 30 days
+    // from when it was last seen, so count them the way it will.
+    const liveSessions = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM sessions WHERE ${
+          sessions.has("expires_at") ? "expires_at" : "last_seen_at + 2592000000"
+        } > ?`,
+      )
+      .get(now) as { n: number };
+    return {
+      appAddresses: [...byOrigin]
+        .map(([origin, uses]) => ({ origin, uses: [...uses].sort() }))
+        .sort((a, b) => a.origin.localeCompare(b.origin)),
+      scheduled: { waiting: scheduled.n, earliestAt: scheduled.earliest },
+      undeliveredEvents,
+      sessions: liveSessions.n,
+    };
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * Replaces `dataDir` with the contents of a backup.
  *
