@@ -112,6 +112,28 @@ export function readWorkspace(dataDir: string): { id: string | null; name: strin
 }
 
 /**
+ * Writes a new name into a stopped workspace's database, the one place its
+ * name is kept. Nothing else in the database changes, and no schema upgrade
+ * runs. Throws when there is no database there or it cannot be written.
+ */
+export function writeWorkspaceName(dataDir: string, name: string): void {
+  const file = join(dataDir, "workspace.db");
+  // Opening a file that is not there would create an empty database.
+  if (!existsSync(file)) throw new Error("There is no workspace database in that folder.");
+  const db = new DatabaseSync(file);
+  try {
+    // Something else holding the file, such as a server started by hand, gets
+    // a moment to finish rather than failing the rename at once.
+    db.exec("PRAGMA busy_timeout = 2000");
+    db.prepare(
+      "INSERT INTO meta (key, value) VALUES ('workspace_name', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(name);
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Adds an entry for every folder under `dataRoot` that holds a database and
  * that no entry names yet: the folders earlier versions made, or any the
  * registry lost. Folders stay where they are. `lastHosted` is what earlier

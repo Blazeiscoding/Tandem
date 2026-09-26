@@ -941,6 +941,10 @@ export class WorkspaceClient {
       this.store.setState({ friends: event.friends });
       return;
     }
+    if (event.type === "workspace.renamed") {
+      this.store.setState({ workspaceName: event.workspaceName });
+      return;
+    }
     const s = this.store.getState();
     if (event.type === "channel.access") {
       if (!event.channel) {

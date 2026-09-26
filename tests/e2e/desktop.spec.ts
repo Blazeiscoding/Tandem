@@ -364,6 +364,50 @@ test("restarting offers to host the last workspace again instead of reconnecting
     rmSync(backups, { recursive: true, force: true });
     await expect(page.locator("textarea")).toBeVisible();
 
+    // Renamed while stopped, the new name goes into its database and its
+    // folder stays where it is.
+    expect(
+      await page.evaluate(
+        (folder) => (window as any).slackoss.hostingRename(folder, " Resume Renamed "),
+        other.folder,
+      ),
+    ).toEqual({ folder: other.folder, name: "Resume Renamed" });
+    const afterRename = await page.evaluate(() => (window as any).slackoss.hostingList());
+    expect(
+      afterRename.workspaces.find((w: { folder: string }) => w.folder === other.folder),
+    ).toMatchObject({ name: "Resume Renamed", missing: false });
+    // Open folder shows the folder the list names, whatever the window asks.
+    await app.evaluate(({ shell }) => {
+      (globalThis as any).opened = [];
+      shell.openPath = (async (path: string) => {
+        (globalThis as any).opened.push(path);
+        return "";
+      }) as typeof shell.openPath;
+    });
+    await page.evaluate(
+      (folder) => (window as any).slackoss.hostingOpenFolder(folder),
+      other.folder,
+    );
+    await expect(
+      page.evaluate(() => (window as any).slackoss.hostingOpenFolder("../..")),
+    ).rejects.toThrow(/not in the list/);
+    expect(await app.evaluate(() => (globalThis as any).opened)).toEqual([
+      join(data, "hosted", other.folder),
+    ]);
+
+    // Renamed while it runs, from the host dialog: the open client and the
+    // server both take the new name at once.
+    await page.getByRole("button", { name: "Manage hosting", exact: true }).click();
+    const renaming = page.getByRole("dialog", { name: "Workspace is live" });
+    await renaming.getByRole("button", { name: "Rename Resume Test" }).click();
+    const newName = renaming.getByRole("textbox", { name: "New name for Resume Test" });
+    await newName.fill("Resume Live");
+    await newName.press("Enter");
+    await expect(renaming.getByText("Renamed Resume Test to Resume Live.")).toBeVisible();
+    expect(await named(back.port)).toBe("Resume Live");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Resume Live");
+
     // Leave nothing hosted behind: stop, then a plain close quits.
     await page.getByRole("button", { name: "Manage hosting", exact: true }).click();
     const liveAgain = page.getByRole("dialog", { name: "Workspace is live" });

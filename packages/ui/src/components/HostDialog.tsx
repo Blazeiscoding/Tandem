@@ -9,10 +9,85 @@ import type {
 import { useHostingStatus } from "../lib/hosting.js";
 import { useCopy } from "../lib/useCopy.js";
 import { formatDay, formatTime } from "../lib/format.js";
+import { isImeKey } from "../lib/textInput.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { buttonClass } from "./Button.js";
 
 type Hosting = NonNullable<Platform["hosting"]>;
+
+/** A small action written as a link, beside what it acts on. */
+const linkBtnCls = "text-xs text-copper underline disabled:opacity-40";
+
+/**
+ * Renames one hosted workspace where it is shown. Only the name changes: its
+ * folder and everything in it stay where they are. Escape calls off the
+ * rename rather than closing the dialog.
+ */
+function RenameForm(props: {
+  folder: string;
+  name: string;
+  /** Something else is under way, so the name cannot be saved yet. */
+  blocked: boolean;
+  saving: boolean;
+  /** Resolves to why the name was refused, or null once it is saved. */
+  onSave: (name: string) => Promise<string | null>;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(props.name);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = `rename-error-${props.folder}`;
+  const ready = !!draft.trim() && draft.trim() !== props.name && !props.blocked;
+  return (
+    <form
+      aria-label={`Rename ${props.name}`}
+      className="min-w-0 flex-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (ready) void props.onSave(draft).then(setError);
+      }}
+    >
+      <div className="flex gap-2">
+        <input
+          autoFocus
+          aria-label={`New name for ${props.name}`}
+          maxLength={80}
+          value={draft}
+          // Read-only rather than disabled while saving, so focus stays here.
+          readOnly={props.saving}
+          aria-invalid={!!error}
+          aria-errormessage={error ? errorId : undefined}
+          aria-describedby={error ? errorId : undefined}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || isImeKey(event.nativeEvent)) return;
+            event.preventDefault();
+            props.onCancel();
+          }}
+          className="min-w-0 flex-1 rounded-lg border border-edge bg-ground px-2 py-1.5 text-sm text-ink outline-none focus:border-copper"
+        />
+        <button type="submit" disabled={!ready} className={buttonClass("secondary", "shrink-0")}>
+          {props.saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          disabled={props.saving}
+          onClick={props.onCancel}
+          className={buttonClass("quiet", "shrink-0")}
+        >
+          Cancel
+        </button>
+      </div>
+      {error && (
+        <p id={errorId} role="alert" className="mt-1 text-xs text-alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
 
 /**
  * Every workspace hosted on this computer, read again whenever hosting
@@ -67,6 +142,7 @@ export function HostDialog(props: {
     | "backing-up"
     | "removing"
     | "restoring"
+    | "renaming"
     | null
   >(null);
   const operationPending = useRef(false);
@@ -109,6 +185,63 @@ export function HostDialog(props: {
   const backupFn = props.hosting.backup;
   const forgetFn = props.hosting.forget;
   const restoreFn = props.hosting.restore;
+  const renameFn = props.hosting.rename;
+  const openFolderFn = props.hosting.openFolder;
+  /** The folder of the workspace being renamed, while its form is open. */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  /** Whose Rename button gets focus back once the form closes. */
+  const renameReturn = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (renaming !== null || !renameReturn.current) return;
+    document.getElementById(`rename-${renameReturn.current}`)?.focus();
+    renameReturn.current = null;
+  }, [renaming]);
+
+  function closeRename() {
+    renameReturn.current = renaming;
+    setRenaming(null);
+  }
+
+  async function saveName(folder: string, previous: string, next: string): Promise<string | null> {
+    if (!renameFn || operationPending.current) return null;
+    operationPending.current = true;
+    setBusy("renaming");
+    setBackupNote(null);
+    try {
+      const done = await renameFn(folder, next);
+      renameReturn.current = folder;
+      setRenaming(null);
+      setBackupNote({ ok: true, text: `Renamed ${previous} to ${done.name}.` });
+      return null;
+    } catch (reason) {
+      // The main process says what is wrong with the name, or with the folder.
+      return reason instanceof Error && reason.message
+        ? reason.message
+        : "The new name could not be saved. Try again.";
+    } finally {
+      setListRevision((n) => n + 1);
+      void refresh();
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function openFolder(folder: string) {
+    if (!openFolderFn) return;
+    setBackupNote(null);
+    try {
+      await openFolderFn(folder);
+    } catch (reason) {
+      setBackupNote({
+        ok: false,
+        text:
+          reason instanceof Error && reason.message
+            ? reason.message
+            : "The folder could not be opened.",
+      });
+    }
+  }
 
   async function restoreBackup() {
     if (!restoreFn || operationPending.current || unavailable) return;
@@ -357,13 +490,38 @@ export function HostDialog(props: {
       )}
       {!statusError && status && (status.running || changing) && (
         <div className="mb-4 space-y-3 text-sm">
-          <p role="status" className="font-medium text-ink">
-            {phase === "starting"
-              ? "Starting workspace…"
-              : phase === "stopping"
-                ? "Stopping workspace…"
-                : (status.workspaceName ?? "Workspace hosted on this computer")}
-          </p>
+          {renameFn && status.folder && renaming === status.folder && phase === "running" ? (
+            <RenameForm
+              folder={status.folder}
+              name={status.workspaceName ?? ""}
+              blocked={unavailable}
+              saving={busy === "renaming"}
+              onSave={(next) => saveName(status.folder!, status.workspaceName ?? "", next)}
+              onCancel={closeRename}
+            />
+          ) : (
+            <div className="flex items-start justify-between gap-3">
+              <p role="status" className="min-w-0 break-words font-medium text-ink">
+                {phase === "starting"
+                  ? "Starting workspace…"
+                  : phase === "stopping"
+                    ? "Stopping workspace…"
+                    : (status.workspaceName ?? "Workspace hosted on this computer")}
+              </p>
+              {renameFn && status.folder && status.workspaceName && phase === "running" && (
+                <button
+                  id={`rename-${status.folder}`}
+                  type="button"
+                  disabled={unavailable}
+                  aria-label={`Rename ${status.workspaceName}`}
+                  onClick={() => setRenaming(status.folder!)}
+                  className={`${linkBtnCls} shrink-0`}
+                >
+                  Rename
+                </button>
+              )}
+            </div>
+          )}
           {status.running && phase !== "stopping" && (
             <p className="text-ink-dim">
               {status.backgroundAvailable === true
@@ -395,7 +553,18 @@ export function HostDialog(props: {
           )}
           {status.dataDir && (
             <div>
-              <p className="text-ink-dim">Workspace data folder</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-ink-dim">Workspace data folder</p>
+                {openFolderFn && status.folder && (
+                  <button
+                    type="button"
+                    onClick={() => void openFolder(status.folder!)}
+                    className={`${linkBtnCls} shrink-0`}
+                  >
+                    Open folder
+                  </button>
+                )}
+              </div>
               <p className="break-all font-mono text-xs text-ink">{status.dataDir}</p>
             </div>
           )}
@@ -720,51 +889,90 @@ export function HostDialog(props: {
                     key={w.folder}
                     className="flex items-center justify-between gap-3 rounded-lg border border-edge px-3 py-2"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-ink">{w.name}</p>
-                      <p className="text-xs text-ink-dim">
-                        {w.missing
-                          ? "Its folder is missing, so it cannot start"
-                          : `Port ${w.port}${
-                              backupFn
-                                ? w.lastBackupAt === null
-                                  ? " · Not backed up yet"
-                                  : ` · Backed up ${backedUpWhen(w.lastBackupAt)}`
-                                : ""
-                            }`}
-                      </p>
-                    </div>
-                    {backupFn && !w.missing && (
-                      <button
-                        type="button"
-                        disabled={unavailable}
-                        aria-label={`Back up ${w.name}`}
-                        onClick={() => void backUp(w.folder, w.name)}
-                        className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
-                      >
-                        Back up
-                      </button>
-                    )}
-                    {w.missing && forgetFn ? (
-                      <button
-                        type="button"
-                        disabled={unavailable}
-                        aria-label={`Remove ${w.name} from the list`}
-                        onClick={() => void removeMissing(w.folder, w.name)}
-                        className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
-                      >
-                        Remove
-                      </button>
+                    {renameFn && renaming === w.folder && !w.missing ? (
+                      <RenameForm
+                        folder={w.folder}
+                        name={w.name}
+                        blocked={unavailable}
+                        saving={busy === "renaming"}
+                        onSave={(next) => saveName(w.folder, w.name, next)}
+                        onCancel={closeRename}
+                      />
                     ) : (
-                      <button
-                        type="button"
-                        disabled={unavailable || w.missing}
-                        aria-label={`Start hosting ${w.name}`}
-                        onClick={() => void launch({ folder: w.folder })}
-                        className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink hover:border-copper disabled:opacity-40"
-                      >
-                        Start
-                      </button>
+                      <>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm text-ink">{w.name}</p>
+                          <p className="text-xs text-ink-dim">
+                            {w.missing
+                              ? "Its folder is missing, so it cannot start"
+                              : `Port ${w.port}${
+                                  backupFn
+                                    ? w.lastBackupAt === null
+                                      ? " · Not backed up yet"
+                                      : ` · Backed up ${backedUpWhen(w.lastBackupAt)}`
+                                    : ""
+                                }`}
+                          </p>
+                          {!w.missing && (renameFn || openFolderFn) && (
+                            <div className="mt-1 flex gap-3">
+                              {renameFn && (
+                                <button
+                                  id={`rename-${w.folder}`}
+                                  type="button"
+                                  disabled={unavailable}
+                                  aria-label={`Rename ${w.name}`}
+                                  onClick={() => setRenaming(w.folder)}
+                                  className={linkBtnCls}
+                                >
+                                  Rename
+                                </button>
+                              )}
+                              {openFolderFn && (
+                                <button
+                                  type="button"
+                                  aria-label={`Open folder for ${w.name}`}
+                                  onClick={() => void openFolder(w.folder)}
+                                  className={linkBtnCls}
+                                >
+                                  Open folder
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {backupFn && !w.missing && (
+                          <button
+                            type="button"
+                            disabled={unavailable}
+                            aria-label={`Back up ${w.name}`}
+                            onClick={() => void backUp(w.folder, w.name)}
+                            className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+                          >
+                            Back up
+                          </button>
+                        )}
+                        {w.missing && forgetFn ? (
+                          <button
+                            type="button"
+                            disabled={unavailable}
+                            aria-label={`Remove ${w.name} from the list`}
+                            onClick={() => void removeMissing(w.folder, w.name)}
+                            className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+                          >
+                            Remove
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={unavailable || w.missing}
+                            aria-label={`Start hosting ${w.name}`}
+                            onClick={() => void launch({ folder: w.folder })}
+                            className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink hover:border-copper disabled:opacity-40"
+                          >
+                            Start
+                          </button>
+                        )}
+                      </>
                     )}
                   </li>
                 ))}

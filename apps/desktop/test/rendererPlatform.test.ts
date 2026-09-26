@@ -68,6 +68,43 @@ describe("what the renderer shows when the main process refuses", () => {
     expect(await messageFrom(platform.hosting!.setPublicAddress!(""))).toBe(bare);
   });
 
+  it("names the workspace to rename or open by its folder, and repeats why it would not", async () => {
+    const renames: [string, string][] = [];
+    (globalThis as { window?: unknown }).window = {
+      slackoss: {
+        hostingRename: async (folder: string, name: string) => {
+          renames.push([folder, name]);
+          if (!name.trim())
+            throw new Error(
+              "Error invoking remote method 'hosting:rename': Error: Use a workspace name of 1 to 80 characters without control characters.",
+            );
+          return { folder, name: name.trim() };
+        },
+        hostingOpenFolder: async () => {
+          throw new Error(
+            "Error invoking remote method 'hosting:openFolder': Error: The folder for Rocket Team could not be opened.",
+          );
+        },
+      } as unknown as Bridge,
+    };
+    const hosting = electronPlatform().hosting!;
+
+    expect(await hosting.rename!("rocket-team", " Blue Team ")).toEqual({
+      folder: "rocket-team",
+      name: "Blue Team",
+    });
+    expect(await messageFrom(hosting.rename!("rocket-team", " "))).toBe(
+      "Use a workspace name of 1 to 80 characters without control characters.",
+    );
+    expect(renames).toEqual([
+      ["rocket-team", " Blue Team "],
+      ["rocket-team", " "],
+    ]);
+    expect(await messageFrom(hosting.openFolder!("rocket-team"))).toBe(
+      "The folder for Rocket Team could not be opened.",
+    );
+  });
+
   it("reports a rejection that was never an Error at all", async () => {
     const platform = platformRejecting("the connector went away");
 

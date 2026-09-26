@@ -281,6 +281,7 @@ const hosting = createHostingController({
     const info = await statfs(dir);
     return info.bavail * info.bsize;
   },
+  openFolder: (path) => shell.openPath(path),
   onChange: publishHostingStatus,
   startServer: async ({ dataDir, port, workspaceName }) => {
     const server = await createWorkspaceServer({
@@ -302,6 +303,7 @@ const hosting = createHostingController({
       instanceId: server.instanceId,
       workspaceId: () => server.store.getMeta("workspace_id") ?? null,
       workspaceName: () => server.store.getMeta("workspace_name") ?? workspaceName ?? "",
+      setWorkspaceName: (name) => server.setWorkspaceName(name),
       stop: () => server.stop(),
       setPublicUrl: (url) => server.setPublicUrl(url),
       // cloudflared reaches this embedded server from loopback. Believe its
@@ -365,6 +367,9 @@ ipcMain.handle("hosting:status", () => hostingStatus());
 ipcMain.handle("hosting:lastHosted", () => hosting.lastHosted());
 ipcMain.handle("hosting:list", () => hosting.list());
 ipcMain.handle("hosting:forget", (_e, folder: unknown) => hosting.forget(folder));
+ipcMain.handle("hosting:rename", (_e, request: unknown) => hosting.rename(request));
+// The window names a listed workspace; the controller finds its folder.
+ipcMain.handle("hosting:openFolder", (_e, folder: unknown) => hosting.openFolder(folder));
 ipcMain.handle("hosting:restore", async (event) => {
   if (quitting) throw new Error("Gatherline is shutting down.");
   const owner = BrowserWindow.fromWebContents(event.sender);

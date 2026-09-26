@@ -46,6 +46,8 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
             path: `/backups/${folder}-2026-09-25T10-00-00`,
             at: Date.now(),
           })),
+          rename: vi.fn(async (folder: string, name: string) => ({ folder, name: name.trim() })),
+          openFolder: vi.fn(async (_folder: string) => {}),
         }
       : {}),
     stop: vi.fn(async () => {
@@ -107,6 +109,7 @@ function Harness(props: {
   open?: boolean;
   viewingHosted?: boolean;
   onStarted?: (status: HostingStatus) => void;
+  onClose?: () => void;
 }) {
   const state = useHostingStatus(props.hosting);
   return (
@@ -117,7 +120,7 @@ function Harness(props: {
           hosting={props.hosting}
           state={state}
           viewingHosted={props.viewingHosted}
-          onClose={() => {}}
+          onClose={props.onClose ?? (() => {})}
           onStarted={props.onStarted ?? (() => {})}
         />
       )}
@@ -580,6 +583,145 @@ describe("hosting a workspace from the host dialog", () => {
     push({ ...running, phase: "stopping" });
     expect(within(dialog).getByText("Stopping workspace…")).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Stop hosting" })).toBeDisabled();
+  });
+});
+
+describe("renaming a hosted workspace and opening its folder", () => {
+  const teamA = {
+    folder: "team-a",
+    name: "Team A",
+    port: 8543,
+    lastHostedAt: 1,
+    lastBackupAt: null,
+    running: false,
+    missing: false,
+  };
+
+  it("renames a listed workspace in place, and hands focus back to Rename", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, { workspaces: [teamA], unreadable: [] });
+    render(<Harness hosting={hosting} />);
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+
+    await user.click(within(list).getByRole("button", { name: "Rename Team A" }));
+    const field = within(list).getByRole("textbox", { name: "New name for Team A" });
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue("Team A");
+    const save = within(list).getByRole("button", { name: "Save" });
+    // Nothing has changed yet, and a name that is only spaces is none at all.
+    expect(save).toBeDisabled();
+    await user.clear(field);
+    await user.type(field, "   ");
+    expect(save).toBeDisabled();
+    expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
+
+    hosting.list!.mockResolvedValue({
+      workspaces: [{ ...teamA, name: "Blue Team" }],
+      unreadable: [],
+    });
+    await user.clear(field);
+    await user.type(field, " Blue Team {Enter}");
+    expect(hosting.rename).toHaveBeenCalledWith("team-a", " Blue Team ");
+    expect(await screen.findByText("Renamed Team A to Blue Team.")).toHaveAttribute(
+      "role",
+      "status",
+    );
+    const renamed = await within(list).findByRole("button", { name: "Rename Blue Team" });
+    expect(renamed).toHaveFocus();
+    // The folder stays what it was: starting it still names the folder.
+    await user.click(within(list).getByRole("button", { name: "Start hosting Blue Team" }));
+    expect(hosting.start).toHaveBeenCalledWith({ folder: "team-a" });
+  });
+
+  it("keeps the form open, saying why, when the name is refused", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, { workspaces: [teamA], unreadable: [] });
+    hosting.rename!.mockRejectedValueOnce(
+      new Error("The folder for Team A holds a different workspace, so it was not renamed."),
+    );
+    render(<Harness hosting={hosting} />);
+    await user.click(await screen.findByRole("button", { name: "Rename Team A" }));
+    const field = screen.getByRole("textbox", { name: "New name for Team A" });
+    await user.clear(field);
+    await user.type(field, "Blue Team{Enter}");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "The folder for Team A holds a different workspace, so it was not renamed.",
+    );
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field).toHaveAccessibleDescription(alert.textContent!);
+    expect(field).toHaveFocus();
+    // Changing the name clears what was wrong with the last one.
+    await user.type(field, "s");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(field).toHaveAttribute("aria-invalid", "false");
+  });
+
+  it("calls off a rename with Escape, without closing the dialog", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const { hosting } = fakeHosting(stopped, { workspaces: [teamA], unreadable: [] });
+    render(<Harness hosting={hosting} onClose={onClose} />);
+    await user.click(await screen.findByRole("button", { name: "Rename Team A" }));
+    await user.type(screen.getByRole("textbox", { name: "New name for Team A" }), " changed");
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("textbox", { name: /New name for/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Rename Team A" })).toHaveFocus();
+    expect(hosting.rename).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    // Once the form is gone, Escape closes the dialog as usual.
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("renames the running workspace from where it is managed", async () => {
+    const user = userEvent.setup();
+    const { hosting, push } = fakeHosting(
+      { ...running, folder: "team-a" },
+      { workspaces: [{ ...teamA, name: "Rocket Team", running: true }], unreadable: [] },
+    );
+    render(<Harness hosting={hosting} />);
+    await user.click(await screen.findByRole("button", { name: "Rename Rocket Team" }));
+    const field = screen.getByRole("textbox", { name: "New name for Rocket Team" });
+    await user.clear(field);
+    await user.type(field, "Blue Team");
+    const form = screen.getByRole("form", { name: "Rename Rocket Team" });
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+
+    expect(hosting.rename).toHaveBeenCalledWith("team-a", "Blue Team");
+    expect(await screen.findByText("Renamed Rocket Team to Blue Team.")).toBeVisible();
+    // The main process tells every window of the new name.
+    push({ ...running, folder: "team-a", workspaceName: "Blue Team" });
+    expect(screen.getByRole("dialog")).toHaveTextContent("Blue Team");
+    expect(screen.getByRole("button", { name: "Rename Blue Team" })).toHaveFocus();
+  });
+
+  it("opens a workspace's folder, and says when it could not", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, { workspaces: [teamA], unreadable: [] });
+    render(<Harness hosting={hosting} />);
+    const open = await screen.findByRole("button", { name: "Open folder for Team A" });
+    await user.click(open);
+    expect(hosting.openFolder).toHaveBeenCalledWith("team-a");
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    hosting.openFolder!.mockRejectedValueOnce(new Error("The folder that held Team A is missing."));
+    await user.click(open);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The folder that held Team A is missing.",
+    );
+  });
+
+  it("offers neither where the app cannot do them", async () => {
+    const { hosting } = fakeHosting(stopped, { workspaces: [teamA], unreadable: [] });
+    delete (hosting as Partial<typeof hosting>).rename;
+    delete (hosting as Partial<typeof hosting>).openFolder;
+    render(<Harness hosting={hosting} />);
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+    expect(within(list).queryByRole("button", { name: /^Rename/ })).toBeNull();
+    expect(within(list).queryByRole("button", { name: /^Open folder/ })).toBeNull();
   });
 });
 

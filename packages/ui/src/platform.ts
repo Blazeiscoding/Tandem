@@ -137,6 +137,14 @@ export interface Platform {
     /** Takes a workspace whose folder is gone out of the list. */
     forget?: (folder: string) => Promise<void>;
     /**
+     * Renames a hosted workspace, running or not, without moving its folder.
+     * Rejects, saying why, a name of more than 80 characters, none, or one
+     * with control characters. Resolves to the name it now has.
+     */
+    rename?: (folder: string, name: string) => Promise<{ folder: string; name: string }>;
+    /** Shows a hosted workspace's folder in the system's file manager. */
+    openFolder?: (folder: string) => Promise<void>;
+    /**
      * Asks for a backup's folder and restores it as a workspace hosted here,
      * without starting it. Null when no folder was chosen.
      */

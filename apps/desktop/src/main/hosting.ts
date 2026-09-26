@@ -10,6 +10,7 @@ import {
   parseRegistry,
   readWorkspace,
   serializeRegistry,
+  writeWorkspaceName,
   type HostedWorkspace,
 } from "./registry.js";
 
@@ -96,6 +97,8 @@ interface HostedServer {
   workspaceId?(): string | null;
   /** The name the server keeps, which may differ from a name typed before. */
   workspaceName?(): string;
+  /** Renames the workspace while it runs, telling everyone connected. */
+  setWorkspaceName?(name: string): void;
   /** Identifies this run, so a public address can be confirmed to reach it. */
   instanceId?: string;
   stop(): Promise<void>;
@@ -123,6 +126,13 @@ interface HostingOptions {
   };
   /** Reads a workspace's identity from its folder without starting it. */
   readWorkspace?: typeof readWorkspace;
+  /** Writes a stopped workspace's new name into its database. */
+  writeWorkspaceName?: typeof writeWorkspaceName;
+  /**
+   * Shows a folder in the system's file manager, as Electron's
+   * `shell.openPath` does: resolves to why it could not, or to "" when it did.
+   */
+  openFolder?(path: string): Promise<string>;
   /** The server's verified backup: a consistent copy of the database and every attachment. */
   backupWorkspace?(options: { dataDir: string; out: string }): Promise<{ files: unknown[] }>;
   /** Bytes free on the disk holding `dir`. */
@@ -168,6 +178,18 @@ interface HostingOptions {
 
 type StartRequest = ({ workspaceName: string } | { folder: string }) & { port?: number };
 
+/** A name as typed, trimmed, for a new workspace or a rename alike. */
+function workspaceNameOf(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    value.trim().length > 80 ||
+    /\p{Cc}/u.test(value)
+  )
+    throw new Error("Use a workspace name of 1 to 80 characters without control characters.");
+  return value.trim();
+}
+
 /**
  * `{ folder }` starts a workspace already in the list. `{ workspaceName }`
  * always makes a new one: nothing is ever found by its name.
@@ -186,14 +208,25 @@ function startOptions(value: unknown): StartRequest {
       throw new Error("Choose one workspace to start.");
     return { folder, port: port as number | undefined };
   }
-  if (
-    typeof workspaceName !== "string" ||
-    !workspaceName.trim() ||
-    workspaceName.trim().length > 80 ||
-    /\p{Cc}/u.test(workspaceName)
-  )
-    throw new Error("Use a workspace name of 1 to 80 characters without control characters.");
-  return { workspaceName: workspaceName.trim(), port: port as number | undefined };
+  return { workspaceName: workspaceNameOf(workspaceName), port: port as number | undefined };
+}
+
+/**
+ * What earlier versions are told they hosted last. They reopen by name, so
+ * it names the entry only when that name leads them to the entry's folder.
+ */
+function legacyPointer(entry: HostedWorkspace | undefined): LastHosted | null {
+  return entry && entry.folder === legacyFolder(entry.name)
+    ? { workspaceName: entry.name, port: entry.port }
+    : null;
+}
+
+/** The entry started most recently, which the resume offer names. */
+function mostRecent(entries: HostedWorkspace[]): HostedWorkspace | null {
+  return entries.reduce<HostedWorkspace | null>(
+    (best, entry) => (!best || entry.lastHostedAt > best.lastHostedAt ? entry : best),
+    null,
+  );
 }
 
 /** Everything under a folder, counted by size. Files that vanish while counting are skipped. */
@@ -222,6 +255,7 @@ export function createHostingController(options: HostingOptions) {
   let phase: HostingSnapshot["phase"] = "stopped";
   const now = options.now ?? Date.now;
   const read = options.readWorkspace ?? readWorkspace;
+  const writeName = options.writeWorkspaceName ?? writeWorkspaceName;
   /** Every workspace hosted here, once read. Null until then, or while it cannot be. */
   let registry: HostedWorkspace[] | null = null;
   let registryLoad: Promise<HostedWorkspace[]> | null = null;
@@ -404,14 +438,11 @@ export function createHostingController(options: HostingOptions) {
     if (!server || !workspace) return;
     try {
       await saveRegistry();
-      const entry = registry?.find((e) => e.folder === workspace!.folder);
       // Earlier versions find a folder from its name. Name one to them only
       // when that leads to this workspace, never to a different one.
       await options.settings.set(
         "lastHosted",
-        entry && entry.folder === legacyFolder(entry.name)
-          ? { workspaceName: entry.name, port: entry.port }
-          : null,
+        legacyPointer(registry?.find((e) => e.folder === workspace!.folder)),
       );
       metadataDirty = false;
       if (!stopFailed) warning = undefined;
@@ -737,17 +768,99 @@ export function createHostingController(options: HostingOptions) {
     });
   }
 
+  /**
+   * Renames a hosted workspace, running or not. The name lives in the
+   * workspace's database and the list keeps a copy; the folder never moves.
+   * A running workspace is renamed by its own server, which tells everyone
+   * connected. A stopped one has the name written into its database now,
+   * rather than handed to its next start: a start given a name is how
+   * earlier versions came to overwrite the name a workspace had.
+   */
+  function rename(value: unknown): Promise<{ folder: string; name: string }> {
+    const { folder, name } = (value ?? {}) as Record<string, unknown>;
+    if (typeof folder !== "string")
+      return Promise.reject(new Error("Choose a workspace to rename."));
+    let next: string;
+    try {
+      next = workspaceNameOf(name);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return serialized(async () => {
+      if (closing) throw new Error("The app is quitting.");
+      const entry = (await loadRegistry()).find((e) => e.folder === folder);
+      if (!entry) throw new Error("That workspace is not in the list hosted on this computer.");
+      if (server && workspace?.folder === entry.folder) {
+        if (stopFailed) throw new Error("Finish stopping the workspace before renaming it.");
+        if (!server.setWorkspaceName)
+          throw new Error(
+            "This workspace cannot be renamed while it runs. Stop it, then rename it.",
+          );
+        server.setWorkspaceName(next);
+        next = server.workspaceName?.() ?? next;
+        workspace.workspaceName = next;
+      } else {
+        const dataDir = join(options.dataRoot, entry.folder);
+        if (!existsSync(dataDir))
+          throw new Error(
+            `The folder that held ${entry.name} is missing, so it cannot be renamed.`,
+          );
+        const inside = read(dataDir);
+        if (!inside)
+          throw new Error(
+            `${entry.name}'s database is missing or unreadable, so it was not renamed.`,
+          );
+        // A folder copied or swapped by hand holds some other workspace.
+        if (entry.id && inside.id !== entry.id)
+          throw new Error(
+            `The folder for ${entry.name} holds a different workspace, so it was not renamed.`,
+          );
+        try {
+          writeName(dataDir, next);
+        } catch {
+          // SQLite's own message can name the file, and with it the account.
+          throw new Error(
+            `${entry.name}'s database could not be changed, so it was not renamed. Check that nothing else is using it, then try again.`,
+          );
+        }
+      }
+      updateEntry(entry.folder, { name: next });
+      // The database holds the name. The list's copy is written with the next
+      // change if not now, and a start reads the name back from the server.
+      await saveRegistry().catch(() => {});
+      // Earlier versions reopen what they last hosted by its name, and would
+      // hand the old one to its server.
+      const latest = mostRecent(registry ?? []);
+      if (latest?.folder === entry.folder)
+        await options.settings.set("lastHosted", legacyPointer(latest)).catch(() => {});
+      changed();
+      return { folder: entry.folder, name: next };
+    });
+  }
+
+  /**
+   * Shows a hosted workspace's folder in the system's file manager. The
+   * window names the entry; the path comes from the list, never the window.
+   */
+  async function openFolder(value: unknown): Promise<void> {
+    if (typeof value !== "string") throw new Error("Choose a workspace whose folder to open.");
+    if (!options.openFolder) throw new Error("Opening a folder is not available in this app.");
+    const entry = (await loadRegistry()).find((e) => e.folder === value);
+    if (!entry) throw new Error("That workspace is not in the list hosted on this computer.");
+    const dataDir = join(options.dataRoot, entry.folder);
+    if (!existsSync(dataDir)) throw new Error(`The folder that held ${entry.name} is missing.`);
+    // The system's reason can hold the path, and with it the account name.
+    if (await options.openFolder(dataDir))
+      throw new Error(`The folder for ${entry.name} could not be opened.`);
+  }
+
   /** The workspace hosted most recently, for offering to start it again. */
   async function lastHosted(): Promise<{
     folder: string;
     workspaceName: string;
     port: number;
   } | null> {
-    const entries = await loadRegistry().catch(() => []);
-    const latest = entries.reduce<HostedWorkspace | null>(
-      (best, entry) => (!best || entry.lastHostedAt > best.lastHostedAt ? entry : best),
-      null,
-    );
+    const latest = mostRecent(await loadRegistry().catch(() => []));
     return latest ? { folder: latest.folder, workspaceName: latest.name, port: latest.port } : null;
   }
 
@@ -982,6 +1095,8 @@ export function createHostingController(options: HostingOptions) {
     backup,
     restore,
     forget,
+    rename,
+    openFolder,
     start,
     stop,
     shutdown,

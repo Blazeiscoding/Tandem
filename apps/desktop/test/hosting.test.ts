@@ -8,7 +8,12 @@ import {
   parseLastHosted,
   type HostingSnapshot,
 } from "../src/main/hosting.js";
-import { parseRegistry, readWorkspace, type HostedWorkspace } from "../src/main/registry.js";
+import {
+  parseRegistry,
+  readWorkspace,
+  writeWorkspaceName,
+  type HostedWorkspace,
+} from "../src/main/registry.js";
 import type { Tunnel } from "../src/main/tunnel.js";
 import {
   backupWorkspace,
@@ -82,6 +87,14 @@ function harness(
     /** What each fake server keeps in its database, by folder path. */
     databases: new Map<string, { id: string | null; name: string | null }>(),
     readFails: false,
+    /** Each name a running server was given. */
+    renamedRunning: [] as string[],
+    /** Each name written into a stopped workspace's database; set `writeFails` to refuse. */
+    written: [] as { dataDir: string; name: string }[],
+    writeFails: false,
+    /** Each folder shown in the file manager, and what the system answers. */
+    opened: [] as string[],
+    openAnswer: "",
     clock: 1000,
     /** Each backup the server was asked for, and the free space the disk reports. */
     backups: [] as { dataDir: string; out: string }[],
@@ -112,6 +125,18 @@ function harness(
     lanUrls: (port) => [`192.168.1.20:${port}`],
     now: () => h.clock++,
     readWorkspace: inside,
+    writeWorkspaceName: (dataDir, name) => {
+      if (h.writeFails)
+        throw new Error(`database is locked: ${join(dataDir, "workspace.db")} (C:\\Users\\sam)`);
+      h.written.push({ dataDir, name });
+      const fake = h.databases.get(dataDir);
+      if (fake) fake.name = name;
+      else writeWorkspaceName(dataDir, name);
+    },
+    openFolder: async (path) => {
+      h.opened.push(path);
+      return h.openAnswer;
+    },
     backupWorkspace: async (request) => {
       h.backups.push(request);
       return { files: [] };
@@ -145,6 +170,10 @@ function harness(
         instanceId: "workspace-run-1",
         workspaceId: () => db.id,
         workspaceName: () => db.name ?? "Unnamed",
+        setWorkspaceName: (name: string) => {
+          h.renamedRunning.push(name);
+          db.name = name;
+        },
         stop: vi.fn(async () => {}),
         ...(options.publicAccess
           ? {
@@ -985,6 +1014,218 @@ describe("backing up a hosted workspace", () => {
       await expect(h.controller.backup(bad)).rejects.toThrow(/Choose a workspace/);
     }
     expect(h.backups).toEqual([]);
+  });
+});
+
+describe("renaming a hosted workspace", () => {
+  it("renames a running workspace through its server, and its folder stays where it is", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    const [entry] = registryOf(h);
+    const renamed = await h.controller.rename({ folder: entry!.folder, name: "  Blue Team " });
+    expect(renamed).toEqual({ folder: entry!.folder, name: "Blue Team" });
+    // The server was told, so everyone connected hears it; nothing restarted.
+    expect(h.renamedRunning).toEqual(["Blue Team"]);
+    expect(h.written).toEqual([]);
+    expect(h.starts).toHaveLength(1);
+    expect(h.controller.status()).toMatchObject({ running: true, workspaceName: "Blue Team" });
+    expect(h.changes.at(-1)).toMatchObject({ workspaceName: "Blue Team" });
+    expect(registryOf(h)).toEqual([{ ...entry, name: "Blue Team" }]);
+    expect(readdirSync(h.dataRoot)).toEqual([entry!.folder]);
+  });
+
+  it("renames a stopped workspace in its database without starting it, and never hands a start the name", async () => {
+    const root = profile();
+    const hosted = join(root, "hosted");
+    workspaceDb(join(hosted, "rocket-team"), "01ROCKET", "Rocket Team");
+    const settings = new Map<string, unknown>([
+      ["lastHosted", { workspaceName: "Rocket Team", port: 9001 }],
+    ]);
+    const h = harness({ root, settings });
+
+    await h.controller.rename({ folder: "rocket-team", name: "Blue Team" });
+    expect(h.starts).toEqual([]);
+    expect(readWorkspace(join(hosted, "rocket-team"))).toEqual({
+      id: "01ROCKET",
+      name: "Blue Team",
+    });
+    expect(readdirSync(hosted)).toEqual(["rocket-team"]);
+    expect(registryOf(h)).toEqual([
+      expect.objectContaining({ id: "01ROCKET", folder: "rocket-team", name: "Blue Team" }),
+    ]);
+    // An earlier version would reopen rocket-team as Rocket Team and put the
+    // old name back, so it is no longer told about it.
+    expect(h.saved).toEqual([null]);
+
+    // Starting it gives the server no name: it already has the new one.
+    const status = await h.controller.start({ folder: "rocket-team" });
+    expect(h.starts).toEqual([{ port: 9001, dataDir: join(hosted, "rocket-team") }]);
+    expect(status.workspaceName).toBe("Blue Team");
+    await h.controller.stop();
+
+    // A second launch lists the new name.
+    const again = harness({ root, settings });
+    expect((await again.controller.list()).workspaces.map((w) => w.name)).toEqual(["Blue Team"]);
+  });
+
+  it("writes a name the real server keeps when it next starts", async () => {
+    const root = profile();
+    const dataDir = join(root, "hosted", "rocket-team");
+    const first = await createWorkspaceServer({
+      dataDir,
+      port: 0,
+      host: "127.0.0.1",
+      mdns: false,
+      workspaceName: "Rocket Team",
+      logger: false,
+    });
+    const id = first.store.getMeta("workspace_id");
+    await first.stop();
+
+    const h = harness({ root });
+    await h.controller.rename({ folder: "rocket-team", name: "Blue Team" });
+    const second = await createWorkspaceServer({
+      dataDir,
+      port: 0,
+      host: "127.0.0.1",
+      mdns: false,
+      logger: false,
+    });
+    try {
+      expect(second.store.getMeta("workspace_name")).toBe("Blue Team");
+      expect(second.store.getMeta("workspace_id")).toBe(id);
+    } finally {
+      await second.stop();
+    }
+  });
+
+  it("keeps two workspaces that share a name apart", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Team A" });
+    await h.controller.stop();
+    await h.controller.start({ workspaceName: "Night Shift" });
+    await h.controller.stop();
+    const [first, second] = registryOf(h);
+    await h.controller.rename({ folder: second!.folder, name: "Team A" });
+
+    const { workspaces } = await h.controller.list();
+    expect(workspaces.map((w) => [w.folder, w.name])).toEqual([
+      [second!.folder, "Team A"],
+      [first!.folder, "Team A"],
+    ]);
+    // Only the renamed one's database changed.
+    expect(h.databases.get(join(h.dataRoot, first!.folder))).toEqual({
+      id: "ws-1",
+      name: "Team A",
+    });
+    expect(h.databases.get(join(h.dataRoot, second!.folder))).toEqual({
+      id: "ws-2",
+      name: "Team A",
+    });
+    // Each still starts its own folder, found by its entry and not its name.
+    await h.controller.start({ folder: first!.folder });
+    await h.controller.stop();
+    await h.controller.start({ folder: second!.folder });
+    expect(h.starts.slice(2).map((s) => s.dataDir)).toEqual([
+      join(h.dataRoot, first!.folder),
+      join(h.dataRoot, second!.folder),
+    ]);
+    expect(registryOf(h).map((e) => e.id)).toEqual(["ws-1", "ws-2"]);
+  });
+
+  it("refuses a bad name, an unlisted workspace, and a folder that is gone or holds another", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    await h.controller.start({ workspaceName: "Night Shift" });
+    await h.controller.stop();
+    const [rocket, night] = registryOf(h);
+    const before = registryOf(h);
+
+    for (const name of ["", "   ", "x".repeat(81), "Blue\nTeam", 5, undefined]) {
+      await expect(h.controller.rename({ folder: rocket!.folder, name })).rejects.toThrow(
+        /1 to 80 characters/,
+      );
+    }
+    for (const bad of [undefined, null, "rocket-team", { folder: 5, name: "Blue Team" }]) {
+      await expect(h.controller.rename(bad)).rejects.toThrow(/Choose a workspace/);
+    }
+    await expect(h.controller.rename({ folder: "not-listed", name: "Blue Team" })).rejects.toThrow(
+      /not in the list/,
+    );
+
+    // Swapped by hand for another workspace's folder: that one keeps its name.
+    const nightDir = join(h.dataRoot, night!.folder);
+    h.databases.set(nightDir, { id: "someone-else", name: "Other" });
+    await expect(h.controller.rename({ folder: night!.folder, name: "Blue Team" })).rejects.toThrow(
+      /holds a different workspace/,
+    );
+    expect(h.databases.get(nightDir)!.name).toBe("Other");
+
+    // A database that cannot be written: said plainly, without its path.
+    h.writeFails = true;
+    const refused = await h.controller
+      .rename({ folder: rocket!.folder, name: "Blue Team" })
+      .catch((error: Error) => error.message);
+    expect(refused).toMatch(/could not be changed, so it was not renamed/);
+    expect(refused).not.toContain(h.dataRoot);
+    expect(refused).not.toContain("sam");
+    h.writeFails = false;
+
+    // Gone, and never recreated to hold the name.
+    rmSync(join(h.dataRoot, rocket!.folder), { recursive: true });
+    await expect(
+      h.controller.rename({ folder: rocket!.folder, name: "Blue Team" }),
+    ).rejects.toThrow(/missing/);
+    expect(existsSync(join(h.dataRoot, rocket!.folder))).toBe(false);
+
+    expect(h.written).toEqual([]);
+    expect(h.renamedRunning).toEqual([]);
+    expect(registryOf(h)).toEqual(before);
+  });
+});
+
+describe("opening a hosted workspace's folder", () => {
+  it("opens only a folder the list names, never a path it is given", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    const [entry] = registryOf(h);
+    await h.controller.openFolder(entry!.folder);
+    expect(h.opened).toEqual([join(h.dataRoot, entry!.folder)]);
+
+    for (const bad of [
+      undefined,
+      5,
+      { folder: entry!.folder },
+      "not-listed",
+      "..",
+      "../settings.json",
+      h.dataRoot,
+      join(h.dataRoot, entry!.folder),
+      "C:\\Windows",
+    ]) {
+      await expect(h.controller.openFolder(bad)).rejects.toThrow();
+    }
+    expect(h.opened).toHaveLength(1);
+  });
+
+  it("says when the folder is gone, or the system could not open it, without the path", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    await h.controller.start({ workspaceName: "Night Shift" });
+    const [rocket, night] = registryOf(h);
+
+    h.openAnswer = `Failed to open path ${join(h.dataRoot, night!.folder)}`;
+    const refused = await h.controller
+      .openFolder(night!.folder)
+      .catch((error: Error) => error.message);
+    expect(refused).toBe("The folder for Night Shift could not be opened.");
+
+    h.openAnswer = "";
+    rmSync(join(h.dataRoot, rocket!.folder), { recursive: true });
+    await expect(h.controller.openFolder(rocket!.folder)).rejects.toThrow(/missing/);
+    expect(h.opened).toEqual([join(h.dataRoot, night!.folder)]);
   });
 });
 

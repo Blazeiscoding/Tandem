@@ -124,6 +124,28 @@ describe("WorkspaceClient", () => {
     client.destroy();
   });
 
+  it("takes a new workspace name while connected, and from the snapshot after reconnecting", async () => {
+    const client = new WorkspaceClient(base, bobToken);
+    onTestFinished(() => {
+      client.destroy();
+      server.setWorkspaceName("Sync Test");
+    });
+    client.connect();
+    await until(client, (s) => s.status === "online", "connection");
+
+    server.setWorkspaceName("Renamed Sync");
+    await until(client, (s) => s.workspaceName === "Renamed Sync", "the new name");
+
+    // Missed while away: the next snapshot carries it.
+    client.destroy();
+    server.setWorkspaceName("Renamed Again");
+    const again = new WorkspaceClient(base, bobToken);
+    onTestFinished(() => again.destroy());
+    again.connect();
+    await until(again, (s) => s.status === "online", "reconnection");
+    expect(again.state.workspaceName).toBe("Renamed Again");
+  });
+
   it("shows a sent message immediately and reconciles it with the server's copy", async () => {
     const client = new WorkspaceClient(base, aliceToken);
     client.connect();

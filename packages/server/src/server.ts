@@ -235,6 +235,12 @@ export interface WorkspaceServer {
   /** Whether an account after the first needs an invite code. */
   inviteOnly: () => boolean;
   setInviteOnly: (inviteOnly: boolean) => void;
+  /**
+   * Renames the workspace while it runs: 1 to 80 characters without control
+   * characters, trimmed. Everyone signed in is told at once, the network
+   * announcement changes, and the name is stored for the next start.
+   */
+  setWorkspaceName: (name: string) => void;
   stop: () => Promise<void>;
 }
 
@@ -3688,6 +3694,23 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     setInviteOnly: (value) => {
       if (typeof value !== "boolean") throw new TypeError("inviteOnly must be a boolean");
       store.setMeta("invite_only", value ? "1" : "0");
+    },
+    setWorkspaceName: (value) => {
+      const name = typeof value === "string" ? value.trim() : "";
+      if (!name || name.length > 80 || /\p{Cc}/u.test(value))
+        throw new TypeError("A workspace name has 1 to 80 characters and no control characters.");
+      if (closing) throw new Error("The workspace is stopping.");
+      store.setMeta("workspace_name", name);
+      gateway.broadcastEphemeral({ type: "workspace.renamed", workspaceName: name }, null);
+      if (mdnsHandle) {
+        mdnsHandle.stop();
+        // Losing the announcement is not worth failing a rename that is saved.
+        try {
+          mdnsHandle = advertise({ name, port: actualPort });
+        } catch {
+          mdnsHandle = null;
+        }
+      }
     },
     stop: () => {
       if (stopping) return stopping;
