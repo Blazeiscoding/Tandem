@@ -301,6 +301,23 @@ textarea {
 }
 
 /*
+ * Between a phone and a laptop, the sidebar and a side panel beside it left
+ * the conversation about 124 px at 768 wide. There a panel opens as a sheet
+ * over the conversation instead, which goes inert beneath it as on a phone.
+ * WorkspaceScreen's matching query must say the same width.
+ */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .workspace-shell > aside {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 30;
+    width: min(420px, 100%);
+    max-width: 100%;
+    box-shadow: -16px 0 40px #0005;
+  }
+}
+
+/*
  * A message's toolbar rises on hover or focus. A touchscreen has no hover, and
  * a tap that raised it covered the message above with icons too small to hit,
  * so there each message offers its menu instead, with room kept beside it.

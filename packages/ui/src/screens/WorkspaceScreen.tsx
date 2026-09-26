@@ -254,10 +254,10 @@ function WorkspaceInner({
    * leaves the conversation as it would have before.
    */
   const drawerStep = useRef(false);
-  // On a phone a side panel covers the conversation, as theme.css lays it
-  // out, so what it covers leaves the Tab order and the screen reader's
-  // reading as the page does behind a dialog.
-  const narrow = useMediaQuery("(max-width: 760px)");
+  // Below a laptop's width a side panel covers the conversation, as theme.css
+  // lays it out, so what it covers leaves the Tab order and the screen
+  // reader's reading as the page does behind a dialog.
+  const narrow = useMediaQuery("(max-width: 1023px)");
   const panelCovers = narrow && panel.kind !== "none";
   const closeDrawer = useCallback(() => {
     if (drawerStep.current) {
