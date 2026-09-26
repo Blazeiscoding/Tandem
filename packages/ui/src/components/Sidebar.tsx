@@ -6,6 +6,7 @@ import { channelTitle } from "../lib/format.js";
 import { formatScheduleTime, tomorrowMorning } from "../lib/schedule.js";
 import { Avatar, PresenceDot } from "./Avatar.js";
 import { BrandMark, Icon, type IconName } from "./Icon.js";
+import { Tooltip } from "./Tooltip.js";
 import { Menu, type MenuItem } from "./Menu.js";
 
 interface Props {
@@ -100,14 +101,19 @@ export function Sidebar(props: Props) {
         <h1 className="mb-3 truncate px-2 text-[15px] font-semibold" title={baseHost}>
           {workspaceName || "Connecting…"}
         </h1>
+        {/* Its words and shortcut are on the button already, so it needs no
+            hint. A tooltip would also open when the phone drawer puts focus
+            here, and take the Escape meant to close the drawer. */}
         <button
           onClick={props.onSearch}
+          aria-keyshortcuts="Control+K Meta+K"
           className="mb-2 flex w-full items-center gap-2 rounded-lg border border-edge bg-ground/50 px-3 py-2 text-[12px] text-ink-faint hover:border-ink-faint hover:text-ink"
-          title="Jump to a conversation (Ctrl K)"
         >
           <Icon name="search" size={15} />
           <span className="flex-1 text-left">Jump to…</span>
-          <kbd className="rounded border border-edge px-1 text-[10px]">Ctrl K</kbd>
+          <kbd aria-hidden="true" className="rounded border border-edge px-1 text-[10px]">
+            Ctrl K
+          </kbd>
         </button>
         <button
           onClick={props.onActivity}
@@ -398,17 +404,26 @@ function SectionHeader(props: {
         {props.label}
       </span>
       <span className="flex items-center gap-1">
-        {props.actions.map((a) => (
-          <button
-            key={a.label}
-            onClick={a.onClick}
-            title={a.icon ? a.label : undefined}
-            aria-label={a.icon ? a.label : undefined}
-            className="flex items-center rounded px-1.5 py-0.5 text-xs text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
-          >
-            {a.icon ? <Icon name={a.icon} size={14} /> : a.label}
-          </button>
-        ))}
+        {props.actions.map((a) => {
+          const button = (
+            <button
+              key={a.label}
+              onClick={a.onClick}
+              aria-label={a.icon ? a.label : undefined}
+              className="flex items-center rounded px-1.5 py-0.5 text-xs text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+            >
+              {a.icon ? <Icon name={a.icon} size={14} /> : a.label}
+            </button>
+          );
+          // A worded action says what it does already; an icon needs the hint.
+          return a.icon ? (
+            <Tooltip key={a.label} label={a.label}>
+              {button}
+            </Tooltip>
+          ) : (
+            button
+          );
+        })}
       </span>
     </div>
   );

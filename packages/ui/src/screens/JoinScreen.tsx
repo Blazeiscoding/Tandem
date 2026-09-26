@@ -9,6 +9,7 @@ import type {
   SavedServer,
 } from "../platform.js";
 import { BrandMark, Icon } from "../components/Icon.js";
+import { Tooltip } from "../components/Tooltip.js";
 import { connectionFailure, host, incompatibleWorkspace } from "../lib/connection.js";
 import { resumeTarget } from "../lib/resume.js";
 
@@ -613,14 +614,15 @@ function ServerRow(props: {
           <span className="font-mono text-xs text-ink-faint">{props.busy ? "…" : props.meta}</span>
         </button>
         {props.onForget && (
-          <button
-            onClick={props.onForget}
-            title="Forget this workspace"
-            aria-label="Forget this workspace"
-            className="mr-2 hidden rounded p-1 text-ink-faint hover:text-alert group-hover:block"
-          >
-            <Icon name="close" size={12} />
-          </button>
+          <Tooltip label="Forget this workspace">
+            <button
+              onClick={props.onForget}
+              aria-label="Forget this workspace"
+              className="mr-2 rounded p-1 text-ink-faint opacity-0 hover:text-alert focus-visible:opacity-100 group-hover:opacity-100"
+            >
+              <Icon name="close" size={12} />
+            </button>
+          </Tooltip>
         )}
       </div>
     </li>

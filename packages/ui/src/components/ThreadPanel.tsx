@@ -7,6 +7,7 @@ import { useRovingMessages } from "../lib/useRovingMessages.js";
 import { MessageItem } from "./MessageItem.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Icon } from "./Icon.js";
+import { Tooltip } from "./Tooltip.js";
 import { ListStatus } from "./ListStatus.js";
 
 interface Props {
@@ -142,22 +143,26 @@ export function ThreadPanel({
       <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
         <h2 className="font-bold">Thread</h2>
         {root && (
-          <button
-            onClick={() => client.setThreadFollow(rootId, !follows)}
-            aria-pressed={follows}
-            title={
+          <Tooltip
+            label={
               follows
                 ? "Stop following: new replies stop appearing in Threads"
                 : "Follow: new replies appear in Threads"
             }
-            className={`ml-auto mr-2 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
-              follows
-                ? "border-copper text-copper"
-                : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
-            }`}
+            side="bottom"
           >
-            {follows ? "Following" : "Follow"}
-          </button>
+            <button
+              onClick={() => client.setThreadFollow(rootId, !follows)}
+              aria-pressed={follows}
+              className={`ml-auto mr-2 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                follows
+                  ? "border-copper text-copper"
+                  : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+              }`}
+            >
+              {follows ? "Following" : "Follow"}
+            </button>
+          </Tooltip>
         )}
         <button
           onClick={onClose}

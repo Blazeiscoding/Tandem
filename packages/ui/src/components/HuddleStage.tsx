@@ -14,6 +14,7 @@ import { avatarColor } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
 import { HuddleControls } from "./HuddleControls.js";
 import { Icon, type IconName } from "./Icon.js";
+import { Tooltip } from "./Tooltip.js";
 
 /** Where the huddle's video sits: above the chat, over it, or out of sight. */
 export type HuddleView = "docked" | "expanded" | "hidden";
@@ -271,18 +272,19 @@ function TileButton(props: {
   active?: boolean;
 }) {
   return (
-    <button
-      aria-label={props.label}
-      title={props.label}
-      onClick={props.onClick}
-      className={`absolute right-2 top-2 flex size-8 items-center justify-center rounded-lg backdrop-blur-sm transition-opacity focus-visible:opacity-100 pointer-coarse:opacity-100 ${
-        props.active
-          ? "bg-copper text-ground hover:bg-copper-deep"
-          : "bg-black/55 text-white opacity-0 hover:bg-black/75 group-hover/tile:opacity-100"
-      }`}
-    >
-      <Icon name={props.icon} size={15} />
-    </button>
+    <Tooltip label={props.label}>
+      <button
+        aria-label={props.label}
+        onClick={props.onClick}
+        className={`absolute right-2 top-2 flex size-8 items-center justify-center rounded-lg backdrop-blur-sm transition-opacity focus-visible:opacity-100 pointer-coarse:opacity-100 ${
+          props.active
+            ? "bg-copper text-ground hover:bg-copper-deep"
+            : "bg-black/55 text-white opacity-0 hover:bg-black/75 group-hover/tile:opacity-100"
+        }`}
+      >
+        <Icon name={props.icon} size={15} />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -434,14 +436,15 @@ function Spotlight({
               className="shrink-0"
               style={{ width: thumbWidth, height: thumbHeight }}
             >
-              <button
-                aria-label={`Pin ${describe(item)}`}
-                title={`Show ${item.name} large`}
-                onClick={() => onPin(item.key)}
-                className={`group/tile ${tileFrame(item, "rounded-xl")} text-left outline-offset-2`}
-              >
-                <TileBody item={item} height={thumbHeight} />
-              </button>
+              <Tooltip label={`Show ${item.name} large`}>
+                <button
+                  aria-label={`Pin ${describe(item)}`}
+                  onClick={() => onPin(item.key)}
+                  className={`group/tile ${tileFrame(item, "rounded-xl")} text-left outline-offset-2`}
+                >
+                  <TileBody item={item} height={thumbHeight} />
+                </button>
+              </Tooltip>
             </li>
           ))}
         </ul>
@@ -452,23 +455,25 @@ function Spotlight({
 
 function StageButton(props: {
   label: string;
-  title?: string;
+  /** What pressing it does now, when the name alone does not say. */
+  hint?: string;
   icon: IconName;
   pressed?: boolean;
   onClick: () => void;
 }) {
   return (
-    <button
-      aria-label={props.label}
-      title={props.title ?? props.label}
-      aria-pressed={props.pressed}
-      onClick={props.onClick}
-      className={`flex size-8 items-center justify-center rounded-lg transition-colors ${
-        props.pressed ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-lifted hover:text-ink"
-      }`}
-    >
-      <Icon name={props.icon} size={16} />
-    </button>
+    <Tooltip label={props.hint ?? props.label} side="bottom">
+      <button
+        aria-label={props.label}
+        aria-pressed={props.pressed}
+        onClick={props.onClick}
+        className={`flex size-8 items-center justify-center rounded-lg transition-colors ${
+          props.pressed ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-lifted hover:text-ink"
+        }`}
+      >
+        <Icon name={props.icon} size={16} />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -620,7 +625,7 @@ export function HuddleStage({
         {(firstShare || pinnedItem) && (
           <StageButton
             label="Grid view"
-            title={grid ? "Back to the spotlight" : "Show everyone the same size"}
+            hint={grid ? "Back to the spotlight" : "Show everyone the same size"}
             icon="grid"
             pressed={grid}
             onClick={() => {
@@ -632,7 +637,7 @@ export function HuddleStage({
         {!fullscreen && (
           <StageButton
             label="Expand video"
-            title={expanded ? "Show the chat again" : "Expand the video over the chat"}
+            hint={expanded ? "Show the chat again" : "Expand the video over the chat"}
             icon={expanded ? "shrink" : "expand"}
             pressed={expanded}
             onClick={() => onViewChange(expanded ? "docked" : "expanded")}
@@ -641,7 +646,7 @@ export function HuddleStage({
         {document.fullscreenEnabled && (
           <StageButton
             label="Full screen"
-            title={fullscreen ? "Leave full screen" : "Full screen"}
+            hint={fullscreen ? "Leave full screen" : "Full screen"}
             icon={fullscreen ? "fullscreenExit" : "fullscreen"}
             pressed={fullscreen}
             onClick={toggleFullscreen}
@@ -650,7 +655,7 @@ export function HuddleStage({
         {!fullscreen && (
           <StageButton
             label="Hide video"
-            title="Hide the video; the huddle carries on"
+            hint="Hide the video; the huddle carries on"
             icon="chevronDown"
             onClick={() => onViewChange("hidden")}
           />

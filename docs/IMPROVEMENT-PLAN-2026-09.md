@@ -1146,3 +1146,22 @@ Six UI cases cover the Tab stops, the keys, the editor keeping its Escape, click
 ### A thread is one Tab stop too (U04)
 
 The thread panel's root and replies now use `useRovingMessages` as the channel's timeline does. The newest reply is the thread's one Tab stop until somebody moves, and the arrow keys, Home, End, Enter and Escape work the same way. The keyboard journey checks that, after replying, the reply is the thread's one Tab stop and the root is out of the Tab order, and that ArrowUp moves from the reply to the root.
+
+### The remaining compact controls explain themselves (U03)
+
+The composer's buttons were one slice of replacing native `title` hints. The rest are done. The formatting toolbar, the huddle stage's Grid view, Expand video, Full screen and Hide video, its tiles and their Pin and Unpin buttons, the header's huddle button, a thread's Follow, an ephemeral message's Dismiss, Activity's Read through here, the sidebar's section actions and a saved workspace's Forget button now use the shared tooltip. A native hint shows only after a long hover, never on keyboard focus, and screen readers treat it unevenly. The tooltip opens at once on focus, is read as the control's description, and is dismissed with Escape. The formatting toolbar's hints name the shortcuts the composer and editor already had: Ctrl/Cmd+B, Ctrl/Cmd+I and Ctrl/Cmd+E. Strikethrough and a code block have none, and their hints claim none.
+
+Two buttons shown only on hover could take focus while invisible. Dismiss was transparent, and Forget this workspace was hidden with `display: none`, so the keyboard could not reach it at all. Both now show on keyboard focus.
+
+The browser suite found one place a tooltip does harm. On a narrow window, opening the navigation drawer puts focus on the sidebar's Jump button. A tooltip there opened unasked and took the Escape meant to close the drawer, which stayed open. That button already shows its words and its shortcut, so it gets no tooltip. It dropped its native hint and gained `aria-keyshortcuts`. The rule this leaves: a control that receives focus by itself when something opens should not carry a tooltip.
+
+Native `title` hints stay on text that truncates, such as a workspace's address and a huddle's channel, on an image preview's file name, and on status icons such as Muted and Huddle in progress, whose accessible names already say the same. `Menu.tsx`, `Dialog` and `Modal` pass `title` as a heading, not as a DOM hint.
+
+Four UI cases in `packages/ui/test/controlTooltips.dom.test.tsx` cover it:
+
+- each formatting button names itself and its shortcut on focus, with no native title, an axe check, and formatting still working by key and by click
+- the emoji button still gets focus back when its chooser closes, through the ref the tooltip wraps
+- the huddle stage's controls say what pressing them does now without renaming them, and a tile says it shows that person large, with an axe check
+- the header's huddle button is named by its tooltip when its word is hidden on a narrow screen, and follows the count
+
+All four fail against the old components. Two browser scenarios found the huddle button by its native title and now find it by role and name.
