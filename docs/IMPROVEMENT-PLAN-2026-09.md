@@ -1165,3 +1165,11 @@ Four UI cases in `packages/ui/test/controlTooltips.dom.test.tsx` cover it:
 - the header's huddle button is named by its tooltip when its word is hidden on a narrow screen, and follows the count
 
 All four fail against the old components. Two browser scenarios found the huddle button by its native title and now find it by role and name.
+
+### The conversation someone last had open (U02)
+
+Starting the app with nothing in the address or history landed in #general every time, so anyone who lives in another channel or a direct message had to find it again. The app now remembers the open conversation for each workspace and account on this device, and opens it the next time nothing says where to be. It is kept by `useLastConversation` in `packages/ui/src/lib/lastConversation.ts`, under the same workspace-scoped keys drafts and recent searches use, so two workspaces, or two accounts in one, never share it. Nothing was saved under an address before workspace IDs existed, so it has no older slot to migrate from.
+
+An address, a history entry or a link to a message still decides first. The workspace screen waits for the saved value before choosing, and a value that is empty, malformed or unreadable counts as none, so a broken store costs a click, never a blank screen. A remembered conversation that has gone, been archived or cannot be seen falls back to #general. The restored conversation replaces the page's history entry, so Back leaves the app rather than stopping in #general. Only the conversation is remembered, not a thread or panel beside it: the address already keeps those for a reload, and reopening a panel on a fresh start would be a surprise.
+
+Four UI cases cover the hook, and each guard fails one when removed. The route browser scenario opens a second tab with nothing in the address and lands in the conversation last open, with Back leaving the app, then archives it and lands a third tab in #general.
