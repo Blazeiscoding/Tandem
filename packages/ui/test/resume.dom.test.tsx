@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { Api, ApiError } from "@slackoss/client-core";
 import type { ServerInfo, User } from "@slackoss/protocol";
 import { JoinScreen } from "../src/screens/JoinScreen.js";
-import { useLastHosted } from "../src/components/HostDialog.js";
+import { useLastHosted } from "../src/lib/hosting.js";
 import { hostedButStopped, resumeTarget } from "../src/lib/resume.js";
 import type {
   HostingStart,

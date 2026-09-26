@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HostDialog, useHostingStatus } from "../src/components/HostDialog.js";
+import { HostDialog } from "../src/components/HostDialog.js";
+import { useHostingStatus } from "../src/lib/hosting.js";
 import type { HostedWorkspaces, HostingStart, HostingStatus, Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 

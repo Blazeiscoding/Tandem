@@ -7,9 +7,7 @@ import { Avatar } from "./Avatar.js";
 import { Icon } from "./Icon.js";
 import { HuddleControls } from "./HuddleControls.js";
 import { Tooltip } from "./Tooltip.js";
-import { huddleHasVideo, type HuddleView } from "./HuddleStage.js";
-
-export { HuddleStage } from "./HuddleStage.js";
+import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 
 /**
  * Plays one peer's audio. A hidden <audio> element is what actually makes a

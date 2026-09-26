@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import { isLoopbackUrl, shareableServer, type ShareableServer } from "../lib/deeplink.js";
-import { useHostingStatus } from "./HostDialog.js";
+import { useHostingStatus } from "../lib/hosting.js";
 
 const ShareableServerContext = createContext<ShareableServer | null>(null);
 

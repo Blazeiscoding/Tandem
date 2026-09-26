@@ -15,19 +15,11 @@ import { Avatar } from "./Avatar.js";
 import { HuddleControls } from "./HuddleControls.js";
 import { Icon, type IconName } from "./Icon.js";
 import { Tooltip } from "./Tooltip.js";
+import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
+
+export { huddleHasVideo, type HuddleView };
 
 /** Where the huddle's video sits: above the chat, over it, or out of sight. */
-export type HuddleView = "docked" | "expanded" | "hidden";
-
-/** Anyone sending video, which is when the stage has something to show. */
-export function huddleHasVideo(huddle: HuddleState | null): boolean {
-  if (!huddle) return false;
-  return (
-    huddle.localCameraStream !== null ||
-    huddle.localScreenStream !== null ||
-    huddle.peers.some((p) => p.cameraStream !== null || p.screenStream !== null)
-  );
-}
 
 /** Cameras send 16:9, so tiles keep that shape and nobody's head is cropped off. */
 const ASPECT = 16 / 9;
