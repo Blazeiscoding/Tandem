@@ -78,6 +78,11 @@ const InviteDialog = lazy(() =>
 const HuddleStage = lazy(() =>
   import("../components/HuddleStage.js").then((module) => ({ default: module.HuddleStage })),
 );
+const DiagnosticsDialog = lazy(() =>
+  import("../components/DiagnosticsDialog.js").then((module) => ({
+    default: module.DiagnosticsDialog,
+  })),
+);
 const ChannelDetailsDialog = lazy(() =>
   import("../components/ChannelDetailsDialog.js").then((module) => ({
     default: module.ChannelDetailsDialog,
@@ -109,6 +114,7 @@ type DialogKind =
   | { kind: "profile"; userId: ID }
   | { kind: "channel-details" }
   | { kind: "shortcuts" }
+  | { kind: "diagnostics" }
   | { kind: "apps" }
   | { kind: "people" };
 
@@ -718,6 +724,8 @@ function WorkspaceInner({
         onOpenWorkspace={onOpenWorkspace}
         onEditProfile={() => setDialog({ kind: "account", section: "profile" })}
         onAccountSettings={() => setDialog({ kind: "account" })}
+        onShortcuts={() => setDialog({ kind: "shortcuts" })}
+        onDiagnostics={() => setDialog({ kind: "diagnostics" })}
         onManageApps={isAdmin ? () => setDialog({ kind: "apps" }) : undefined}
         onManagePeople={isAdmin ? () => setDialog({ kind: "people" }) : undefined}
         connectionLabel={connectionLabel}
@@ -950,6 +958,11 @@ function WorkspaceInner({
         </LazyDialog>
       )}
       {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
+      {dialog.kind === "diagnostics" && (
+        <LazyDialog loading="Loading diagnostics" onClose={closeDialog}>
+          <DiagnosticsDialog onClose={closeDialog} />
+        </LazyDialog>
+      )}
       {(((dialog.kind === "apps" || dialog.kind === "people") && isAdmin) ||
         dialog.kind === "account") && (
         <LazyDialog key={dialog.kind} loading="Loading settings" onClose={closeDialog}>

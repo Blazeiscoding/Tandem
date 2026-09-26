@@ -1225,3 +1225,11 @@ On a phone a side panel already covered the whole screen, but the conversation b
 The composer's formatting buttons took a row of their own, which on a phone is room the message needs. There they fold behind one Formatting button, which says whether they are shown; emoji and Preview stay out of the fold, and the keyboard shortcuts work either way. The folding lives in theme.css beside the rest of the phone layout, so the two cannot disagree about the width.
 
 One panel-focus case and one toolbar case cover the parts, and the narrow-window browser scenario checks the fold, the heading taking focus with `main` inert, and focus returning to the toggle. Screenshot comparisons at phone sizes, and a check on real phones, are still to do.
+
+### Help in the workspace menu, and diagnostics (U08)
+
+The shortcut sheet opened only with Ctrl+/, and nothing on screen said so. It also still said message actions come from hovering and listed none of the keys that move between messages. The Workspace menu now has Keyboard shortcuts and Diagnostics. The sheet opens with a search box, which narrows it to the shortcuts matching every word typed, in their keys or in what they do, and says when nothing matches. Its Messages section lists the arrow keys, Home, End, Enter and Escape in place of Hover.
+
+Diagnostics shows a plain-text report for whoever is helping: the app and protocol, the server's version or why it could not be reached, the address, the connection, how many messages wait to send, whether a call is on and how many in it are connected, notification permission, the window, and the browser. It never includes messages, drafts, names, statuses or even the workspace's name. The whole report is on screen before Copy diagnostics is pressed. It is one snapshot, taken when the server answers: the first version rebuilt it on every render with a new time, so what was copied differed from what was shown, which the dialog's test caught.
+
+Three new diagnostics cases, two for the sheet's search and keys, and one for the menu cover it, and the keyboard journey opens Diagnostics by keyboard against a real server. The first-run checklist is the rest of U08.
