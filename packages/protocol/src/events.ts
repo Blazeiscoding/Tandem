@@ -53,6 +53,12 @@ export type EphemeralEvent =
   | { type: "friends"; friends: Friendship[] }
   | { type: "typing"; channelId: ID; userId: ID }
   | { type: "presence"; userId: ID; presence: Presence }
+  /**
+   * The workspace has a new name, replacing the one the ready snapshot gave.
+   * A client that misses it gets the new name from its next snapshot. Clients
+   * older than this event ignore it.
+   */
+  | { type: "workspace.renamed"; workspaceName: string }
   /** Private to one user's own sockets, so their devices stay in step. */
   | { type: "saved"; messageId: ID; saved: boolean }
   /** This user's follow state for one thread, so their devices stay in step. */
