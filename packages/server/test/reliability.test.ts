@@ -349,3 +349,91 @@ describe("scheduled delivery", () => {
     expect(await listed()).toHaveLength(0);
   });
 });
+
+describe("editing a scheduled message's text", () => {
+  const queue = (text: string, sendAt = Date.now() + 3_600_000) =>
+    request(`/api/channels/${channelId}/scheduled`, { text, sendAt });
+  const edit = (id: string, text: string, expectedText: string, auth = token) =>
+    request(`/api/scheduled/${id}/text`, { text, expectedText }, "PATCH", auth);
+  const posted = () => server.store.listMessages({ channelId, limit: 50 });
+
+  it("changes only the text, and only if nobody changed it first", async () => {
+    const queued = (await queue("Draft one")).body.scheduled;
+    const first = await edit(queued.id, "Draft two", "Draft one");
+    expect(first.status).toBe(200);
+    expect(first.body.scheduled).toMatchObject({
+      id: queued.id,
+      text: "Draft two",
+      sendAt: queued.sendAt,
+      status: "queued",
+    });
+
+    // A second device still holding "Draft one" would overwrite "Draft two".
+    const stale = await edit(queued.id, "Draft three", "Draft one");
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toBe("scheduled_changed");
+    expect(server.store.getScheduled(queued.id)!.text).toBe("Draft two");
+  });
+
+  it("accepts the same edit again, so a retried request does not report a conflict", async () => {
+    const queued = (await queue("Before")).body.scheduled;
+    expect((await edit(queued.id, "After", "Before")).status).toBe(200);
+    // The response was lost and the client sends it again: the text already matches.
+    const repeated = await edit(queued.id, "After", "Before");
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.scheduled.text).toBe("After");
+  });
+
+  it("sends the edited text when it comes due, and refuses edits once sent", async () => {
+    const queued = (await queue("Original")).body.scheduled;
+    // Due, but not yet delivered: the edit still lands, and does not move it.
+    server.store.rescheduleMessage(queued.id, Date.now() - 1000);
+    const dueAt = server.store.getScheduled(queued.id)!.sendAt;
+    expect((await edit(queued.id, "Edited in time", "Original")).status).toBe(200);
+    expect(server.store.getScheduled(queued.id)!.sendAt).toBe(dueAt);
+
+    server.flushScheduled();
+    const sent = server.store.getScheduled(queued.id)!;
+    expect(sent.status).toBe("sent");
+    expect(posted().find((m) => m.id === sent.messageId)!.text).toBe("Edited in time");
+
+    const late = await edit(queued.id, "Too late", "Edited in time");
+    expect(late.status).toBe(404);
+    expect(posted().find((m) => m.id === sent.messageId)!.text).toBe("Edited in time");
+    expect(server.store.getScheduled(queued.id)!.text).toBe("Edited in time");
+  });
+
+  it("keeps a held message held, with its reason and attempts, when its text changes", async () => {
+    const queued = (await queue("Waiting")).body.scheduled;
+    await request(`/api/channels/${channelId}`, { archived: true }, "PATCH");
+    server.store.rescheduleMessage(queued.id, Date.now() - 1000);
+    server.flushScheduled();
+    const held = server.store.getScheduled(queued.id)!;
+    expect(held.status).toBe("held");
+
+    expect((await edit(queued.id, "Still waiting", "Waiting")).status).toBe(200);
+    expect(server.store.getScheduled(queued.id)).toMatchObject({
+      text: "Still waiting",
+      status: "held",
+      failureReason: held.failureReason,
+      attempts: held.attempts,
+      sendAt: held.sendAt,
+    });
+  });
+
+  it("refuses an empty message, and anyone but its author", async () => {
+    const queued = (await queue("Mine")).body.scheduled;
+    const empty = await edit(queued.id, "   ", "Mine");
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toBe("empty_message");
+
+    const other = await request("/api/auth/register", {
+      handle: "other",
+      displayName: "Other",
+      password: "password123",
+    });
+    expect((await edit(queued.id, "Theirs", "Mine", other.body.token)).status).toBe(404);
+    expect((await edit("missing", "Theirs", "Mine")).status).toBe(404);
+    expect(server.store.getScheduled(queued.id)!.text).toBe("Mine");
+  });
+});
