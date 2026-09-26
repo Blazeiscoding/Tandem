@@ -71,6 +71,18 @@ interface RouteState {
   view?: RouteView | null;
   dialog?: RouteDialog | null;
   drawer?: boolean;
+  /** Where the conversation was being read, if not at the newest message. */
+  scroll?: ReadingPosition | null;
+}
+
+/**
+ * The message at the top of the timeline, and how far below the top of the
+ * view it sat. Kept in a history entry, so Back, Forward and a reload return
+ * to where someone was reading.
+ */
+export interface ReadingPosition {
+  messageId: ID;
+  offset: number;
 }
 
 /**
@@ -195,4 +207,47 @@ export function writeRoute(
   }
   window.history.replaceState(state, "", url);
   return "replace";
+}
+
+/**
+ * Notes where this entry's conversation is being read, or null at the
+ * newest message, without adding a step or changing the address. It writes
+ * only to an entry of this workspace showing that conversation, so a late
+ * note never lands on the entry for somewhere else.
+ */
+export function rememberReadingPosition(
+  serverUrl: string,
+  channelId: ID,
+  position: ReadingPosition | null,
+): void {
+  const entry = stateOf(window.history.state);
+  if (entry?.server !== serverUrl || entry.channelId !== channelId) return;
+  const current = entry.scroll ?? null;
+  if (
+    current?.messageId === position?.messageId &&
+    Math.round(current?.offset ?? 0) === Math.round(position?.offset ?? 0)
+  )
+    return;
+  const state = {
+    ...(window.history.state as Record<string, unknown>),
+    [KEY]: { ...entry, scroll: position },
+  };
+  window.history.replaceState(state, "", window.location.href);
+}
+
+/** Where this entry's conversation was being read, if it says. */
+export function rememberedReadingPosition(
+  serverUrl: string,
+  channelId: ID,
+): ReadingPosition | null {
+  const entry = stateOf(window.history.state);
+  if (entry?.server !== serverUrl || entry.channelId !== channelId) return null;
+  const scroll = entry.scroll as Partial<ReadingPosition> | null | undefined;
+  return scroll &&
+    typeof scroll.messageId === "string" &&
+    TOKEN.test(scroll.messageId) &&
+    typeof scroll.offset === "number" &&
+    Number.isFinite(scroll.offset)
+    ? { messageId: scroll.messageId, offset: scroll.offset }
+    : null;
 }

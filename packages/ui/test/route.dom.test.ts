@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, renderHook, waitFor } from "@testing-library/react";
 import { useHistoryKeys } from "../src/lib/historyKeys.js";
-import { currentRoute, parseRouteHash, routeHash, writeRoute } from "../src/lib/route.js";
+import {
+  currentRoute,
+  parseRouteHash,
+  rememberReadingPosition,
+  rememberedReadingPosition,
+  routeHash,
+  writeRoute,
+} from "../src/lib/route.js";
 
 describe("reading a place in a workspace from the address", () => {
   it("reads a conversation, and a thread open beside it", () => {
@@ -162,6 +169,54 @@ describe("the phone's drawer", () => {
       const entry = { gatherline: { server, channelId: "C_OPS", threadRootId: null, drawer } };
       expect(currentRoute(server, address, entry)).not.toHaveProperty("drawer");
     }
+  });
+});
+
+describe("where a conversation was being read", () => {
+  it("is noted on its own entry without a step or a new address, and read back", () => {
+    const server = location.origin;
+    writeRoute(server, { channelId: "C_GENERAL", threadRootId: null });
+    const start = window.history.length;
+    rememberReadingPosition(server, "C_GENERAL", { messageId: "M_MIDDLE", offset: -12 });
+    expect(window.history.length).toBe(start);
+    expect(location.hash).toBe("#/c/C_GENERAL");
+    expect(rememberedReadingPosition(server, "C_GENERAL")).toEqual({
+      messageId: "M_MIDDLE",
+      offset: -12,
+    });
+    // The place itself is unchanged, so moving on is still a step.
+    expect(currentRoute(server)).toEqual({ channelId: "C_GENERAL", threadRootId: null });
+    rememberReadingPosition(server, "C_GENERAL", null);
+    expect(rememberedReadingPosition(server, "C_GENERAL")).toBeNull();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("never lands on the entry for another conversation or workspace", () => {
+    const server = location.origin;
+    writeRoute(server, { channelId: "C_DESIGN", threadRootId: null });
+    rememberReadingPosition(server, "C_GENERAL", { messageId: "M_LATE", offset: 0 });
+    rememberReadingPosition("http://10.0.0.9:8543", "C_DESIGN", { messageId: "M_LATE", offset: 0 });
+    expect(rememberedReadingPosition(server, "C_DESIGN")).toBeNull();
+    expect(rememberedReadingPosition(server, "C_GENERAL")).toBeNull();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("ignores a position that is not plainly a message and a distance", () => {
+    const server = location.origin;
+    for (const scroll of [
+      { messageId: "../M", offset: 0 },
+      { messageId: "M_OK", offset: Number.NaN },
+      { messageId: "M_OK" },
+      "M_OK",
+    ]) {
+      window.history.replaceState(
+        { gatherline: { server, channelId: "C_GENERAL", threadRootId: null, scroll } },
+        "",
+        "/#/c/C_GENERAL",
+      );
+      expect(rememberedReadingPosition(server, "C_GENERAL")).toBeNull();
+    }
+    window.history.replaceState(null, "", "/");
   });
 });
 
