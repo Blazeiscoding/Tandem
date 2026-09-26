@@ -1049,3 +1049,100 @@ The roadmap's test for C2 is a non-developer restoring onto a fresh install. Unt
 Where the backup goes depends on what the list already holds. A workspace this computer does not list is listed first and restored into a new `w-` folder, so a restored workspace can always be found. It is taken back out if the restore fails. A listed workspace whose folder is gone is restored into that same folder, keeping its entry and port. A workspace still on this computer is left alone, and the dialog says it is already hosted here: replacing live data needs its own confirmed step, which is not built yet. Nothing starts after a restore. The dialog says the workspace was restored and can be started from the list, where it opens like any other, with its ID checked.
 
 Four desktop cases restore backups the real server made: onto a fresh profile, into a listed workspace's missing folder, refused over one still here, and refused without room or from a damaged copy. One UI case covers a cancelled, refused and finished restore. The packaged resume scenario backs up a running workspace, deletes its folder once stopped, and restores it into the same entry through the folder dialog. The serialized forced matrix passed all 795 tests (server 367, client-core 65, UI 255, protocol 12, desktop 96), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed.
+
+### The switcher, channel tabs and reactions read as what they are (A2, U04)
+
+The roadmap's A2 asks for an accessible switcher, tabs and reactions, and U04 named what was wrong with each. The quick switcher's box was a plain text field over a list of buttons, so a screen reader heard nothing as the arrow keys moved the highlight. The box is now a combobox that controls a list of options. The highlighted option is its active descendant and is marked selected, and the box says whether any options are showing. Each option's name says what it is, such as "leads, private channel" or "Priya Natarajan, person", which the sign beside it only showed. The options are no longer Tab stops, since the arrow keys choose among them from the box.
+
+Channel details had three buttons styled as tabs. They are now a tablist named Channel details, with one selected tab, one Tab stop, and the arrow keys, Home and End moving between them, as the sign-in tabs have done since #54. The content below is the tabpanel the selected tab names.
+
+A reaction was a button read as its emoji and a number. It is now read as, for example, "👍 2 reactions, from Priya Shah and you". It says whether you reacted with `aria-pressed`, and the reactions under a message form a group named Reactions. The hover title names the same people, with "you" in place of your own name.
+
+Three UI cases, each with an axe check, cover the switcher, the tabs and the reactions, and two browser checks now find the switcher's box as a combobox and a reaction by who reacted. The serialized forced matrix passed all 773 tests (server 367, client-core 65, UI 249, protocol 12, desktop 80), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed. The emoji chooser's combobox semantics and announcing new messages are still to do.
+
+### One listbox for every suggestion list (U04)
+
+U04 asked for one listbox shared by the switcher, the composer's suggestions and the emoji chooser. `useListbox` in `packages/ui/src/lib/useListbox.ts` is that listbox. The box keeps focus, so typing goes on, and ArrowDown and ArrowUp move the choice, wrapping. The box names the chosen option as its active descendant, and the option is marked selected. Left, Right, Home and End stay with the box, because they move the caret and a screen reader uses them to read back what was typed. A pointer resting on an option chooses it without taking focus from the box. A keypress scrolls the choice into view; the pointer does not, since it already points at something visible.
+
+The quick switcher moved onto it unchanged. The composer's mention and command suggestions were options with a button inside each, which a screen reader announces twice or not at all. They are plain options now, and the text area points at the chosen one. It stays a text box rather than becoming a combobox, because a textarea may not take that role. Both emoji choosers, in the formatting toolbar and in the reaction picker, were grids of buttons reachable only with Tab. Their search boxes are now comboboxes over a listbox named Emoji, and Enter picks the chosen emoji. On a touchscreen the reaction picker still waits for the search box to be tapped, and a tap on an emoji still picks it.
+
+Seven UI cases cover it:
+
+- mentions: options with nothing focusable inside, arrow keys that wrap, Enter, and an axe check
+- a click that keeps focus in the text area
+- commands, completed with Tab
+- the composer's emoji chooser: arrow keys, Enter, focus back in the text area, and an axe check
+- an emoji search with no matches, which points at nothing
+- a keypress that scrolls the choice into view, where the pointer does not
+- a reaction picked from the keyboard
+
+Taking out the check that only keys scroll fails the scroll case. The serialized forced matrix passed all 780 tests (server 367, client-core 65, UI 256, protocol 12, desktop 80), all seven package typechecks and all three production builds without cached results, and all 14 browser scenarios passed. The browser entry grew 0.4 kB, to 477.7 kB. Announcing new messages is still to do.
+
+### New messages are read aloud in the open conversation (U04)
+
+Nothing told a screen reader that a message had arrived; somebody had to go and look. A log named New messages, out of sight, now reads what reaches the conversation on screen: a message in the open channel, a reply sent to the channel too, or a reply in the open thread. The first is read at once, as "Priya Shah: Launch is on Friday", or "Sam Rivera replied in the thread: Agreed". Any that follow within three seconds wait and are read together, as a count and who sent them, such as "3 new messages, from Priya Shah and Sam Rivera". A busy channel therefore does not talk over everything else. Long messages are cut at 200 characters, and more than three senders become "and 2 others".
+
+It reads only what the client calls live, meaning messages recorded after this connection began. What a reconnect catches up on is shown but not read, since it is history, not news. Your own messages are never read. Moving to another conversation drops anything still waiting. The log sits outside `main`, which goes inert while the phone drawer is open.
+
+Six UI cases cover the wording (one message, a reply, a long message, several senders, more than three) and the timing (the first at once, the rest together after three seconds, then at once again after a quiet spell, only the last three kept), dropping on a move, and an axe check. A client-core case against a real server checks the contract the log relies on: after a reconnect, a message caught up on arrives marked not live and the next one live. The two-person browser scenario checks that Bob hears Alice's live message as "alice: Hello from Alice — live delivery".
+
+Checking replay in that browser scenario turned up something else. Its offline step does not close Bob's open WebSocket: the message sent "while Bob is offline" arrived live and was read with the next one as "2 new messages". Playwright's offline emulation stops new requests, not a socket that is already open. So the scenario never exercised reconnecting, despite its name. The client-core replay cases cover reconnecting instead. The browser entry grew 1.4 kB, to 479.1 kB.
+
+### Side panels take focus and hand it back (U04)
+
+The side panels (Saved, Pins, Threads, Scheduled, Activity and a thread) were already labelled complementary regions, but opening one left focus where it was. Somebody on a keyboard had to find the panel, and a screen reader said nothing had changed. Closing one dropped focus onto the page.
+
+`usePanelFocus` in `packages/ui/src/lib/usePanelFocus.ts` notes what had focus when the panel first rendered. That is before any box inside the panel focuses itself. Opened from the sidebar, the list panels then focus their heading, which a screen reader reads. A thread's reply box already takes focus, so the thread panel leaves focus there. The header's Pins, Saved and Scheduled buttons are pressed toggles, and a panel opened from one of them leaves focus on it. The toggle stays on screen, says the panel is open and closes it again, as a disclosure button does. The main browser scenario had already pinned this down: a keyboard user opening Pins keeps the toggle's tooltip. When a panel closes with focus inside it, focus goes back to the control that opened it. If that control can no longer take focus, it goes to the nearest focusable element around it. A message's toolbar button is shown only while the message has the pointer or focus, so there focus lands on the message. If somebody has moved on, for example into the composer, focus stays where they are.
+
+Five UI cases cover it:
+
+- the heading takes focus on open, focus returns to the opener on close, and an axe check passes
+- focus stays in the composer when the panel closes from outside
+- a panel whose own box takes focus leaves the heading alone and still hands focus back
+- a toggle that opened the panel keeps focus
+- focus falls back to the element around an opener that can no longer take it
+
+Removing the fallback, or the check that somebody has moved on, fails its case. The main browser scenario now checks two things. The Scheduled toggle keeps focus and gets it back from the panel's Close button. Saved, opened from the phone drawer, focuses its heading. One gap remains: when that Saved panel closes, focus drops to the page, because the drawer that opened it is closed by then.
+
+### An app's form ties its fields to their hints and errors (U04)
+
+U04 asked for a label audit of every field, because a placeholder is not a label. Every field with a placeholder already has a label, and the sign-in, account and hosting fields tie their hints to themselves. An app's form did not. A screen reader read a field's label but not the hint under it, and when the app refused a field, nothing said which one: the error was announced once and then left unattached. Each field is now described by its hint, or by its error when the app refused it, just as the error replaces the hint on screen. Refused fields are marked invalid, fields not marked optional are marked required, and after a refusal focus goes to the first refused field.
+
+The same work turned up a real bug. The form kept each value under its action id alone, but an action id need only be unique within its block. Two fields in different blocks that shared one, such as `value`, shared a value: typing an amount filled the reason too, and both went to the app with the same text. Values are now kept under block and action id together.
+
+Three UI cases cover it:
+
+- each field is described by its hint and says whether it is required, with an axe check
+- two fields that share an action id keep their own values, and the app receives both
+- a refused field is marked invalid, described by its error, and takes focus, with an axe check
+
+All three fail against the old form.
+
+### The main journey by keyboard alone (U04)
+
+U04's last listed check was one browser scenario that uses only the keyboard, from signing in to opening settings. It runs against its own server, with one channel and one message. It signs in by typing into the card, then does each of the following by keyboard:
+
+- switches to #design with Ctrl+K
+- goes back from the composer to the message with Shift+Tab, and Tabs to Reply in thread
+- replies in the thread, closes it, and lands back on the message
+- opens Add a reaction and types "rocket" then Enter, after which the reaction reads "🚀 1 reaction, from you"
+- searches with Ctrl+F
+- opens Account settings from the Workspace menu with the arrow keys, closes it with Escape, and lands back on the menu button
+
+The helper that presses a key until something has focus gives up after a set number of presses, so an unreachable control fails the scenario.
+
+Writing it found two real faults, both with the same cause. The composer is disabled until its saved scheduling state has been read, and a disabled box refuses focus, so the composer's request for focus on mount did nothing. After signing in, focus was left on the page itself. After opening a thread, it stayed on the Reply in thread button, so a thread's reply box never got the focus it asked for. The composer now remembers a refused request, along with what had focus at the time. Once it can take focus, it does, unless somebody has moved on meanwhile.
+
+Three UI cases cover that: focus after a slow load, focus taken from the button that opened a thread, and focus left alone when somebody has moved on. The first two fail against the old composer.
+
+### The message list is one Tab stop (U04)
+
+Every message in a channel was its own Tab stop, and so was every control inside it: the author's picture and name, links, reactions and, once a message had focus, up to fourteen toolbar buttons. Getting from the header to the composer with Tab meant passing hundreds of stops in a busy channel.
+
+`useRovingMessages` in `packages/ui/src/lib/useRovingMessages.ts` makes the timeline one Tab stop, the current message. That is the newest until somebody moves. Only the current message and its own controls stay in the Tab order. The others' controls are taken out, and put back when their message becomes current. A mutation observer keeps this true as messages arrive, change and leave without the list rendering again. ArrowUp and ArrowDown move between messages, and Home and End go to the first and last. Enter goes into the message's actions, and Escape comes back out to the message. A control that uses Escape itself, such as the message editor, keeps it. Clicking into a message makes it current. Nothing changes for a pointer or for a screen reader's reading cursor, only the sequential Tab order.
+
+Six UI cases cover the Tab stops, the keys, the editor keeping its Escape, clicking into a message, and new messages arriving. The keyboard journey now uses ArrowUp and Enter in a real browser. A thread's replies are not roving yet.
+
+### A thread is one Tab stop too (U04)
+
+The thread panel's root and replies now use `useRovingMessages` as the channel's timeline does. The newest reply is the thread's one Tab stop until somebody moves, and the arrow keys, Home, End, Enter and Escape work the same way. The keyboard journey checks that, after replying, the reply is the thread's one Tab stop and the root is out of the Tab order, and that ArrowUp moves from the reply to the root.

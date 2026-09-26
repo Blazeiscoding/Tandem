@@ -260,14 +260,24 @@ export const MessageItem = memo(function MessageItem({
           )}
 
           {message.reactions.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
+            <div role="group" aria-label="Reactions" className="mt-1 flex flex-wrap gap-1">
               {message.reactions.map((g) => {
                 const reacted = self ? g.userIds.includes(self.id) : false;
-                const names = g.userIds.map((id) => users[id]?.displayName ?? "unknown").join(", ");
+                // "you" last, as people say it, and never your own name.
+                const others = g.userIds
+                  .filter((id) => id !== self?.id)
+                  .map((id) => users[id]?.displayName ?? "someone");
+                const names = new Intl.ListFormat(undefined, { type: "conjunction" }).format(
+                  reacted ? [...others, "you"] : others,
+                );
+                const count = g.userIds.length;
                 return (
                   <button
                     key={g.emoji}
+                    type="button"
                     title={names}
+                    aria-label={`${g.emoji} ${count} ${count === 1 ? "reaction" : "reactions"}, from ${names}`}
+                    aria-pressed={reacted}
                     onClick={() => react(g.emoji)}
                     className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[13px] transition-colors ${
                       reacted
