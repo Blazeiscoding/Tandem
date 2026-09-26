@@ -2024,6 +2024,22 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     await page.goBack();
     await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
 
+    // A theme chosen in Account settings recolours the page at once, and a
+    // reload keeps it.
+    const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(await background()).toBe("rgb(25, 29, 41)");
+    await page.goto(`${origin}/#/c/${design.id}/d/account/appearance`);
+    const appearance = page.getByRole("tabpanel", { name: "Appearance" });
+    await appearance.getByRole("radio", { name: /^Light/ }).check();
+    await expect.poll(background).toBe("rgb(248, 249, 252)");
+    await page.reload();
+    await expect(page.locator("textarea")).toBeVisible();
+    await expect.poll(background).toBe("rgb(248, 249, 252)");
+    await appearance.getByRole("radio", { name: /^Dark/ }).check();
+    await expect.poll(background).toBe("rgb(25, 29, 41)");
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
+
     // Back, Forward and a reload return to where a conversation was being
     // read, not just to the conversation.
     for (let i = 1; i <= 80; i++) {

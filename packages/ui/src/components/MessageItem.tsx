@@ -3,7 +3,7 @@ import { useCopy, writeClipboard } from "../lib/useCopy.js";
 import { browserLink } from "../lib/deeplink.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
-import { formatTime } from "../lib/format.js";
+import { formatFull, formatTime } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
 import { MessageAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
@@ -190,9 +190,13 @@ export const MessageItem = memo(function MessageItem({
             // row taller. A time that wrapped to two lines here grew the row
             // under a resting pointer, and the timeline then lost its place
             // at the bottom when a side panel opened.
-            <span className="absolute right-0 top-0.5 hidden select-none whitespace-nowrap pt-1 font-mono text-[10px] text-ink-faint group-hover:block">
+            <time
+              dateTime={new Date(message.createdAt).toISOString()}
+              title={formatFull(message.createdAt)}
+              className="absolute right-0 top-0.5 hidden select-none whitespace-nowrap pt-1 font-mono text-[10px] text-ink-faint group-hover:block"
+            >
               {formatTime(message.createdAt)}
-            </span>
+            </time>
           )}
         </div>
         <div className="min-w-0 flex-1">
@@ -225,9 +229,13 @@ export const MessageItem = memo(function MessageItem({
                   {author.statusEmoji}
                 </span>
               )}
-              <span className="font-mono text-[11px] text-ink-faint">
+              <time
+                dateTime={new Date(message.createdAt).toISOString()}
+                title={formatFull(message.createdAt)}
+                className="font-mono text-[11px] text-ink-faint"
+              >
                 {formatTime(message.createdAt)}
-              </span>
+              </time>
             </div>
           )}
           {editing ? (
@@ -235,7 +243,7 @@ export const MessageItem = memo(function MessageItem({
           ) : (
             <>
               {message.text && (
-                <div className="text-[15px]">
+                <div className="message-text text-[15px]">
                   <Mrkdwn
                     text={message.text}
                     users={users}
@@ -408,7 +416,7 @@ function ToolbarButton(props: {
       onClick={props.onClick}
       disabled={props.disabled}
       aria-label={props.title}
-      className={`flex items-center justify-center px-2 py-1.5 text-[14px] transition-colors hover:bg-copper/20 disabled:opacity-40 ${
+      className={`flex items-center justify-center px-2 py-1.5 text-sm transition-colors hover:bg-copper/20 disabled:opacity-40 ${
         props.active ? "bg-copper/25" : ""
       }`}
     >

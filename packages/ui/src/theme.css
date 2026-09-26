@@ -1,6 +1,24 @@
 /*
  * Gatherline visual identity: slate surfaces, a periwinkle accent, mono for
- * infrastructure (addresses, ports, codes). Dark only for now.
+ * infrastructure (addresses, ports, codes). Dark by default, with light,
+ * high-contrast and system (light or dark, as the device prefers) themes that
+ * redefine the same tokens below; Account settings chooses, per device.
+ *
+ * The rest of the system, written down:
+ * - Type: 10, 11, 12 and 13 px for metadata, labels and compact controls; 14 px
+ *   (text-sm) for dialog and panel text; 15 px for messages and the page; 17 px
+ *   for a conversation's name; text-lg and text-2xl for dialog and empty-state
+ *   titles; 52 px once, for the sign-in page's headline. theme.test.ts fails
+ *   on a size outside this scale.
+ * - Spacing: Tailwind's 4 px steps. Rows use 0.5 to 2, panels and dialogs 3 to
+ *   6, and nothing sits on an odd pixel unless it lines up with an icon.
+ * - Radius: rounded (4 px) for keys and chips inside text, rounded-lg for
+ *   controls, rows and code blocks, rounded-md for the tabs inside a tab strip,
+ *   rounded-xl for cards and message attachments, rounded-2xl for dialogs and
+ *   video tiles, rounded-3xl for a card that fills a page, such as sign-in,
+ *   rounded-full for avatars, dots and pills. theme.test.ts fails on any other.
+ * - Focus: a ring in the accent, --focus-ring-width wide, 3 px out from the
+ *   control; wider in high contrast.
  *
  * The accent and the alert are light, so text written on them takes the ground
  * colour, never white. Every ink clears 4.5:1 on every surface, and ink-faint on
@@ -30,6 +48,84 @@
 
 :root {
   color-scheme: dark;
+  --focus-ring-width: 2px;
+}
+
+/* Light, chosen, or the system's choice on a device that prefers light. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-deep: #dde2ec;
+  --color-ground: #f8f9fc;
+  --color-raised: #eef1f7;
+  --color-lifted: #e2e6f0;
+  --color-edge: #b4bccd;
+  --color-ink: #141925;
+  --color-ink-dim: #394257;
+  --color-ink-faint: #535c72;
+  --color-copper: #4550c4;
+  --color-copper-deep: #3843ad;
+  --color-online: #176647;
+  --color-alert: #b42a22;
+  --color-mention: rgba(69, 80, 196, 0.08);
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --color-deep: #dde2ec;
+    --color-ground: #f8f9fc;
+    --color-raised: #eef1f7;
+    --color-lifted: #e2e6f0;
+    --color-edge: #b4bccd;
+    --color-ink: #141925;
+    --color-ink-dim: #394257;
+    --color-ink-faint: #535c72;
+    --color-copper: #4550c4;
+    --color-copper-deep: #3843ad;
+    --color-online: #176647;
+    --color-alert: #b42a22;
+    --color-mention: rgba(69, 80, 196, 0.08);
+  }
+}
+
+/*
+ * High contrast: dark, with every ink at 7:1 or more on every surface, borders
+ * that stand out as clearly as text, and a wider focus ring.
+ */
+:root[data-theme="contrast"] {
+  color-scheme: dark;
+  --focus-ring-width: 3px;
+  --color-deep: #000000;
+  --color-ground: #05060a;
+  --color-raised: #10131b;
+  --color-lifted: #1d2230;
+  --color-edge: #9aa3ba;
+  --color-ink: #ffffff;
+  --color-ink-dim: #eceff6;
+  --color-ink-faint: #d2d7e4;
+  --color-copper: #cdd3ff;
+  --color-copper-deep: #b9c1ff;
+  --color-online: #a3f2cd;
+  --color-alert: #ffb3ae;
+  --color-mention: rgba(205, 211, 255, 0.14);
+}
+
+/*
+ * Compact: more of the conversation and the sidebar in the same height, for
+ * people who read a lot of it. Messages are a size smaller and rows closer.
+ */
+:root[data-density="compact"] body {
+  font-size: 14px;
+}
+:root[data-density="compact"] .message-row {
+  padding-block: 0;
+}
+:root[data-density="compact"] .message-text {
+  font-size: 14px;
+  line-height: 1.45;
+}
+:root[data-density="compact"] .channel-row {
+  margin-block: 0;
+  padding-block: 5px;
 }
 
 html,
@@ -49,7 +145,7 @@ body {
 }
 
 ::selection {
-  background: rgba(182, 191, 255, 0.28);
+  background: color-mix(in oklab, var(--color-copper) 28%, transparent);
 }
 
 *::-webkit-scrollbar {
@@ -63,7 +159,7 @@ body {
   background-clip: content-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #566079;
+  background: var(--color-ink-faint);
   background-clip: content-box;
   border: 2px solid transparent;
 }
@@ -87,7 +183,7 @@ button:disabled {
 button:focus-visible,
 a:focus-visible,
 [tabindex="0"]:focus-visible {
-  outline: 2px solid var(--color-copper);
+  outline: var(--focus-ring-width) solid var(--color-copper);
   outline-offset: 3px;
 }
 button {
@@ -115,7 +211,11 @@ textarea {
   min-height: min-content;
 }
 .join-story {
-  background: linear-gradient(145deg, #2e3552, var(--color-ground) 75%);
+  background: linear-gradient(
+    145deg,
+    color-mix(in oklab, var(--color-copper) 22%, var(--color-ground)),
+    var(--color-ground) 75%
+  );
 }
 
 /*

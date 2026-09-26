@@ -88,7 +88,15 @@ describe("account settings, a section at a time", () => {
       within(tabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Profile", "Notifications", "Composing", "Security", "Devices", "Storage"]);
+    ).toEqual([
+      "Profile",
+      "Notifications",
+      "Appearance",
+      "Composing",
+      "Security",
+      "Devices",
+      "Storage",
+    ]);
     const profile = within(tabs).getByRole("tab", { name: "Profile" });
     expect(profile).toHaveAttribute("aria-selected", "true");
     expect(within(dialog).getByRole("tabpanel", { name: "Profile" })).toContainElement(

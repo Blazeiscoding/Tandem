@@ -40,7 +40,7 @@ export function Mrkdwn({
     for (const match of value.matchAll(pattern)) {
       if (match.index > previous) parts.push(value.slice(previous, match.index));
       parts.push(
-        <mark key={match.index} className="rounded-sm bg-copper/25 text-ink">
+        <mark key={match.index} className="rounded bg-copper/25 text-ink">
           {match[0]}
         </mark>,
       );
@@ -55,7 +55,7 @@ export function Mrkdwn({
         i % 2 === 1 ? (
           <code
             key={i}
-            className="my-1 block overflow-x-auto rounded-md border border-edge bg-ground px-3 py-2 font-mono text-[13px]"
+            className="my-1 block overflow-x-auto rounded-lg border border-edge bg-ground px-3 py-2 font-mono text-[13px]"
           >
             {highlight(trimAtFences(block, true, true))}
           </code>

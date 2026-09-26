@@ -1,14 +1,38 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { avatarColor } from "../src/lib/format.js";
 
-/** The colour tokens as theme.css declares them, by name without the prefix. */
-function colourTokens(): Record<string, string> {
-  const css = readFileSync(new URL("../src/theme.css", import.meta.url), "utf8");
-  const tokens: Record<string, string> = {};
-  for (const [, name, value] of css.matchAll(/--color-([a-z-]+):\s*(#[0-9a-f]{6})\b/gi))
-    tokens[name!] = value!;
-  return tokens;
+const css = readFileSync(new URL("../src/theme.css", import.meta.url), "utf8");
+
+/** The body of the first block that opens with `opening`. */
+function block(opening: string): string {
+  const start = css.indexOf(opening);
+  if (start === -1) throw new Error(`theme.css has no ${opening}`);
+  let depth = 0;
+  for (let i = css.indexOf("{", start); i < css.length; i++) {
+    if (css[i] === "{") depth++;
+    if (css[i] === "}" && --depth === 0) return css.slice(css.indexOf("{", start) + 1, i);
+  }
+  throw new Error(`${opening} never closes`);
+}
+
+const THEME_BLOCKS = {
+  dark: "@theme {",
+  light: ':root[data-theme="light"] {',
+  contrast: ':root[data-theme="contrast"] {',
+} as const;
+type ThemeName = keyof typeof THEME_BLOCKS;
+
+/** A theme's colour tokens, by name without the prefix; the others inherit dark's. */
+function colourTokens(theme: ThemeName = "dark"): Record<string, string> {
+  const read = (text: string) => {
+    const tokens: Record<string, string> = {};
+    for (const [, name, value] of text.matchAll(/--color-([a-z-]+):\s*(#[0-9a-f]{6})\b/gi))
+      tokens[name!] = value!;
+    return tokens;
+  };
+  const dark = read(block(THEME_BLOCKS.dark));
+  return theme === "dark" ? dark : { ...dark, ...read(block(THEME_BLOCKS[theme])) };
 }
 
 /** WCAG 2 contrast ratio between two opaque sRGB colours, given as hex or as 0–1 channels. */
@@ -46,8 +70,8 @@ function oklchToSrgb(css: string): number[] {
 }
 
 /** Every pair below this ratio, written "text on surface", so a failure names the pair. */
-function unreadable(pairs: [string, string][], minimum = 4.5): string[] {
-  const tokens = colourTokens();
+function unreadable(pairs: [string, string][], minimum = 4.5, theme: ThemeName = "dark"): string[] {
+  const tokens = colourTokens(theme);
   return pairs
     .filter(([text, surface]) => contrast(tokens[text]!, tokens[surface]!) < minimum)
     .map(
@@ -93,6 +117,79 @@ describe("the colour tokens", () => {
         ["ground", "alert"],
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("the other themes", () => {
+  const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert"];
+  const surfaces = ["deep", "ground", "raised", "lifted"];
+  const everyPair = inks.flatMap((ink) => surfaces.map((s): [string, string] => [ink, s]));
+  const fills: [string, string][] = [
+    ["ground", "copper"],
+    ["ground", "copper-deep"],
+    ["ground", "alert"],
+  ];
+
+  it("redefine every colour, so none is left from dark by accident", () => {
+    for (const theme of ["light", "contrast"] as const) {
+      const own = [...block(THEME_BLOCKS[theme]).matchAll(/--color-([a-z-]+):/g)].map((m) => m[1]);
+      expect(own.sort(), theme).toEqual(Object.keys(colourTokens("dark")).concat("mention").sort());
+    }
+  });
+
+  it("keep light as readable as dark", () => {
+    expect(unreadable([...everyPair, ...fills], 4.5, "light")).toEqual([]);
+  });
+
+  it("hold high contrast to 7:1, text and filled buttons alike", () => {
+    expect(unreadable([...everyPair, ...fills], 7, "contrast")).toEqual([]);
+  });
+
+  it("use light for the system theme on a device that prefers light, word for word", () => {
+    const system = block("@media (prefers-color-scheme: light) {");
+    const inner = system.slice(system.indexOf("{") + 1, system.lastIndexOf("}"));
+    const normalise = (text: string) => text.replace(/\s+/g, " ").trim();
+    expect(normalise(inner)).toBe(normalise(block(THEME_BLOCKS.light)));
+  });
+});
+
+describe("the type scale and the radii", () => {
+  // Every component's source, as written.
+  const root = new URL("../src/", import.meta.url);
+  const sources = Object.fromEntries(
+    readdirSync(root, { recursive: true, encoding: "utf8" })
+      .filter((file) => file.endsWith(".tsx"))
+      .map((file) => [file, readFileSync(new URL(file, root), "utf8")]),
+  );
+
+  it("keep every fixed text size on the written-down scale", () => {
+    const scale = new Set(["10px", "11px", "12px", "13px", "15px", "16px", "17px", "52px"]);
+    const off = Object.entries(sources).flatMap(([file, text]) =>
+      [...text.matchAll(/text-\[(\d+px)\]/g)]
+        .map((m) => m[1]!)
+        .filter((size) => !scale.has(size))
+        .map((size) => `${file}: ${size}`),
+    );
+    expect(off).toEqual([]);
+  });
+
+  it("keep every radius to the written-down set", () => {
+    const allowed = new Set([
+      "rounded",
+      "rounded-md",
+      "rounded-lg",
+      "rounded-xl",
+      "rounded-2xl",
+      "rounded-3xl",
+      "rounded-full",
+    ]);
+    const off = Object.entries(sources).flatMap(([file, text]) =>
+      [...text.matchAll(/(?<![\w-])(rounded(?:-[a-z0-9]+)?)(?![\w-])/g)]
+        .map((m) => m[1]!)
+        .filter((cls) => !allowed.has(cls))
+        .map((cls) => `${file}: ${cls}`),
+    );
+    expect(off).toEqual([]);
   });
 });
 
