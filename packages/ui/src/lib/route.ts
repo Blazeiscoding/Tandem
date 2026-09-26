@@ -1,9 +1,22 @@
 import type { ID } from "@slackoss/protocol";
 
-/** Where someone is in a workspace: a conversation, and the thread open beside it. */
+/** Side panels that are places of their own, as the address names them. */
+export const ROUTE_VIEWS = ["pins", "saved", "threads", "scheduled", "activity"] as const;
+export type RouteView = (typeof ROUTE_VIEWS)[number];
+
+function isView(value: unknown): value is RouteView {
+  return (ROUTE_VIEWS as readonly unknown[]).includes(value);
+}
+
+/**
+ * Where someone is in a workspace: a conversation, and the thread or side
+ * panel open beside it. Only one is open at a time, so a route with a thread
+ * has no view.
+ */
 export interface WorkspaceRoute {
   channelId: ID;
   threadRootId: ID | null;
+  view?: RouteView | null;
 }
 
 /** Channel and message ids never contain anything else. */
@@ -16,10 +29,12 @@ interface RouteState {
   server: string;
   channelId: ID;
   threadRootId: ID | null;
+  view?: RouteView | null;
 }
 
 /**
- * Reads "#/c/<channel>" and "#/c/<channel>/t/<thread root>". A link to one
+ * Reads "#/c/<channel>", "#/c/<channel>/t/<thread root>" and
+ * "#/c/<channel>/p/<side panel>". A link to one
  * message, "#/c/<channel>/m/<message>", is not a place to stay: it is handed
  * over once and taken out of the address, so it is not read here.
  */
@@ -29,14 +44,16 @@ export function parseRouteHash(hash: string): WorkspaceRoute | null {
   if (parts.length === 2) return { channelId: parts[1]!, threadRootId: null };
   if (parts.length === 4 && parts[2] === "t" && TOKEN.test(parts[3]!))
     return { channelId: parts[1]!, threadRootId: parts[3]! };
+  if (parts.length === 4 && parts[2] === "p" && isView(parts[3]))
+    return { channelId: parts[1]!, threadRootId: null, view: parts[3] };
   return null;
 }
 
 export function routeHash(route: WorkspaceRoute): string {
   const e = encodeURIComponent;
-  return route.threadRootId
-    ? `#/c/${e(route.channelId)}/t/${e(route.threadRootId)}`
-    : `#/c/${e(route.channelId)}`;
+  if (route.threadRootId) return `#/c/${e(route.channelId)}/t/${e(route.threadRootId)}`;
+  if (route.view) return `#/c/${e(route.channelId)}/p/${route.view}`;
+  return `#/c/${e(route.channelId)}`;
 }
 
 function stateOf(state: unknown): RouteState | null {
@@ -69,15 +86,21 @@ export function currentRoute(
 ): WorkspaceRoute | null {
   const remembered = stateOf(historyState);
   if (remembered) {
-    return remembered.server === serverUrl
-      ? { channelId: remembered.channelId, threadRootId: remembered.threadRootId ?? null }
-      : null;
+    if (remembered.server !== serverUrl) return null;
+    const threadRootId = remembered.threadRootId ?? null;
+    return !threadRootId && isView(remembered.view)
+      ? { channelId: remembered.channelId, threadRootId, view: remembered.view }
+      : { channelId: remembered.channelId, threadRootId };
   }
   return servesPage(serverUrl, location.origin) ? parseRouteHash(location.hash) : null;
 }
 
 export function sameRoute(a: WorkspaceRoute | null, b: WorkspaceRoute | null): boolean {
-  return a?.channelId === b?.channelId && (a?.threadRootId ?? null) === (b?.threadRootId ?? null);
+  return (
+    a?.channelId === b?.channelId &&
+    (a?.threadRootId ?? null) === (b?.threadRootId ?? null) &&
+    (a?.view ?? null) === (b?.view ?? null)
+  );
 }
 
 /**

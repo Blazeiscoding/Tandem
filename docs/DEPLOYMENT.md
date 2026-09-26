@@ -508,11 +508,39 @@ If an attachment disappears during capture, backup fails instead of reporting su
 `verify-backup` checks checksums, safe attachment paths, the actual database schema,
 row counts, foreign keys and attachment inventory without changing a workspace.
 An omitted attachment is rejected even if all listed checksums match.
+It then lists what starting the backup would reach outside itself: the addresses
+its apps are sent events, commands and button clicks at, messages waiting to be
+posted, app events not yet delivered, and how many sign-ins it would accept.
+Sign-ins ended after the backup was taken are valid again in a restore, so after
+restoring a real workspace, ask people to look at their signed-in devices and
+end any they had already ended.
+Settings given on the command line or in the environment are not in a backup:
+`--public-url`, `--retention-days`, `--storage-limit-mb`, `--allow-private-hooks`,
+`--trust-proxy`, `GATHERLINE_ICE_SERVERS`, and any proxy or certificate in front
+of the server. Note them where you keep the backup.
 
 `restore` verifies the backup, stages and re-verifies it beside the target, and only then swaps
 it in; the previous data directory is renamed to `data.superseded-<timestamp>`
 rather than deleted. Stop the server before restoring. A backup from a newer
 server than the one restoring it is refused instead of half-applied.
+
+To check that a backup really holds what you need, restore it into a new
+directory and start that copy with `--isolated`:
+
+```sh
+slackoss-server restore --from ./backups/2026-09-06 --data ./restore-check
+slackoss-server --data ./restore-check --isolated --port 8600
+```
+
+The copy holds the original's apps, their signing secrets and its queue of
+scheduled messages. Started normally, it would post messages that were due a
+second time and call the same apps as the same workspace. An isolated start posts
+no scheduled message, delivers no app event, answers slash commands and buttons
+with "this is an isolated copy of the workspace, which does not contact apps", and
+does not announce itself on the local network. It listens on this machine only
+unless `--host` says otherwise. Sign in, read, search and open attachments as
+usual. What it holds back stays queued, so delete the copy when you are done
+rather than starting it normally, or the queue goes out from there.
 
 Store backups away from the host, encrypted. For Docker, run the same commands
 inside the container against the mounted volume.
