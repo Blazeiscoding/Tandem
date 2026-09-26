@@ -4,7 +4,7 @@ import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss
 import { ClientContext, OpenMessageContext, useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import { channelTitle } from "../lib/format.js";
-import { Sidebar } from "../components/Sidebar.js";
+import { Sidebar, type OtherWorkspace } from "../components/Sidebar.js";
 import { JumpToLatestBar, MessageTimeline } from "../components/MessageTimeline.js";
 import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
@@ -70,6 +70,9 @@ interface Props {
   initialTarget?: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
   onSignedOut: () => void;
+  /** This device's other saved workspaces, for the sidebar's switcher. */
+  otherWorkspaces?: OtherWorkspace[];
+  onOpenWorkspace?: (url: string) => void;
 }
 
 type DialogKind =
@@ -104,6 +107,8 @@ export function WorkspaceScreen({
   initialTarget,
   onLeaveWorkspace,
   onSignedOut,
+  otherWorkspaces,
+  onOpenWorkspace,
 }: Props) {
   return (
     <ClientContext.Provider value={client}>
@@ -126,6 +131,8 @@ export function WorkspaceScreen({
                 initialTarget={initialTarget ?? null}
                 onLeaveWorkspace={onLeaveWorkspace}
                 onSignedOut={onSignedOut}
+                otherWorkspaces={otherWorkspaces}
+                onOpenWorkspace={onOpenWorkspace}
               />
             </ShareableServerProvider>
           </WorkspaceStorageGate>
@@ -140,11 +147,15 @@ function WorkspaceInner({
   initialTarget,
   onLeaveWorkspace,
   onSignedOut,
+  otherWorkspaces,
+  onOpenWorkspace,
 }: {
   platform: Platform;
   initialTarget: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
   onSignedOut: () => void;
+  otherWorkspaces?: OtherWorkspace[];
+  onOpenWorkspace?: (url: string) => void;
 }) {
   const status = useWorkspace((s) => s.status);
   const channels = useWorkspace((s) => s.channels);
@@ -555,6 +566,8 @@ function WorkspaceInner({
         onNewDm={() => setDialog({ kind: "new-dm" })}
         onInvite={() => setDialog({ kind: "invite" })}
         onSwitchWorkspace={onLeaveWorkspace}
+        otherWorkspaces={otherWorkspaces}
+        onOpenWorkspace={onOpenWorkspace}
         onEditProfile={() => setDialog({ kind: "account", section: "profile" })}
         onAccountSettings={() => setDialog({ kind: "account" })}
         onManageApps={

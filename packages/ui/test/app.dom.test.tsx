@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import { App } from "../src/App.js";
 import type { HostingStatus, Platform, SavedServer } from "../src/platform.js";
@@ -109,5 +110,82 @@ describe("reopening a workspace this computer hosted", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/public link stopped working/);
     expect(screen.getByRole("alert")).not.toHaveTextContent(/settings could not be saved/);
     expect(screen.getByRole("button", { name: "Manage hosting" })).toBeVisible();
+  });
+});
+
+describe("switching workspace from the sidebar", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("opens another saved workspace with its own sign-in, and closes the one it leaves", async () => {
+    // jsdom has no media queries; the workspace screen asks whether the window is wide.
+    vi.stubGlobal("matchMedia", () => ({
+      matches: true,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const connect = vi.spyOn(WorkspaceClient.prototype, "connect").mockImplementation(() => {});
+    const destroy = vi.spyOn(WorkspaceClient.prototype, "destroy");
+    const design: SavedServer = {
+      url: "http://127.0.0.1:10",
+      token: "design-token-not-a-credential",
+      workspaceName: "Design Guild",
+      handle: "sam",
+      lastUsedAt: 0,
+    };
+    const saved: SavedServer[][] = [];
+    render(
+      <App
+        platform={{
+          kind: "web",
+          storage: {
+            get: async <T,>(key: string) =>
+              (key === "servers" ? [rocket, design] : null) as T | null,
+            set: async (key: string, value: unknown) => {
+              if (key === "servers") saved.push(value as SavedServer[]);
+            },
+          },
+          notify: () => {},
+        }}
+      />,
+    );
+    await waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    const first = connect.mock.contexts[0] as WorkspaceClient;
+    expect(first.baseUrl).toBe(rocket.url);
+    // The first client never connects, so the sidebar knows the workspace by
+    // what the saved sign-in called it.
+    act(() =>
+      first.store.setState({
+        status: "online",
+        workspaceName: "Rocket Team",
+        self: {
+          id: "U_SAM",
+          handle: "sam",
+          displayName: "Sam Rivera",
+          role: "member",
+          statusText: "",
+          statusEmoji: "",
+          isBot: false,
+          deactivated: false,
+          dndUntil: null,
+          createdAt: 0,
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Rocket Team, switch workspace" }));
+    await user.click(screen.getByRole("menuitem", { name: "Design Guild · @sam" }));
+
+    await waitFor(() => expect(connect).toHaveBeenCalledTimes(2));
+    const second = connect.mock.contexts[1] as WorkspaceClient;
+    expect(second.baseUrl).toBe(design.url);
+    // Its own saved sign-in, not the one it left.
+    expect((second as unknown as { token: string }).token).toBe(design.token);
+    expect(destroy.mock.contexts).toContain(first);
+    // The workspace just opened is now the most recently used.
+    await waitFor(() => expect(saved.at(-1)?.map((s) => s.url)).toEqual([design.url, rocket.url]));
   });
 });
