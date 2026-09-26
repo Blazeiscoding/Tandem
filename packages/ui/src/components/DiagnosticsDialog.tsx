@@ -3,7 +3,8 @@ import type { ServerInfo } from "@slackoss/protocol";
 import { useClient, usePlatform } from "../context.js";
 import { diagnosticsReport } from "../lib/diagnostics.js";
 import { useCopy } from "../lib/useCopy.js";
-import { Dialog, primaryBtnCls } from "./Dialog.js";
+import { Dialog } from "./Dialog.js";
+import { buttonClass } from "./Button.js";
 
 /**
  * What to send whoever helps when something is wrong. It shows the whole
@@ -77,7 +78,7 @@ export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
       )}
       <div className="mt-4 flex justify-end">
         <button
-          className={primaryBtnCls}
+          className={buttonClass("primary")}
           disabled={!report}
           onClick={() => report && void copy(report)}
         >

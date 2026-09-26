@@ -12,6 +12,7 @@ import { BrandMark, Icon } from "../components/Icon.js";
 import { Tooltip } from "../components/Tooltip.js";
 import { connectionFailure, host, incompatibleWorkspace } from "../lib/connection.js";
 import { resumeTarget } from "../lib/resume.js";
+import { buttonClass } from "../components/Button.js";
 
 interface Props {
   platform: Platform;
@@ -508,7 +509,7 @@ function BrowseCard(props: {
           <button
             type="submit"
             disabled={!address.trim() || props.probing !== null}
-            className="rounded-lg bg-copper px-4 py-2.5 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+            className={buttonClass("primary")}
           >
             Connect
           </button>

@@ -3,9 +3,10 @@ import { useCopy } from "../lib/useCopy.js";
 import type { EventSubscription, ID } from "@slackoss/protocol";
 import { ApiError, type AppDetail } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
 import { useConfirm } from "./Confirm.js";
 import { ListStatus } from "./ListStatus.js";
+import { buttonClass } from "./Button.js";
 
 /** What an integration can rely on from this server, and where it differs from Slack. */
 const INTEGRATION_CONTRACT_URL =
@@ -248,7 +249,7 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
           placeholder="App name, e.g. Deploy Bot"
           className={inputCls}
         />
-        <button type="submit" disabled={busy || !name.trim()} className={primaryBtnCls}>
+        <button type="submit" disabled={busy || !name.trim()} className={buttonClass("primary")}>
           Create
         </button>
       </form>

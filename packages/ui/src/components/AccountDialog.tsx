@@ -8,12 +8,11 @@ import { useComposerPreferences } from "../lib/composerPreferences.js";
 import type { AccountSection } from "../lib/accountSections.js";
 import { resumeTime, snoozeOptions } from "../lib/snooze.js";
 import { DENSITIES, THEMES, useAppearance, type Theme } from "../lib/appearance.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
 import { ProfileForm } from "./ProfileDialog.js";
+import { buttonClass } from "./Button.js";
 
-const button =
-  "rounded-lg border border-edge px-3 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink disabled:opacity-40";
 type Confirmation =
   { kind: "device"; session: SessionInfo } | { kind: "others" } | { kind: "signout" };
 
@@ -356,7 +355,7 @@ export function AccountDialog({
                       />
                       Show passwords
                     </label>
-                    <button className={primaryBtnCls} type="submit">
+                    <button className={buttonClass("primary")} type="submit">
                       {busy && !confirmation ? "Saving…" : "Update password"}
                     </button>
                   </fieldset>
@@ -374,7 +373,7 @@ export function AccountDialog({
                   sign-in.
                 </p>
                 <button
-                  className={button}
+                  className={buttonClass("secondary")}
                   disabled={busy || confirmation !== null}
                   onClick={() => askToConfirm({ kind: "signout" })}
                 >
@@ -389,7 +388,11 @@ export function AccountDialog({
                 <h3 id="account-devices-title" className="font-semibold">
                   Signed-in devices
                 </h3>
-                <button className={button} disabled={busy || loading} onClick={() => void load()}>
+                <button
+                  className={buttonClass("secondary")}
+                  disabled={busy || loading}
+                  onClick={() => void load()}
+                >
                   Refresh
                 </button>
               </div>
@@ -432,7 +435,7 @@ export function AccountDialog({
                     </div>
                     {!session.current && (
                       <button
-                        className={button}
+                        className={buttonClass("secondary")}
                         disabled={busy || confirmation !== null}
                         aria-label={`Sign out ${deviceLabel(session.userAgent)}, signed in ${new Date(session.createdAt).toLocaleString()}`}
                         onClick={() => askToConfirm({ kind: "device", session })}
@@ -445,7 +448,7 @@ export function AccountDialog({
               </ul>
               {otherSessions.length > 0 && (
                 <button
-                  className={`${button} mt-3`}
+                  className={buttonClass("secondary", "mt-3")}
                   disabled={busy || confirmation !== null}
                   onClick={() => askToConfirm({ kind: "others" })}
                 >
@@ -475,10 +478,18 @@ export function AccountDialog({
                   : "Affected devices will need to sign in again. Your current device stays connected."}
               </p>
               <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <button className={button} disabled={busy} onClick={() => setConfirmation(null)}>
+                <button
+                  className={buttonClass("secondary")}
+                  disabled={busy}
+                  onClick={() => setConfirmation(null)}
+                >
                   Cancel
                 </button>
-                <button className={primaryBtnCls} disabled={busy} onClick={() => void confirm()}>
+                <button
+                  className={buttonClass("primary")}
+                  disabled={busy}
+                  onClick={() => void confirm()}
+                >
                   {busy ? "Signing out…" : "Confirm sign out"}
                 </button>
               </div>
@@ -535,7 +546,11 @@ function NotificationSettings() {
                   : "Notifications are off in this browser. Turn them on to hear about mentions while Gatherline is in the background."}
         </p>
         {platform.kind !== "desktop" && permission === "default" && (
-          <button className={`${button} mt-3`} disabled={asking} onClick={() => void ask()}>
+          <button
+            className={buttonClass("secondary", "mt-3")}
+            disabled={asking}
+            onClick={() => void ask()}
+          >
             {asking ? "Turning on…" : "Turn on notifications"}
           </button>
         )}
@@ -551,14 +566,17 @@ function NotificationSettings() {
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {paused ? (
-            <button className={button} onClick={() => client.snoozeNotificationsUntil(null)}>
+            <button
+              className={buttonClass("secondary")}
+              onClick={() => client.snoozeNotificationsUntil(null)}
+            >
               Resume notifications
             </button>
           ) : (
             snoozeOptions(now).map((option) => (
               <button
                 key={option.label}
-                className={button}
+                className={buttonClass("secondary")}
                 aria-label={
                   option.label.startsWith("Until")
                     ? `Pause ${option.label.toLowerCase()}`
@@ -714,7 +732,7 @@ function WorkspaceStorage() {
         </p>
       )}
       <button
-        className={`${button} mt-2`}
+        className={buttonClass("secondary", "mt-2")}
         disabled={loading}
         onClick={() => setAttempt((n) => n + 1)}
       >

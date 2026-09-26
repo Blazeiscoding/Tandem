@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar, PresenceDot } from "./Avatar.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
+import { buttonClass } from "./Button.js";
 
 export function FriendActions({ userId }: { userId: ID }) {
   const client = useClient();
@@ -25,12 +26,20 @@ export function FriendActions({ userId }: { userId: ID }) {
     <div>
       <div className="flex flex-wrap gap-2">
         {!relationship && (
-          <button disabled={busy} onClick={() => void update("request")} className={primaryBtnCls}>
+          <button
+            disabled={busy}
+            onClick={() => void update("request")}
+            className={buttonClass("primary")}
+          >
             Add friend
           </button>
         )}
         {relationship?.status === "incoming" && (
-          <button disabled={busy} onClick={() => void update("accept")} className={primaryBtnCls}>
+          <button
+            disabled={busy}
+            onClick={() => void update("accept")}
+            className={buttonClass("primary")}
+          >
             Accept
           </button>
         )}

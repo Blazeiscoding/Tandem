@@ -3,8 +3,9 @@ import { ApiError } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
 import { FriendActions } from "./FriendsDialog.js";
+import { buttonClass } from "./Button.js";
 
 /** Someone else's profile, with a shortcut to open a DM with them. */
 export function ProfileDialog(props: {
@@ -81,7 +82,7 @@ export function ProfileDialog(props: {
           // Not `disabled`, so focus stays on the button while it works and it can try again.
           aria-disabled={opening || undefined}
           onClick={() => void message(user.id, user.displayName)}
-          className={`${primaryBtnCls} mt-4 w-full aria-disabled:opacity-60`}
+          className={buttonClass("primary", "mt-4 w-full aria-disabled:opacity-60")}
         >
           {opening ? "Opening…" : `Message ${user.displayName}`}
         </button>
@@ -225,7 +226,7 @@ export function ProfileForm() {
       <p role="status" className="text-sm text-online empty:hidden">
         {saved ? "Profile saved." : ""}
       </p>
-      <button type="submit" disabled={busy} className={`${primaryBtnCls} w-full`}>
+      <button type="submit" disabled={busy} className={buttonClass("primary", "w-full")}>
         {busy ? "Saving…" : "Save profile"}
       </button>
     </form>

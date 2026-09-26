@@ -4,11 +4,12 @@ import { parseSearchQuery } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { useRecentSearches, type RecentSearch } from "../lib/recentSearches.js";
 import { channelTitle, formatTime } from "../lib/format.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { isImeKey } from "../lib/textInput.js";
 import { Icon } from "./Icon.js";
 import { ListStatus } from "./ListStatus.js";
+import { buttonClass } from "./Button.js";
 
 const MODIFIER_HELP = [
   { token: "from:@name", what: "by one person" },
@@ -171,7 +172,7 @@ export function SearchDialog(props: {
           />
           <button
             type="submit"
-            className={primaryBtnCls}
+            className={buttonClass("primary")}
             disabled={busy || (!query && !scope) || query.length > 200}
           >
             Search

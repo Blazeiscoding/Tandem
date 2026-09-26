@@ -7,7 +7,8 @@ import {
   trustWorkspaceAddress,
   type WorkspaceAddressAccess,
 } from "../lib/workspaceAddressTrust.js";
-import { Dialog, primaryBtnCls } from "./Dialog.js";
+import { Dialog } from "./Dialog.js";
+import { buttonClass } from "./Button.js";
 
 interface Props {
   platform: Platform;
@@ -141,16 +142,12 @@ export function WorkspaceStorageGate({
               messages may be sent automatically, and scheduling recovery becomes available.
             </p>
             <div className="flex flex-wrap justify-end gap-2 pt-1">
-              <button
-                type="button"
-                className="rounded-lg px-3 py-2 text-sm hover:bg-lifted"
-                onClick={onLeaveWorkspace}
-              >
+              <button type="button" className={buttonClass("quiet")} onClick={onLeaveWorkspace}>
                 Back to workspaces
               </button>
               <button
                 type="button"
-                className={primaryBtnCls}
+                className={buttonClass("primary")}
                 disabled={current?.phase === "saving"}
                 onClick={() => approve.current?.()}
               >
@@ -163,15 +160,15 @@ export function WorkspaceStorageGate({
         <div className="max-w-md space-y-4 text-center">
           <p role={current?.phase === "error" ? "alert" : "status"}>{current?.error ?? waiting}</p>
           <div className="flex flex-wrap justify-center gap-2">
-            <button
-              type="button"
-              className="rounded-lg px-3 py-2 text-sm hover:bg-lifted"
-              onClick={onLeaveWorkspace}
-            >
+            <button type="button" className={buttonClass("quiet")} onClick={onLeaveWorkspace}>
               Back to workspaces
             </button>
             {current?.phase === "error" && (
-              <button type="button" className={primaryBtnCls} onClick={() => retry.current?.()}>
+              <button
+                type="button"
+                className={buttonClass("primary")}
+                onClick={() => retry.current?.()}
+              >
                 Retry
               </button>
             )}

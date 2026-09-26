@@ -9,7 +9,8 @@ import type {
 import { useHostingStatus } from "../lib/hosting.js";
 import { useCopy } from "../lib/useCopy.js";
 import { formatDay, formatTime } from "../lib/format.js";
-import { Dialog, inputCls, primaryBtnCls } from "./Dialog.js";
+import { Dialog, inputCls } from "./Dialog.js";
+import { buttonClass } from "./Button.js";
 
 type Hosting = NonNullable<Platform["hosting"]>;
 
@@ -604,7 +605,7 @@ export function HostDialog(props: {
                           status.openToAll?.phase === "opening"
                         }
                         onClick={() => void openToAll()}
-                        className={`${primaryBtnCls} mt-3 w-full`}
+                        className={buttonClass("primary", "mt-3 w-full")}
                       >
                         {busy === "opening" || status.openToAll?.phase === "opening"
                           ? "Opening public link…"
@@ -648,7 +649,7 @@ export function HostDialog(props: {
                 type="button"
                 disabled={unavailable}
                 onClick={() => void stop()}
-                className="rounded-lg bg-alert px-4 py-2.5 text-sm font-semibold text-ground disabled:opacity-40"
+                className={buttonClass("danger")}
               >
                 {busy === "stopping" || phase === "stopping" ? "Stopping…" : "Stop hosting"}
               </button>
@@ -665,7 +666,7 @@ export function HostDialog(props: {
             {!props.viewingHosted && (
               <button
                 type="button"
-                className={primaryBtnCls}
+                className={buttonClass("primary")}
                 disabled={unavailable || !status.running || status.port === undefined}
                 onClick={() => props.onStarted(status)}
               >
@@ -800,7 +801,7 @@ export function HostDialog(props: {
             <button
               type="submit"
               disabled={!name.trim() || unavailable}
-              className={`${primaryBtnCls} w-full`}
+              className={buttonClass("primary", "w-full")}
             >
               {busy === "starting"
                 ? "Starting…"

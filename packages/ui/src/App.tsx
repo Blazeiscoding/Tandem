@@ -5,11 +5,12 @@ import type { Platform, SavedServer } from "./platform.js";
 import { parseDeepLink } from "./lib/deeplink.js";
 import { JoinScreen } from "./screens/JoinScreen.js";
 import { WorkspaceScreen } from "./screens/WorkspaceScreen.js";
-import { Dialog, primaryBtnCls } from "./components/Dialog.js";
+import { Dialog } from "./components/Dialog.js";
 import { Icon } from "./components/Icon.js";
 import { LazyDialog } from "./components/LazyView.js";
 import { useHostingStatus, useLastHosted } from "./lib/hosting.js";
 import { useApplyAppearance } from "./lib/appearance.js";
+import { buttonClass } from "./components/Button.js";
 
 // Only the desktop app hosts, and only now and then, so its dialog loads on first use.
 const HostDialog = lazy(() =>
@@ -347,14 +348,14 @@ export function App({ platform }: { platform: Platform }) {
                   <div className="mt-7 flex flex-wrap justify-center gap-2">
                     <button
                       type="button"
-                      className={primaryBtnCls}
+                      className={buttonClass("primary")}
                       onClick={() => void restoreServers()}
                     >
                       Try again
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-edge px-3 py-2 text-sm hover:bg-lifted"
+                      className={buttonClass("secondary")}
                       onClick={() => {
                         setForgetError(false);
                         setForgetConfirm(true);
@@ -456,7 +457,7 @@ export function App({ platform }: { platform: Platform }) {
                 <div className="mt-5 flex justify-end gap-2">
                   <button
                     type="button"
-                    className="rounded-lg px-3 py-2 text-sm hover:bg-lifted"
+                    className={buttonClass("quiet")}
                     disabled={forgetBusy}
                     onClick={() => setForgetConfirm(false)}
                   >
@@ -464,7 +465,7 @@ export function App({ platform }: { platform: Platform }) {
                   </button>
                   <button
                     type="button"
-                    className={primaryBtnCls}
+                    className={buttonClass("primary")}
                     disabled={forgetBusy}
                     onClick={() => void forgetSavedSignIns()}
                   >
