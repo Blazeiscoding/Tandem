@@ -93,6 +93,9 @@ export function Sidebar(props: Props) {
   return (
     <nav
       aria-label="Workspace navigation"
+      // On a phone this is a drawer, closed by the time a panel opened from it
+      // closes; focus then goes to the button that opens the drawer.
+      data-focus-fallback="open-navigation"
       className="workspace-sidebar flex h-full shrink-0 flex-col border-r border-edge bg-raised"
     >
       <header className="titlebar-drag flex h-[76px] shrink-0 items-center gap-3 border-b border-edge px-4">

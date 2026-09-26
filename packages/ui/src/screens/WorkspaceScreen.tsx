@@ -771,6 +771,7 @@ function WorkspaceInner({
         )}
         <header className="channel-header titlebar-drag flex h-[76px] shrink-0 items-center gap-3 border-b border-edge px-5">
           <button
+            id="open-navigation"
             className="mobile-nav-toggle rounded-lg p-2 text-ink-dim hover:bg-lifted"
             aria-label="Open navigation"
             aria-expanded={sidebarOpen}

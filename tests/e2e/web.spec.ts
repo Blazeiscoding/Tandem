@@ -865,6 +865,9 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   // Opened from the navigation rather than a toggle, the panel takes focus.
   await expect(page.getByRole("heading", { name: "Saved", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
+  // The drawer that opened it is closed by now, so focus goes to the button
+  // that opens the drawer rather than dropping to the page.
+  await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeFocused();
   await composer.fill("Sent from a small window");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(page.getByText("Sent from a small window", { exact: true })).toBeInViewport();
@@ -909,7 +912,11 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   const channelRow = page
     .getByRole("navigation")
     .getByRole("button", { name: /^#\s*design-studio\b/ });
-  await page.getByRole("navigation").evaluate((nav) => nav.scrollBy(0, 150));
+  // By however far the row sits below the window: what comes before it in the
+  // drawer, such as an owner's first steps, varies with who is signed in.
+  await channelRow.evaluate((row) =>
+    row.closest("nav")!.scrollBy(0, row.getBoundingClientRect().bottom - innerHeight + 40),
+  );
   await expect(channelRow).toBeInViewport();
   await page.screenshot({ path: info.outputPath("gatherline-short-landscape-scrolled.png") });
   await channelRow.click();

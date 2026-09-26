@@ -1261,3 +1261,9 @@ Its first run found a real fault. Between 761 and 1023 px wide, the 264 px sideb
 ### One shared button (U03)
 
 U03's last open piece. The primary button's classes lived in Dialog.tsx and were copied by hand into the sign-in screen; the destructive one lived in Confirm.tsx and again, slightly different, in the host dialog; the secondary one was a local constant in Account settings; and Cancel buttons were written out inline. `packages/ui/src/components/Button.tsx` now holds the four kinds, primary, secondary, danger and quiet, as `buttonClass()` and a `Button` component, and every copy uses it. The classes are the ones already in use, so nothing moves on screen, except that the host dialog's destructive button now darkens on hover like the rest. `Button` keeps a native button's default type, so one in a form still submits it. A test fails if the primary or danger styles are written anywhere else again. It found the two copies the first pass missed. With this, U03 is done.
+
+### Focus after a panel opened from the phone drawer, and Phase 1 done (U04)
+
+On a phone, Saved opened from the navigation drawer handed focus back, on closing, to its button inside the drawer, which had closed by then, so focus dropped to the page. `usePanelFocus` now reads `data-focus-fallback` on the nearest container of the opener, the id of a control to focus when nothing nearer can take it, and the sidebar names the button that opens the drawer. The narrow-window scenario's drawer step scrolled a fixed 150 px, which fell short when the scenario ran alone, on `main` too, because its account is then the owner and the first-steps list sits above the channels; it scrolls by the row's position now.
+
+With this, phase 1 of the remaining-work plan is done: navigation, shared components, keyboard and screen-reader access, responsive layouts, the visual system, and onboarding and help, in PRs #95 to #110.

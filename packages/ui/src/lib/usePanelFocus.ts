@@ -44,10 +44,15 @@ export function usePanelFocus({ takeFocus }: { takeFocus: boolean }) {
 /**
  * Focuses the control that opened the panel. A message's toolbar shows only
  * while the message has the pointer or focus, so its button may not take focus
- * once the thread has closed; the message it belongs to can.
+ * once the thread has closed; the message it belongs to can. Something that
+ * hides what it holds, such as the phone's drawer, names in
+ * `data-focus-fallback` the control to use instead.
  */
 function handBack(opener: HTMLElement) {
   opener.focus({ preventScroll: true });
   if (document.activeElement === opener) return;
   opener.parentElement?.closest<HTMLElement>("[tabindex]")?.focus({ preventScroll: true });
+  if (document.activeElement !== document.body && document.activeElement !== null) return;
+  const fallback = opener.closest<HTMLElement>("[data-focus-fallback]")?.dataset.focusFallback;
+  if (fallback) document.getElementById(fallback)?.focus({ preventScroll: true });
 }
