@@ -841,6 +841,24 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(page).toHaveURL(conversation);
   await expect(page.getByRole("navigation")).not.toBeVisible();
   await expect(page.getByRole("complementary", { name: "Saved", exact: true })).toHaveCount(0);
+  // On a phone the formatting buttons fold behind one, leaving the row to the message.
+  const bold = page.getByRole("button", { name: "Bold", exact: true });
+  const formatting = page.getByRole("button", { name: "Formatting", exact: true });
+  await expect(bold).toBeHidden();
+  await formatting.click();
+  await expect(bold).toBeVisible();
+  await expect(formatting).toHaveAttribute("aria-expanded", "true");
+  await formatting.click();
+  await expect(bold).toBeHidden();
+  // A panel covers the conversation there, so it takes focus even from its
+  // toggle, and what it covers is out of reach until it closes.
+  const pinsToggle = page.getByRole("button", { name: "Pinned messages", exact: true });
+  await pinsToggle.click();
+  await expect(page.getByRole("heading", { name: "Pinned", exact: true })).toBeFocused();
+  await expect(page.locator("main")).toHaveAttribute("inert", "");
+  await page.getByRole("button", { name: "Close Pinned", exact: true }).click();
+  await expect(page.locator("main")).not.toHaveAttribute("inert");
+  await expect(pinsToggle).toBeFocused();
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   await page.getByRole("button", { name: "Saved", exact: true }).click();
   await expect(page.getByRole("navigation")).not.toBeVisible();

@@ -29,6 +29,7 @@ import { hasOpenModal } from "../components/Modal.js";
 import { Tooltip } from "../components/Tooltip.js";
 import { isImeKey } from "../lib/textInput.js";
 import { useLastConversation } from "../lib/lastConversation.js";
+import { useMediaQuery } from "../lib/useMediaQuery.js";
 import {
   ROUTE_VIEWS,
   currentRoute,
@@ -246,6 +247,11 @@ function WorkspaceInner({
    * leaves the conversation as it would have before.
    */
   const drawerStep = useRef(false);
+  // On a phone a side panel covers the conversation, as theme.css lays it
+  // out, so what it covers leaves the Tab order and the screen reader's
+  // reading as the page does behind a dialog.
+  const narrow = useMediaQuery("(max-width: 760px)");
+  const panelCovers = narrow && panel.kind !== "none";
   const closeDrawer = useCallback(() => {
     if (drawerStep.current) {
       drawerStep.current = false;
@@ -717,7 +723,7 @@ function WorkspaceInner({
         connectionLabel={connectionLabel}
       />
 
-      <main inert={sidebarOpen} className="flex min-w-0 flex-1 flex-col">
+      <main inert={sidebarOpen || panelCovers} className="flex min-w-0 flex-1 flex-col">
         <NotificationBanner storage={platform.storage} />
         {navigating && (
           <p role="status" className="px-5 py-2 text-sm text-ink-faint">

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { findEmoji } from "../lib/emoji.js";
 import { isImeKey } from "../lib/textInput.js";
 import { useListbox } from "../lib/useListbox.js";
@@ -51,6 +51,10 @@ interface Props {
 
 export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview }: Props) {
   const [open, setOpen] = useState(false);
+  // On a phone the formatting buttons fold away behind one, so the row
+  // leaves room for what is being written. theme.css does the folding.
+  const [expanded, setExpanded] = useState(false);
+  const buttonsId = useId();
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const matches = findEmoji(query);
@@ -66,41 +70,60 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
         aria-label="Message formatting"
         className="flex flex-wrap items-center gap-0.5 border-b border-edge px-2 py-1 text-sm text-ink-dim"
       >
-        {[
-          { label: "Bold", symbol: "B", marker: "*", style: "font-bold", keys: "Ctrl/Cmd+B" },
-          { label: "Italic", symbol: "I", marker: "_", style: "italic", keys: "Ctrl/Cmd+I" },
-          { label: "Strikethrough", symbol: "S", marker: "~", style: "line-through" },
-          {
-            label: "Inline code",
-            symbol: "</>",
-            marker: "`",
-            style: "font-mono text-xs",
-            keys: "Ctrl/Cmd+E",
-          },
-        ].map((item) => (
-          <Tooltip key={item.label} label={item.label} keys={item.keys}>
-            <button
-              type="button"
-              aria-label={item.label}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onFormat(item.marker, "text")}
-              className={`rounded px-2 py-1 hover:bg-lifted ${item.style}`}
-            >
-              {item.symbol}
-            </button>
-          </Tooltip>
-        ))}
-        <Tooltip label="Code block">
+        <Tooltip label={expanded ? "Hide formatting" : "Formatting"}>
           <button
             type="button"
-            aria-label="Code block"
+            aria-label="Formatting"
+            aria-expanded={expanded}
+            aria-controls={buttonsId}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onFormat("```", "code", true)}
-            className="rounded px-2 py-1 font-mono text-xs hover:bg-lifted"
+            onClick={() => setExpanded((v) => !v)}
+            className="formatting-toggle items-center rounded px-2 py-1 text-xs font-semibold hover:bg-lifted"
           >
-            {"{ }"}
+            Aa
           </button>
         </Tooltip>
+        <span
+          id={buttonsId}
+          className="formatting-buttons contents"
+          data-expanded={expanded || undefined}
+        >
+          {[
+            { label: "Bold", symbol: "B", marker: "*", style: "font-bold", keys: "Ctrl/Cmd+B" },
+            { label: "Italic", symbol: "I", marker: "_", style: "italic", keys: "Ctrl/Cmd+I" },
+            { label: "Strikethrough", symbol: "S", marker: "~", style: "line-through" },
+            {
+              label: "Inline code",
+              symbol: "</>",
+              marker: "`",
+              style: "font-mono text-xs",
+              keys: "Ctrl/Cmd+E",
+            },
+          ].map((item) => (
+            <Tooltip key={item.label} label={item.label} keys={item.keys}>
+              <button
+                type="button"
+                aria-label={item.label}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onFormat(item.marker, "text")}
+                className={`rounded px-2 py-1 hover:bg-lifted ${item.style}`}
+              >
+                {item.symbol}
+              </button>
+            </Tooltip>
+          ))}
+          <Tooltip label="Code block">
+            <button
+              type="button"
+              aria-label="Code block"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onFormat("```", "code", true)}
+              className="rounded px-2 py-1 font-mono text-xs hover:bg-lifted"
+            >
+              {"{ }"}
+            </button>
+          </Tooltip>
+        </span>
         <Tooltip label="Insert emoji">
           <button
             ref={trigger}

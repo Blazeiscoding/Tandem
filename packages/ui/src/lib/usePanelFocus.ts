@@ -9,7 +9,8 @@ import { useEffect, useRef, useState } from "react";
  * reads. A panel whose first job is typing, such as a thread, focuses its own
  * box instead and leaves this off. A toggle that opened the panel keeps focus,
  * as a disclosure button does: it stays on screen, says the panel is open, and
- * closes it again.
+ * closes it again. On a phone the panel covers everything, the toggle
+ * included, and the page beneath goes inert, so there the heading takes focus.
  */
 export function usePanelFocus({ takeFocus }: { takeFocus: boolean }) {
   const panel = useRef<HTMLElement>(null);
@@ -23,7 +24,8 @@ export function usePanelFocus({ takeFocus }: { takeFocus: boolean }) {
 
   useEffect(() => {
     const toggle = opener?.hasAttribute("aria-pressed") || opener?.hasAttribute("aria-expanded");
-    if (takeFocus && !toggle) heading.current?.focus({ preventScroll: true });
+    const covered = !!opener?.closest("[inert]");
+    if (takeFocus && (!toggle || covered)) heading.current?.focus({ preventScroll: true });
     const element = panel.current;
     return () => {
       // Only focus that went with the panel comes back; somebody who has
