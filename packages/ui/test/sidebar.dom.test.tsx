@@ -102,6 +102,50 @@ describe("the workspace menu", () => {
   });
 });
 
+describe("help in the workspace menu", () => {
+  it("offers the shortcut sheet and diagnostics when the screen can open them", async () => {
+    const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
+    client.store.setState({ self: sam, users: { U_SAM: sam }, status: "online" });
+    const opened: string[] = [];
+    render(
+      <ClientContext.Provider value={client}>
+        <Sidebar
+          activeChannelId={null}
+          onSelect={vi.fn()}
+          onBrowseChannels={vi.fn()}
+          onNewChannel={vi.fn()}
+          onNewDm={vi.fn()}
+          onFriends={vi.fn()}
+          onSearch={vi.fn()}
+          onSaved={vi.fn()}
+          onScheduled={vi.fn()}
+          onActivity={vi.fn()}
+          onThreads={vi.fn()}
+          onEditProfile={vi.fn()}
+          onInvite={vi.fn()}
+          onSwitchWorkspace={vi.fn()}
+          onAccountSettings={vi.fn()}
+          onShortcuts={() => opened.push("shortcuts")}
+          onDiagnostics={() => opened.push("diagnostics")}
+          connectionLabel={null}
+        />
+      </ClientContext.Provider>,
+    );
+    const user = userEvent.setup();
+    const { items } = await workspaceMenu(user);
+    expect(items).toEqual([
+      "Invite people",
+      "Account settings",
+      "Keyboard shortcuts",
+      "Diagnostics",
+    ]);
+    await user.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
+    await workspaceMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Diagnostics" }));
+    expect(opened).toEqual(["shortcuts", "diagnostics"]);
+  });
+});
+
 describe("the workspace switcher", () => {
   const others: OtherWorkspace[] = [
     { url: "https://design.example", name: "Design Guild", handle: "sam" },

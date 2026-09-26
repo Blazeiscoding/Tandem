@@ -25,6 +25,8 @@ interface Props {
   onSwitchWorkspace: () => void;
   onEditProfile: () => void;
   onAccountSettings: () => void;
+  onShortcuts?: () => void;
+  onDiagnostics?: () => void;
   /** Admins only; absent for members. */
   onManageApps?: () => void;
   onManagePeople?: () => void;
@@ -294,6 +296,8 @@ export function Sidebar(props: Props) {
           onManagePeople={props.onManagePeople}
           onManageApps={props.onManageApps}
           onAccountSettings={props.onAccountSettings}
+          onShortcuts={props.onShortcuts}
+          onDiagnostics={props.onDiagnostics}
         />
       </footer>
     </nav>
@@ -310,6 +314,8 @@ function WorkspaceMenu(props: {
   onManagePeople?: () => void;
   onManageApps?: () => void;
   onAccountSettings: () => void;
+  onShortcuts?: () => void;
+  onDiagnostics?: () => void;
 }) {
   const items: MenuItem[] = [{ id: "invite", label: "Invite people", onSelect: props.onInvite }];
   if (props.onManagePeople)
@@ -317,6 +323,11 @@ function WorkspaceMenu(props: {
   if (props.onManageApps)
     items.push({ id: "apps", label: "Apps and integrations", onSelect: props.onManageApps });
   items.push({ id: "account", label: "Account settings", onSelect: props.onAccountSettings });
+  // Help: the shortcut sheet opened only with Ctrl+/, and nothing said so.
+  if (props.onShortcuts)
+    items.push({ id: "shortcuts", label: "Keyboard shortcuts", onSelect: props.onShortcuts });
+  if (props.onDiagnostics)
+    items.push({ id: "diagnostics", label: "Diagnostics", onSelect: props.onDiagnostics });
   return (
     <Menu
       label="Workspace"
