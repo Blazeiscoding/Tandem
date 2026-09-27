@@ -431,6 +431,51 @@ describe("slash commands", () => {
 });
 
 describe("outgoing event subscriptions", () => {
+  it("does not create a subscription after the verifying admin loses that role", async () => {
+    const created = await newApp("Demoted Subscription Admin");
+    server.store.updateUser(bob.id, { role: "admin" });
+    stub.handler = (req) => {
+      if (req.url === "/demoted-subscription") server.store.updateUser(bob.id, { role: "member" });
+      return {
+        body: JSON.stringify({
+          challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+        }),
+      };
+    };
+
+    try {
+      const result = await api<{ error: string }>(`/api/apps/${created.id}/subscriptions`, {
+        token: bobToken,
+        body: { url: stub.url("/demoted-subscription") },
+      });
+      expect(result.status).toBe(403);
+      expect(result.data.error).toBe("admin_only");
+      expect(server.store.listSubscriptions(created.id)).toEqual([]);
+    } finally {
+      server.store.updateUser(bob.id, { role: "member" });
+    }
+  });
+
+  it("does not create a subscription for an app deleted during verification", async () => {
+    const created = await newApp("Deleted Subscription App");
+    stub.handler = (req) => {
+      if (req.url === "/deleted-subscription") server.store.deleteApp(created.id);
+      return {
+        body: JSON.stringify({
+          challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+        }),
+      };
+    };
+
+    const result = await api<{ error: string }>(`/api/apps/${created.id}/subscriptions`, {
+      token: aliceToken,
+      body: { url: stub.url("/deleted-subscription") },
+    });
+    expect(result.status).toBe(404);
+    expect(result.data.error).toBe("not_found");
+    expect(server.store.listSubscriptions(created.id)).toEqual([]);
+  });
+
   it("requires the url_verification handshake before subscribing", async () => {
     const created = await newApp("Events Bot");
 
@@ -931,6 +976,62 @@ describe("interactive buttons", () => {
       return { body: JSON.stringify({ challenge: body.challenge }) };
     };
   };
+
+  it("does not save an interactivity URL after the verifying admin loses that role", async () => {
+    const created = await newApp("Demoted Interactivity Admin");
+    const previousUrl = stub.url("/existing-interactivity");
+    acceptVerification();
+    const initial = await api(`/api/apps/${created.id}/interactivity`, {
+      method: "PUT",
+      token: aliceToken,
+      body: { url: previousUrl },
+    });
+    expect(initial.status).toBe(200);
+
+    server.store.updateUser(bob.id, { role: "admin" });
+    stub.handler = (req) => {
+      if (req.url === "/demoted-interactivity") server.store.updateUser(bob.id, { role: "member" });
+      return {
+        body: JSON.stringify({
+          challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+        }),
+      };
+    };
+
+    try {
+      const result = await api<{ error: string }>(`/api/apps/${created.id}/interactivity`, {
+        method: "PUT",
+        token: bobToken,
+        body: { url: stub.url("/demoted-interactivity") },
+      });
+      expect(result.status).toBe(403);
+      expect(result.data.error).toBe("admin_only");
+      expect(server.store.getApp(created.id)?.interactivityUrl).toBe(previousUrl);
+    } finally {
+      server.store.updateUser(bob.id, { role: "member" });
+    }
+  });
+
+  it("does not save an interactivity URL for an app deleted during verification", async () => {
+    const created = await newApp("Deleted Interactivity App");
+    stub.handler = (req) => {
+      if (req.url === "/deleted-interactivity") server.store.deleteApp(created.id);
+      return {
+        body: JSON.stringify({
+          challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+        }),
+      };
+    };
+
+    const result = await api<{ error: string }>(`/api/apps/${created.id}/interactivity`, {
+      method: "PUT",
+      token: aliceToken,
+      body: { url: stub.url("/deleted-interactivity") },
+    });
+    expect(result.status).toBe(404);
+    expect(result.data.error).toBe("not_found");
+    expect(server.store.getApp(created.id)).toBeNull();
+  });
 
   it("carries a Block Kit actions block through to a pressable button", async () => {
     const created = await newApp("Deploy Bot");

@@ -343,6 +343,7 @@ describe("workspace server", () => {
     });
     expect(download.status).toBe(200);
     expect(download.headers.get("content-type")).toBe("image/png");
+    expect(download.headers.get("cache-control")).toBe("no-store");
     expect(Buffer.from(await download.arrayBuffer()).equals(png)).toBe(true);
 
     // Anonymous requests get nothing.

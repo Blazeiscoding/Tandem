@@ -1809,12 +1809,13 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         throw new HttpError(404, "file_not_found");
       }
       const encodedName = encodeURIComponent(file.name);
-      // Content is immutable once uploaded, so let clients cache it hard.
+      // A member can lose access after a download. A fresh request must reach
+      // the server so the current session and channel permissions are checked.
       return reply
         .header("content-type", file.mime)
         .header("x-content-type-options", "nosniff")
         .header("content-length", String(file.size))
-        .header("cache-control", ticket ? "no-store" : "private, max-age=31536000, immutable")
+        .header("cache-control", "no-store")
         .header("referrer-policy", "no-referrer")
         .header("accept-ranges", "none")
         .header(
@@ -3054,31 +3055,35 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * aimed at an unrelated host.
    */
   app.put<{ Params: { id: string } }>("/api/apps/:id/interactivity", async (req) => {
-    const me = requireAdmin(req);
+    requireAdmin(req);
     const owner = store.getApp(req.params.id);
     if (!owner) throw new HttpError(404, "not_found");
     const body = interactivityBody.parse(req.body);
 
     const record = (url: string) =>
       store.transaction(() => {
-        store.setInteractivityUrl(owner.id, url);
+        // Verification waited on another server; access and the app may have
+        // changed while this request was away from the event loop.
+        const me = requireAdmin(req);
+        const current = store.getApp(owner.id);
+        if (!current) throw new HttpError(404, "not_found");
+        store.setInteractivityUrl(current.id, url);
         store.recordAudit({
           actorId: me.id,
           action: "app.interactivity_url_changed",
           targetType: "app",
-          targetId: owner.id,
+          targetId: current.id,
           details: url
-            ? { name: owner.name, host: hostOf(url) }
-            : { name: owner.name, cleared: true },
+            ? { name: current.name, host: hostOf(url) }
+            : { name: current.name, cleared: true },
         });
+        return store.getApp(current.id);
       });
     if (!body.url) {
-      record("");
-      return { app: store.getApp(owner.id) };
+      return { app: record("") };
     }
     await verifyCallbackUrl(body.url, owner.id);
-    record(body.url);
-    return { app: store.getApp(owner.id) };
+    return { app: record(body.url) };
   });
 
   /**
@@ -3180,7 +3185,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   // ---------- outgoing event subscriptions ----------
 
   app.post<{ Params: { id: string } }>("/api/apps/:id/subscriptions", async (req, reply) => {
-    const me = requireAdmin(req);
+    requireAdmin(req);
     const owner = store.getApp(req.params.id);
     if (!owner) throw new HttpError(404, "not_found");
     const body = createSubscriptionBody.parse(req.body);
@@ -3188,8 +3193,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     await verifyCallbackUrl(body.url, owner.id);
 
     const subscription = store.transaction(() => {
+      const me = requireAdmin(req);
+      const current = store.getApp(owner.id);
+      if (!current) throw new HttpError(404, "not_found");
       const created = store.createSubscription({
-        appId: owner.id,
+        appId: current.id,
         url: body.url,
         eventTypes: body.eventTypes ?? [],
       });
@@ -3198,7 +3206,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         action: "subscription.created",
         targetType: "subscription",
         targetId: created.id,
-        details: { appId: owner.id, name: owner.name, host: hostOf(body.url) },
+        details: { appId: current.id, name: current.name, host: hostOf(body.url) },
       });
       return created;
     });

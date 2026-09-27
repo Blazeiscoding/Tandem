@@ -405,6 +405,8 @@ export class Api {
   async fetchFile(fileId: ID, signal?: AbortSignal): Promise<Blob> {
     const res = await fetch(`${this.baseUrl}/api/files/${fileId}`, {
       headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+      // Bypass bytes cached by older servers that marked this URL immutable.
+      cache: "no-store",
       signal: signal
         ? AbortSignal.any([signal, AbortSignal.timeout(300_000)])
         : AbortSignal.timeout(300_000),
