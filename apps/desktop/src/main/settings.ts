@@ -8,7 +8,10 @@ import {
 } from "./credentials.js";
 
 export interface SettingsStorage {
-  get(key: string, options?: { strict?: boolean }): Promise<unknown | null>;
+  get(
+    key: string,
+    options?: { strict?: boolean; distinguishMissing?: boolean },
+  ): Promise<unknown | null>;
   set(key: string, value: unknown): Promise<void>;
 }
 
@@ -79,8 +82,9 @@ export function createSettingsStorage(
         try {
           if (typeof key !== "string") throw new Error("Invalid settings key.");
           const settings = await read();
-          if (!Object.hasOwn(settings, key)) return null;
-          if (key !== "servers") return settings[key] ?? null;
+          if (!Object.hasOwn(settings, key)) return options?.distinguishMissing ? undefined : null;
+          if (key !== "servers")
+            return options?.distinguishMissing ? settings[key] : (settings[key] ?? null);
           const servers = decodeSavedServers(settings.servers, protector);
           if (Array.isArray(settings.servers) && settings.servers.length > 0) {
             // Only release the decrypted credentials after migration has succeeded.

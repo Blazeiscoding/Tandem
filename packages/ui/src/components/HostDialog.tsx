@@ -89,13 +89,27 @@ function RenameForm(props: {
   );
 }
 
+/** Give recovery guidance without showing Electron's IPC wrapper or raw error details. */
+function hostedListError(reason: unknown): string {
+  // Electron prefixes errors from main-process IPC, so match the fixed
+  // registry messages inside the wrapper rather than showing its raw text.
+  const message = reason instanceof Error ? reason.message : "";
+  if (message.includes("The hosted workspace list was saved by a newer version of Gatherline."))
+    return "The hosted workspace list was saved by a newer version of Gatherline. Update Gatherline to open it; the list was not changed.";
+  if (message.includes("The hosted workspace list has a version this Gatherline cannot read."))
+    return "The hosted workspace list has a version this Gatherline cannot read. Use a compatible version; the list was not changed.";
+  if (message.includes("The hosted workspace list in settings is invalid."))
+    return "The hosted workspace list format in settings is invalid. Restore or repair the settings file before hosting; the list was not changed.";
+  return "Could not read the list of workspaces hosted on this computer, so none can start. Check that Gatherline’s settings file can be read, then open this again.";
+}
+
 /**
  * Every workspace hosted on this computer, read again whenever hosting
  * starts or stops. Null until read, and on an app with no list to read.
  */
 function useHostedWorkspaces(hosting: Hosting, phase: string, revision: number) {
   const [hosted, setHosted] = useState<HostedWorkspaces | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
     if (!hosting.list) return;
     let alive = true;
@@ -104,10 +118,13 @@ function useHostedWorkspaces(hosting: Hosting, phase: string, revision: number) 
       .then((value) => {
         if (!alive) return;
         setHosted(value);
-        setFailed(false);
+        setFailed(null);
       })
-      .catch(() => {
-        if (alive) setFailed(true);
+      .catch((reason) => {
+        if (alive) {
+          setHosted(null);
+          setFailed(hostedListError(reason));
+        }
       });
     return () => {
       alive = false;
@@ -873,8 +890,7 @@ export function HostDialog(props: {
           </p>
           {listFailed && (
             <p role="alert" className="mb-4 text-sm text-alert">
-              Could not read the list of workspaces hosted on this computer, so none can start.
-              Check that Gatherline&rsquo;s settings file can be read, then open this again.
+              {listFailed}
             </p>
           )}
           {backupStatus}

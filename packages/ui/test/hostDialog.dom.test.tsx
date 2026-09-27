@@ -399,6 +399,35 @@ describe("hosting a workspace from the host dialog", () => {
     );
   });
 
+  it("explains an unsupported newer hosted-workspace registry without suggesting file repair", async () => {
+    const { hosting } = fakeHosting(stopped, { workspaces: [], unreadable: [] });
+    hosting.list!.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'hosting:list': Error: The hosted workspace list was saved by a newer version of Gatherline. Update Gatherline to open it; the list was not changed.",
+      ),
+    );
+    render(<Harness hosting={hosting} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/newer version of Gatherline/);
+    expect(alert).toHaveTextContent(/Update Gatherline/);
+    expect(alert).not.toHaveTextContent(/settings file can be read/);
+  });
+
+  it("identifies an invalid hosted-list format without exposing the IPC wrapper", async () => {
+    const { hosting } = fakeHosting(stopped, { workspaces: [], unreadable: [] });
+    hosting.list!.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'hosting:list': Error: The hosted workspace list in settings is invalid. Restore or repair the settings file before hosting; the list was not changed.",
+      ),
+    );
+    render(<Harness hosting={hosting} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/list format in settings is invalid/);
+    expect(alert).not.toHaveTextContent(/Error invoking remote method/);
+  });
+
   it("keeps the name, and says what went wrong, when hosting cannot start", async () => {
     const user = userEvent.setup();
     const { hosting } = fakeHosting(stopped);

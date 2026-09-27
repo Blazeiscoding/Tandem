@@ -145,9 +145,9 @@ function harness(
     verifyBackup,
     restoreWorkspace,
     settings: {
-      get: async (key, { strict } = {}) => {
+      get: async (key, { strict, distinguishMissing } = {}) => {
         if (h.readFails && strict) throw new Error("Could not read settings.");
-        return h.settings.has(key) ? h.settings.get(key) : null;
+        return h.settings.has(key) ? h.settings.get(key) : distinguishMissing ? undefined : null;
       },
       set: async (key, value) => {
         if (h.saveFails) throw new Error("settings file is read-only");
@@ -967,8 +967,69 @@ describe("the list of workspaces hosted on this computer", () => {
         ],
       }),
     ).toEqual([entry, { ...entry, id: null, folder: "adopted" }]);
-    expect(parseRegistry({ version: 2, workspaces: [entry] })).toEqual([]);
-    expect(parseRegistry(null)).toEqual([]);
+    expect(() => parseRegistry({ version: 2, workspaces: [entry] })).toThrow(
+      /newer version of Gatherline/,
+    );
+    expect(() => parseRegistry(null)).toThrow(/invalid/);
+    expect(() => parseRegistry({ version: 1, workspaces: "not a list" })).toThrow(/invalid/);
+    expect(parseRegistry(undefined)).toEqual([]);
+  });
+
+  it("leaves an unsupported registry intact on a downgrade", async () => {
+    const h = harness();
+    workspaceDb(join(h.dataRoot, "old-team"), "ws-old", "Old Team");
+    const newer = {
+      version: 2,
+      workspaces: [
+        { id: "ws-old", folder: "old-team", name: "Old Team", port: 8543, lastHostedAt: 1 },
+      ],
+    };
+    h.settings.set("hostedWorkspaces", newer);
+    const before = structuredClone([...h.settings]);
+
+    await expect(h.controller.list()).rejects.toThrow(/newer version of Gatherline/);
+    await expect(h.controller.start({ workspaceName: "New Team" })).rejects.toThrow(
+      /newer version of Gatherline/,
+    );
+    await expect(h.controller.rename({ folder: "old-team", name: "Renamed" })).rejects.toThrow(
+      /newer version of Gatherline/,
+    );
+    await expect(h.controller.restore({ backupDir: profile() })).rejects.toThrow(
+      /newer version of Gatherline/,
+    );
+    expect([...h.settings]).toEqual(before);
+    expect(h.starts).toEqual([]);
+    expect(readdirSync(h.dataRoot)).toEqual(["old-team"]);
+  });
+
+  it("does not adopt folders over a present but malformed registry", async () => {
+    const h = harness();
+    workspaceDb(join(h.dataRoot, "old-team"), "ws-old", "Old Team");
+    h.settings.set("hostedWorkspaces", null);
+    h.settings.set("lastHosted", { workspaceName: "Old Team", port: 9210 });
+    const before = structuredClone([...h.settings]);
+
+    await expect(h.controller.list()).rejects.toThrow(
+      /hosted workspace list in settings is invalid/,
+    );
+    await expect(h.controller.start({ workspaceName: "New Team" })).rejects.toThrow(/invalid/);
+    expect([...h.settings]).toEqual(before);
+    expect(h.starts).toEqual([]);
+    expect(readdirSync(h.dataRoot)).toEqual(["old-team"]);
+  });
+
+  it("still adopts legacy folders when the registry key is absent", async () => {
+    const h = harness();
+    workspaceDb(join(h.dataRoot, "old-team"), "ws-old", "Old Team");
+    h.settings.set("lastHosted", { workspaceName: "Old Team", port: 9210 });
+
+    expect((await h.controller.list()).workspaces).toEqual([
+      expect.objectContaining({ folder: "old-team", name: "Old Team", port: 9210 }),
+    ]);
+    expect(h.settings.get("hostedWorkspaces")).toEqual({
+      version: 1,
+      workspaces: [expect.objectContaining({ id: "ws-old", folder: "old-team" })],
+    });
   });
 });
 
