@@ -4,6 +4,7 @@ import { isAbsolute, join } from "node:path";
 import type { Tunnel } from "./tunnel.js";
 import {
   REGISTRY_KEY,
+  RegistryFormatError,
   adoptFolders,
   legacyFolder,
   newFolder,
@@ -121,7 +122,10 @@ interface HostingOptions {
   }): Promise<HostedServer>;
   /** Where the list of hosted workspaces is kept. `strict` reads throw when the file is unreadable. */
   settings: {
-    get(key: string, options?: { strict?: boolean }): Promise<unknown>;
+    get(
+      key: string,
+      options?: { strict?: boolean; distinguishMissing?: boolean },
+    ): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
   };
   /** Reads a workspace's identity from its folder without starting it. */
@@ -398,11 +402,14 @@ export function createHostingController(options: HostingOptions) {
   function loadRegistry(): Promise<HostedWorkspace[]> {
     if (registry) return Promise.resolve(registry);
     registryLoad ??= (async () => {
-      const stored = await options.settings.get(REGISTRY_KEY, { strict: true });
+      const stored = await options.settings.get(REGISTRY_KEY, {
+        strict: true,
+        distinguishMissing: true,
+      });
       const known = parseRegistry(stored);
       // Only the first start of this version converts what earlier ones kept.
       const legacy =
-        stored === null
+        stored === undefined
           ? parseLastHosted(await options.settings.get("lastHosted").catch(() => null))
           : null;
       const { adopted, unreadable } = await adoptFolders({
@@ -485,7 +492,8 @@ export function createHostingController(options: HostingOptions) {
       let list: HostedWorkspace[];
       try {
         list = await loadRegistry();
-      } catch {
+      } catch (error) {
+        if (error instanceof RegistryFormatError) throw error;
         throw new Error(
           "Gatherline could not read its list of hosted workspaces, so it will not start one. Check that its settings file can be read, then try again.",
         );

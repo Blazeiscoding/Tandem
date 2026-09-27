@@ -55,6 +55,17 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+it("distinguishes an absent registry key from a present null value for migration", async () => {
+  const settings = createSettingsStorage(file, keyStore());
+  expect(await settings.get("hostedWorkspaces", { strict: true, distinguishMissing: true })).toBe(
+    undefined,
+  );
+  writeRaw({ hostedWorkspaces: null });
+  expect(
+    await settings.get("hostedWorkspaces", { strict: true, distinguishMissing: true }),
+  ).toBeNull();
+});
+
 describe("saved sign-ins in the settings file", () => {
   it("keeps them encrypted on disk and gives them back whole", async () => {
     const settings = createSettingsStorage(file, keyStore());

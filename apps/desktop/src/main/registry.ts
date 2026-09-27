@@ -32,6 +32,20 @@ export const REGISTRY_KEY = "hostedWorkspaces";
  */
 const FOLDER = /^[a-z0-9-]{1,64}$/;
 
+/** A present registry must never be mistaken for a missing, migratable one. */
+export class RegistryFormatError extends Error {
+  constructor(kind: "newer" | "unsupported" | "invalid") {
+    super(
+      kind === "newer"
+        ? "The hosted workspace list was saved by a newer version of Gatherline. Update Gatherline to open it; the list was not changed."
+        : kind === "unsupported"
+          ? "The hosted workspace list has a version this Gatherline cannot read. Use a compatible version; the list was not changed."
+          : "The hosted workspace list in settings is invalid. Restore or repair the settings file before hosting; the list was not changed.",
+    );
+    this.name = "RegistryFormatError";
+  }
+}
+
 /** The folder earlier versions derived from a typed name. Kept so upgrades find it. */
 export function legacyFolder(workspaceName: string): string {
   return (
@@ -49,14 +63,21 @@ export function newFolder(): string {
 }
 
 /**
- * Reads the registry back. An entry that is malformed, names an unsafe
- * folder, or repeats a folder or ID already listed is dropped, so the rest
- * stays usable.
+ * Reads the registry back. Only `undefined` means the key is absent and may
+ * be migrated from legacy folders. A present registry with an unreadable
+ * format fails closed; malformed individual version-1 entries are dropped so
+ * the rest stays usable.
  */
 export function parseRegistry(value: unknown): HostedWorkspace[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  if (value === undefined) return [];
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new RegistryFormatError("invalid");
   const { version, workspaces } = value as Record<string, unknown>;
-  if (version !== 1 || !Array.isArray(workspaces)) return [];
+  if (version !== 1)
+    throw new RegistryFormatError(
+      typeof version === "number" && version > 1 ? "newer" : "unsupported",
+    );
+  if (!Array.isArray(workspaces)) throw new RegistryFormatError("invalid");
   const folders = new Set<string>();
   const ids = new Set<string>();
   const entries: HostedWorkspace[] = [];
