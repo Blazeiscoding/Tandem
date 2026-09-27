@@ -2531,6 +2531,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (builtin) {
       const text = builtin.run(argText, me);
       if (text === null) throw new HttpError(400, "usage", `usage: /${name} ${builtin.usageHint}`);
+      // Built-ins create ordinary messages, so they spend the sender's post budget.
+      ration("post", me.id);
       postMessage({
         channelId: channel.id,
         userId: me.id,
