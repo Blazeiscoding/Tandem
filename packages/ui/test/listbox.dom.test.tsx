@@ -43,12 +43,17 @@ const platform: Platform = {
   notify: () => {},
 };
 
-async function renderComposer() {
+async function renderComposer(extraUsers: User[] = []) {
   const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
   client.store.setState({
     self: sam,
-    users: { [sam.id]: sam, [sadia.id]: sadia },
-    channels: { [design.id]: design },
+    users: Object.fromEntries([sam, sadia, ...extraUsers].map((person) => [person.id, person])),
+    channels: {
+      [design.id]: {
+        ...design,
+        memberIds: [...(design.memberIds ?? []), ...extraUsers.map((person) => person.id)],
+      },
+    },
     commands: [
       {
         command: "remind",
@@ -114,6 +119,56 @@ describe("the composer's suggestions", () => {
     await user.click(screen.getByRole("option", { name: /Sadia Khan/ }));
     expect(box).toHaveValue(`<@${sadia.id}> `);
     expect(box).toHaveFocus();
+  });
+
+  it("finds people by Japanese, Devanagari, Arabic, and combining-mark names beyond the first six", async () => {
+    const fillers = Array.from({ length: 6 }, (_, i) =>
+      person(`U_FILLER_${i}`, `filler${i}`, `Filler ${i}`),
+    );
+    const targets = [
+      person("U_JAPANESE", "yamada", "山田 花子"),
+      person("U_DEVANAGARI", "nanda", "नंदा देवी"),
+      person("U_ARABIC", "aisha", "عائشة حسن"),
+      person("U_ACCENT", "elodie", "Élodie Martin"),
+    ];
+    const { box, user } = await renderComposer([...fillers, ...targets]);
+    await user.type(box, "@");
+    expect(
+      within(screen.getByRole("listbox", { name: "Mentions" })).getAllByRole("option"),
+    ).toHaveLength(6);
+    expect(screen.queryByRole("option", { name: /山田|नंदा|عائشة|Élodie/ })).toBeNull();
+
+    for (const [query, target] of [
+      ["山", targets[0]!],
+      ["नं", targets[1]!],
+      ["عائ", targets[2]!],
+      ["e\u0301", targets[3]!],
+    ] as const) {
+      await user.clear(box);
+      await user.type(box, `@${query}`);
+      expect(screen.getByRole("option", { name: new RegExp(target.displayName) })).toBeVisible();
+      await user.keyboard("{Tab}");
+      expect(box).toHaveValue(`<@${target.id}> `);
+    }
+  });
+
+  it("keeps Unicode mention discovery after paste and Backspace without changing ASCII broadcasts", async () => {
+    const nanda = person("U_DEVANAGARI", "nanda", "नंदा देवी");
+    const { box, user } = await renderComposer([nanda]);
+    await user.click(box);
+    await user.paste("@नंद");
+    expect(screen.getByRole("option", { name: /नंदा देवी/ })).toBeVisible();
+    await user.keyboard("{Backspace}");
+    expect(box).toHaveValue("@नं");
+    expect(screen.getByRole("option", { name: /नंदा देवी/ })).toBeVisible();
+    await user.clear(box);
+    await user.type(box, "@channel");
+    await user.keyboard("{Tab}");
+    expect(box).toHaveValue("<!channel> ");
+    await user.clear(box);
+    await user.type(box, "@sad");
+    await user.keyboard("{Tab}");
+    expect(box).toHaveValue(`<@${sadia.id}> `);
   });
 
   it("offer commands the same way, and Tab completes the one chosen", async () => {
