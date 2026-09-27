@@ -272,6 +272,61 @@ describe("authentication limits", () => {
 });
 
 describe("posting and upload limits", () => {
+  it("charges built-in messages to the same account post budget as normal messages", async () => {
+    await start({ post: { burst: 1, perMinute: 1 } });
+    const noisy = await register("noisy");
+    const quiet = await register("quiet");
+    const channelId = server!.store.getChannelByName("general")!.id;
+
+    const first = await call(`/api/channels/${channelId}/messages`, {
+      token: noisy,
+      body: { text: "one normal message" },
+    });
+    expect(first.status).toBe(201);
+    for (const text of ["/shrug bypass", "/me bypass"]) {
+      const blocked = await call<{ error: string }>(`/api/channels/${channelId}/commands`, {
+        token: noisy,
+        body: { text },
+      });
+      expect(blocked.status).toBe(429);
+      expect(blocked.data.error).toBe("too_many_requests");
+      expect(Number(blocked.retryAfter)).toBeGreaterThan(0);
+    }
+    expect(server!.store.listMessages({ channelId, limit: 10 }).map((m) => m.text)).toEqual([
+      "one normal message",
+    ]);
+
+    const other = await call(`/api/channels/${channelId}/commands`, {
+      token: quiet,
+      body: { text: "/shrug unaffected" },
+    });
+    expect(other.status).toBe(200);
+    expect(server!.store.listMessages({ channelId, limit: 10 })).toHaveLength(2);
+  });
+
+  it("lets a built-in spend the post budget, without charging invalid usage", async () => {
+    await start({ post: { burst: 1, perMinute: 1 } });
+    const token = await register("speaker");
+    const channelId = server!.store.getChannelByName("general")!.id;
+
+    expect(
+      (await call(`/api/channels/${channelId}/commands`, { token, body: { text: "/me" } })).status,
+    ).toBe(400);
+    expect(
+      (await call(`/api/channels/${channelId}/commands`, { token, body: { text: "/shrug" } }))
+        .status,
+    ).toBe(200);
+    expect(
+      (
+        await call(`/api/channels/${channelId}/messages`, {
+          token,
+          body: { text: "another post" },
+        })
+      ).status,
+    ).toBe(429);
+    expect(server!.store.listMessages({ channelId, limit: 10 })).toHaveLength(1);
+  });
+
   it("refuses a flood from one account without touching anyone else", async () => {
     await start({ post: { burst: 3, perMinute: 1 } });
     const noisy = await register("noisy");
@@ -353,6 +408,18 @@ describe("turning limits off", () => {
       });
       expect(res.status).toBe(201);
     }
+    expect(
+      (await call(`/api/channels/${channelId}/commands`, { token, body: { text: "/shrug" } }))
+        .status,
+    ).toBe(200);
+    expect(
+      (
+        await call(`/api/channels/${channelId}/commands`, {
+          token,
+          body: { text: "/me unbounded" },
+        })
+      ).status,
+    ).toBe(200);
   }, 15_000);
 });
 
