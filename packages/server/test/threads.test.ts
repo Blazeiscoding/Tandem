@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { PROTOCOL_VERSION, type ServerToClient, type ThreadFollow } from "@slackoss/protocol";
 import { createWorkspaceServer, type WorkspaceServer } from "../src/server.js";
@@ -289,6 +289,77 @@ describe("thread following", () => {
     ).toBe(1);
   });
 
+  it("rejects a future thread unread position without hiding a later reply", async () => {
+    const root = await post("Thread position", peer.token);
+    const first = await post("First reply", peer.token, root.id);
+    const follow = await request(
+      "/api/messages/" + root.id + "/follow",
+      { following: true },
+      "PUT",
+    );
+    expect(follow.body.state.lastReadSeq).toBe(first.seq);
+
+    const future = server.store.currentSeq() + 1_000_000;
+    expect(
+      (await request("/api/messages/" + root.id + "/thread/unread", { seq: future })).status,
+    ).toBe(400);
+
+    await post("Later reply", peer.token, root.id);
+    const unread = await request("/api/threads/followed?unreadOnly=true", undefined, "GET");
+    expect(unread.body.threads).toEqual([
+      expect.objectContaining({ root: expect.objectContaining({ id: root.id }), unreadCount: 1 }),
+    ]);
+  });
+
+  it("rejects another thread, a deleted reply, and a non-message seq without changing the follow", async () => {
+    const root = await post("Scoped thread", peer.token);
+    const first = await post("First scoped reply", peer.token, root.id);
+    await request("/api/messages/" + root.id + "/follow", { following: true }, "PUT");
+    const otherRoot = await post("Other thread", peer.token);
+    const otherReply = await post("Other reply", peer.token, otherRoot.id);
+    const deleted = await post("Deleted scoped reply", peer.token, root.id);
+    expect(
+      (await request("/api/messages/" + deleted.id, undefined, "DELETE", peer.token)).status,
+    ).toBe(200);
+    const nonMessageSeq = server.store.currentSeq();
+    const sendToUser = vi.spyOn(server.gateway, "sendToUser");
+
+    for (const seq of [otherReply.seq, deleted.seq, nonMessageSeq]) {
+      expect((await request("/api/messages/" + root.id + "/thread/unread", { seq })).status).toBe(
+        400,
+      );
+    }
+    expect(
+      sendToUser.mock.calls.some(
+        ([userId, event]) => userId === owner.id && event.type === "thread.follow",
+      ),
+    ).toBe(false);
+    sendToUser.mockRestore();
+    const state = server.store.threadFollow(owner.id, root.id);
+    expect(state?.lastReadSeq).toBe(first.seq);
+    expect(state?.following).toBe(true);
+  });
+
+  it("marks a whole thread unread from its live root and keeps repeated requests harmless", async () => {
+    const root = await post("Read the whole thread", peer.token);
+    await post("First reply to revisit", peer.token, root.id);
+    const second = await post("Second reply to revisit", peer.token, root.id);
+    await request("/api/messages/" + root.id + "/follow", { following: true }, "PUT");
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const marked = await request("/api/messages/" + root.id + "/thread/unread", {
+        seq: root.seq,
+      });
+      expect(marked.status).toBe(200);
+      expect(marked.body.state.lastReadSeq).toBe(root.seq - 1);
+      expect(marked.body.state.lastSeq).toBe(second.seq);
+    }
+    const followed = await request("/api/threads/followed?unreadOnly=true", undefined, "GET");
+    expect(followed.body.threads).toEqual([
+      expect.objectContaining({ root: expect.objectContaining({ id: root.id }), unreadCount: 2 }),
+    ]);
+  });
+
   it("marks a channel unread from one message and reads forward again afterwards", async () => {
     const first = await post("First", peer.token);
     const second = await post("Second", peer.token);
@@ -301,6 +372,51 @@ describe("thread following", () => {
     // Reading still advances from there, so returning to the channel clears it.
     const read = await request(`/api/channels/${channelId}/read`, { seq: second.seq });
     expect(read.body.seq).toBe(second.seq);
+  });
+
+  it("rejects a future channel unread position without hiding a later message", async () => {
+    const first = await post("Read before forged position", peer.token);
+    await request("/api/channels/" + channelId + "/read", { seq: first.seq });
+
+    const future = server.store.currentSeq() + 1_000_000;
+    expect((await request("/api/channels/" + channelId + "/unread", { seq: future })).status).toBe(
+      400,
+    );
+
+    const later = await post("Still unread after forged position", peer.token);
+    const activity = await request("/api/activity?mode=unread", undefined, "GET");
+    expect(activity.body.messages.map((message: { id: string }) => message.id)).toContain(later.id);
+  });
+
+  it("rejects channel unread targets from another channel, deleted messages, and non-message events", async () => {
+    const first = await post("Keep this read position", peer.token);
+    await request("/api/channels/" + channelId + "/read", { seq: first.seq });
+    const other = (await request("/api/channels", { type: "public", name: "another-room" })).body
+      .channel;
+    const nonMessageSeq = server.store.currentSeq();
+    const otherMessage = (
+      await request("/api/channels/" + other.id + "/messages", {
+        text: "Another channel",
+        nonce: "other-channel-seq",
+      })
+    ).body.message;
+    const deleted = await post("Deleted channel target", owner.token);
+    expect((await request("/api/messages/" + deleted.id, undefined, "DELETE")).status).toBe(200);
+    const sendToUser = vi.spyOn(server.gateway, "sendToUser");
+
+    for (const seq of [otherMessage.seq, deleted.seq, nonMessageSeq]) {
+      expect((await request("/api/channels/" + channelId + "/unread", { seq })).status).toBe(400);
+    }
+    expect(
+      sendToUser.mock.calls.some(
+        ([userId, event]) => userId === owner.id && event.type === "channel.unread",
+      ),
+    ).toBe(false);
+    sendToUser.mockRestore();
+    const membership = server.store
+      .memberships(owner.id)
+      .find((item) => item.channelId === channelId);
+    expect(membership?.lastReadSeq).toBe(first.seq);
   });
 
   it("tells the marking account's own devices, and only them", async () => {
@@ -366,6 +482,19 @@ describe("thread following", () => {
     const ids = timeline.messages.map((m: any) => m.id);
     expect(ids).toContain(loud.id);
     expect(ids).not.toContain(quiet.id);
+    const markedChannel = await request("/api/channels/" + channelId + "/unread", {
+      seq: loud.seq,
+    });
+    expect(markedChannel.status).toBe(200);
+    expect(markedChannel.body.seq).toBe(loud.seq - 1);
+    expect(
+      (await request("/api/channels/" + channelId + "/unread", { seq: quiet.seq })).status,
+    ).toBe(400);
+    const markedThread = await request("/api/messages/" + root.id + "/thread/unread", {
+      seq: loud.seq,
+    });
+    expect(markedThread.status).toBe(200);
+    expect(markedThread.body.state.lastReadSeq).toBe(loud.seq - 1);
 
     const thread = (
       await request(`/api/channels/${channelId}/threads/${root.id}`, undefined, "GET")
@@ -519,6 +648,9 @@ describe("thread following", () => {
       (await request(`/api/messages/${reply.id}/follow`, { following: true }, "PUT")).status,
     ).toBe(400);
     expect((await request("/api/messages/nope/follow", { following: true }, "PUT")).status).toBe(
+      404,
+    );
+    expect((await request("/api/messages/nope/thread/unread", { seq: reply.seq })).status).toBe(
       404,
     );
     expect((await request(`/api/messages/${root.id}/follow`, {}, "PUT")).status).toBe(400);
