@@ -1521,6 +1521,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const { seq } = markUnreadBody.parse(req.body);
     if (!store.isMember(req.params.id, me.id)) throw new HttpError(404, "channel_not_found");
     const seqNow = store.markUnread(req.params.id, me.id, seq);
+    if (seqNow === null) throw new HttpError(400, "invalid_unread_target");
     gateway.sendToUser(me.id, { type: "channel.unread", channelId: req.params.id, seq: seqNow });
     pushMentionCounts([me.id]);
     return { ok: true, seq: seqNow };
@@ -3468,7 +3469,10 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (message.threadRootId) throw new HttpError(400, "not_a_thread_root");
     const { seq } = markUnreadBody.parse(req.body);
     const state = store.markThreadUnread(me.id, message.id, seq);
-    if (!state) throw new HttpError(404, "message_not_found");
+    if (!state) {
+      if (!store.threadFollow(me.id, message.id)) throw new HttpError(404, "message_not_found");
+      throw new HttpError(400, "invalid_unread_target");
+    }
     gateway.sendToUser(me.id, { type: "thread.follow", state });
     return { state };
   });

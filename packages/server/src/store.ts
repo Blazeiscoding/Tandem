@@ -714,7 +714,17 @@ export class Store {
    * Leaves a message and everything after it unread. Unlike `markRead` this
    * moves the cursor backwards, so it sets rather than advances.
    */
-  markUnread(channelId: ID, userId: ID, seq: number): number {
+  markUnread(channelId: ID, userId: ID, seq: number): number | null {
+    // A cursor from another channel, a deleted message, or a future event
+    // must never make this channel's later messages appear read.
+    const target = this.db
+      .prepare(
+        `SELECT 1 FROM messages
+         WHERE channel_id = ? AND seq = ? AND seq > 0
+           AND ${IN_CHANNEL_TIMELINE} AND deleted_at IS NULL LIMIT 1`,
+      )
+      .get(channelId, seq);
+    if (!target) return null;
     const row = this.db
       .prepare(
         `UPDATE channel_members SET last_read_seq = ? WHERE channel_id = ? AND user_id = ?
@@ -1435,11 +1445,19 @@ export class Store {
   }
 
   /**
-   * Leaves a reply and everything after it unread. Marking a thread unread is
-   * a statement of intent to come back to it, so it follows the thread too.
+   * Leaves the root or a reply and everything after it unread. Marking a
+   * thread unread is a statement of intent to come back, so it follows it too.
    */
   markThreadUnread(userId: ID, rootId: ID, seq: number): ThreadFollow | null {
     if (!this.threadFollow(userId, rootId)) return null;
+    const target = this.db
+      .prepare(
+        `SELECT 1 FROM messages
+         WHERE seq = ? AND seq > 0 AND deleted_at IS NULL
+           AND (id = ? OR thread_root_id = ?) LIMIT 1`,
+      )
+      .get(seq, rootId, rootId);
+    if (!target) return null;
     this.db
       .prepare(
         `INSERT INTO thread_follows (user_id, root_id, following, last_read_seq, revision)
