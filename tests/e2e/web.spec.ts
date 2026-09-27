@@ -2570,3 +2570,71 @@ test("the layout holds at phone, tablet, laptop and short-window sizes", async (
     rmSync(layoutData, { recursive: true, force: true });
   }
 });
+
+test("a browser refetches authenticated file bytes after access is revoked", async ({ page }) => {
+  const registerAccount = async (handle: string) => {
+    const response = await fetch(`${base}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle, displayName: handle, password: "password123" }),
+    });
+    expect(response.status).toBe(201);
+    return (await response.json()) as { token: string; user: { id: string } };
+  };
+  const owner = await registerAccount("cacheowner");
+  const viewer = await registerAccount("cacheviewer");
+  const outsider = await registerAccount("cacheoutsider");
+  const roomResponse = await fetch(`${base}/api/channels`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ type: "private", name: "cache-access", memberIds: [viewer.user.id] }),
+  });
+  expect(roomResponse.status).toBe(201);
+  const { channel } = (await roomResponse.json()) as { channel: { id: string } };
+  const upload = new FormData();
+  upload.append("file", new Blob(["private document"], { type: "text/plain" }), "private.txt");
+  const uploadResponse = await fetch(`${base}/api/channels/${channel.id}/files`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${owner.token}` },
+    body: upload,
+  });
+  expect(uploadResponse.status).toBe(201);
+  const { file } = (await uploadResponse.json()) as { file: { id: string } };
+
+  await page.goto(base);
+  const fetchInBrowser = (token: string) =>
+    page.evaluate(
+      async ({ fileId, token }) => {
+        const response = await fetch(`/api/files/${fileId}`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        return {
+          status: response.status,
+          cacheControl: response.headers.get("cache-control"),
+          body: await response.text(),
+        };
+      },
+      { fileId: file.id, token },
+    );
+  const first = await fetchInBrowser(viewer.token);
+  expect(first.status).toBe(200);
+  expect(first.body).toBe("private document");
+  // Another account using the same browser must not inherit the first one's bytes.
+  expect((await fetchInBrowser(outsider.token)).status).toBe(404);
+
+  const removed = await fetch(`${base}/api/channels/${channel.id}/members/${viewer.user.id}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${owner.token}` },
+  });
+  expect(removed.status).toBe(200);
+  // The server knows access is gone. A browser must not reuse its earlier bytes.
+  const serverRefusal = await fetch(`${base}/api/files/${file.id}`, {
+    headers: { authorization: `Bearer ${viewer.token}` },
+  });
+  expect(serverRefusal.status).toBe(404);
+  expect((await fetchInBrowser(viewer.token)).status).toBe(404);
+  expect(first.cacheControl).toBe("no-store");
+});

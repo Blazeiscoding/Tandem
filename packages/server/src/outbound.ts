@@ -141,9 +141,13 @@ export function postToUrl(
     const payload = Buffer.from(body, "utf8");
     const request = parsed.protocol === "https:" ? httpsRequest : httpRequest;
     let settled = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let release = () => {};
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
+      release();
       fn();
     };
 
@@ -189,8 +193,10 @@ export function postToUrl(
         res.on("data", (chunk: Buffer) => {
           size += chunk.byteLength;
           if (size > maxBytes) {
-            res.destroy();
-            finish(() => reject(new OutboundError("too_large", "response body too large")));
+            finish(() => {
+              res.destroy();
+              reject(new OutboundError("too_large", "response body too large"));
+            });
             return;
           }
           chunks.push(chunk);
@@ -209,17 +215,19 @@ export function postToUrl(
     );
 
     const onAbort = () => {
-      req.destroy();
-      finish(() => reject(new OutboundError("aborted", "the server is shutting down")));
+      finish(() => {
+        req.destroy();
+        reject(new OutboundError("aborted", "the server is shutting down"));
+      });
     };
-    opts.signal?.addEventListener("abort", onAbort, { once: true });
-    // A long-lived signal would otherwise collect one listener per call.
-    const release = () => opts.signal?.removeEventListener("abort", onAbort);
-    req.on("close", release);
+    // A long-lived shutdown signal must not retain a listener for each call.
+    release = () => opts.signal?.removeEventListener("abort", onAbort);
 
     req.setTimeout(timeoutMs, () => {
-      req.destroy();
-      finish(() => reject(new OutboundError("timeout", "the endpoint did not answer in time")));
+      finish(() => {
+        req.destroy();
+        reject(new OutboundError("timeout", "the endpoint did not answer in time"));
+      });
     });
     req.on("error", (err) =>
       finish(() =>
@@ -230,6 +238,20 @@ export function postToUrl(
         ),
       ),
     );
+
+    // Socket timeout only detects inactivity. A streaming endpoint can keep
+    // sending bytes forever, so cap the entire DNS/connect/write/read call.
+    deadline = setTimeout(() => {
+      finish(() => {
+        req.destroy();
+        reject(new OutboundError("timeout", "the endpoint did not answer in time"));
+      });
+    }, timeoutMs);
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    if (opts.signal?.aborted) {
+      onAbort();
+      return;
+    }
     req.end(payload);
   });
 }
