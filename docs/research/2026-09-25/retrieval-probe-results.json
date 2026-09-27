@@ -1,0 +1,142 @@
+{
+  "recordedAt": "2026-09-25T05:12:42.753Z",
+  "node": "v24.16.0",
+  "sqlite": "3.53.0",
+  "scope": "Synthetic in-memory FTS5 tokenization probe; not the Gatherline API, a language-quality evaluation, or a performance benchmark.",
+  "results": [
+    {
+      "label": "English word",
+      "text": "The project meeting is tomorrow",
+      "query": "meeting",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "English word",
+      "text": "The project meeting is tomorrow",
+      "query": "meet",
+      "defaultFtsMatch": false,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Chinese without spaces",
+      "text": "我们明天在北京开会",
+      "query": "北京",
+      "defaultFtsMatch": false,
+      "trigramFtsMatch": false,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Chinese without spaces",
+      "text": "我们明天在北京开会",
+      "query": "北京开会",
+      "defaultFtsMatch": false,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Chinese without spaces",
+      "text": "我们明天在北京开会",
+      "query": "我们明天在北京开会",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Japanese without spaces",
+      "text": "日本語の会議予定です",
+      "query": "会議",
+      "defaultFtsMatch": false,
+      "trigramFtsMatch": false,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Japanese without spaces",
+      "text": "日本語の会議予定です",
+      "query": "会議予定",
+      "defaultFtsMatch": false,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Japanese without spaces",
+      "text": "日本語の会議予定です",
+      "query": "日本語の会議予定です",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Latin diacritics",
+      "text": "Café résumé",
+      "query": "cafe",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": false,
+      "literalSubstringPresent": false
+    },
+    {
+      "label": "Latin diacritics",
+      "text": "Café résumé",
+      "query": "resume",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": false,
+      "literalSubstringPresent": false
+    },
+    {
+      "label": "Hindi spaced words",
+      "text": "कल दिल्ली में बैठक है",
+      "query": "दिल्ली",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Hindi spaced words",
+      "text": "कल दिल्ली में बैठक है",
+      "query": "बैठक",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    },
+    {
+      "label": "Decomposed Latin accent",
+      "text": "café",
+      "query": "café",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": false,
+      "literalSubstringPresent": false
+    },
+    {
+      "label": "Decomposed Latin accent",
+      "text": "café",
+      "query": "cafe",
+      "defaultFtsMatch": true,
+      "trigramFtsMatch": true,
+      "literalSubstringPresent": true
+    }
+  ],
+  "bindingProbe": {
+    "expectedRowidsForEachCase": [4],
+    "cases": [
+      {
+        "bindingType": "number",
+        "returnedRowids": [4, 6]
+      },
+      {
+        "bindingType": "bigint",
+        "returnedRowids": [4]
+      },
+      {
+        "bindingType": "string",
+        "returnedRowids": [4]
+      },
+      {
+        "bindingType": "number explicitly cast to integer in SQL",
+        "returnedRowids": [4]
+      }
+    ],
+    "scope": "Separate observed query/binding anomaly. Cause and production applicability are not established."
+  }
+}
