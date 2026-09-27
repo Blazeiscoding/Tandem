@@ -282,14 +282,18 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   const candidates = useMemo((): Candidate[] => {
     if (!mentionQuery) return [];
-    const q = mentionQuery.query.toLowerCase();
+    // Input methods can produce decomposed characters while a saved display name
+    // uses composed characters (or vice versa).
+    const q = mentionQuery.query.toLowerCase().normalize("NFC");
     // A room-wide mention has no meaning in a DM, so it is not offered there.
     const rooms: Candidate[] = isRoom
       ? BROADCASTS.filter((b) => b.token.startsWith(q)).map((b) => ({ kind: "broadcast", ...b }))
       : [];
     const people: Candidate[] = Object.values(users)
       .filter((u) => !u.deactivated)
-      .filter((u) => u.handle.includes(q) || u.displayName.toLowerCase().includes(q))
+      .filter(
+        (u) => u.handle.includes(q) || u.displayName.toLowerCase().normalize("NFC").includes(q),
+      )
       .map((user) => ({ kind: "user", user }));
     return [...rooms, ...people].slice(0, 6);
   }, [mentionQuery, users, isRoom]);
@@ -317,7 +321,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   function refreshMentionState(value: string, caret: number) {
     const upToCaret = value.slice(0, caret);
-    const m = /(^|\s)@([a-z0-9._-]*)$/i.exec(upToCaret);
+    const m = /(^|\s)@([\p{L}\p{N}\p{M}._-]*)$/u.exec(upToCaret);
     if (m) {
       setMentionQuery({ start: caret - m[2]!.length - 1, query: m[2]! });
       mentionList.choose(0);
