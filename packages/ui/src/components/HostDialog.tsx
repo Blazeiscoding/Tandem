@@ -116,6 +116,88 @@ function StartWithComputer(props: {
   );
 }
 
+/** A port as typed, or null when it is not one a workspace could use. */
+function portValue(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d{1,5}$/.test(trimmed)) return null;
+  const port = Number(trimmed);
+  return port >= 1 && port <= 65535 ? port : null;
+}
+
+/**
+ * Changes the port a stopped workspace starts on, where it is listed.
+ * Escape calls it off rather than closing the dialog.
+ */
+function PortForm(props: {
+  folder: string;
+  name: string;
+  port: number;
+  saving: boolean;
+  /** Resolves to why the port was refused, or null once it is saved. */
+  onSave: (port: number) => Promise<string | null>;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(String(props.port));
+  const [error, setError] = useState<string | null>(null);
+  const errorId = `port-error-${props.folder}`;
+  const port = portValue(draft);
+  return (
+    <form
+      aria-label={`Port for ${props.name}`}
+      className="min-w-0 flex-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (port === null) setError("Choose a port from 1 to 65535.");
+        else if (port !== props.port) void props.onSave(port).then(setError);
+      }}
+    >
+      <div className="flex gap-2">
+        <input
+          autoFocus
+          inputMode="numeric"
+          aria-label={`New port for ${props.name}`}
+          maxLength={5}
+          value={draft}
+          readOnly={props.saving}
+          aria-invalid={!!error}
+          aria-errormessage={error ? errorId : undefined}
+          aria-describedby={error ? errorId : undefined}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || isImeKey(event.nativeEvent)) return;
+            event.preventDefault();
+            props.onCancel();
+          }}
+          className="w-24 min-w-0 rounded-lg border border-edge bg-ground px-2 py-1.5 font-mono text-sm text-ink outline-none focus:border-copper"
+        />
+        <button
+          type="submit"
+          disabled={props.saving || port === props.port}
+          className={buttonClass("secondary", "shrink-0")}
+        >
+          {props.saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          disabled={props.saving}
+          onClick={props.onCancel}
+          className={buttonClass("quiet", "shrink-0")}
+        >
+          Cancel
+        </button>
+      </div>
+      {error && (
+        <p id={errorId} role="alert" className="mt-1 text-xs text-alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 /** A small action written as a link, beside what it acts on. */
 const linkBtnCls = "text-xs text-copper underline disabled:opacity-40";
 
@@ -250,6 +332,8 @@ export function HostDialog(props: {
 }) {
   const { status, loading, error: statusError, refresh } = props.state;
   const [name, setName] = useState("");
+  /** The port for a new workspace, as typed. Empty for the usual one. */
+  const [portText, setPortText] = useState("");
   const [busy, setBusy] = useState<
     | "starting"
     | "stopping"
@@ -307,6 +391,37 @@ export function HostDialog(props: {
   const openFolderFn = props.hosting.openFolder;
   /** The folder of the workspace being renamed, while its form is open. */
   const [renaming, setRenaming] = useState<string | null>(null);
+  const setPortFn = props.hosting.setPort;
+  /** The folder of the workspace whose port is being changed, while its form is open. */
+  const [changingPort, setChangingPort] = useState<string | null>(null);
+  const portReturn = useRef<string | null>(null);
+  useEffect(() => {
+    if (changingPort !== null || !portReturn.current) return;
+    document.getElementById(`port-${portReturn.current}`)?.focus();
+    portReturn.current = null;
+  }, [changingPort]);
+
+  async function savePort(folder: string, name: string, port: number): Promise<string | null> {
+    if (!setPortFn || operationPending.current) return null;
+    operationPending.current = true;
+    setBusy("renaming");
+    setBackupNote(null);
+    try {
+      await setPortFn(folder, port);
+      portReturn.current = folder;
+      setChangingPort(null);
+      setBackupNote({ ok: true, text: `${name} will start on port ${port}.` });
+      return null;
+    } catch (reason) {
+      return reason instanceof Error && reason.message
+        ? reason.message
+        : "The port could not be saved. Try again.";
+    } finally {
+      setListRevision((n) => n + 1);
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
   /** Whose Rename button gets focus back once the form closes. */
   const renameReturn = useRef<string | null>(null);
 
@@ -435,7 +550,16 @@ export function HostDialog(props: {
   function start(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    void launch({ workspaceName: name.trim() });
+    if (!portText.trim()) {
+      void launch({ workspaceName: name.trim() });
+      return;
+    }
+    const port = portValue(portText);
+    if (port === null) {
+      setError({ message: "Choose a port from 1 to 65535, or leave it empty for the usual one." });
+      return;
+    }
+    void launch({ workspaceName: name.trim(), port });
   }
 
   async function launch(request: HostingStart) {
@@ -448,10 +572,13 @@ export function HostDialog(props: {
       void refresh();
       if (next.running && next.phase !== "stopping" && next.port !== undefined)
         props.onStarted(next);
-    } catch {
+    } catch (reason) {
+      // The desktop app says what went wrong in words it chose to show.
       setError({
         message:
-          "The workspace could not start. Check that its data folder is writable and its port is available, then try again.",
+          reason instanceof Error && reason.message
+            ? reason.message
+            : "The workspace could not start. Check that its data folder is writable and its port is available, then try again.",
       });
       await refresh();
     } finally {
@@ -667,6 +794,18 @@ export function HostDialog(props: {
           {status.port !== undefined && (
             <p className="text-ink-dim">
               Local port: <span className="font-mono text-ink">{status.port}</span>
+            </p>
+          )}
+          {status.connected !== undefined && phase === "running" && (
+            <p className="text-ink-dim">
+              Connected now:{" "}
+              <span className="text-ink">
+                {status.connected === 0
+                  ? "nobody"
+                  : status.connected === 1
+                    ? "1 person"
+                    : `${status.connected} people`}
+              </span>
             </p>
           )}
           {status.dataDir && (
@@ -1021,7 +1160,19 @@ export function HostDialog(props: {
                     key={w.folder}
                     className="flex items-center justify-between gap-3 rounded-lg border border-edge px-3 py-2"
                   >
-                    {renameFn && renaming === w.folder && !w.missing ? (
+                    {setPortFn && changingPort === w.folder && !w.missing ? (
+                      <PortForm
+                        folder={w.folder}
+                        name={w.name}
+                        port={w.port}
+                        saving={busy === "renaming"}
+                        onSave={(port) => savePort(w.folder, w.name, port)}
+                        onCancel={() => {
+                          portReturn.current = w.folder;
+                          setChangingPort(null);
+                        }}
+                      />
+                    ) : renameFn && renaming === w.folder && !w.missing ? (
                       <RenameForm
                         folder={w.folder}
                         name={w.name}
@@ -1045,7 +1196,7 @@ export function HostDialog(props: {
                                     : ""
                                 }`}
                           </p>
-                          {!w.missing && (renameFn || openFolderFn) && (
+                          {!w.missing && (renameFn || openFolderFn || setPortFn) && (
                             <div className="mt-1 flex gap-3">
                               {renameFn && (
                                 <button
@@ -1057,6 +1208,21 @@ export function HostDialog(props: {
                                   className={linkBtnCls}
                                 >
                                   Rename
+                                </button>
+                              )}
+                              {setPortFn && (
+                                <button
+                                  id={`port-${w.folder}`}
+                                  type="button"
+                                  disabled={unavailable}
+                                  aria-label={`Change port for ${w.name}`}
+                                  onClick={() => {
+                                    setRenaming(null);
+                                    setChangingPort(w.folder);
+                                  }}
+                                  className={linkBtnCls}
+                                >
+                                  Change port
                                 </button>
                               )}
                               {openFolderFn && (
@@ -1132,6 +1298,26 @@ export function HostDialog(props: {
               placeholder="Workspace name (e.g. Rocket Team)"
               className={inputCls}
             />
+            <details className="text-sm text-ink-dim">
+              <summary className="cursor-pointer">Choose a port</summary>
+              <label className="mt-2 block">
+                Port
+                <input
+                  inputMode="numeric"
+                  maxLength={5}
+                  value={portText}
+                  disabled={!!busy}
+                  onChange={(e) => setPortText(e.target.value)}
+                  placeholder="8543"
+                  aria-describedby="host-port-hint"
+                  className={`${inputCls} mt-1 w-32 font-mono`}
+                />
+              </label>
+              <p id="host-port-hint" className="mt-1 text-xs text-ink-faint">
+                Leave it empty to use 8543, or a free port if another program has that one. A port
+                you choose is kept, or the workspace does not start.
+              </p>
+            </details>
             {sameName && (
               <p className="text-xs text-ink-dim">
                 {sameName.name} is already hosted here. Start it from the list to keep its messages;

@@ -47,6 +47,8 @@ export interface HostingSnapshot {
   startsOnLaunch?: boolean;
   /** Why the workspace chosen to start with Gatherline did not, until hosting next starts. */
   launchError?: string;
+  /** How many people are connected to the running workspace now. */
+  connected?: number;
 }
 
 /** The settings key naming, by its folder, the workspace to start when the app opens. */
@@ -111,6 +113,9 @@ interface HostedServer {
   setWorkspaceName?(name: string): void;
   /** Announces the workspace on the local network again, after a network change. */
   reannounce?(): void;
+  /** How many people are connected now, and a way to hear when that changes. */
+  connectedPeople?(): number;
+  onConnectedChange?(listener: () => void): () => void;
   /** Identifies this run, so a public address can be confirmed to reach it. */
   instanceId?: string;
   stop(): Promise<void>;
@@ -192,6 +197,26 @@ interface HostingOptions {
 }
 
 type StartRequest = ({ workspaceName: string } | { folder: string }) & { port?: number };
+
+/**
+ * Why a workspace did not start, fit to show. A system error's own message
+ * names paths, and with them the account, so it is described by its code.
+ */
+function startFailure(error: unknown): Error {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  if (typeof code === "string" && /^E[A-Z]+$/.test(code))
+    return new Error(
+      `The workspace could not start (${code}). Check that its data folder is writable and its port is free, then try again.`,
+    );
+  return error instanceof Error ? error : new Error("The workspace could not start.");
+}
+
+/** A port someone chose: a whole number a program may listen on. */
+function portOf(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 65535)
+    throw new Error("Choose a port from 1 to 65535.");
+  return value;
+}
 
 /** A name as typed, trimmed, for a new workspace or a rename alike. */
 function workspaceNameOf(value: unknown): string {
@@ -302,6 +327,8 @@ export function createHostingController(options: HostingOptions) {
    */
   let launchFolder: string | null | undefined;
   let launchError: string | undefined;
+  /** Stops listening for who connects to the running server. */
+  let stopWatchingConnections: (() => void) | null = null;
 
   function changed(): void {
     // A renderer/tray notification must never lose ownership of a live server.
@@ -349,6 +376,7 @@ export function createHostingController(options: HostingOptions) {
         ? { warning: [portWarning, warning].filter(Boolean).join(" ") }
         : {}),
       ...(server && workspace && launchFolder === workspace.folder ? { startsOnLaunch: true } : {}),
+      ...(server?.connectedPeople ? { connected: server.connectedPeople() } : {}),
       ...(launchError ? { launchError } : {}),
     };
   }
@@ -593,6 +621,15 @@ export function createHostingController(options: HostingOptions) {
           server = await options.startServer({ ...serverOptions, port: preferred });
         } catch (error) {
           // Only the automatic port choice may change behind the user's back.
+          // A port someone asked for is theirs to change.
+          if (
+            requested.port !== undefined &&
+            requested.port !== 0 &&
+            (error as NodeJS.ErrnoException)?.code === "EADDRINUSE"
+          )
+            throw new Error(
+              `Port ${requested.port} is already in use on this computer. Choose another, or leave the port empty to use one that is free.`,
+            );
           if (
             requested.port !== undefined ||
             (error as NodeJS.ErrnoException)?.code !== "EADDRINUSE"
@@ -617,7 +654,7 @@ export function createHostingController(options: HostingOptions) {
             .catch(() => {});
         }
         changed();
-        throw error;
+        throw startFailure(error);
       }
       updateEntry(entry.folder, {
         id: server.workspaceId?.() ?? entry.id,
@@ -628,6 +665,7 @@ export function createHostingController(options: HostingOptions) {
       workspace.workspaceName = server.workspaceName?.() ?? entry.name;
       phase = "running";
       launchError = undefined;
+      stopWatchingConnections = server.onConnectedChange?.(changed) ?? null;
       // A carrier forwards to one port and keeps forwarding there. Say so
       // while it can still be corrected, rather than letting Open to all
       // fail later with only "did not answer as this workspace".
@@ -809,6 +847,40 @@ export function createHostingController(options: HostingOptions) {
         await options.settings.set(START_ON_LAUNCH_KEY, null).catch(() => {});
       }
       changed();
+    });
+  }
+
+  /**
+   * Changes the port a stopped workspace starts on. The running one is left
+   * alone: moving it would disconnect everyone and break every link to it.
+   */
+  function setPort(value: unknown): Promise<{ folder: string; port: number }> {
+    const { folder, port } = (value ?? {}) as Record<string, unknown>;
+    if (typeof folder !== "string")
+      return Promise.reject(new Error("Choose a workspace to change the port of."));
+    let next: number;
+    try {
+      next = portOf(port);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return serialized(async () => {
+      if (closing) throw new Error("The app is quitting.");
+      const entry = (await loadRegistry()).find((e) => e.folder === folder);
+      if (!entry) throw new Error("That workspace is not in the list hosted on this computer.");
+      if (server && workspace?.folder === entry.folder)
+        throw new Error(`Stop hosting ${entry.name} before changing its port.`);
+      updateEntry(entry.folder, { port: next });
+      try {
+        await saveRegistry();
+      } catch {
+        updateEntry(entry.folder, { port: entry.port });
+        throw new Error(
+          "Gatherline could not save the new port. Check that its settings folder is writable, then try again.",
+        );
+      }
+      changed();
+      return { folder: entry.folder, port: next };
     });
   }
 
@@ -1005,6 +1077,8 @@ export function createHostingController(options: HostingOptions) {
       changed();
       throw error;
     }
+    stopWatchingConnections?.();
+    stopWatchingConnections = null;
     server = null;
     workspace = null;
     phase = "stopped";
@@ -1215,6 +1289,7 @@ export function createHostingController(options: HostingOptions) {
     rename,
     openFolder,
     setStartOnLaunch,
+    setPort,
     startForLaunch,
     networkChanged,
     start,

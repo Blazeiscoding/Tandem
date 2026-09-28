@@ -48,6 +48,7 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
           })),
           rename: vi.fn(async (folder: string, name: string) => ({ folder, name: name.trim() })),
           openFolder: vi.fn(async (_folder: string) => {}),
+          setPort: vi.fn(async (folder: string, port: number) => ({ folder, port })),
         }
       : {}),
     stop: vi.fn(async () => {
@@ -417,7 +418,11 @@ describe("hosting a workspace from the host dialog", () => {
   it("keeps the name, and says what went wrong, when hosting cannot start", async () => {
     const user = userEvent.setup();
     const { hosting } = fakeHosting(stopped);
-    hosting.start.mockRejectedValueOnce(new Error("listen EADDRINUSE"));
+    hosting.start.mockRejectedValueOnce(
+      new Error(
+        "Port 9000 is already in use on this computer. Choose another, or leave the port empty to use one that is free.",
+      ),
+    );
     const onStarted = vi.fn();
     render(<Harness hosting={hosting} onStarted={onStarted} />);
 
@@ -425,7 +430,10 @@ describe("hosting a workspace from the host dialog", () => {
     await user.type(name, "Rocket Team");
     await user.click(screen.getByRole("button", { name: "Start hosting" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/could not start/);
+    // The desktop app's own words, which say what to do about it.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Port 9000 is already in use on this computer. Choose another, or leave the port empty to use one that is free.",
+    );
     expect(name).toHaveValue("Rocket Team");
     expect(screen.getByRole("button", { name: "Start hosting" })).toBeEnabled();
     expect(onStarted).not.toHaveBeenCalled();
@@ -843,6 +851,109 @@ describe("starting with the computer", () => {
     );
     const list = await screen.findByRole("region", { name: "Hosted on this computer" });
     expect(list).toHaveTextContent("Port 8543 · Starts with Gatherline");
+  });
+});
+
+describe("who is connected, and which port", () => {
+  const teamA = {
+    folder: "team-a",
+    name: "Team A",
+    port: 8543,
+    lastHostedAt: 1,
+    lastBackupAt: null,
+    running: false,
+    missing: false,
+  };
+
+  it("says how many people are connected, as that changes", async () => {
+    const { hosting, push } = fakeHosting({ ...running, connected: 3 });
+    render(<Harness hosting={hosting} />);
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(dialog).toHaveTextContent("Connected now: 3 people");
+    push({ ...running, connected: 1 });
+    expect(dialog).toHaveTextContent("Connected now: 1 person");
+    push({ ...running, connected: 0 });
+    expect(dialog).toHaveTextContent("Connected now: nobody");
+  });
+
+  it("starts a new workspace on a port someone chose, and refuses one that is not a port", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped);
+    render(<Harness hosting={hosting} />);
+    await user.type(await screen.findByRole("textbox", { name: "Workspace name" }), "Rocket Team");
+    await user.click(screen.getByText("Choose a port"));
+    const port = screen.getByRole("textbox", { name: "Port" });
+    expect(port).toHaveAccessibleDescription(/Leave it empty to use 8543/);
+    await user.type(port, "70000");
+    await user.click(screen.getByRole("button", { name: "Start hosting" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Choose a port from 1 to 65535, or leave it empty for the usual one.",
+    );
+    expect(hosting.start).not.toHaveBeenCalled();
+
+    await user.clear(port);
+    await user.type(port, "9000");
+    await user.click(screen.getByRole("button", { name: "Start hosting" }));
+    expect(hosting.start).toHaveBeenCalledWith({ workspaceName: "Rocket Team", port: 9000 });
+  });
+
+  it("changes a listed workspace's port in place, and hands focus back", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, { workspaces: [teamA], unreadable: [] });
+    render(<Harness hosting={hosting} />);
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+    await user.click(within(list).getByRole("button", { name: "Change port for Team A" }));
+    const field = within(list).getByRole("textbox", { name: "New port for Team A" });
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue("8543");
+    expect(within(list).getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.clear(field);
+    await user.type(field, "port{Enter}");
+    expect(within(list).getByRole("alert")).toHaveTextContent("Choose a port from 1 to 65535.");
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(hosting.setPort).not.toHaveBeenCalled();
+
+    hosting.list!.mockResolvedValue({ workspaces: [{ ...teamA, port: 9100 }], unreadable: [] });
+    await user.clear(field);
+    await user.type(field, "9100{Enter}");
+    expect(hosting.setPort).toHaveBeenCalledWith("team-a", 9100);
+    expect(await screen.findByText("Team A will start on port 9100.")).toHaveAttribute(
+      "role",
+      "status",
+    );
+    await waitFor(() =>
+      expect(within(list).getByRole("button", { name: "Change port for Team A" })).toHaveFocus(),
+    );
+    expect(list).toHaveTextContent("Port 9100");
+  });
+
+  it("calls off a port change with Escape, and says why the app refused one", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const { hosting } = fakeHosting(stopped, { workspaces: [teamA], unreadable: [] });
+    hosting.setPort!.mockRejectedValueOnce(
+      new Error(
+        "Gatherline could not save the new port. Check that its settings folder is writable, then try again.",
+      ),
+    );
+    render(<Harness hosting={hosting} onClose={onClose} />);
+    const changePort = () => screen.getByRole("button", { name: "Change port for Team A" });
+    await user.click(await screen.findByRole("button", { name: "Change port for Team A" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("textbox", { name: "New port for Team A" })).toBeNull();
+    // The row is drawn again, so the button is a new one; it still gets focus.
+    expect(changePort()).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(changePort());
+    const field = screen.getByRole("textbox", { name: "New port for Team A" });
+    await user.clear(field);
+    await user.type(field, "9100{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Gatherline could not save the new port. Check that its settings folder is writable, then try again.",
+    );
+    expect(field).toHaveValue("9100");
   });
 });
 

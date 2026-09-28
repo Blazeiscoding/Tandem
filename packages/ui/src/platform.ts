@@ -83,6 +83,8 @@ export interface HostingStatus {
   startsOnLaunch?: boolean;
   /** Why the workspace chosen to start with Gatherline did not, until hosting next starts. */
   launchError?: string;
+  /** How many people are connected to the running workspace now. */
+  connected?: number;
 }
 
 /**
@@ -155,6 +157,11 @@ export interface Platform {
      * opens, or none. Rejects, saying why, a workspace not in the list.
      */
     setStartOnLaunch?: (folder: string | null) => Promise<void>;
+    /**
+     * Changes the port a stopped workspace starts on. Rejects, saying why,
+     * a port outside 1 to 65535 or a workspace that is running.
+     */
+    setPort?: (folder: string, port: number) => Promise<{ folder: string; port: number }>;
     /**
      * Whether the OS opens Gatherline when someone signs in to this computer.
      * `get` resolves to null where it cannot, such as a copy run from source.
