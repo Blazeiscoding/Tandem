@@ -147,4 +147,14 @@ describe("renaming a workspace while it runs", () => {
     await stopping;
     server = undefined;
   });
+
+  it("announces itself again on request, and does nothing once stopping or when announcing is off", async () => {
+    await start("Rocket Team");
+    // Announcing is off in these tests, so this must be a quiet no-op.
+    expect(() => server!.reannounce()).not.toThrow();
+    const stopping = server!.stop();
+    expect(() => server!.reannounce()).not.toThrow();
+    await stopping;
+    server = undefined;
+  });
 });

@@ -42,6 +42,8 @@ export interface HostedWorkspaces {
     running: boolean;
     /** Its folder is gone, so it cannot start. */
     missing: boolean;
+    /** Chosen to start when Gatherline opens. Absent from apps that cannot. */
+    startsOnLaunch?: boolean;
   }[];
   /** Folders holding a workspace that could not be read. */
   unreadable: string[];
@@ -77,6 +79,10 @@ export interface HostingStatus {
   publicAddressError?: string;
   /** Whether new accounts need an invite code. */
   inviteOnly?: boolean;
+  /** The running workspace is the one chosen to start when Gatherline opens. */
+  startsOnLaunch?: boolean;
+  /** Why the workspace chosen to start with Gatherline did not, until hosting next starts. */
+  launchError?: string;
 }
 
 /**
@@ -144,6 +150,19 @@ export interface Platform {
     rename?: (folder: string, name: string) => Promise<{ folder: string; name: string }>;
     /** Shows a hosted workspace's folder in the system's file manager. */
     openFolder?: (folder: string) => Promise<void>;
+    /**
+     * Chooses the workspace, by its folder, to start whenever Gatherline
+     * opens, or none. Rejects, saying why, a workspace not in the list.
+     */
+    setStartOnLaunch?: (folder: string | null) => Promise<void>;
+    /**
+     * Whether the OS opens Gatherline when someone signs in to this computer.
+     * `get` resolves to null where it cannot, such as a copy run from source.
+     */
+    openAtLogin?: {
+      get: () => Promise<boolean | null>;
+      set: (open: boolean) => Promise<boolean>;
+    };
     /**
      * Asks for a backup's folder and restores it as a workspace hosted here,
      * without starting it. Null when no folder was chosen.

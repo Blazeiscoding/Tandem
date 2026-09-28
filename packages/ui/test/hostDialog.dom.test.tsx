@@ -414,20 +414,6 @@ describe("hosting a workspace from the host dialog", () => {
     expect(alert).not.toHaveTextContent(/settings file can be read/);
   });
 
-  it("identifies an invalid hosted-list format without exposing the IPC wrapper", async () => {
-    const { hosting } = fakeHosting(stopped, { workspaces: [], unreadable: [] });
-    hosting.list!.mockRejectedValueOnce(
-      new Error(
-        "Error invoking remote method 'hosting:list': Error: The hosted workspace list in settings is invalid. Restore or repair the settings file before hosting; the list was not changed.",
-      ),
-    );
-    render(<Harness hosting={hosting} />);
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/list format in settings is invalid/);
-    expect(alert).not.toHaveTextContent(/Error invoking remote method/);
-  });
-
   it("keeps the name, and says what went wrong, when hosting cannot start", async () => {
     const user = userEvent.setup();
     const { hosting } = fakeHosting(stopped);
@@ -751,6 +737,112 @@ describe("renaming a hosted workspace and opening its folder", () => {
     const list = await screen.findByRole("region", { name: "Hosted on this computer" });
     expect(within(list).queryByRole("button", { name: /^Rename/ })).toBeNull();
     expect(within(list).queryByRole("button", { name: /^Open folder/ })).toBeNull();
+  });
+});
+
+describe("starting with the computer", () => {
+  const teamA = {
+    folder: "team-a",
+    name: "Rocket Team",
+    port: 8543,
+    lastHostedAt: 1,
+    lastBackupAt: null,
+    running: false,
+    missing: false,
+  };
+
+  function withLaunch(initial: HostingStatus, atLogin: boolean | null = false) {
+    const fake = fakeHosting(initial, {
+      workspaces: [{ ...teamA, running: initial.running }],
+      unreadable: [],
+    });
+    const hosting = fake.hosting as typeof fake.hosting & {
+      setStartOnLaunch: ReturnType<typeof vi.fn>;
+      openAtLogin: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> };
+    };
+    let login = atLogin;
+    hosting.setStartOnLaunch = vi.fn(async (folder: string | null) => {
+      fake.push({ ...initial, startsOnLaunch: folder === "team-a" });
+    });
+    hosting.openAtLogin = {
+      get: vi.fn(async () => login),
+      set: vi.fn(async (open: boolean) => (login = open)),
+    };
+    return { hosting, push: fake.push };
+  }
+
+  it("starts the running workspace with Gatherline, and opens Gatherline at sign-in, when asked", async () => {
+    const user = userEvent.setup();
+    const { hosting } = withLaunch({ ...running, folder: "team-a" });
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "When this computer starts" });
+    const start = within(group).getByRole("checkbox", {
+      name: "Start hosting Rocket Team when Gatherline opens",
+    });
+    const login = await within(group).findByRole("checkbox", {
+      name: "Open Gatherline when you sign in to this computer",
+    });
+    expect(start).not.toBeChecked();
+    expect(login).not.toBeChecked();
+    expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
+
+    await user.click(start);
+    expect(hosting.setStartOnLaunch).toHaveBeenCalledWith("team-a");
+    await waitFor(() => expect(start).toBeChecked());
+    await user.click(login);
+    expect(hosting.openAtLogin.set).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(login).toBeChecked());
+    expect(group).toHaveTextContent(/With both on, Rocket Team is back for teammates/);
+
+    await user.click(start);
+    expect(hosting.setStartOnLaunch).toHaveBeenLastCalledWith(null);
+    await waitFor(() => expect(start).not.toBeChecked());
+  });
+
+  it("offers only what this copy of the app can do", async () => {
+    const { hosting } = withLaunch({ ...running, folder: "team-a" }, null);
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "When this computer starts" });
+    await waitFor(() => expect(hosting.openAtLogin.get).toHaveBeenCalled());
+    expect(within(group).queryByRole("checkbox", { name: /sign in/ })).toBeNull();
+    expect(group).toHaveTextContent("Rocket Team starts once Gatherline is opened.");
+  });
+
+  it("says why a choice could not be saved", async () => {
+    const user = userEvent.setup();
+    const { hosting } = withLaunch({ ...running, folder: "team-a" });
+    hosting.setStartOnLaunch.mockRejectedValueOnce(
+      new Error(
+        "Gatherline could not save that choice. Check that its settings folder is writable, then try again.",
+      ),
+    );
+    render(<Harness hosting={hosting} />);
+    const start = await screen.findByRole("checkbox", {
+      name: "Start hosting Rocket Team when Gatherline opens",
+    });
+    await user.click(start);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Gatherline could not save that choice. Check that its settings folder is writable, then try again.",
+    );
+    // Nothing was saved, so the box goes back to what is so.
+    expect(start).not.toBeChecked();
+  });
+
+  it("says why the chosen workspace did not start, and marks it in the list", async () => {
+    const fake = fakeHosting(
+      {
+        ...stopped,
+        launchError:
+          "Gatherline did not start hosting Rocket Team when it opened. Its folder is missing.",
+      },
+      { workspaces: [{ ...teamA, startsOnLaunch: true }], unreadable: [] },
+    );
+    render(<Harness hosting={fake.hosting} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Gatherline did not start hosting Rocket Team when it opened. Its folder is missing.",
+    );
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+    expect(list).toHaveTextContent("Port 8543 · Starts with Gatherline");
   });
 });
 

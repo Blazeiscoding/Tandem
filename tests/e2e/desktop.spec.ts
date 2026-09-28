@@ -430,3 +430,110 @@ test("restarting offers to host the last workspace again instead of reconnecting
     rmSync(data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test("a workspace chosen to start with Gatherline starts when it opens, and at sign-in waits in the tray", async () => {
+  const data = mkdtempSync(join(tmpdir(), "slackoss-desktop-launch-"));
+  const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
+  const env = {
+    ...inherited,
+    SLACKOSS_TEST: "1",
+    SLACKOSS_TEST_MEDIA: "1",
+    SLACKOSS_USER_DATA_DIR: data,
+  };
+  const executablePath = resolve("apps/desktop/release/win-unpacked/Gatherline.exe");
+  let app = await electron.launch({ executablePath, env });
+  const killTree = () => {
+    const pid = app.process().pid;
+    if (process.platform === "win32" && pid)
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"]);
+    else app.process().kill("SIGKILL");
+  };
+  const named = async (port: number) =>
+    (await (await fetch(`http://127.0.0.1:${port}/api/server-info`)).json()).workspaceName;
+  /** Quits while hosting, answering the stop-hosting question as a person would. */
+  const quitHosting = async () => {
+    const closed = app.waitForEvent("close");
+    await app.evaluate(({ app: electronApp, dialog }) => {
+      dialog.showMessageBox = (async () => ({
+        response: 1,
+        checkboxChecked: false,
+      })) as unknown as typeof dialog.showMessageBox;
+      setTimeout(() => electronApp.quit(), 0);
+    });
+    await closed;
+  };
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Host a workspace on this computer" }).click();
+    await page.getByPlaceholder("Workspace name (e.g. Rocket Team)").fill("Launch Test");
+    await page.getByRole("button", { name: "Start hosting", exact: true }).click();
+    await page.getByLabel("Username", { exact: true }).fill("launchowner");
+    await page.getByLabel("Display name", { exact: true }).fill("Launch Owner");
+    await page.getByLabel("Password", { exact: true }).fill("password123");
+    await page.getByRole("button", { name: "Join workspace", exact: true }).click();
+    await expect(page.locator("textarea")).toBeVisible();
+    const hosted = await page.evaluate(() => (window as any).slackoss.hostingStatus());
+
+    // Both choices, made in the host dialog.
+    await page.getByRole("button", { name: "Manage hosting", exact: true }).click();
+    const live = page.getByRole("dialog", { name: "Workspace is live" });
+    const choices = live.getByRole("group", { name: "When this computer starts" });
+    const withApp = choices.getByRole("checkbox", {
+      name: "Start hosting Launch Test when Gatherline opens",
+    });
+    await withApp.check();
+    await expect(withApp).toBeChecked();
+    const atSignIn = choices.getByRole("checkbox", {
+      name: "Open Gatherline when you sign in to this computer",
+    });
+    await atSignIn.check();
+    await expect(atSignIn).toBeChecked();
+    expect(await page.evaluate(() => (window as any).slackoss.hostingOpenAtLogin())).toBe(true);
+
+    // Waking from sleep announces the workspace again, and it keeps answering
+    // and can still be found on the network, here by this app's own browser.
+    await app.evaluate(({ powerMonitor }) => powerMonitor.emit("resume"));
+    expect(await named(hosted.port)).toBe("Launch Test");
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () =>
+            ((await (window as any).slackoss.lanSnapshot()) as { name: string }[]).some(
+              (server) => server.name === "Launch Test",
+            ),
+          ),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+    await page.keyboard.press("Escape");
+    await quitHosting();
+
+    // Opened by the OS at sign-in: hosting starts, and no window opens.
+    app = await electron.launch({ executablePath, env, args: ["--hidden"] });
+    await expect.poll(() => named(hosted.port).catch(() => null)).toBe("Launch Test");
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(0);
+    await quitHosting();
+
+    // Opened by a person: the window opens, and hosting starts with it.
+    app = await electron.launch({ executablePath, env });
+    page = await app.firstWindow();
+    await expect.poll(() => named(hosted.port).catch(() => null)).toBe("Launch Test");
+    await expect(page.locator("textarea")).toBeVisible();
+    await page.evaluate(() => (window as any).slackoss.hostingSetStartOnLaunch(null));
+    const list = await page.evaluate(() => (window as any).slackoss.hostingList());
+    expect(list.workspaces[0]).toMatchObject({ name: "Launch Test", startsOnLaunch: false });
+    await quitHosting();
+  } finally {
+    try {
+      killTree();
+    } catch {
+      // Already quit: the directory removes below regardless.
+    }
+    try {
+      rmSync(data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch {
+      // A profile still held open must not hide why the test failed.
+    }
+  }
+});

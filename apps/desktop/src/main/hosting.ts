@@ -43,7 +43,14 @@ export interface HostingSnapshot {
   publicAddressError?: string;
   /** Whether an account after the first needs an invite code. */
   inviteOnly?: boolean;
+  /** The running workspace is the one chosen to start when Gatherline opens. */
+  startsOnLaunch?: boolean;
+  /** Why the workspace chosen to start with Gatherline did not, until hosting next starts. */
+  launchError?: string;
 }
+
+/** The settings key naming, by its folder, the workspace to start when the app opens. */
+export const START_ON_LAUNCH_KEY = "startOnLaunch";
 
 /**
  * Calls through a tunnel still go directly between people, so each side has
@@ -73,6 +80,8 @@ export interface HostedWorkspaceSummary {
   running: boolean;
   /** Its folder is gone, so it cannot start. */
   missing: boolean;
+  /** Chosen to start when Gatherline opens. */
+  startsOnLaunch: boolean;
 }
 
 /**
@@ -100,6 +109,8 @@ interface HostedServer {
   workspaceName?(): string;
   /** Renames the workspace while it runs, telling everyone connected. */
   setWorkspaceName?(name: string): void;
+  /** Announces the workspace on the local network again, after a network change. */
+  reannounce?(): void;
   /** Identifies this run, so a public address can be confirmed to reach it. */
   instanceId?: string;
   stop(): Promise<void>;
@@ -284,6 +295,13 @@ export function createHostingController(options: HostingOptions) {
   let openError: string | undefined;
   /** Invalidates public-open requests that were queued before a close or stop. */
   let publicRequest = 0;
+  /**
+   * The folder of the workspace to start when the app opens, once read: null
+   * for none, undefined until read. Kept so a status snapshot, which cannot
+   * wait for the settings file, can say whether the running one is it.
+   */
+  let launchFolder: string | null | undefined;
+  let launchError: string | undefined;
 
   function changed(): void {
     // A renderer/tray notification must never lose ownership of a live server.
@@ -330,7 +348,17 @@ export function createHostingController(options: HostingOptions) {
       ...(portWarning || warning
         ? { warning: [portWarning, warning].filter(Boolean).join(" ") }
         : {}),
+      ...(server && workspace && launchFolder === workspace.folder ? { startsOnLaunch: true } : {}),
+      ...(launchError ? { launchError } : {}),
     };
+  }
+
+  /** The folder chosen to start when the app opens. An unreadable setting is no choice. */
+  async function readLaunchFolder(): Promise<string | null> {
+    if (launchFolder !== undefined) return launchFolder;
+    const stored = await options.settings.get(START_ON_LAUNCH_KEY).catch(() => null);
+    launchFolder = typeof stored === "string" && stored ? stored : null;
+    return launchFolder;
   }
 
   /** Back to reachable only on this network: no public address, no STUN. */
@@ -599,6 +627,7 @@ export function createHostingController(options: HostingOptions) {
       });
       workspace.workspaceName = server.workspaceName?.() ?? entry.name;
       phase = "running";
+      launchError = undefined;
       // A carrier forwards to one port and keeps forwarding there. Say so
       // while it can still be corrected, rather than letting Open to all
       // fail later with only "did not answer as this workspace".
@@ -622,6 +651,7 @@ export function createHostingController(options: HostingOptions) {
   /** Every workspace hosted here, most recent first, and the folders that could not be read. */
   async function list(): Promise<{ workspaces: HostedWorkspaceSummary[]; unreadable: string[] }> {
     const entries = await loadRegistry();
+    const starting = await readLaunchFolder();
     return {
       workspaces: [...entries]
         .sort((a, b) => b.lastHostedAt - a.lastHostedAt)
@@ -633,6 +663,7 @@ export function createHostingController(options: HostingOptions) {
           lastBackupAt: entry.lastBackupAt ?? null,
           running: server !== null && workspace?.folder === entry.folder,
           missing: !existsSync(join(options.dataRoot, entry.folder)),
+          startsOnLaunch: entry.folder === starting,
         })),
       unreadable: unreadableFolders,
     };
@@ -772,8 +803,86 @@ export function createHostingController(options: HostingOptions) {
         registry = list;
         throw error;
       }
+      // Nothing is left to start when the app opens.
+      if ((await readLaunchFolder()) === entry.folder) {
+        launchFolder = null;
+        await options.settings.set(START_ON_LAUNCH_KEY, null).catch(() => {});
+      }
       changed();
     });
+  }
+
+  /**
+   * Chooses the workspace to start whenever Gatherline opens, by its folder,
+   * or none. Only a workspace in the list can be chosen, and only one at a time.
+   */
+  function setStartOnLaunch(value: unknown): Promise<string | null> {
+    if (value !== null && typeof value !== "string")
+      return Promise.reject(new Error("Choose a workspace to start when Gatherline opens."));
+    return serialized(async () => {
+      if (value !== null && !(await loadRegistry()).some((e) => e.folder === value))
+        throw new Error("That workspace is not in the list hosted on this computer.");
+      try {
+        await options.settings.set(START_ON_LAUNCH_KEY, value);
+      } catch {
+        throw new Error(
+          "Gatherline could not save that choice. Check that its settings folder is writable, then try again.",
+        );
+      }
+      launchFolder = value;
+      changed();
+      return value;
+    });
+  }
+
+  /**
+   * Starts the workspace chosen to start with the app, if one was. A failure
+   * is kept in the status to be shown, rather than lost while no window is
+   * open to say it. A choice whose workspace has left the list is dropped.
+   */
+  async function startForLaunch(): Promise<HostingSnapshot | null> {
+    const folder = await readLaunchFolder();
+    if (!folder) return null;
+    let entry: HostedWorkspace | undefined;
+    try {
+      entry = (await loadRegistry()).find((e) => e.folder === folder);
+    } catch (error) {
+      launchError =
+        error instanceof RegistryFormatError
+          ? `Gatherline did not start hosting when it opened. ${error.message}`
+          : "Gatherline did not start hosting when it opened, because it could not read its list of hosted workspaces.";
+      changed();
+      return null;
+    }
+    if (!entry) {
+      launchFolder = null;
+      await options.settings.set(START_ON_LAUNCH_KEY, null).catch(() => {});
+      return null;
+    }
+    try {
+      return await start({ folder });
+    } catch (error) {
+      launchError = `Gatherline did not start hosting ${entry.name} when it opened. ${
+        error instanceof Error ? error.message : ""
+      }`.trim();
+      changed();
+      return null;
+    }
+  }
+
+  /**
+   * The computer woke, or its network changed: announce the running workspace
+   * again, and tell the window its addresses may be different.
+   */
+  function networkChanged(): void {
+    if (server && phase === "running") {
+      try {
+        server.reannounce?.();
+      } catch {
+        // The workspace still answers at its addresses; only being listed is lost.
+      }
+    }
+    changed();
   }
 
   /**
@@ -1105,6 +1214,9 @@ export function createHostingController(options: HostingOptions) {
     forget,
     rename,
     openFolder,
+    setStartOnLaunch,
+    startForLaunch,
+    networkChanged,
     start,
     stop,
     shutdown,

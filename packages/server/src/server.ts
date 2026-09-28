@@ -241,6 +241,13 @@ export interface WorkspaceServer {
    * announcement changes, and the name is stored for the next start.
    */
   setWorkspaceName: (name: string) => void;
+  /**
+   * Announces the workspace on the local network afresh. The announcement is
+   * made on the interfaces there were when it started, so after the computer
+   * wakes or changes network it has to be made again to be found. Does
+   * nothing when announcing is off or the workspace is stopping.
+   */
+  reannounce: () => void;
   stop: () => Promise<void>;
 }
 
@@ -3602,9 +3609,22 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   let mdnsHandle: MdnsHandle | null = null;
   // An isolated copy shares the original's name, and would be offered to
   // people looking for the real one.
-  if (opts.mdns !== false && !opts.isolated) {
+  const announcing = opts.mdns !== false && !opts.isolated;
+  if (announcing) {
     mdnsHandle = advertise({ name: workspaceName(), port: actualPort });
   }
+  /** Replaces the announcement with one made now, under the current name. */
+  const announce = () => {
+    if (!announcing || closing) return;
+    mdnsHandle?.stop();
+    // Losing the announcement is not worth failing what asked for it: the
+    // workspace still answers at its address, and the next call tries again.
+    try {
+      mdnsHandle = advertise({ name: workspaceName(), port: actualPort });
+    } catch {
+      mdnsHandle = null;
+    }
+  };
 
   /**
    * Posts anything that has come due. Runs on a timer and once at startup, so
@@ -3716,16 +3736,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       if (closing) throw new Error("The workspace is stopping.");
       store.setMeta("workspace_name", name);
       gateway.broadcastEphemeral({ type: "workspace.renamed", workspaceName: name }, null);
-      if (mdnsHandle) {
-        mdnsHandle.stop();
-        // Losing the announcement is not worth failing a rename that is saved.
-        try {
-          mdnsHandle = advertise({ name, port: actualPort });
-        } catch {
-          mdnsHandle = null;
-        }
-      }
+      announce();
     },
+    reannounce: () => announce(),
     stop: () => {
       if (stopping) return stopping;
       closing = true;
