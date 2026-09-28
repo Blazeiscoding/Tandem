@@ -962,6 +962,42 @@ Artifacts:
   ones once idle blobs exceed 32 MiB, so scrolling back through a channel full
   of images does not accumulate object URLs for the life of the session.
 
+## Database work and the desktop window
+
+The desktop app runs the hosted server in Electron's main process, which is
+also the thread that moves and resizes the window and answers the window's
+calls. A synchronous SQLite call there holds all of it. `scripts/measure-stall.mts`
+seeds a workspace through the store, in five channels with a tenth of
+messages as replies and half older than a 30-day retention window, plus a
+reader who has read all but the last 300 messages, then records the longest
+gap in a 1 ms heartbeat during each piece of work. Measured on September 29 on
+the machine above:
+
+| Work                                         | 50,000 messages (26.5 MB) | 200,000 messages (100.3 MB) |
+| -------------------------------------------- | ------------------------- | --------------------------- |
+| Searching for a word in one message in 1,000 | 13 ms                     | 11 ms                       |
+| Searching for a word in every message        | 55 ms                     | 242 ms                      |
+| Searching for a phrase in every message      | 54 ms                     | 224 ms                      |
+| Opening a channel's newest page              | 13 ms                     | 11 ms                       |
+| Activity, unread                             | 13 ms                     | 12 ms                       |
+| Backing up while running, on the main thread | 144 ms                    | 681 ms                      |
+| Verifying that backup, on the main thread    | 146 ms                    | 646 ms                      |
+| Backing up on a worker thread                | 17 ms                     | 17 ms                       |
+| Starting on the workspace                    | 15 ms                     | 31 ms                       |
+| One retention sweep of up to 2,000 messages  | 63 ms                     | 128 ms                      |
+
+So yes, database work stalled the window, and backing up and checking a
+backup did most of it: `VACUUM INTO` and `PRAGMA integrity_check` are single
+calls that grow with the database. The desktop app now runs backing up,
+checking and restoring on a worker thread, and the packaged suite's backup
+and restore steps pass through it. Moving the whole server into a
+`utilityProcess` is not needed for what remains: a search for a word nearly
+every message contains is the only ordinary request above 100 ms, and at 200,000
+messages it holds the standalone server for its other clients just as long.
+Run it again with
+`pnpm --filter @slackoss/server exec tsx ../../scripts/measure-stall.mts --messages=200000`
+from the repository root.
+
 ## Known limits
 
 - **Huddles are a mesh.** Every participant sends to every other participant, so
