@@ -493,6 +493,33 @@ test("a workspace chosen to start with Gatherline starts when it opens, and at s
     await expect(atSignIn).toBeChecked();
     expect(await page.evaluate(() => (window as any).slackoss.hostingOpenAtLogin())).toBe(true);
 
+    // Backed up by itself into a folder the system asked for: the first
+    // backup is made at once.
+    const scheduledBackups = mkdtempSync(join(tmpdir(), "slackoss-desktop-scheduled-"));
+    await app.evaluate(({ dialog }, chosen) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: [chosen],
+      })) as unknown as typeof dialog.showOpenDialog;
+    }, scheduledBackups);
+    const automatic = live.getByRole("group", { name: "Automatic backups" });
+    await automatic.getByRole("button", { name: "Back up automatically…" }).click();
+    await expect(
+      live.getByText(`Launch Test will be backed up every day into ${scheduledBackups}.`),
+    ).toBeVisible();
+    await expect
+      .poll(
+        () =>
+          readdirSync(scheduledBackups).filter((name) =>
+            readdirSync(join(scheduledBackups, name)).includes("manifest.json"),
+          ).length,
+      )
+      .toBe(1);
+    await expect(automatic).toContainText(
+      "Launch Test is backed up every day, keeping the newest 7",
+    );
+    rmSync(scheduledBackups, { recursive: true, force: true });
+
     // Waking from sleep announces the workspace again, and it keeps answering
     // and can still be found on the network, here by this app's own browser.
     await app.evaluate(({ powerMonitor }) => powerMonitor.emit("resume"));

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  AutoBackup,
   HostedWorkspaces,
   HostingStart,
   HostingStatus,
@@ -112,6 +113,170 @@ function StartWithComputer(props: {
           ? `${props.name} starts once Gatherline is opened.`
           : `With both on, ${props.name} is back for teammates once this computer restarts and someone signs in. Gatherline then waits in the tray.`}
       </p>
+    </fieldset>
+  );
+}
+
+const KEEP_CHOICES = [3, 7, 14, 30];
+
+/**
+ * Backing the running workspace up by itself, every day or week, into a
+ * folder the system asks for, keeping the newest few. The main process
+ * chooses the folder; this only asks it to.
+ */
+function AutoBackupSettings(props: {
+  hosting: Hosting;
+  folder: string;
+  name: string;
+  schedule: AutoBackup | null;
+  error: string | null;
+  disabled: boolean;
+  /** What changed, or went wrong changing it; null clears what was said. */
+  onNote: (note: { ok: boolean; text: string } | null) => void;
+  onChanged: () => void;
+}) {
+  const setAutoBackup = props.hosting.setAutoBackup;
+  const [saving, setSaving] = useState(false);
+  if (!setAutoBackup) return null;
+  const schedule = props.schedule;
+
+  async function save(
+    next: { everyDays: 1 | 7; keep: number } | null,
+    chooseFolder: boolean,
+    said: (result: AutoBackup | null) => string,
+  ) {
+    setSaving(true);
+    props.onNote(null);
+    try {
+      const result = await setAutoBackup!(props.folder, next, chooseFolder);
+      // No folder chosen: nothing changed, and nothing needs saying.
+      if (result === undefined) return;
+      props.onNote({ ok: true, text: said(result) });
+      props.onChanged();
+    } catch (reason) {
+      props.onNote({
+        ok: false,
+        text:
+          reason instanceof Error && reason.message
+            ? reason.message
+            : "The backup schedule could not be saved. Try again.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const often = (everyDays: 1 | 7) => (everyDays === 1 ? "every day" : "every week");
+  return (
+    <fieldset className="space-y-2" disabled={props.disabled || saving}>
+      <legend className="mb-1 text-ink-dim">Automatic backups</legend>
+      {schedule ? (
+        <>
+          <p className="text-ink">
+            {props.name} is backed up {often(schedule.everyDays)}, keeping the newest{" "}
+            {schedule.keep}, into{" "}
+            <span className="break-all font-mono text-xs">{schedule.destination}</span>
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-ink-dim">
+              How often
+              <select
+                value={schedule.everyDays}
+                onChange={(event) => {
+                  const everyDays = Number(event.target.value) as 1 | 7;
+                  void save(
+                    { everyDays, keep: schedule.keep },
+                    false,
+                    () => `${props.name} will be backed up ${often(everyDays)}.`,
+                  );
+                }}
+                className="rounded border border-edge bg-ground px-2 py-1 text-ink"
+              >
+                <option value={1}>Every day</option>
+                <option value={7}>Every week</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-ink-dim">
+              Keep
+              <select
+                value={schedule.keep}
+                onChange={(event) => {
+                  const keep = Number(event.target.value);
+                  void save(
+                    { everyDays: schedule.everyDays, keep },
+                    false,
+                    () => `The newest ${keep} backups of ${props.name} will be kept.`,
+                  );
+                }}
+                className="rounded border border-edge bg-ground px-2 py-1 text-ink"
+              >
+                {[...new Set([...KEEP_CHOICES, schedule.keep])]
+                  .sort((a, b) => a - b)
+                  .map((keep) => (
+                    <option key={keep} value={keep}>
+                      {keep} backups
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              className={linkBtnCls}
+              onClick={() =>
+                void save(
+                  { everyDays: schedule.everyDays, keep: schedule.keep },
+                  true,
+                  (result) => `${props.name} will be backed up into ${result?.destination}.`,
+                )
+              }
+            >
+              Choose another folder
+            </button>
+            <button
+              type="button"
+              className={linkBtnCls}
+              onClick={() =>
+                void save(
+                  null,
+                  false,
+                  () =>
+                    `${props.name} will no longer be backed up by itself. Backups already made stay where they are.`,
+                )
+              }
+            >
+              Turn off
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-ink-faint">
+            Back {props.name} up by itself every day into a folder you choose, such as one on
+            another drive, keeping the newest seven. Older ones there are removed.
+          </p>
+          <button
+            type="button"
+            className={buttonClass("secondary")}
+            onClick={() =>
+              void save(
+                { everyDays: 1, keep: 7 },
+                true,
+                (result) =>
+                  `${props.name} will be backed up every day into ${result?.destination}.`,
+              )
+            }
+          >
+            Back up automatically…
+          </button>
+        </>
+      )}
+      {props.error && (
+        <p role="alert" className="text-sm text-alert">
+          {props.error}
+        </p>
+      )}
     </fieldset>
   );
 }
@@ -825,6 +990,18 @@ export function HostDialog(props: {
               <p className="break-all font-mono text-xs text-ink">{status.dataDir}</p>
             </div>
           )}
+          {status.folder && status.workspaceName && phase === "running" && runningEntry && (
+            <AutoBackupSettings
+              hosting={props.hosting}
+              folder={status.folder}
+              name={status.workspaceName}
+              schedule={runningEntry.autoBackup ?? null}
+              error={runningEntry.autoBackupError ?? null}
+              disabled={unavailable}
+              onNote={setBackupNote}
+              onChanged={() => setListRevision((n) => n + 1)}
+            />
+          )}
           {status.folder && status.workspaceName && phase === "running" && (
             <StartWithComputer
               hosting={props.hosting}
@@ -1189,6 +1366,12 @@ export function HostDialog(props: {
                             {w.missing
                               ? "Its folder is missing, so it cannot start"
                               : `Port ${w.port}${w.startsOnLaunch ? " · Starts with Gatherline" : ""}${
+                                  w.autoBackup
+                                    ? w.autoBackup.everyDays === 1
+                                      ? " · Backs up daily"
+                                      : " · Backs up weekly"
+                                    : ""
+                                }${
                                   backupFn
                                     ? w.lastBackupAt === null
                                       ? " · Not backed up yet"

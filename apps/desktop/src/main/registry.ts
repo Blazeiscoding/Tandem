@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 /**
@@ -20,6 +20,29 @@ export interface HostedWorkspace {
   lastHostedAt: number;
   /** When a backup of it last finished, if one has. */
   lastBackupAt?: number;
+  /** Backing it up by itself, into a folder the host chose, keeping the newest few. */
+  autoBackup?: AutoBackup;
+}
+
+/** How often, and where, a workspace is backed up without being asked. */
+export interface AutoBackup {
+  /** An absolute path the host chose in the system's folder dialog. */
+  destination: string;
+  /** 1 for daily, 7 for weekly. */
+  everyDays: 1 | 7;
+  /** How many of its own backups to keep there; older ones are removed. */
+  keep: number;
+}
+
+/** A schedule as stored, or undefined when it is not one this version can follow. */
+export function parseAutoBackup(value: unknown): AutoBackup | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const { destination, everyDays, keep } = value as Record<string, unknown>;
+  if (typeof destination !== "string" || !isAbsolute(destination)) return undefined;
+  if (everyDays !== 1 && everyDays !== 7) return undefined;
+  if (typeof keep !== "number" || !Number.isInteger(keep) || keep < 1 || keep > 60)
+    return undefined;
+  return { destination, everyDays, keep };
 }
 
 /** The settings key the registry lives under. */
@@ -83,7 +106,10 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
   const entries: HostedWorkspace[] = [];
   for (const raw of workspaces) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const { id, folder, name, port, lastHostedAt, lastBackupAt } = raw as Record<string, unknown>;
+    const { id, folder, name, port, lastHostedAt, lastBackupAt, autoBackup } = raw as Record<
+      string,
+      unknown
+    >;
     if (typeof folder !== "string" || !FOLDER.test(folder) || folders.has(folder)) continue;
     if (id !== null && (typeof id !== "string" || !id || ids.has(id))) continue;
     if (typeof name !== "string" || !name.trim() || name.length > 80) continue;
@@ -100,6 +126,7 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
       ...(typeof lastBackupAt === "number" && Number.isFinite(lastBackupAt)
         ? { lastBackupAt }
         : {}),
+      ...(parseAutoBackup(autoBackup) ? { autoBackup: parseAutoBackup(autoBackup) } : {}),
     });
   }
   return entries;

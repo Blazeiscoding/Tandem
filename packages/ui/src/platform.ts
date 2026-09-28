@@ -30,6 +30,13 @@ export interface LastHosted {
   port: number;
 }
 
+/** A workspace backed up by itself: where, how often, and how many are kept. */
+export interface AutoBackup {
+  destination: string;
+  everyDays: 1 | 7;
+  keep: number;
+}
+
 /** Every workspace hosted on this computer, most recent first. */
 export interface HostedWorkspaces {
   workspaces: {
@@ -44,6 +51,10 @@ export interface HostedWorkspaces {
     missing: boolean;
     /** Chosen to start when Gatherline opens. Absent from apps that cannot. */
     startsOnLaunch?: boolean;
+    /** Backed up by itself on a schedule. Absent from apps that cannot. */
+    autoBackup?: AutoBackup | null;
+    /** Why its last scheduled backup did not finish, until one does. */
+    autoBackupError?: string | null;
   }[];
   /** Folders holding a workspace that could not be read. */
   unreadable: string[];
@@ -162,6 +173,16 @@ export interface Platform {
      * a port outside 1 to 65535 or a workspace that is running.
      */
     setPort?: (folder: string, port: number) => Promise<{ folder: string; port: number }>;
+    /**
+     * Backs a workspace up by itself, every day or week, keeping the newest
+     * `keep`. With `chooseFolder`, the system asks where; resolves to
+     * undefined when no folder was chosen. Null turns it off.
+     */
+    setAutoBackup?: (
+      folder: string,
+      schedule: { everyDays: 1 | 7; keep: number } | null,
+      chooseFolder: boolean,
+    ) => Promise<AutoBackup | null | undefined>;
     /**
      * Whether the OS opens Gatherline when someone signs in to this computer.
      * `get` resolves to null where it cannot, such as a copy run from source.

@@ -1,4 +1,5 @@
 import type {
+  AutoBackup,
   DiscoveredServer,
   HostedWorkspaces,
   HostingStart,
@@ -23,6 +24,11 @@ interface SlackossBridge {
   hostingOpenFolder: (folder: string) => Promise<void>;
   hostingSetStartOnLaunch: (folder: string | null) => Promise<string | null>;
   hostingSetPort: (folder: string, port: number) => Promise<{ folder: string; port: number }>;
+  hostingSetAutoBackup: (
+    folder: string,
+    schedule: { everyDays: 1 | 7; keep: number } | null,
+    chooseFolder: boolean,
+  ) => Promise<AutoBackup | null | undefined>;
   hostingOpenAtLogin: () => Promise<boolean | null>;
   hostingSetOpenAtLogin: (open: boolean) => Promise<boolean>;
   hostingRestore: () => Promise<{ folder: string; name: string } | null>;
@@ -92,6 +98,8 @@ export function electronPlatform(): Platform {
       // Its refusals are the controller's own words, and the window shows them.
       start: (opts) => plainly(bridge.hostingStart(opts)),
       setPort: (folder, port) => plainly(bridge.hostingSetPort(folder, port)),
+      setAutoBackup: (folder, schedule, chooseFolder) =>
+        plainly(bridge.hostingSetAutoBackup(folder, schedule, chooseFolder)),
       lastHosted: () => bridge.hostingLastHosted(),
       list: () => bridge.hostingList(),
       backup: (folder) => plainly(bridge.hostingBackup(folder)),
