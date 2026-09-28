@@ -22,6 +22,7 @@ interface SlackossBridge {
   hostingRename: (folder: string, name: string) => Promise<{ folder: string; name: string }>;
   hostingOpenFolder: (folder: string) => Promise<void>;
   hostingSetStartOnLaunch: (folder: string | null) => Promise<string | null>;
+  hostingSetPort: (folder: string, port: number) => Promise<{ folder: string; port: number }>;
   hostingOpenAtLogin: () => Promise<boolean | null>;
   hostingSetOpenAtLogin: (open: boolean) => Promise<boolean>;
   hostingRestore: () => Promise<{ folder: string; name: string } | null>;
@@ -88,7 +89,9 @@ export function electronPlatform(): Platform {
     },
     hosting: {
       status: () => bridge.hostingStatus(),
-      start: (opts) => bridge.hostingStart(opts),
+      // Its refusals are the controller's own words, and the window shows them.
+      start: (opts) => plainly(bridge.hostingStart(opts)),
+      setPort: (folder, port) => plainly(bridge.hostingSetPort(folder, port)),
       lastHosted: () => bridge.hostingLastHosted(),
       list: () => bridge.hostingList(),
       backup: (folder) => plainly(bridge.hostingBackup(folder)),

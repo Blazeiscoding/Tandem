@@ -329,6 +329,8 @@ const hosting = createHostingController({
       workspaceName: () => server.store.getMeta("workspace_name") ?? workspaceName ?? "",
       setWorkspaceName: (name) => server.setWorkspaceName(name),
       reannounce: () => server.reannounce(),
+      connectedPeople: () => server.connectedPeople(),
+      onConnectedChange: (listener) => server.onConnectedChange(listener),
       stop: () => server.stop(),
       setPublicUrl: (url) => server.setPublicUrl(url),
       // cloudflared reaches this embedded server from loopback. Believe its
@@ -395,6 +397,7 @@ ipcMain.handle("hosting:forget", (_e, folder: unknown) => hosting.forget(folder)
 ipcMain.handle("hosting:rename", (_e, request: unknown) => hosting.rename(request));
 // The window names a listed workspace; the controller finds its folder.
 ipcMain.handle("hosting:openFolder", (_e, folder: unknown) => hosting.openFolder(folder));
+ipcMain.handle("hosting:setPort", (_e, request: unknown) => hosting.setPort(request));
 ipcMain.handle("hosting:setStartOnLaunch", (_e, folder: unknown) =>
   hosting.setStartOnLaunch(folder),
 );
@@ -579,7 +582,9 @@ function updateTray(): void {
       : status.phase === "stopping"
         ? "Stopping workspace…"
         : status.running
-          ? `Hosting ${status.workspaceName} · ${status.openToAll?.phase === "open" ? "open to all" : `port ${status.port}`}`
+          ? `Hosting ${status.workspaceName} · ${status.openToAll?.phase === "open" ? "open to all" : `port ${status.port}`}${
+              status.connected !== undefined ? ` · ${status.connected} connected` : ""
+            }`
           : "Not hosting";
   tray.setToolTip(`Gatherline — ${label}`.slice(0, 127));
   tray.setContextMenu(

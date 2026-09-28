@@ -94,7 +94,7 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   await expect(page.getByRole("region", { name: "Notifications" })).toHaveCount(0);
   await expect.poll(trayMenu).toEqual([
     { label: "Open Gatherline", enabled: true },
-    { label: `Hosting Desktop Test · port ${status.port}`, enabled: false },
+    { label: `Hosting Desktop Test · port ${status.port} · 1 connected`, enabled: false },
     { label: "Stop hosting…", enabled: true },
     { label: "Stop hosting and quit…", enabled: true },
   ]);
@@ -478,6 +478,8 @@ test("a workspace chosen to start with Gatherline starts when it opens, and at s
     // Both choices, made in the host dialog.
     await page.getByRole("button", { name: "Manage hosting", exact: true }).click();
     const live = page.getByRole("dialog", { name: "Workspace is live" });
+    // The owner's own window is connected to it.
+    await expect(live).toContainText("Connected now: 1 person");
     const choices = live.getByRole("group", { name: "When this computer starts" });
     const withApp = choices.getByRole("checkbox", {
       name: "Start hosting Launch Test when Gatherline opens",

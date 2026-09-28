@@ -117,6 +117,24 @@ export class Gateway {
     return [...this.byUser.keys()];
   }
 
+  private presenceListeners = new Set<() => void>();
+
+  /** Called whenever someone's first socket opens or last socket closes. */
+  onPresenceChange(listener: () => void): () => void {
+    this.presenceListeners.add(listener);
+    return () => void this.presenceListeners.delete(listener);
+  }
+
+  private presenceChanged(): void {
+    for (const listener of this.presenceListeners) {
+      try {
+        listener();
+      } catch {
+        // Whoever listens cannot stop a socket from being counted.
+      }
+    }
+  }
+
   presenceMap(): Record<ID, Presence> {
     const out: Record<ID, Presence> = {};
     for (const u of this.store.listUsers()) out[u.id] = "offline";
@@ -272,6 +290,7 @@ export class Gateway {
         { type: "presence", userId: client.userId, presence: "online" },
         null,
       );
+      this.presenceChanged();
     }
   }
 
@@ -291,6 +310,7 @@ export class Gateway {
           { type: "presence", userId: client.userId, presence: "offline" },
           null,
         );
+        this.presenceChanged();
       }
     }
   }

@@ -157,4 +157,40 @@ describe("renaming a workspace while it runs", () => {
     await stopping;
     server = undefined;
   });
+
+  it("counts each person connected once, and says when that changes", async () => {
+    await start("Rocket Team");
+    let told = 0;
+    const stop = server!.onConnectedChange(() => told++);
+    expect(server!.connectedPeople()).toBe(0);
+
+    const owner = await register("owner");
+    const laptop = socket(owner);
+    await laptop.heard((m) => m.type === "ready");
+    await expect.poll(() => server!.connectedPeople()).toBe(1);
+    expect(told).toBe(1);
+    // A second device of the same person is the same person.
+    const phone = socket(owner);
+    await phone.heard((m) => m.type === "ready");
+    const member = socket(await register("member"));
+    await member.heard((m) => m.type === "ready");
+    await expect.poll(() => server!.connectedPeople()).toBe(2);
+    expect(told).toBe(2);
+    // Nor does a socket that never signs in count.
+    const stranger = socket();
+    await stranger.opened;
+    expect(server!.connectedPeople()).toBe(2);
+
+    laptop.ws.close();
+    await laptop.closed;
+    await expect.poll(() => server!.connectedPeople()).toBe(2);
+    phone.ws.close();
+    await expect.poll(() => server!.connectedPeople()).toBe(1);
+    expect(told).toBe(3);
+
+    stop();
+    member.ws.close();
+    await expect.poll(() => server!.connectedPeople()).toBe(0);
+    expect(told).toBe(3);
+  });
 });

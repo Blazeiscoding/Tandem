@@ -91,6 +91,9 @@ function harness(
     renamedRunning: [] as string[],
     /** How many times a running server announced itself again. */
     reannounced: 0,
+    /** Who is connected to the running server, and whoever listens for changes. */
+    connected: 0,
+    connectionListeners: new Set<() => void>(),
     /** Each name written into a stopped workspace's database; set `writeFails` to refuse. */
     written: [] as { dataDir: string; name: string }[],
     writeFails: false,
@@ -179,6 +182,11 @@ function harness(
         reannounce: () => {
           h.reannounced++;
         },
+        connectedPeople: () => h.connected,
+        onConnectedChange: (listener: () => void) => {
+          h.connectionListeners.add(listener);
+          return () => void h.connectionListeners.delete(listener);
+        },
         stop: vi.fn(async () => {}),
         ...(options.publicAccess
           ? {
@@ -260,6 +268,7 @@ describe("hosting a workspace from the desktop app", () => {
       dataDir,
       port: 8543,
       lanUrls: ["192.168.1.20:8543"],
+      connected: 0,
     });
     // An earlier version would look for rocket-team, which is not this one.
     expect(h.saved).toEqual([null]);
@@ -348,7 +357,9 @@ describe("hosting a workspace from the desktop app", () => {
     };
     await expect(
       chosen.controller.start({ workspaceName: "Rocket Team", port: 9000 }),
-    ).rejects.toThrow(/EADDRINUSE/);
+    ).rejects.toThrow(
+      "Port 9000 is already in use on this computer. Choose another, or leave the port empty to use one that is free.",
+    );
     expect(chosen.starts.map((s) => s.port)).toEqual([9000]);
     expect(chosen.controller.status()).toEqual({ running: false, phase: "stopped" });
   });
@@ -358,7 +369,10 @@ describe("hosting a workspace from the desktop app", () => {
     h.beforeBind = () => {
       throw Object.assign(new Error("listen EACCES"), { code: "EACCES" });
     };
-    await expect(h.controller.start({ workspaceName: "Rocket Team" })).rejects.toThrow("EACCES");
+    // Described by its code: a system error's own message names paths.
+    await expect(h.controller.start({ workspaceName: "Rocket Team" })).rejects.toThrow(
+      "The workspace could not start (EACCES). Check that its data folder is writable and its port is free, then try again.",
+    );
     // Not retried elsewhere, not remembered, and no lasting warning to repeat
     // what the caller has already been told.
     expect(h.starts).toHaveLength(1);
@@ -1668,5 +1682,66 @@ describe("starting with the computer", () => {
     expect(h.reannounced).toBe(1);
     expect(h.changes.length).toBe(told + 1);
     expect(h.changes.at(-1)).toMatchObject({ running: true, lanUrls: ["192.168.1.20:8543"] });
+  });
+});
+
+describe("who is connected, and which port", () => {
+  it("counts who is connected to the running workspace, and tells the window when that changes", async () => {
+    const h = harness();
+    expect(h.controller.status().connected).toBeUndefined();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    expect(h.controller.status().connected).toBe(0);
+
+    h.connected = 3;
+    for (const listener of h.connectionListeners) listener();
+    expect(h.changes.at(-1)).toMatchObject({ running: true, connected: 3 });
+
+    await h.controller.stop();
+    expect(h.connectionListeners.size).toBe(0);
+    expect(h.controller.status().connected).toBeUndefined();
+  });
+
+  it("changes the port a stopped workspace starts on, and not the running one's", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    await expect(h.controller.setPort({ folder: made.folder, port: 9100 })).rejects.toThrow(
+      "Stop hosting Rocket Team before changing its port.",
+    );
+    await h.controller.stop();
+
+    expect(await h.controller.setPort({ folder: made.folder, port: 9100 })).toEqual({
+      folder: made.folder,
+      port: 9100,
+    });
+    expect(registryOf(h)[0]).toMatchObject({ port: 9100 });
+    await h.controller.start({ folder: made.folder });
+    expect(h.starts.at(-1)!.port).toBe(9100);
+  });
+
+  it("refuses a port no program could use, and a workspace it does not list", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    for (const port of [0, 65536, 80.5, "9000", null]) {
+      await expect(h.controller.setPort({ folder: made.folder, port })).rejects.toThrow(
+        "Choose a port from 1 to 65535.",
+      );
+    }
+    await expect(h.controller.setPort({ folder: "w-elsewhere", port: 9100 })).rejects.toThrow(
+      "That workspace is not in the list hosted on this computer.",
+    );
+    expect(registryOf(h)[0]).toMatchObject({ port: 8543 });
+  });
+
+  it("keeps the old port when the new one cannot be saved", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    h.saveFails = true;
+    await expect(h.controller.setPort({ folder: made.folder, port: 9100 })).rejects.toThrow(
+      /could not save the new port/,
+    );
+    h.saveFails = false;
+    expect((await h.controller.list()).workspaces[0]).toMatchObject({ port: 8543 });
   });
 });

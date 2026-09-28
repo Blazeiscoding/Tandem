@@ -248,6 +248,10 @@ export interface WorkspaceServer {
    * nothing when announcing is off or the workspace is stopping.
    */
   reannounce: () => void;
+  /** How many people are connected now, each counted once however many devices they use. */
+  connectedPeople: () => number;
+  /** Calls `listener` whenever that count may have changed. Returns how to stop. */
+  onConnectedChange: (listener: () => void) => () => void;
   stop: () => Promise<void>;
 }
 
@@ -3739,6 +3743,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       announce();
     },
     reannounce: () => announce(),
+    connectedPeople: () => gateway.onlineUserIds().length,
+    onConnectedChange: (listener) => gateway.onPresenceChange(listener),
     stop: () => {
       if (stopping) return stopping;
       closing = true;
