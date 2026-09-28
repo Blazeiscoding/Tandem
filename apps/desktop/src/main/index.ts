@@ -17,12 +17,9 @@ import { networkInterfaces } from "node:os";
 import { pathToFileURL } from "node:url";
 import { Bonjour, type Service } from "bonjour-service";
 import { DEEP_LINK_PROTOCOLS, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
-import {
-  backupWorkspace,
-  createWorkspaceServer,
-  restoreWorkspace,
-  verifyBackup,
-} from "@slackoss/server";
+import { createWorkspaceServer } from "@slackoss/server";
+import createBackupWorker from "./backupWorker?nodeWorker";
+import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
 import { createHostingController } from "./hosting.js";
 import {
@@ -270,14 +267,40 @@ function publicAddressStatus(): {
   };
 }
 
+/**
+ * Runs a backup, check or restore on a worker thread, so the window and the
+ * hosted server keep answering while SQLite copies or checks the database.
+ */
+function inWorker<T>(job: BackupJob): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const worker = createBackupWorker({ workerData: job });
+    let settled = false;
+    worker.once("message", (reply: BackupReply) => {
+      settled = true;
+      if (reply.ok) resolve(reply.result as T);
+      else reject(new Error(reply.message));
+    });
+    worker.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    worker.once("exit", (code) => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`The backup stopped before it finished (exit code ${code}).`));
+    });
+  });
+}
+
 const hosting = createHostingController({
   dataRoot: join(app.getPath("userData"), "hosted"),
   defaultPort: DEFAULT_PORT,
   lanUrls,
   settings,
-  backupWorkspace,
-  verifyBackup,
-  restoreWorkspace,
+  backupWorkspace: (options) => inWorker({ kind: "backup", ...options }),
+  verifyBackup: (dir) => inWorker({ kind: "verify", dir }),
+  restoreWorkspace: (options) => inWorker({ kind: "restore", ...options }),
   freeBytes: async (dir) => {
     const info = await statfs(dir);
     return info.bavail * info.bsize;
