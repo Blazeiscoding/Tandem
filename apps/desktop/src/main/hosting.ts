@@ -8,10 +8,12 @@ import {
   adoptFolders,
   legacyFolder,
   newFolder,
+  parseAutoBackup,
   parseRegistry,
   readWorkspace,
   serializeRegistry,
   writeWorkspaceName,
+  type AutoBackup,
   type HostedWorkspace,
 } from "./registry.js";
 
@@ -84,6 +86,10 @@ export interface HostedWorkspaceSummary {
   missing: boolean;
   /** Chosen to start when Gatherline opens. */
   startsOnLaunch: boolean;
+  /** Backed up by itself on a schedule, and where. */
+  autoBackup: AutoBackup | null;
+  /** Why the last scheduled backup did not finish, until one does. */
+  autoBackupError: string | null;
 }
 
 /**
@@ -284,6 +290,9 @@ async function folderBytes(dir: string): Promise<number> {
   return total;
 }
 
+/** The name `backup` gives a backup's folder: the workspace's name, then when. */
+const BACKUP_NAME = /^[a-z0-9-]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/;
+
 function megabytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
 }
@@ -329,6 +338,8 @@ export function createHostingController(options: HostingOptions) {
   let launchError: string | undefined;
   /** Stops listening for who connects to the running server. */
   let stopWatchingConnections: (() => void) | null = null;
+  /** Why each workspace's last scheduled backup failed, by folder, until one finishes. */
+  const autoBackupErrors = new Map<string, string>();
 
   function changed(): void {
     // A renderer/tray notification must never lose ownership of a live server.
@@ -702,6 +713,8 @@ export function createHostingController(options: HostingOptions) {
           running: server !== null && workspace?.folder === entry.folder,
           missing: !existsSync(join(options.dataRoot, entry.folder)),
           startsOnLaunch: entry.folder === starting,
+          autoBackup: entry.autoBackup ?? null,
+          autoBackupError: autoBackupErrors.get(entry.folder) ?? null,
         })),
       unreadable: unreadableFolders,
     };
@@ -848,6 +861,115 @@ export function createHostingController(options: HostingOptions) {
       }
       changed();
     });
+  }
+
+  /**
+   * Backs a workspace up by itself from now on, into `destination`, every day
+   * or every week, keeping the newest `keep` of its backups there. Null turns
+   * it off; backups already made stay where they are.
+   */
+  function setAutoBackup(value: unknown): Promise<AutoBackup | null> {
+    const { folder, schedule } = (value ?? {}) as Record<string, unknown>;
+    if (typeof folder !== "string")
+      return Promise.reject(new Error("Choose a workspace to back up automatically."));
+    if (schedule !== null && (!schedule || typeof schedule !== "object"))
+      return Promise.reject(
+        new Error("Choose a folder, daily or weekly, and to keep 1 to 60 backups."),
+      );
+    return serialized(async () => {
+      if (closing) throw new Error("The app is quitting.");
+      const entry = (await loadRegistry()).find((e) => e.folder === folder);
+      if (!entry) throw new Error("That workspace is not in the list hosted on this computer.");
+      let chosen: AutoBackup | null = null;
+      if (schedule !== null) {
+        const asked = schedule as Record<string, unknown>;
+        // Changing how often or how many keeps the folder already chosen.
+        const destination = asked.destination ?? entry.autoBackup?.destination;
+        if (destination === undefined)
+          throw new Error("Choose a folder to back the workspace up into.");
+        chosen =
+          parseAutoBackup({ destination, everyDays: asked.everyDays, keep: asked.keep }) ?? null;
+        if (!chosen)
+          throw new Error("Choose a folder, daily or weekly, and to keep 1 to 60 backups.");
+      }
+      if (chosen && !existsSync(chosen.destination))
+        throw new Error("That folder is not there any more. Choose another.");
+      const previous = entry.autoBackup;
+      updateEntry(entry.folder, { autoBackup: chosen ?? undefined });
+      try {
+        await saveRegistry();
+      } catch {
+        updateEntry(entry.folder, { autoBackup: previous });
+        throw new Error(
+          "Gatherline could not save the backup schedule. Check that its settings folder is writable, then try again.",
+        );
+      }
+      autoBackupErrors.delete(entry.folder);
+      changed();
+      return chosen;
+    });
+  }
+
+  /**
+   * Removes a workspace's oldest backups from its schedule's folder, keeping
+   * the newest `keep`. Only a folder this app named, holding a backup of this
+   * very workspace, is ever removed; anything else there is left alone.
+   */
+  async function pruneBackups(entry: HostedWorkspace, schedule: AutoBackup): Promise<void> {
+    if (!entry.id) return;
+    const found: { path: string; at: string }[] = [];
+    for (const item of await readdir(schedule.destination, { withFileTypes: true })) {
+      if (!item.isDirectory() || !BACKUP_NAME.test(item.name)) continue;
+      const path = join(schedule.destination, item.name);
+      if (!existsSync(join(path, "manifest.json"))) continue;
+      if (read(path)?.id !== entry.id) continue;
+      found.push({ path, at: item.name.slice(-19) });
+    }
+    // The name ends in when the backup was made, which sorts as text.
+    found.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    for (const old of found.slice(schedule.keep)) {
+      await rm(old.path, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Backs up every workspace whose schedule has come due, one at a time, then
+   * keeps only the newest of its backups. A failure is kept for the window to
+   * show, and tried again at the next check.
+   */
+  async function runDueBackups(): Promise<void> {
+    let entries: HostedWorkspace[];
+    try {
+      entries = await loadRegistry();
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const schedule = entry.autoBackup;
+      if (!schedule || closing) continue;
+      if (!existsSync(join(options.dataRoot, entry.folder))) continue;
+      // Never backed up here, it is due now. Otherwise a little early is fine:
+      // the check runs every few minutes, not on the dot.
+      const due =
+        entry.lastBackupAt === undefined
+          ? 0
+          : entry.lastBackupAt + schedule.everyDays * 24 * 3600_000 - 10 * 60_000;
+      if (now() < due) continue;
+      try {
+        await backup({ folder: entry.folder, destination: schedule.destination });
+        const latest = registry?.find((e) => e.folder === entry.folder) ?? entry;
+        await pruneBackups(latest, schedule);
+        autoBackupErrors.delete(entry.folder);
+      } catch (error) {
+        autoBackupErrors.set(
+          entry.folder,
+          `The scheduled backup of ${entry.name} did not finish. ${
+            error instanceof Error ? error.message : ""
+          }`.trim(),
+        );
+      }
+      changed();
+    }
   }
 
   /**
@@ -1290,6 +1412,8 @@ export function createHostingController(options: HostingOptions) {
     openFolder,
     setStartOnLaunch,
     setPort,
+    setAutoBackup,
+    runDueBackups,
     startForLaunch,
     networkChanged,
     start,

@@ -398,6 +398,42 @@ ipcMain.handle("hosting:rename", (_e, request: unknown) => hosting.rename(reques
 // The window names a listed workspace; the controller finds its folder.
 ipcMain.handle("hosting:openFolder", (_e, folder: unknown) => hosting.openFolder(folder));
 ipcMain.handle("hosting:setPort", (_e, request: unknown) => hosting.setPort(request));
+/**
+ * Turns a workspace's scheduled backups on, changes them, or turns them off.
+ * Only the system's folder dialog chooses where they go: the window can ask
+ * for one, but never names a path itself.
+ */
+ipcMain.handle(
+  "hosting:setAutoBackup",
+  async (event, folder: unknown, schedule: unknown, chooseFolder: unknown) => {
+    if (quitting) throw new Error("Gatherline is shutting down.");
+    if (schedule === null) return hosting.setAutoBackup({ folder, schedule: null });
+    const { everyDays, keep } = (schedule ?? {}) as Record<string, unknown>;
+    let destination: string | undefined;
+    if (chooseFolder === true) {
+      const owner = BrowserWindow.fromWebContents(event.sender);
+      const options = {
+        title: "Choose where to keep the backups",
+        buttonLabel: "Back up here",
+        properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[],
+      };
+      const choice = owner
+        ? await dialog.showOpenDialog(owner, options)
+        : await dialog.showOpenDialog(options);
+      // Choosing no folder changes nothing.
+      if (choice.canceled || !choice.filePaths[0]) return undefined;
+      destination = choice.filePaths[0];
+    }
+    const saved = await hosting.setAutoBackup({
+      folder,
+      schedule: { everyDays, keep, ...(destination ? { destination } : {}) },
+    });
+    // A workspace not backed up yet is due at once, so the first backup is made
+    // now, where the host can see it happen, rather than in a quarter of an hour.
+    void hosting.runDueBackups();
+    return saved;
+  },
+);
 ipcMain.handle("hosting:setStartOnLaunch", (_e, folder: unknown) =>
   hosting.setStartOnLaunch(folder),
 );
@@ -779,6 +815,9 @@ void app.whenReady().then(async () => {
   if (initial && !pendingDeepLink) pendingDeepLink = initial;
   createTray();
   followNetworkChanges();
+  // Scheduled backups: once the app has settled, then every quarter hour.
+  setTimeout(() => void hosting.runDueBackups(), 60_000).unref();
+  setInterval(() => void hosting.runDueBackups(), 15 * 60_000).unref();
   // Opened by the OS at sign-in, with a workspace hosting and a tray to reach
   // it by, Gatherline stays out of the way. Otherwise the window opens, and
   // hosting starts meanwhile: it enters "starting" long before the window asks.

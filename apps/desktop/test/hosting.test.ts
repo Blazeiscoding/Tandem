@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -103,6 +103,8 @@ function harness(
     clock: 1000,
     /** Each backup the server was asked for, and the free space the disk reports. */
     backups: [] as { dataDir: string; out: string }[],
+    /** Whether a backup leaves a folder shaped like the server's, holding the workspace's ID. */
+    writeBackups: false,
     free: Number.MAX_SAFE_INTEGER,
     changes: [] as HostingSnapshot[],
     /** Runs as each server binds; throw to fail that attempt, or return a promise to hold it. */
@@ -144,6 +146,11 @@ function harness(
     },
     backupWorkspace: async (request) => {
       h.backups.push(request);
+      if (h.writeBackups) {
+        const inside = h.databases.get(request.dataDir);
+        workspaceDb(request.out, inside?.id ?? null, inside?.name ?? "Unnamed");
+        writeFileSync(join(request.out, "manifest.json"), "{}");
+      }
       return { files: [] };
     },
     freeBytes: async () => h.free,
@@ -1743,5 +1750,143 @@ describe("who is connected, and which port", () => {
     );
     h.saveFails = false;
     expect((await h.controller.list()).workspaces[0]).toMatchObject({ port: 8543 });
+  });
+});
+
+describe("scheduled backups", () => {
+  const DAY = 24 * 3600_000;
+
+  async function scheduled(keep = 2) {
+    const h = harness();
+    h.writeBackups = true;
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    const destination = profile();
+    await h.controller.setAutoBackup({
+      folder: made.folder,
+      schedule: { destination, everyDays: 1, keep },
+    });
+    return { h, folder: made.folder!, destination };
+  }
+
+  it("backs a workspace up when it is due, and not again until the next one is", async () => {
+    const { h, folder, destination } = await scheduled();
+    expect((await h.controller.list()).workspaces[0]).toMatchObject({
+      autoBackup: { destination, everyDays: 1, keep: 2 },
+      autoBackupError: null,
+    });
+    await h.controller.runDueBackups();
+    expect(h.backups).toHaveLength(1);
+    expect(h.backups[0]!.out.startsWith(destination)).toBe(true);
+    await h.controller.runDueBackups();
+    expect(h.backups).toHaveLength(1);
+
+    h.clock += DAY;
+    await h.controller.runDueBackups();
+    expect(h.backups).toHaveLength(2);
+    expect(registryOf(h).find((e) => e.folder === folder)!.lastBackupAt).toBeGreaterThan(DAY);
+  });
+
+  it("keeps only the newest of its own backups, and leaves everything else in the folder alone", async () => {
+    const { h, destination } = await scheduled(2);
+    // A folder of the host's own, and a backup of some other workspace.
+    mkdirSync(join(destination, "holiday-photos"));
+    workspaceDb(join(destination, "other-team-2026-01-01T00-00-00"), "ws-other", "Other Team");
+    writeFileSync(join(destination, "other-team-2026-01-01T00-00-00", "manifest.json"), "{}");
+    // And a copy of this very workspace's backup that someone named themselves.
+    const id = registryOf(h)[0]!.id;
+    workspaceDb(join(destination, "keep-this-one"), id, "Rocket Team");
+    writeFileSync(join(destination, "keep-this-one", "manifest.json"), "{}");
+
+    for (let day = 0; day < 4; day++) {
+      await h.controller.runDueBackups();
+      h.clock += DAY;
+    }
+    expect(h.backups).toHaveLength(4);
+    const left = readdirSync(destination).sort();
+    expect(left).toEqual(
+      [
+        "holiday-photos",
+        "keep-this-one",
+        "other-team-2026-01-01T00-00-00",
+        h.backups[2]!.out.slice(destination.length + 1),
+        h.backups[3]!.out.slice(destination.length + 1),
+      ].sort(),
+    );
+  });
+
+  it("says why a scheduled backup did not finish, and clears it once one does", async () => {
+    const { h, folder } = await scheduled();
+    h.free = 0;
+    await h.controller.runDueBackups();
+    const failed = (await h.controller.list()).workspaces.find((w) => w.folder === folder)!;
+    expect(failed.autoBackupError).toMatch(
+      /^The scheduled backup of Rocket Team did not finish\. There is not enough free space there\./,
+    );
+    expect(h.changes.at(-1)).toBeDefined();
+
+    h.free = Number.MAX_SAFE_INTEGER;
+    await h.controller.runDueBackups();
+    expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+  });
+
+  it("changes how often and how many while keeping the folder, and turns off", async () => {
+    const { h, folder, destination } = await scheduled();
+    expect(
+      await h.controller.setAutoBackup({ folder, schedule: { everyDays: 7, keep: 14 } }),
+    ).toEqual({ destination, everyDays: 7, keep: 14 });
+    expect(registryOf(h)[0]!.autoBackup).toEqual({ destination, everyDays: 7, keep: 14 });
+
+    expect(await h.controller.setAutoBackup({ folder, schedule: null })).toBeNull();
+    expect(registryOf(h)[0]!.autoBackup).toBeUndefined();
+    await h.controller.runDueBackups();
+    expect(h.backups).toHaveLength(0);
+  });
+
+  it("refuses a schedule it could not follow", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    await expect(
+      h.controller.setAutoBackup({ folder: made.folder, schedule: { everyDays: 1, keep: 7 } }),
+    ).rejects.toThrow("Choose a folder to back the workspace up into.");
+    const destination = profile();
+    for (const schedule of [
+      { destination, everyDays: 2, keep: 7 },
+      { destination, everyDays: 1, keep: 0 },
+      { destination, everyDays: 1, keep: 61 },
+      { destination: "backups", everyDays: 1, keep: 7 },
+    ]) {
+      await expect(h.controller.setAutoBackup({ folder: made.folder, schedule })).rejects.toThrow(
+        "Choose a folder, daily or weekly, and to keep 1 to 60 backups.",
+      );
+    }
+    await expect(
+      h.controller.setAutoBackup({
+        folder: made.folder,
+        schedule: { destination: join(destination, "gone"), everyDays: 1, keep: 7 },
+      }),
+    ).rejects.toThrow("That folder is not there any more. Choose another.");
+    await expect(
+      h.controller.setAutoBackup({ folder: "w-elsewhere", schedule: null }),
+    ).rejects.toThrow("That workspace is not in the list hosted on this computer.");
+    expect(registryOf(h)[0]!.autoBackup).toBeUndefined();
+  });
+
+  it("reads a schedule back from the settings file, and drops one it could not follow", () => {
+    const entry = { id: "ws-1", folder: "w-1", name: "Rocket Team", port: 8543, lastHostedAt: 1 };
+    const destination = profile();
+    expect(
+      parseRegistry({
+        version: 1,
+        workspaces: [
+          { ...entry, autoBackup: { destination, everyDays: 7, keep: 3 } },
+          {
+            ...entry,
+            id: "ws-2",
+            folder: "w-2",
+            autoBackup: { destination, everyDays: 3, keep: 3 },
+          },
+        ],
+      }).map((e) => e.autoBackup),
+    ).toEqual([{ destination, everyDays: 7, keep: 3 }, undefined]);
   });
 });

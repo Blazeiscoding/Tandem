@@ -3,7 +3,13 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HostDialog } from "../src/components/HostDialog.js";
 import { useHostingStatus } from "../src/lib/hosting.js";
-import type { HostedWorkspaces, HostingStart, HostingStatus, Platform } from "../src/platform.js";
+import type {
+  AutoBackup,
+  HostedWorkspaces,
+  HostingStart,
+  HostingStatus,
+  Platform,
+} from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 
 type Hosting = NonNullable<Platform["hosting"]>;
@@ -49,6 +55,14 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
           rename: vi.fn(async (folder: string, name: string) => ({ folder, name: name.trim() })),
           openFolder: vi.fn(async (_folder: string) => {}),
           setPort: vi.fn(async (folder: string, port: number) => ({ folder, port })),
+          setAutoBackup: vi.fn(
+            async (
+              _folder: string,
+              schedule: { everyDays: 1 | 7; keep: number } | null,
+              _chooseFolder: boolean,
+            ): Promise<AutoBackup | null | undefined> =>
+              schedule ? { destination: "D:\\Backups", ...schedule } : null,
+          ),
         }
       : {}),
     stop: vi.fn(async () => {
@@ -954,6 +968,137 @@ describe("who is connected, and which port", () => {
       "Gatherline could not save the new port. Check that its settings folder is writable, then try again.",
     );
     expect(field).toHaveValue("9100");
+  });
+});
+
+describe("automatic backups", () => {
+  const rocket = {
+    folder: "team-a",
+    name: "Rocket Team",
+    port: 8543,
+    lastHostedAt: 1,
+    lastBackupAt: null,
+    running: true,
+    missing: false,
+  };
+
+  function scheduled(autoBackup: AutoBackup | null, autoBackupError: string | null = null) {
+    return fakeHosting(
+      { ...running, folder: "team-a" },
+      { workspaces: [{ ...rocket, autoBackup, autoBackupError }], unreadable: [] },
+    );
+  }
+
+  it("turns them on in a folder the system asks for, and says where", async () => {
+    const user = userEvent.setup();
+    const { hosting } = scheduled(null);
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "Automatic backups" });
+    expect(group).toHaveTextContent(/Back Rocket Team up by itself every day/);
+    expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
+
+    hosting.list!.mockResolvedValue({
+      workspaces: [
+        { ...rocket, autoBackup: { destination: "D:\\Backups", everyDays: 1, keep: 7 } },
+      ],
+      unreadable: [],
+    });
+    await user.click(within(group).getByRole("button", { name: "Back up automatically…" }));
+    expect(hosting.setAutoBackup).toHaveBeenCalledWith("team-a", { everyDays: 1, keep: 7 }, true);
+    expect(
+      await screen.findByText("Rocket Team will be backed up every day into D:\\Backups."),
+    ).toHaveAttribute("role", "status");
+    await waitFor(() =>
+      expect(screen.getByRole("group", { name: "Automatic backups" })).toHaveTextContent(
+        "Rocket Team is backed up every day, keeping the newest 7, into D:\\Backups",
+      ),
+    );
+  });
+
+  it("says nothing and changes nothing when no folder is chosen", async () => {
+    const user = userEvent.setup();
+    const { hosting } = scheduled(null);
+    hosting.setAutoBackup!.mockResolvedValueOnce(undefined);
+    render(<Harness hosting={hosting} />);
+    await user.click(await screen.findByRole("button", { name: "Back up automatically…" }));
+    expect(hosting.setAutoBackup).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/will be backed up/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Back up automatically…" })).toBeVisible();
+  });
+
+  it("changes how often, how many, and where, and turns them off", async () => {
+    const user = userEvent.setup();
+    const { hosting } = scheduled({ destination: "D:\\Backups", everyDays: 1, keep: 7 });
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "Automatic backups" });
+
+    await user.selectOptions(within(group).getByRole("combobox", { name: "How often" }), "7");
+    expect(hosting.setAutoBackup).toHaveBeenLastCalledWith(
+      "team-a",
+      { everyDays: 7, keep: 7 },
+      false,
+    );
+    expect(await screen.findByText("Rocket Team will be backed up every week.")).toBeVisible();
+
+    await user.selectOptions(within(group).getByRole("combobox", { name: "Keep" }), "14");
+    expect(hosting.setAutoBackup).toHaveBeenLastCalledWith(
+      "team-a",
+      { everyDays: 1, keep: 14 },
+      false,
+    );
+
+    await user.click(within(group).getByRole("button", { name: "Choose another folder" }));
+    expect(hosting.setAutoBackup).toHaveBeenLastCalledWith(
+      "team-a",
+      { everyDays: 1, keep: 7 },
+      true,
+    );
+
+    await user.click(within(group).getByRole("button", { name: "Turn off" }));
+    expect(hosting.setAutoBackup).toHaveBeenLastCalledWith("team-a", null, false);
+    expect(
+      await screen.findByText(
+        "Rocket Team will no longer be backed up by itself. Backups already made stay where they are.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("says why the last one did not finish, and why a change was refused", async () => {
+    const user = userEvent.setup();
+    const { hosting } = scheduled(
+      { destination: "D:\\Backups", everyDays: 1, keep: 7 },
+      "The scheduled backup of Rocket Team did not finish. There is not enough free space there.",
+    );
+    hosting.setAutoBackup!.mockRejectedValueOnce(
+      new Error("That folder is not there any more. Choose another."),
+    );
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "Automatic backups" });
+    expect(within(group).getByRole("alert")).toHaveTextContent(
+      "The scheduled backup of Rocket Team did not finish. There is not enough free space there.",
+    );
+    await user.selectOptions(within(group).getByRole("combobox", { name: "Keep" }), "3");
+    expect(
+      await screen.findByText("That folder is not there any more. Choose another."),
+    ).toHaveAttribute("role", "alert");
+  });
+
+  it("notes a schedule in the list of stopped workspaces", async () => {
+    const { hosting } = fakeHosting(stopped, {
+      workspaces: [
+        {
+          ...rocket,
+          running: false,
+          autoBackup: { destination: "D:\\Backups", everyDays: 7, keep: 7 },
+        },
+      ],
+      unreadable: [],
+    });
+    render(<Harness hosting={hosting} />);
+    expect(
+      await screen.findByRole("region", { name: "Hosted on this computer" }),
+    ).toHaveTextContent("Port 8543 · Backs up weekly");
   });
 });
 
