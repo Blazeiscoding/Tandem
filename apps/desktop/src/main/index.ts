@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  powerMonitor,
   safeStorage,
   shell,
   Tray,
@@ -304,6 +305,7 @@ const hosting = createHostingController({
       workspaceId: () => server.store.getMeta("workspace_id") ?? null,
       workspaceName: () => server.store.getMeta("workspace_name") ?? workspaceName ?? "",
       setWorkspaceName: (name) => server.setWorkspaceName(name),
+      reannounce: () => server.reannounce(),
       stop: () => server.stop(),
       setPublicUrl: (url) => server.setPublicUrl(url),
       // cloudflared reaches this embedded server from loopback. Believe its
@@ -370,6 +372,65 @@ ipcMain.handle("hosting:forget", (_e, folder: unknown) => hosting.forget(folder)
 ipcMain.handle("hosting:rename", (_e, request: unknown) => hosting.rename(request));
 // The window names a listed workspace; the controller finds its folder.
 ipcMain.handle("hosting:openFolder", (_e, folder: unknown) => hosting.openFolder(folder));
+ipcMain.handle("hosting:setStartOnLaunch", (_e, folder: unknown) =>
+  hosting.setStartOnLaunch(folder),
+);
+
+// ---------- starting with the computer ----------
+
+/**
+ * The OS opens only an installed app at sign-in: a copy run from source would
+ * register Electron itself. Linux has no single place for it that Electron
+ * manages, so it is offered on Windows and macOS.
+ */
+const loginItemAvailable =
+  app.isPackaged && (process.platform === "win32" || process.platform === "darwin");
+/** Passed by the OS at sign-in, so the app can stay in the tray. */
+const HIDDEN_ARG = "--hidden";
+/** Tests must never register the real app with the OS; they get this instead. */
+let testOpenAtLogin = false;
+
+function openAtLogin(): boolean | null {
+  if (!loginItemAvailable) return null;
+  if (isTest) return testOpenAtLogin;
+  return app.getLoginItemSettings({ args: [HIDDEN_ARG] }).openAtLogin;
+}
+
+ipcMain.handle("hosting:openAtLogin", () => openAtLogin());
+ipcMain.handle("hosting:setOpenAtLogin", (_e, open: unknown) => {
+  if (typeof open !== "boolean")
+    throw new Error("Say whether to open at sign-in with true or false.");
+  if (!loginItemAvailable)
+    throw new Error("Opening at sign-in needs Gatherline installed on Windows or macOS.");
+  if (isTest) testOpenAtLogin = open;
+  else app.setLoginItemSettings({ openAtLogin: open, args: [HIDDEN_ARG] });
+  return openAtLogin();
+});
+
+/** This computer's own network addresses, to notice when they change. */
+function addressKey(): string {
+  return lanUrls(0).sort().join(" ");
+}
+
+/**
+ * A workspace announces itself on the interfaces there were when it started,
+ * and the host dialog lists the addresses there were when it last looked.
+ * After a wake, or a move to another network, both are redone. There is no
+ * event for a network change, so the addresses are compared every few seconds.
+ */
+function followNetworkChanges(): void {
+  let known = addressKey();
+  powerMonitor.on("resume", () => {
+    known = addressKey();
+    hosting.networkChanged();
+  });
+  setInterval(() => {
+    const now = addressKey();
+    if (now === known) return;
+    known = now;
+    hosting.networkChanged();
+  }, 10_000).unref();
+}
 ipcMain.handle("hosting:restore", async (event) => {
   if (quitting) throw new Error("Gatherline is shutting down.");
   const owner = BrowserWindow.fromWebContents(event.sender);
@@ -689,7 +750,17 @@ void app.whenReady().then(async () => {
   const initial = deepLinkFromArgv(process.argv);
   if (initial && !pendingDeepLink) pendingDeepLink = initial;
   createTray();
-  createWindow();
+  followNetworkChanges();
+  // Opened by the OS at sign-in, with a workspace hosting and a tray to reach
+  // it by, Gatherline stays out of the way. Otherwise the window opens, and
+  // hosting starts meanwhile: it enters "starting" long before the window asks.
+  if (process.argv.includes(HIDDEN_ARG)) {
+    const hosted = await hosting.startForLaunch().catch(() => null);
+    if (!hosted?.running || !tray) createWindow();
+  } else {
+    void hosting.startForLaunch().catch(() => {});
+    createWindow();
+  }
   startDiscovery();
   app.on("activate", () => {
     showMainWindow();

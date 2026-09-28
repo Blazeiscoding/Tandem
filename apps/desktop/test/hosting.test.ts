@@ -89,6 +89,8 @@ function harness(
     readFails: false,
     /** Each name a running server was given. */
     renamedRunning: [] as string[],
+    /** How many times a running server announced itself again. */
+    reannounced: 0,
     /** Each name written into a stopped workspace's database; set `writeFails` to refuse. */
     written: [] as { dataDir: string; name: string }[],
     writeFails: false,
@@ -173,6 +175,9 @@ function harness(
         setWorkspaceName: (name: string) => {
           h.renamedRunning.push(name);
           db.name = name;
+        },
+        reannounce: () => {
+          h.reannounced++;
         },
         stop: vi.fn(async () => {}),
         ...(options.publicAccess
@@ -975,7 +980,7 @@ describe("the list of workspaces hosted on this computer", () => {
     expect(parseRegistry(undefined)).toEqual([]);
   });
 
-  it("leaves an unsupported registry intact on a downgrade", async () => {
+  it("leaves an unsupported registry and auto-start choice intact on a downgrade", async () => {
     const h = harness();
     workspaceDb(join(h.dataRoot, "old-team"), "ws-old", "Old Team");
     const newer = {
@@ -985,6 +990,7 @@ describe("the list of workspaces hosted on this computer", () => {
       ],
     };
     h.settings.set("hostedWorkspaces", newer);
+    h.settings.set("startOnLaunch", "old-team");
     const before = structuredClone([...h.settings]);
 
     await expect(h.controller.list()).rejects.toThrow(/newer version of Gatherline/);
@@ -997,6 +1003,8 @@ describe("the list of workspaces hosted on this computer", () => {
     await expect(h.controller.restore({ backupDir: profile() })).rejects.toThrow(
       /newer version of Gatherline/,
     );
+    await expect(h.controller.startForLaunch()).resolves.toBeNull();
+    expect(h.controller.status().launchError).toMatch(/newer version of Gatherline/);
     expect([...h.settings]).toEqual(before);
     expect(h.starts).toEqual([]);
     expect(readdirSync(h.dataRoot)).toEqual(["old-team"]);
@@ -1556,5 +1564,109 @@ describe("a stable public address configured for this computer", () => {
     expect(h.controller.status()).not.toHaveProperty("publicAddress");
     expect(h.controller.status()).not.toHaveProperty("publicAddressError");
     expect(h.publicUrls.at(-1)).toBe("https://rocket-team.trycloudflare.com");
+  });
+});
+
+describe("starting with the computer", () => {
+  it("starts the chosen workspace when the app opens, and says so in the status and the list", async () => {
+    const first = harness();
+    const made = await first.controller.start({ workspaceName: "Rocket Team" });
+    await first.controller.setStartOnLaunch(made.folder!);
+    expect(first.settings.get("startOnLaunch")).toBe(made.folder);
+    expect(first.controller.status().startsOnLaunch).toBe(true);
+    await first.controller.stop();
+
+    // The next launch, sharing the profile and its settings.
+    const next = harness({ root: join(first.dataRoot, ".."), settings: first.settings });
+    for (const [dataDir, db] of first.databases) next.databases.set(dataDir, db);
+    const started = await next.controller.startForLaunch();
+    expect(started).toMatchObject({ running: true, folder: made.folder, startsOnLaunch: true });
+    expect(next.starts).toHaveLength(1);
+    expect((await next.controller.list()).workspaces).toEqual([
+      expect.objectContaining({ folder: made.folder, startsOnLaunch: true }),
+    ]);
+  });
+
+  it("starts nothing when nothing was chosen, or the choice was taken back", async () => {
+    const h = harness();
+    expect(await h.controller.startForLaunch()).toBeNull();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.setStartOnLaunch(made.folder!);
+    await h.controller.setStartOnLaunch(null);
+    expect(h.controller.status().startsOnLaunch).toBeUndefined();
+    await h.controller.stop();
+    expect(await h.controller.startForLaunch()).toBeNull();
+    expect(h.starts).toHaveLength(1);
+  });
+
+  it("refuses to choose a workspace it does not list, or anything but a folder", async () => {
+    const h = harness();
+    await expect(h.controller.setStartOnLaunch("w-not-here")).rejects.toThrow(
+      "That workspace is not in the list hosted on this computer.",
+    );
+    await expect(h.controller.setStartOnLaunch(42)).rejects.toThrow(/Choose a workspace/);
+    expect(h.settings.has("startOnLaunch")).toBe(false);
+  });
+
+  it("says why the chosen workspace did not start, until hosting next starts", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.setStartOnLaunch(made.folder!);
+    await h.controller.stop();
+    h.beforeBind = () => {
+      throw new Error("The database is newer than this version of Gatherline.");
+    };
+    expect(await h.controller.startForLaunch()).toBeNull();
+    expect(h.controller.status()).toMatchObject({
+      running: false,
+      launchError:
+        "Gatherline did not start hosting Rocket Team when it opened. The database is newer than this version of Gatherline.",
+    });
+    // The choice stands: it was the start that failed, not the choice.
+    expect(h.settings.get("startOnLaunch")).toBe(made.folder);
+
+    h.beforeBind = () => {};
+    await h.controller.start({ folder: made.folder });
+    expect(h.controller.status().launchError).toBeUndefined();
+  });
+
+  it("drops a choice whose workspace has left the list, and forgetting a workspace drops it too", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.setStartOnLaunch(made.folder!);
+    await h.controller.stop();
+    rmSync(join(h.dataRoot, made.folder!), { recursive: true, force: true });
+    await h.controller.forget(made.folder);
+    expect(h.settings.get("startOnLaunch")).toBeNull();
+    expect(await h.controller.startForLaunch()).toBeNull();
+
+    // A choice left behind by some other way of editing the list.
+    const other = harness();
+    other.settings.set("startOnLaunch", "w-long-gone");
+    expect(await other.controller.startForLaunch()).toBeNull();
+    expect(other.settings.get("startOnLaunch")).toBeNull();
+    expect(other.controller.status().launchError).toBeUndefined();
+  });
+
+  it("says the list could not be read rather than starting nothing silently", async () => {
+    const h = harness();
+    h.settings.set("startOnLaunch", "w-anything");
+    h.readFails = true;
+    expect(await h.controller.startForLaunch()).toBeNull();
+    expect(h.controller.status().launchError).toMatch(
+      /could not read its list of hosted workspaces/,
+    );
+  });
+
+  it("announces the running workspace again when the network changes, and tells the window", async () => {
+    const h = harness();
+    h.controller.networkChanged();
+    expect(h.reannounced).toBe(0);
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    const told = h.changes.length;
+    h.controller.networkChanged();
+    expect(h.reannounced).toBe(1);
+    expect(h.changes.length).toBe(told + 1);
+    expect(h.changes.at(-1)).toMatchObject({ running: true, lanUrls: ["192.168.1.20:8543"] });
   });
 });

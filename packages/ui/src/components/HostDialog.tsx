@@ -15,6 +15,107 @@ import { buttonClass } from "./Button.js";
 
 type Hosting = NonNullable<Platform["hosting"]>;
 
+/**
+ * Whether the running workspace starts when Gatherline opens, and whether the
+ * OS opens Gatherline when someone signs in. With both on, a workspace comes
+ * back by itself after the computer restarts.
+ */
+function StartWithComputer(props: {
+  hosting: Hosting;
+  folder: string;
+  name: string;
+  startsOnLaunch: boolean;
+  disabled: boolean;
+  /** What went wrong saving a choice, or null to clear it. */
+  onError: (text: string | null) => void;
+}) {
+  const setStart = props.hosting.setStartOnLaunch;
+  const login = props.hosting.openAtLogin;
+  const [atLogin, setAtLogin] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  /** The choice just made, shown until the status agrees or saving fails. */
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (chosen !== null && chosen === props.startsOnLaunch) setChosen(null);
+  }, [chosen, props.startsOnLaunch]);
+  useEffect(() => {
+    if (!login) return;
+    let alive = true;
+    login.get().then(
+      (value) => {
+        if (alive) setAtLogin(value);
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, [login]);
+  if (!setStart) return null;
+
+  async function save(action: () => Promise<unknown>, undo: () => void) {
+    setSaving(true);
+    props.onError(null);
+    try {
+      await action();
+    } catch (reason) {
+      undo();
+      props.onError(
+        reason instanceof Error && reason.message
+          ? reason.message
+          : "That choice could not be saved. Try again.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <fieldset className="space-y-2" disabled={props.disabled || saving}>
+      <legend className="mb-1 text-ink-dim">When this computer starts</legend>
+      <label className="flex items-start gap-2 text-ink">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={chosen ?? props.startsOnLaunch}
+          onChange={(event) => {
+            const start = event.target.checked;
+            setChosen(start);
+            void save(
+              () => setStart(start ? props.folder : null),
+              () => setChosen(null),
+            );
+          }}
+        />
+        <span>Start hosting {props.name} when Gatherline opens</span>
+      </label>
+      {login && atLogin !== null && (
+        <label className="flex items-start gap-2 text-ink">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={atLogin}
+            onChange={(event) => {
+              const open = event.target.checked;
+              setAtLogin(open);
+              void save(
+                async () => setAtLogin(await login.set(open)),
+                () => setAtLogin(!open),
+              );
+            }}
+          />
+          <span>Open Gatherline when you sign in to this computer</span>
+        </label>
+      )}
+      <p className="text-xs text-ink-faint">
+        {atLogin === null
+          ? `${props.name} starts once Gatherline is opened.`
+          : `With both on, ${props.name} is back for teammates once this computer restarts and someone signs in. Gatherline then waits in the tray.`}
+      </p>
+    </fieldset>
+  );
+}
+
 /** A small action written as a link, beside what it acts on. */
 const linkBtnCls = "text-xs text-copper underline disabled:opacity-40";
 
@@ -99,7 +200,7 @@ function hostedListError(reason: unknown): string {
   if (message.includes("The hosted workspace list has a version this Gatherline cannot read."))
     return "The hosted workspace list has a version this Gatherline cannot read. Use a compatible version; the list was not changed.";
   if (message.includes("The hosted workspace list in settings is invalid."))
-    return "The hosted workspace list format in settings is invalid. Restore or repair the settings file before hosting; the list was not changed.";
+    return "The hosted workspace list in settings is invalid. Restore or repair the settings file before hosting; the list was not changed.";
   return "Could not read the list of workspaces hosted on this computer, so none can start. Check that Gatherline’s settings file can be read, then open this again.";
 }
 
@@ -585,6 +686,16 @@ export function HostDialog(props: {
               <p className="break-all font-mono text-xs text-ink">{status.dataDir}</p>
             </div>
           )}
+          {status.folder && status.workspaceName && phase === "running" && (
+            <StartWithComputer
+              hosting={props.hosting}
+              folder={status.folder}
+              name={status.workspaceName}
+              startsOnLaunch={!!status.startsOnLaunch}
+              disabled={unavailable}
+              onError={(text) => setBackupNote(text ? { ok: false, text } : null)}
+            />
+          )}
           {props.hosting.openToAll && (
             <div className="rounded-xl border border-edge bg-ground p-3">
               <div className="mb-1 flex items-center justify-between gap-3">
@@ -888,6 +999,11 @@ export function HostDialog(props: {
             Your computer becomes the server. Teammates on your network can connect while Gatherline
             is running. Messages, files and accounts are stored on this machine.
           </p>
+          {status.launchError && (
+            <p role="alert" className="mb-4 text-sm text-alert">
+              {status.launchError}
+            </p>
+          )}
           {listFailed && (
             <p role="alert" className="mb-4 text-sm text-alert">
               {listFailed}
@@ -921,7 +1037,7 @@ export function HostDialog(props: {
                           <p className="text-xs text-ink-dim">
                             {w.missing
                               ? "Its folder is missing, so it cannot start"
-                              : `Port ${w.port}${
+                              : `Port ${w.port}${w.startsOnLaunch ? " · Starts with Gatherline" : ""}${
                                   backupFn
                                     ? w.lastBackupAt === null
                                       ? " · Not backed up yet"
