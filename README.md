@@ -20,6 +20,9 @@ Early-stage, independently developed team chat under the [MIT license](LICENSE).
 See [deployment and backups](docs/DEPLOYMENT.md), [validation results and limits](docs/VALIDATION.md),
 [contributing](CONTRIBUTING.md), and [security](SECURITY.md). Not affiliated with Slack or Salesforce.
 
+The [current update plan](docs/UPDATE-PLAN-2026-09-30.md) tracks verified remaining work.
+The [optimization plan](docs/OPTIMIZATION-PLAN-2026-09-30.md) covers Electron, chat and server improvements researched from T3 Code and other applications.
+
 Open-source team chat that **you** host. Run the server on a VPS, or click
 **"Host a workspace"** in the desktop app and serve your team straight from your
 own PC — like opening a Minecraft world to LAN. Teammates on the same Wi-Fi

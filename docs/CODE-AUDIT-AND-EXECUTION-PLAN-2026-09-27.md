@@ -1,4 +1,6 @@
-# Gatherline: current-code audit and execution plan
+# Gatherline: historical code audit and execution plan
+
+**Current work queue, 30 September:** use the [complete update plan](UPDATE-PLAN-2026-09-30.md) and [optimization plan](OPTIMIZATION-PLAN-2026-09-30.md), audited against `origin/main` at `7d91fd3`. The dated snapshots, reproductions and merged-fix history below remain evidence for their stated baselines. Their earlier work orders and completion claims do not close the newly verified follow-ups.
 
 **Updated 29 September 2026 · verified product baseline: `c85132b` (merged through PR #124).** This plan is for Codex or Claude to implement in reviewable slices. The original 27 September audit inspected `8507275` plus ten in-flight files; those hosting changes have since merged. The current review below supersedes stale completion claims in the [remaining-work inventory](REMAINING-WORK-2026-09.md) and [improvement plan](IMPROVEMENT-PLAN-2026-09.md). The [September 24 roadmap](PRODUCT-ROADMAP-2026-09-24.md) still explains the product direction. The three companion audits retain dated source paths, reproductions, and acceptance cases: [client/UI](audits/2026-09-27-client-ui.md), [server/protocol/data](audits/2026-09-27-server.md), and [desktop/operations](audits/2026-09-27-desktop-ops.md). Their old line numbers are historical; current references below are against `c85132b`.
 
@@ -122,9 +124,9 @@ All results below concern `c85132b` on this Windows machine. No actual OS sign-i
 | Browser E2E                | `pnpm test:e2e`: **17/17 Chromium scenarios passed**. Fake media and emulated viewports do not establish actual phone or WAN behavior.                                                                                                           |
 | Packaged Windows E2E       | Rebuilt with `pnpm --filter @slackoss/desktop package --dir`, then `pnpm test:desktop`: **3/3 passed**, including worker-backed backup/restore and simulated sign-in/wake. Real OS login registration remains untested.                          |
 
-### Immediate work order
+### Historical work order, superseded by the 30 September plan
 
-_Status, 30 September: every item below that can be done without real machines is merged (#126–#142), and so are the fixes for the audit after #143 (#144–#148), except R143-C5, which waits on a decision about the read contract. What remains needs installed systems, a second network or target hardware: real OS sign-in on macOS and Windows, the D5 participant path, cross-platform/device drills, and the `utilityProcess` decision against the 100 ms budget measured on the machines it has to hold for._
+_Status of the items below, 30 September: the listed local fixes are merged (#126–#142 and #144–#148), except R143-C5, which waits on a decision about the read contract. The [new audit](UPDATE-PLAN-2026-09-30.md) identifies further local work, including concurrent outbox intent, retention, upgrade-copy protection, directory ownership and rendering/query improvements. Installed systems, a second network and target hardware are still needed for the real OS sign-in, D5 participant, cross-platform/device and process-isolation evidence._
 
 1. **Protect recovery copies:** R29-1 and D3 are fixed on `fix/backup-retention-and-identity`, and R29-2/R29-3 on `fix/backup-schedule-freshness`. Preserve a verified copy before any retention deletion and make destination freshness explicit.
 2. **Finish restore safety before replacement release:** D2 is fixed in #141: a restore is held (persisted), drops the launch choice, reports its inventory, starts only isolated until an explicit, confirmed activation. `feat/replace-from-backup` must use the same hold when it lands.

@@ -1,5 +1,7 @@
 # Gatherline: product improvement plan
 
+**Current execution plan, 30 September:** the [complete update plan](UPDATE-PLAN-2026-09-30.md) reconciles implementation status and remaining work against `7d91fd3`; the [optimization plan](OPTIMIZATION-PLAN-2026-09-30.md) adds measured candidates and pinned source comparisons. This roadmap retains its product direction and dated hypotheses; its original schedule and status descriptions are historical.
+
 **Reviewed September 24; revised September 25, 2026 · Current checkout: `d45fe2d` plus existing local changes**
 
 **Direction: a welcoming communication app for friends, communities, teams, and organizations, with control over where their conversations live.**

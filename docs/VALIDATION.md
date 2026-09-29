@@ -1,5 +1,7 @@
 # Validation results and limits
 
+For the current baseline and evidence boundaries, see the [30 September update plan](UPDATE-PLAN-2026-09-30.md#1-baseline-and-what-is-already-finished) and [fresh research/probe record](research/2026-09-30/research-and-code-evidence.md). The tables and dated entries below are measurement history. The new source audit and focused reproductions did not rerun the full automated suites.
+
 What has actually been run, on what, and with what result. Everything below is a
 measurement from one developer machine, not a capacity claim: nothing here has
 been run against a real team, a real network, or a VPS under sustained load.

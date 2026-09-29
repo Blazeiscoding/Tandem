@@ -1,5 +1,7 @@
 # What is left, and how to do it
 
+**Historical inventory:** the [30 September update plan](UPDATE-PLAN-2026-09-30.md) is the current work queue and status authority; its [optimization companion](OPTIMIZATION-PLAN-2026-09-30.md) includes pinned Electron/chat comparisons. Counts, open/closed labels and measurements below describe their dated snapshots. Later merged fixes and fresh follow-ups are reconciled in the current plan.
+
 Written September 15, 2026, against `main` at `b36fec5`, the merge of PR #48, plus the uncommitted modal work on the `fix/modal-keyboard-ownership` branch.
 
 Updated September 23, 2026: phase 0 is done, in PRs #50 to #58. The counts in the next two sections are still September 15's. Today there are 834 unit and integration tests, 15 browser scenarios and 2 packaged Windows scenarios.
