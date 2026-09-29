@@ -762,6 +762,13 @@ waiting for an answer at once. A call past either cap is refused with `429`
 straight away rather than queued behind a slow app, and nothing is sent to the
 app for a refused call.
 
+Scheduled messages are bounded too: one account may have 200 waiting and the
+workspace 10,000, and past either the request is refused with `409` rather than
+queued. Messages that come due are sent ten at a time, with other requests served
+in between, and one held back (an archived channel, a lost membership, a
+deactivated author) is looked at again a minute later, or at the next check once
+the channel reopens, the membership returns or the account is reactivated.
+
 The allowances are held in memory, so a restart grants one fresh burst. Buckets
 are dropped once they refill, which keeps the bookkeeping proportional to who is
 active rather than to everyone who has ever connected.

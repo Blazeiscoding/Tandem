@@ -234,3 +234,32 @@ describe("scheduling a reply that is also for the channel", () => {
     expect(body).not.toHaveProperty("alsoSendToChannel");
   });
 });
+
+describe("a scheduled send past the queue's limit", () => {
+  it("says so in the server's words, keeps the draft, and leaves nothing to confirm", async () => {
+    const user = userEvent.setup();
+    const { client, box } = await renderComposer();
+    const schedule = vi
+      .spyOn(client.api, "scheduleMessage")
+      .mockRejectedValue(
+        new ApiError(
+          409,
+          "scheduled_limit",
+          "You already have 200 messages waiting to be sent. Send or cancel some before scheduling more.",
+        ),
+      );
+    await user.type(box, "One more for Friday");
+    await user.click(screen.getByRole("button", { name: "Send later" }));
+    fireEvent.change(screen.getByLabelText("Choose a date and time"), {
+      target: { value: "2099-01-05T09:00" },
+    });
+    await user.click(screen.getByRole("button", { name: "Schedule message" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "You already have 200 messages waiting to be sent. Send or cancel some before scheduling more. Your draft is kept.",
+    );
+    expect(schedule).toHaveBeenCalledOnce();
+    expect(box).toHaveValue("One more for Friday");
+    expect(screen.queryByRole("button", { name: "Retry confirmation" })).toBeNull();
+  });
+});

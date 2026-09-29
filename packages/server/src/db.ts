@@ -416,6 +416,12 @@ const MIGRATIONS: string[] = [
       AND EXISTS (SELECT 1 FROM files f WHERE f.id = j.value AND f.message_id IS NULL)
     ORDER BY s.created_at, s.id;
   `,
+  // v27 — a held scheduled message waits for its obstacle to clear, or for its
+  // next attempt, instead of being checked again on every tick.
+  `
+  ALTER TABLE scheduled_messages ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX idx_scheduled_held ON scheduled_messages(status, next_attempt_at);
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

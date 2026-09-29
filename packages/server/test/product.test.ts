@@ -272,6 +272,8 @@ describe("self-hosted product", () => {
     const db = new DatabaseSync(join(dir, "workspace.db"));
     const historical = openDbAtVersion(":memory:", 8);
     try {
+      db.exec("DROP INDEX idx_scheduled_held");
+      db.exec("ALTER TABLE scheduled_messages DROP COLUMN next_attempt_at");
       db.exec("DROP TABLE scheduled_files");
       db.exec("ALTER TABLE scheduled_messages DROP COLUMN broadcast");
       db.exec("ALTER TABLE users DROP COLUMN can_invite");

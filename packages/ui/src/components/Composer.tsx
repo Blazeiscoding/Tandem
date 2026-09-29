@@ -450,6 +450,17 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         (error.code === "invalid_attachments" || error.code === "attachments_scheduled")
       )
         scheduleUploads.current = new WeakMap();
+      if (submitted && error instanceof ApiError && error.code === "scheduled_limit") {
+        // Refused outright: nothing was queued, so there is nothing to confirm.
+        try {
+          await writeWorkspaceStorage(platform, scheduleStorageKey, null);
+          if (current()) setPendingSchedule(null);
+        } catch {
+          // The record stays, and confirming it again gives the same answer.
+        }
+        if (current()) setScheduleError(`${error.message} Your draft is kept.`);
+        return;
+      }
       setScheduleError(
         savingRecovery
           ? "Could not save scheduling recovery on this device. Nothing was submitted; your draft is kept."
@@ -525,7 +536,9 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
               ? "This request was already accepted, but its queue record has been removed. It was not recreated."
               : error instanceof ApiError && error.code === "send_at_in_past"
                 ? "The original time has passed and this request was not queued. Keep the draft to choose a new time."
-                : "Could not confirm recovery. Your original request is kept; retry when connected.",
+                : error instanceof ApiError && error.code === "scheduled_limit"
+                  ? `${error.message} Your original request is kept.`
+                  : "Could not confirm recovery. Your original request is kept; retry when connected.",
         );
     } finally {
       if (scheduleContext.current === context) {

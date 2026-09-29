@@ -1081,3 +1081,27 @@ from the repository root.
 `packages/ui/test/activitySearch.dom.test.tsx` checks the dialog: it shows the named day for `after:`, marks "not a date", and shows the server's refusal.
 
 All new cases fail on the previous code. Linux results: typecheck 8/8, build 3/3, unit tests server 441, desktop 148, client-core 79, protocol 20, UI 452, and browser E2E 18/18.
+
+## The scheduled queue is bounded (29 September)
+
+`fix/scheduled-queue-bounded` closes S8. New cases in `packages/server/test/scheduledQueue.test.ts`:
+
+- An account's fourth message past a limit of three is refused with `scheduled_limit`, while another account still schedules, and a cancel makes room again.
+- A request already accepted still replays at the limit.
+- A workspace limit of two refuses a third from anyone.
+- With 35 due and a batch of ten, one flush sends ten and the rest follow on later turns.
+- A held message is not re-held on the next two flushes, and comes due again after its pause.
+- A held message goes at the next flush after its channel is reopened, or after its author is added back to a private channel.
+
+The admission, drain and back-off cases fail on the previous code. The replay, reopen and re-add cases passed before, when every held row was retried on each tick, and stay as guards. The existing bounded-retry case in `reliability.test.ts` now brings the held row forward between attempts, and a new composer case checks that a `scheduled_limit` refusal keeps the draft, shows the server's words and leaves no request to confirm.
+
+Measurement in this Linux container on Node 22: 2,000 messages due at once in an on-disk workspace, drained by `flushScheduled` while a 1 ms timer recorded gaps. The unbatched row is from a first run and the others from a second; each is a single run.
+
+| Batch        | Drained in | Longest stalls (ms) | Median stall |
+| ------------ | ---------- | ------------------- | ------------ |
+| unbatched    | 3,025 ms   | 3,027               | —            |
+| 50           | 2,839 ms   | 153, 152, 135, 131  | 64 ms        |
+| 25           | 3,002 ms   | 115, 95, 93, 92     | 33 ms        |
+| 10 (default) | 2,929 ms   | 85, 76, 74, 50      | 13 ms        |
+
+Linux results: typecheck 8/8, build 3/3, unit tests server 448, desktop 148, client-core 79, protocol 20, UI 453, and browser E2E 18/18.
