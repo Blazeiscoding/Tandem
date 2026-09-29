@@ -986,8 +986,17 @@ calls. A synchronous SQLite call there holds all of it. `scripts/measure-stall.m
 seeds a workspace through the store, in five channels with a tenth of
 messages as replies and half older than a 30-day retention window, plus a
 reader who has read all but the last 300 messages, then records the longest
-gap in a 1 ms heartbeat during each piece of work. Measured on September 29 on
-the machine above:
+gap in a 1 ms heartbeat during each piece of work. Since 29 September (R29-8)
+each reply belongs to a thread in its own channel and the script stops before
+timing anything if the seeded workspace breaks that, if any request fails, or
+if the reader has nothing unread. It also times twenty readers at once and the
+scheduled queue, and prints the machine it ran on.
+
+The first measurement, on September 29 on the machine above, predates those
+corrections: its replies were attached to roots in another channel, and its
+reader had read nothing, because a read cursor is now held within the event
+log the seeding bypasses. Its numbers are kept for the backup comparison,
+which neither flaw touches:
 
 | Work                                         | 50,000 messages (26.5 MB) | 200,000 messages (100.3 MB) |
 | -------------------------------------------- | ------------------------- | --------------------------- |
@@ -1002,15 +1011,42 @@ the machine above:
 | Starting on the workspace                    | 15 ms                     | 31 ms                       |
 | One retention sweep of up to 2,000 messages  | 63 ms                     | 128 ms                      |
 
-So yes, database work stalled the window, and backing up and checking a
-backup did most of it: `VACUUM INTO` and `PRAGMA integrity_check` are single
-calls that grow with the database. The desktop app now runs backing up,
-checking and restoring on a worker thread, and the packaged suite's backup
-and restore steps pass through it. Moving the whole server into a
-`utilityProcess` is not needed for what remains: a search for a word nearly
-every message contains is the only ordinary request above 100 ms, and at 200,000
-messages it holds the standalone server for its other clients just as long.
-Run it again with
+The corrected script, one run each on 29 September in this Linux container
+(Intel Xeon at 2.10 GHz, 4 threads, 16 GiB, Node 22.22.2), longest stall:
+
+| Work                                             | 50,000 messages (26.5 MB) | 200,000 messages (100.3 MB) |
+| ------------------------------------------------ | ------------------------- | --------------------------- |
+| Searching for a word in one message in 1,000     | 4 ms                      | 4 ms                        |
+| Searching for a word in every message            | 66 ms                     | 239 ms                      |
+| Searching for a phrase in every message          | 83 ms                     | 216 ms                      |
+| Opening a channel's newest page                  | 6 ms                      | 4 ms                        |
+| Activity, unread                                 | 3 ms                      | 2 ms                        |
+| Twenty readers at once (search, pages, Activity) | 99 ms                     | 337 ms                      |
+| Sending 2,000 due scheduled messages             | 94 ms                     | 89 ms                       |
+| A tick with 2,000 held messages waiting          | 1 ms                      | 1 ms                        |
+| Checking 2,000 held messages again               | 90 ms                     | 12 ms                       |
+| Backing up while running, on the main thread     | 167 ms                    | 718 ms                      |
+| Verifying that backup, on the main thread        | 271 ms                    | 888 ms                      |
+| Backing up on a worker thread                    | 8 ms                      | 29 ms                       |
+| Starting on the workspace                        | 19 ms                     | 32 ms                       |
+| One retention sweep of up to 2,000 messages      | 65 ms                     | 150 ms                      |
+
+Backing up and checking a backup were the largest stalls, since `VACUUM INTO`
+and `PRAGMA integrity_check` are single calls that grow with the database, and
+the desktop app now runs backing up, checking and restoring on a worker thread;
+the packaged suite's backup and restore steps pass through it. Sending due
+scheduled messages is now done ten at a time (S8), so 2,000 of them take about
+three seconds without holding the loop for more than about 90 ms at once.
+
+Against a budget of 100 ms for the longest stall the window should see, what
+remains over it here at 200,000 messages is a search for a word or phrase that
+nearly every message contains (about 220–240 ms), twenty readers arriving at
+once (337 ms), and a retention sweep (150 ms); at 50,000 messages nothing
+ordinary exceeded it. That is one machine, one run per size, one synthetic
+workload and no network between client and server. Whether to move the server
+into a `utilityProcess`, or to make those queries yield, should be decided
+against this budget with a measurement on the machines it has to hold for, not
+from this table alone. Run it again with
 `pnpm --filter @slackoss/server exec tsx ../../scripts/measure-stall.mts --messages=200000`
 from the repository root.
 
