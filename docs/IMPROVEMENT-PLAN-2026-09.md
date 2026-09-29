@@ -1,5 +1,7 @@
 # Gatherline improvement plan
 
+**Historical assessment and progress log:** use the [30 September update plan](UPDATE-PLAN-2026-09-30.md) for the current audited work queue and the [optimization plan](OPTIMIZATION-PLAN-2026-09-30.md) for Electron/chat/server experiments. Preserve the dated results below as implementation history rather than current completion claims.
+
 Reviewed September 6, 2026, against `6aaf4fd` and the current working tree.
 
 The recommended direction is to make Gatherline dependable enough for a small team to use every day, make hosting understandable to a non-specialist, and then expand its capabilities. Keep the shared web/desktop UI, simple SQLite deployment, local hosting, and compatibility with existing workspace data.

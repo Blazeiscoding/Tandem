@@ -1,0 +1,350 @@
+# Gatherline optimization plan: Electron, chat and server
+
+**30 September 2026 · Gatherline `7d91fd3` · proposed experiments, not performance claims.** This expands the [complete update plan](UPDATE-PLAN-2026-09-30.md) following the request to study [T3 Code](https://github.com/pingdotgg/t3code/tree/ff1db030b179ef712cacc0098366d976e2877f45) and similar chat applications. Every experiment must preserve access, event order, accepted-message integrity, recovery and usable keyboard/touch interaction.
+
+Inspected references: T3 Code `ff1db030…`, Signal Desktop `abe80d32…`, Zulip `7a921db6…`, Mattermost `cc0611f2…`, with further comparisons in the [additional chat report](research/2026-09-30/additional-chat-comparison.md). Pinned paths, source mechanisms and caveats are in the [Electron](research/2026-09-30/electron-comparison.md), [client](research/2026-09-30/chat-client-comparison.md), and [server](research/2026-09-30/server-comparison.md) reports. Source inspection demonstrates a technique exists; none of these applications was benchmarked against Gatherline.
+
+## 1. Preserve optimizations already present
+
+| Existing mechanism                                                                   | Current boundary                                                       | Further question                                                                                       |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Timeline and thread windows of 300 messages                                          | Loaded history is bounded; old/new windows remain pageable             | Does rendering all loaded rows waste work? How much do retained text/metadata and decoded pixels cost? |
+| 20 history-cache entries per category with protected active views                    | Inactive timelines and threads evict by recency                        | Count limits differ from byte/pixel limits; profile long code messages and image-heavy histories       |
+| Attachment cache: 32 MiB idle blobs, four body transfers, cancellation/deduplication | Fetch/idle compressed bytes bounded; visible images load near viewport | Active blobs and decoded images can exceed compressed-byte budget; thumbnails may help                 |
+| WebSocket queued-byte cutoff at 2 MiB, bounded replay/snapshot fallback              | Slow readers disconnected; durable replay retained                     | Aggregate connections, reconnect bursts and renderer application cost need measurement                 |
+| Scheduled queue caps, ten-item drain, held-row backoff                               | Prior due-queue starvation/stalls improved                             | Huge retention threads, multiple integrations and other synchronous work still compete                 |
+| Worker-thread desktop backup/verify/restore                                          | Heavy recovery SQLite work avoids Electron main                        | Ordinary embedded-server queries still execute in Electron main                                        |
+| Lazy dialogs/panels and 500 kB entry limit                                           | Initial JavaScript size enforced                                       | Download size alone does not measure startup parse, paint, hydration or interaction                    |
+| Search formatter canonicalization and 32-entry LRU                                   | Unbounded timezone retention fixed                                     | Search query plans, result hydration and admission cost remain                                         |
+| Streaming file transfer, nonce idempotency, transactional reservations               | Integrity and memory foundations exist                                 | Avoid trading these away for batching or cache speed                                                   |
+
+The corrected 200,000-message desktop workload already recorded search around 220–240 ms, a 20-reader burst around 337 ms, and retention around 150 ms longest loop stall in its environment. These exceed the documented 100 ms desktop-main target in some workloads; they do not prove every installation requires a process redesign. The new sparse-thread index probe below measured an actual candidate in the current code.
+
+## 2. Evidence contract for every experiment
+
+- [ ] Record baseline SHA, candidate SHA, fixture seed, runtime/build, hardware, platform, cache state and enabled features.
+  - [ ] Measure cold and warm paths separately; repeat enough times to report sample count, p50/p95 and dispersion. Avoid unrelated concurrent heavy workloads during timing.
+  - [ ] Capture whole-app/process-tree memory, heap/RSS, CPU/idle wakeups, bytes/request count, loop stalls and user-visible completion time as relevant.
+  - [ ] Verify responses/row counts/permissions and expected results before timing; never benchmark an error response as successful work.
+  - [ ] Report regressions: write amplification/index size, extra processes/threads, package bytes, battery work, latency and recovery complexity.
+  - [ ] Keep the change only if its target improves and correctness/other declared budgets hold. Record rejected experiments so another agent does not repeat them without new evidence.
+
+Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with realistic same-channel threads; sparse old thread; 1,000 channels/users when supported; attachment-heavy history with varied dimensions; 2,000 due/held schedules within configured limits; reconnect and slow-reader mix; long-lived navigation across caches. These are workload shapes, not advertised capacity.
+
+## 3. Electron startup, packaging and process ownership
+
+### OPT-01 · First · Establish traces and an operating envelope
+
+**Targets:** `scripts/measure-stall.mts`, desktop main startup, `WorkspaceClient`, channel/thread/search journeys. T3 has focused client microbenchmarks; Signal records actual query execution time. Borrow the measurement separation, not their results.
+
+- [ ] Add reproducible startup milestones: process launch, module load, settings, host ready, renderer ready, first usable conversation.
+  - [ ] Profile join-only, hosting, tray sign-in, reconnect and renderer restore separately.
+  - [ ] Capture query execution versus queue/serialization/IPC/render time.
+  - [ ] Add mixed successful chat/search/file/replay workloads to existing stall probes.
+  - [ ] Choose low-spec reference hardware and budgets; keep existing 500 kB entry and 100 ms main-loop targets visible.
+  - [ ] Retain a small JSON result artifact with fixture/runtime metadata and a readable interpretation.
+
+**Done:** subsequent optimization PRs can reproduce the same successful workload and identify which stage improved. Measurement infrastructure alone is not completion of the later code-change tickets.
+
+### OPT-02 · Small/medium experiment · Enable compilation cache before loading main
+
+**Reference:** T3's [early compile-cache bootstrap](https://github.com/pingdotgg/t3code/blob/ff1db030b179ef712cacc0098366d976e2877f45/apps/desktop/src/boot.ts). **Gatherline:** `apps/desktop/package.json`, `src/main/index.ts`, Electron build entry.
+
+- [ ] Prototype a small entry that enables the packaged runtime's supported compile cache before importing the real main bundle.
+  - [ ] Use a private per-user cache, optional/fail-open behavior, expiry/size limits and version/architecture separation.
+  - [ ] Verify writable/unwritable locations, first launch, repeat launch, update and relocated/AppImage paths.
+  - [ ] Measure module-load/first-usable time, cache bytes and first-run overhead; leave coverage/test semantics explicit.
+
+**Done:** warm startup improves measurably with acceptable cold overhead; absent or corrupt cache never prevents launch. It is not a runtime SQL optimization.
+
+### OPT-03 · Medium experiment · Reduce packaged dependency duplication
+
+**Reference:** T3's shared runtime-external policy and packaging closure in the Electron report. **Gatherline:** `electron.vite.config.ts`, builder configuration and runtime dependency tree.
+
+- [ ] Inventory installer/ASAR/unpacked files and determine which code is both bundled and shipped as external packages.
+  - [ ] Bundle compatible ordinary JavaScript once; preserve native/filesystem-dependent packages and required assets as externals.
+  - [ ] Remove demonstrated duplicates/platform-inapplicable resources, retaining licenses and deliberate diagnostic symbols.
+  - [ ] Validate built preload/worker entry imports after changing bundling.
+  - [ ] Measure package/extraction size, cold resolution and first usable time on installed targets.
+
+**Done:** package or startup improvement is demonstrated with all runtime paths intact. No current saving was established from removing source maps, which were absent from inspected output.
+
+### OPT-04 · Large spike · Isolate the embedded server when measured stalls require it
+
+**References:** T3 supervised backend, Signal SQL worker ownership. **Gatherline:** `index.ts` server construction, hosting controller, backup worker and CLI bundle.
+
+- [ ] Compare the smallest isolated-backend boundary using a worker, `utilityProcess`, or supervised child, without changing participant REST/WebSocket contracts.
+  - [ ] Establish one directory/database writer first: FIX-11. Keep queues, discovery, route, port and hold state owned by one run.
+  - [ ] Add bounded readiness/start/stop/restart behavior and fence all async callbacks to that run.
+  - [ ] Coordinate backup/restore, shutdown, crash recovery and IPC; never restart a held copy into ordinary use.
+  - [ ] Compare UI stall p95/max, HTTP latency, total process memory, startup and recovery at 50k/200k mixed workloads.
+
+**Done:** main-window responsiveness holds without duplicate owners/jobs or loss of accepted work. A read-worker pool is a later comparison if one isolated backend is insufficient; do not immediately copy Signal's worker count or T3's force-kill timeout.
+
+## 4. Rendering, retained state and attention cost
+
+### OPT-05 · Small first change · Narrow message-row subscriptions and keep references stable
+
+**References:** Mattermost per-post selector factories; T3 stable row projection. **Gatherline:** `MessageItem.tsx`, `MessageTimeline.tsx`, `context.ts`, replica updates.
+
+- [ ] Replace broad subscriptions to entire users/channels/self maps with the author, current role/ID and entities the row actually renders.
+  - [ ] Use stable derived selectors/references for mentions, reactions, pins, saved and grouped row props; avoid allocating selector arrays on every unrelated event.
+  - [ ] Preserve live author/channel rename, permission and mention rendering; do not memoize stale authorization.
+  - [ ] Measure row render/commit counts and input delay under unrelated presence/profile/channel events and busy Saved changes.
+
+**Done:** unrelated changes cause materially fewer row commits with the same visible result. Prefer this low-risk change before adding a list library.
+
+### OPT-06 · Medium spike · Separate the rendered window from loaded history
+
+**References:** T3 LegendList with stable row keys; Zulip bounded DOM/selected-row anchoring; Mattermost measured variable-height list. **Gatherline:** `MessageTimeline`, `ThreadPanel`, `useRovingMessages`.
+
+- [ ] Compare current bounded 300-row DOM, CSS rendering containment where safe, and a smaller/windowed DOM on realistic histories.
+  - [ ] Measure variable rows after image load, edits, wrapping, thread summaries and menu opening.
+  - [ ] Preserve first-visible ID/offset, tail following, around-message jumps, unread divider and Back/reload reading position.
+  - [ ] Keep focused rows/menus available and support keyboard/screen-reader navigation through unmounted rows.
+  - [ ] Measure scroll/frame/commit cost, memory and library/entry-size overhead; include touch and real browser geometry.
+
+**Done:** windowing beats the existing cap in a relevant task without lost anchors or inaccessible history. T3/Zulip overscan and height constants are not Gatherline defaults; reject the dependency if the current DOM is already cheap enough.
+
+### OPT-07 · Medium · Batch replica publication during catch-up while retaining event order
+
+**Reference:** chat fetch/event batching patterns in the client/server reports. **Gatherline:** `WorkspaceClient.applyEvent`, WebSocket reconnect/replay, store publication.
+
+- [ ] Separate ordered event reduction from React/store notification where a burst currently causes repeated work.
+  - [ ] Keep durable outbox mutations/persistence and notification/access hooks independent of delayed visual publication. `DraftPersistence` currently observes store changes; blanket subscription batching must not reopen #147's delayed-persistence gap.
+  - [ ] Bound visual latency and provide a hidden-window fallback for frame-based work. Apply Element's incremental sidebar ordering and frame-coalesced visual emissions only after measuring current full-sort cost; see [ELM-1](research/2026-09-30/additional-chat-comparison.md#elm-1-batch-visual-room-list-publication-and-update-the-affected-entry).
+  - [ ] Yield large replay work at bounded units and publish coherent snapshots without skipping seq/nonce reconciliation.
+  - [ ] Apply deactivation/membership/access invalidation promptly; do not leave forbidden previews rendered until a long batch ends.
+  - [ ] Deduplicate replaceable typing/presence work when safe, while retaining durable read/unread and mutation order.
+  - [ ] Measure 100/1,000/10,000-event reconnect bursts within configured replay limits, interaction delay and resync bytes.
+
+**Done:** catch-up work is smoother and bounded with identical final state and no duplicate notifications/sends. Existing durable replay remains the authority.
+
+### OPT-08 · Small/medium · Memoize expensive derived rendering under explicit cache limits
+
+**Reference:** T3 separates stable rows and caches code highlighting by count/bytes. **Gatherline:** `Mrkdwn`, grouping/day labels, mention/reaction lists, search highlighting and Composer suggestions.
+
+- [ ] Profile expensive parsing/lookup/formatting before introducing caches.
+  - [ ] Key cached derivations by immutable text/revision plus relevant entity/theme inputs and clear them on account change.
+  - [ ] Set count/byte bounds and avoid retaining full workspaces through cached callbacks or old row objects.
+  - [ ] Keep escaping/link safety and IME/selection behavior; do not add a heavyweight syntax highlighter for a micro-optimization.
+  - [ ] Measure long code messages, repeated paging, burst reactions and suggestion typing with/without the cache.
+
+**Done:** saved CPU exceeds cache overhead and memory remains bounded. T3's 50 MiB highlighting cache is a reference mechanism, not a proposed Gatherline size.
+
+### OPT-09 · Medium · Budget active/decoded media and history bytes
+
+**References:** T3 count-and-byte LRU, Zulip derived thumbnails. **Gatherline:** history LRU, `FileCache`, `Attachments` and lightbox.
+
+- [ ] Measure compressed blobs, active references, decoded pixel dimensions and retained message metadata separately.
+  - [ ] Assign one derivative-media owner/artifact shared with OPT-16; renderer memory and server transfer experiments must use the same access, dimensions and cleanup contract.
+  - [ ] Add appropriate pixel/dimension limits and bounded server-owned thumbnails, with access checks and cleanup.
+  - [ ] Avoid decoding originals for small previews; keep original file download/lightbox explicit and cancellable.
+  - [ ] Consider a shared viewport observer and release offscreen decode resources without losing reserved geometry/anchors.
+  - [ ] Evaluate a byte budget in addition to existing history-count LRU if long text/metadata exceeds target memory.
+
+**Done:** image-heavy/long-text navigation stays within a declared memory envelope and access removal revokes local resources. Preserve current fetch deduplication, four-transfer cap and 32 MiB idle-blob budget.
+
+## 5. SQLite, search, snapshots and maintenance
+
+### OPT-10 · Small first candidate · Add the measured thread-history composite index
+
+**Local evidence:** [sparse-thread probe](research/2026-09-30/server-comparison.md#3-measured-optimization-sparse-old-thread-history). `store.ts` thread pagination currently selected `(channel_id,id)`, scanning unrelated newer messages. Scratch `(thread_root_id,id)` changed the query plan.
+
+| Controlled warm SQL reads, 30 samples | Existing indexes | Scratch composite index |
+| ------------------------------------- | ---------------- | ----------------------- |
+| p50                                   | 6.334 ms         | 0.066 ms                |
+| p95                                   | 7.777 ms         | 0.102 ms                |
+
+- [ ] Add a new compatible migration for the useful composite index, after verifying target query shapes.
+  - [ ] Capture before/after `EXPLAIN QUERY PLAN` and check oldest/newest/around/root/deleted reply queries.
+  - [ ] Compare 50k/200k sparse and dense histories with permission filters and actual HTTP response hydration.
+  - [ ] Measure insertion/migration time, database/WAL size and redundancy of older indexes before removing any.
+  - [ ] Keep cursor/result semantics identical and verify actual result count before timing.
+
+**Done:** the relevant query improves through the full path with an acceptable write/storage cost. These synthetic warm timings are not a promised hundredfold app-wide speedup.
+
+### OPT-11 · Medium · Optimize search from query plans and successful workload
+
+**Gatherline:** FTS/query builders, reader-calendar filters, member/access filtering, `SearchDialog`. Preserve corrected date semantics and formatter LRU.
+
+- [ ] Profile selective/common/empty-term modifiers, date ranges, large channels, file filters and denied channels.
+  - [ ] Inspect query plans and statement time before adding composite/partial indexes or changing FTS projections.
+  - [ ] Keep access filtering inside the query; avoid hydrating many rows only to discard them later.
+  - [ ] Add search admission/in-flight budget if expensive successful searches saturate the host; surface useful retry.
+  - [ ] Implement filename/relevance options from UX-02 with stable deterministic cursor/tie-break semantics.
+
+**Done:** target search-to-result and main-loop cost improve for the declared query mix without ACL/date regressions or excessive index growth.
+
+### OPT-12 · Medium · Reduce hydration and unread/thread aggregation work
+
+**Gatherline:** `Store.hydrateMessages`, thread summaries, unread/mention/Activity counts and server snapshot.
+
+- [ ] Count actual SQL statements and repeated entity lookups per response/snapshot rather than assuming an N+1 problem.
+  - [ ] Batch users/files/reactions/pins/follows where profiles show repeated work; reuse within a request only with valid access/revision scope.
+  - [ ] Use bounded indexed aggregation for thread/unread counts and avoid repeating equivalent calculations per socket.
+  - [ ] Coordinate count semantics with FIX-08 before caching them.
+  - [ ] Measure channel/thread page and snapshot hydration at varied files/reactions/follows, including membership changes.
+
+**Done:** fewer queries/allocations improve the measured path with authoritative consistent counts. A stale global unread cache is not an acceptable shortcut.
+
+### OPT-13 · Medium · Bound snapshots and large administration lists
+
+**References:** Zulip anchor-aware fetches, Mattermost deterministic bounded queries. **Gatherline:** initial/resync snapshot, People, Apps, members and thread summaries.
+
+- [ ] Measure snapshot bytes, SQL time, serialization and renderer processing versus member/channel/message cardinality.
+  - [ ] Page/search member/app lists with stable cursors; avoid repeatedly loading every account to display one page.
+  - [ ] Design a versioned lean bootstrap plus on-demand details only if snapshot cost warrants it.
+  - [ ] Preserve coherent sequence watermark and authenticated channel visibility through paging/replay.
+  - [ ] Exercise a permission change during fetch and recovery after an incomplete bootstrap.
+
+**Done:** large supported workspaces connect and administer within the chosen budgets without partial-state ambiguity or content leakage.
+
+### OPT-14 · Medium · Extend socket admission and observe backpressure
+
+**Reference:** Mattermost bounded queues/deadlines and load counters. **Gatherline:** Fastify reception, `Gateway`, existing 2 MiB cutoff and bounded database replay.
+
+- [ ] Define aggregate socket/account/IP/unauthenticated connection ceilings and request-reception deadlines.
+  - [ ] Measure fanout serialization and repeated authorization work; retain one serialized durable payload where already present.
+  - [ ] Coalesce/drop only explicitly replaceable ephemeral messages under pressure; close/resync durable slow readers safely.
+  - [ ] Record queued bytes, disconnect reason and reconnect/snapshot cost with bounded labels.
+  - [ ] Exercise slow uploads, idle unauthenticated sockets, slow readers and a reconnect burst.
+
+**Done:** total retained work is bounded and overload degrades predictably. Do not replace durable database replay with a volatile ring merely to imitate another server.
+
+### OPT-15 · Medium · Give scheduled, retention and delivery work fair bounded turns
+
+**References:** Zulip row-aware retention, Mattermost bounded bulk operations. **Gatherline:** due schedules, retention, file-deletion ledger and event delivery queues.
+
+- [ ] Measure work by actual dependent rows/bytes/time in addition to item count.
+  - [ ] Repair FIX-05 first, then yield at safe transaction boundaries so ordinary reads/posts remain responsive.
+  - [ ] Bound aggregate installed-app/failed-queue cost and capability counts, preserving per-subscription order/admission.
+  - [ ] Keep retry/backoff/state wakeups explicit; do not busy-poll held or exhausted work.
+  - [ ] Exercise mixed live chat with due/held jobs, oversized threads, failed integrations and deletion recovery.
+
+**Done:** queues drain without starvation or loop stalls beyond the chosen envelope, with observable backlog/failure and safe restart semantics.
+
+### OPT-16 · Medium · Optimize file transfer and derived-media processing
+
+**Gatherline:** streaming uploads/downloads, `StorageBudget`, file cache and server dimension/hash handling.
+
+- [ ] Profile server disk/hash work, chunk size/backpressure, renderer copies and the native large-download handoff.
+  - [ ] Share derivative-media generation, access and cleanup ownership with OPT-09; do not create competing thumbnail formats or workers in separate PRs.
+  - [ ] Offload CPU-heavy thumbnail/hash/extraction work only where measurement identifies blocking; bound worker/input/output cost.
+  - [ ] Keep streaming reservations, revocation/abort cleanup and FIX-11 single-writer coordination.
+  - [ ] Evaluate Range/resumable download only with authenticated ticket/lifetime and integrity semantics; do not buffer entire large files to simplify resume.
+  - [ ] Measure large/small concurrent transfers, cancellation, disk pressure and retained memory.
+
+**Done:** transfers improve measured time/loop/memory behavior while storage/access integrity remains enforced.
+
+## 6. Idle work, IPC, recovery and diagnostics
+
+### OPT-17 · Small/medium · Reduce idle/offscreen CPU and wakeups
+
+**Reference:** T3 [shared visible-animation observer](https://github.com/pingdotgg/t3code/blob/ff1db030b179ef712cacc0098366d976e2877f45/apps/web/src/lib/visibleAnimation.ts), adaptive telemetry. **Gatherline:** typing/read retries, animations, presence and huddle stats.
+
+- [ ] Inventory interval/observer/listener work with no conversation activity, with a hidden window and closed-to-tray hosting.
+  - [ ] Pause visual animations and unnecessary renderer sampling offscreen/hidden, honoring reduced motion.
+  - [ ] Coalesce UI-only status/typing refreshes and remove listeners on disposal; retain needed protocol heartbeats, read durability and host availability.
+  - [ ] Use demand-aware diagnostic sampling and preserve immediate recovery/access events.
+  - [ ] Compare idle CPU, wakeups, battery and wake-to-fresh state under joining and hosting separately.
+
+**Done:** idle cost falls without losing notifications, live hosting, queued delivery or readable resumption. Do not indiscriminately stop every timer when hidden.
+
+### OPT-18 · Medium · Reduce IPC/status churn through narrow contracts
+
+**Reference:** T3 typed IPC/built-preload verification and bounded replaceable status snapshots. **Gatherline:** preload/platform storage and hosting status notifications.
+
+- [ ] Measure IPC call/event frequency, payload bytes and settings/status serialization under connect/disconnect/presence/backup progress.
+  - [ ] Send narrow changed fields or coalesced replaceable status snapshots if full updates dominate work.
+  - [ ] Add atomic storage operations for FIX-01 and sender/payload validation for SEC-03 in the same boundary design.
+  - [ ] Keep commands, durable events and completion/error acknowledgements lossless; do not put them in a sliding/drop queue.
+  - [ ] Verify bundled bridge imports, callback teardown and renderer/backend generation fencing.
+
+**Done:** IPC overhead decreases while its authorization and ownership contract becomes clearer.
+
+### OPT-19 · Medium · Improve first usable paint and bounded renderer recovery
+
+**Reference:** T3 hidden-boot unthrottling only until reveal and bounded `render-process-gone` recovery. **Gatherline:** BrowserWindow creation, persisted appearance and durable client rehydration.
+
+- [ ] Eliminate avoidable wrong-theme flash through a minimal trusted appearance bootstrap or a measured reveal policy.
+  - [ ] If hiding until ready helps, enforce a load-error/deadline fallback and restore background throttling after startup.
+  - [ ] Add bounded renderer crash/OOM/load recovery without resetting the hosted server or route.
+  - [ ] Rehydrate durable draft/outbox/route state and reconcile nonces; resolve FIX-01's durability contract first.
+  - [ ] Measure paint/usable time and hidden CPU; exercise crash during send, host management and restore progress.
+
+**Done:** first use improves and a renderer failure has a safe visible recovery path. Permanently disabling throttling is not part of this proposal.
+
+### OPT-20 · Small/medium · Keep performance diagnostics cheap and private
+
+**References:** T3 demand/power-aware bounded samples, Signal named SQL timings, Mattermost named journey metrics. **Gatherline:** existing user-previewed diagnostics and health route.
+
+- [ ] Add bounded named timings for startup, channel switch, thread load, search, reconnect and backup.
+  - [ ] Separate queue, SQLite, serialization, transport/IPC and rendering stages in local experiments.
+  - [ ] Cap recent samples/log bytes; redact messages/credentials/token URLs and bound label cardinality.
+  - [ ] Measure panel-open/closed idle overhead and stop expensive collection when not requested.
+  - [ ] Extend OPS-10 support export without automatic external telemetry.
+
+**Done:** operators and optimization PRs get useful evidence without creating another CPU/privacy/storage problem.
+
+### OPT-21 · Medium/large spike · Measure startup maintenance, WAL and database topology
+
+**Reference:** SQLite WAL/backup contracts; Signal one write owner plus measured reads. **Gatherline:** startup inventory/orphans, pre-upgrade backup, migrations and checkpoints.
+
+- [ ] Time startup stages on large message/blob sets and separate mandatory integrity work from deferrable safe cleanup.
+  - [ ] Protect current rollback copy (FIX-06) and acquire directory ownership (FIX-11) before changing order.
+  - [ ] Measure checkpoint stalls, WAL growth, write latency, busy waits and filesystem behavior; retain durability guarantees.
+  - [ ] Compare a single isolated writer with a bounded read-worker pool only when profiling justifies the latter.
+  - [ ] Define read-after-write/snapshot/connection ownership and stop secondary work before closing the primary.
+
+**Done:** faster startup or concurrent reads are measured without unsafe cleanup, lock contention, weaker power-loss behavior or excess process memory.
+
+## 7. Media and mobile/background efficiency
+
+### OPT-22 · Medium empirical gate · Publish a measured small-call envelope
+
+**Gatherline:** existing microphone/camera/screen transceivers and mesh peers. No competitor's participant count is evidence of Gatherline capacity.
+
+- [ ] Measure 2/4/6/8 participants where feasible: audio, camera, screen and relay-only paths.
+  - [ ] Record sender uplink, decode CPU, frames/loss/RTT, memory and device thermal/battery behavior on stated hardware.
+  - [ ] Add useful low-bandwidth/audio-only controls and sender resolution/bitrate choices where supported.
+  - [ ] Avoid per-peer heavyweight audio graphs; preserve the existing stats-based speaking indicators.
+  - [ ] Combine CALL-01/02 device/recovery validation with load evidence; choose an SFU only when required size exceeds the measured mesh envelope.
+
+**Done:** supported call size and network/device assumptions are published with samples, and poor conditions have an understandable fallback.
+
+### OPT-23 · Medium · Make screen/video work proportional to what is useful
+
+- [ ] Profile screen/camera encoding, thumbnail tiles and fullscreen/shared-stage layouts.
+  - [ ] Pause unnecessary visual rendering offscreen while preserving required media and remote state.
+  - [ ] Investigate supported sender frame-rate/resolution and receiver adaptation; do not assume CSS-hiding a video stops decoding or uplink.
+  - [ ] Add correct screen/window choice, permission error and track-ended cleanup from CALL-01/03.
+  - [ ] Measure readable screen text, frame cadence, camera quality, CPU and bandwidth across layout changes.
+
+**Done:** reduced media cost preserves useful quality and all participants' explicit sending state. Any network subscription changes need protocol/media evidence.
+
+### OPT-24 · Large, cohort-gated · Bound mobile/background connections and persistent caches
+
+**Targets:** UX-08/09/10; multiple accounts, push subscriptions, idle sockets and optional cold history cache. Further primary patterns are in the additional chat report.
+
+- [ ] Compare lightweight notification/count connections, selected polling and push for inactive workspaces under browser/OS limits.
+  - [ ] Budget total account/workspace cache bytes and connection/radio work; use transactional persistence with explicit stale/revoked state.
+  - [ ] Cancel stale navigation/history/preview requests and deduplicate retries/notifications across windows.
+  - [ ] Version/wipe scoped caches on logout or incompatible upgrade and revalidate access on reconnect.
+  - [ ] Measure real background/locked phone delivery, battery/return latency and 1/3/10 saved-workspace scenarios.
+
+**Done:** useful background participation fits a declared resource envelope with clear provider/host dependencies. An intermittently sleeping server is not made always available by caching or push alone.
+
+## 8. What to adopt first and what to reject without evidence
+
+1. Run OPT-01 and implement OPT-10's measured query candidate in a small migration PR.
+2. Implement OPT-05's narrow subscriptions and compare row commits under unrelated updates.
+3. Trial OPT-02/03 only if traces show module/package startup cost; add OPT-20's bounded timings as needed.
+4. Select OPT-04, OPT-06/07/09/11 from actual main-loop/render/memory/query bottlenecks. Maintain FIX/OPS integrity gates alongside changes.
+5. Gate OPT-22–24 on real devices and participation mode. Keep rejected experiments recorded.
+
+Do not adopt another app's entire framework, database/service topology, cache size, timer cadence, rendering library or worker count as an optimization by itself. Avoid disabling sandboxing, signature checks, access validation, SQLite durability or background throttling globally. These choices change guarantees and require evidence well beyond a faster synthetic benchmark.
+
+## 9. Per-PR completion record
+
+For each completed experiment add: owner, baseline/candidate SHA, source pattern, actual code change, fixture/platform/runtime, before/after samples, correctness checks, cost/regression, and keep/reject decision. Link its PR/merge and update the main plan. An upstream implementation reference is useful provenance; measured Gatherline behavior decides whether the adaptation ships.
