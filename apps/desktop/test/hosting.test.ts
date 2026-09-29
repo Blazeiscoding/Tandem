@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -52,6 +60,9 @@ function workspaceDb(dataDir: string, id: string | null, name: string): void {
 
 const NEW_FOLDER = /^w-[0-9a-f]{32}$/;
 
+/** What the harness's stand-in backups write as their manifest, so its check can pass them. */
+const FAKE_MANIFEST = '{"fake":true}';
+
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => (resolve = r));
@@ -103,8 +114,15 @@ function harness(
     clock: 1000,
     /** Each backup the server was asked for, and the free space the disk reports. */
     backups: [] as { dataDir: string; out: string }[],
-    /** Whether a backup leaves a folder shaped like the server's, holding the workspace's ID. */
-    writeBackups: false,
+    /**
+     * Whether a backup leaves a folder shaped like the server's, holding the
+     * workspace's ID, as the real one always does.
+     */
+    writeBackups: true,
+    /** Whether backups are the real server's, of a real workspace, checked as the app checks them. */
+    realBackups: false,
+    /** A workspace ID the stand-in backup writes instead, as if the folder were swapped mid-copy. */
+    swapDuringBackup: null as string | null,
     free: Number.MAX_SAFE_INTEGER,
     changes: [] as HostingSnapshot[],
     /** Runs as each server binds; throw to fail that attempt, or return a promise to hold it. */
@@ -146,15 +164,26 @@ function harness(
     },
     backupWorkspace: async (request) => {
       h.backups.push(request);
+      if (h.realBackups) return backupWorkspace(request);
       if (h.writeBackups) {
         const inside = h.databases.get(request.dataDir);
-        workspaceDb(request.out, inside?.id ?? null, inside?.name ?? "Unnamed");
-        writeFileSync(join(request.out, "manifest.json"), "{}");
+        workspaceDb(
+          request.out,
+          h.swapDuringBackup ?? inside?.id ?? null,
+          inside?.name ?? "Unnamed",
+        );
+        writeFileSync(join(request.out, "manifest.json"), FAKE_MANIFEST);
       }
       return { files: [] };
     },
     freeBytes: async () => h.free,
-    verifyBackup,
+    // The fake backups above pass as the server's own would; everything else
+    // meets the real check.
+    verifyBackup: async (dir) =>
+      existsSync(join(dir, "manifest.json")) &&
+      readFileSync(join(dir, "manifest.json"), "utf8") === FAKE_MANIFEST
+        ? { workspaceName: "Fake", database: { bytes: 0 }, files: [] }
+        : verifyBackup(dir),
     restoreWorkspace,
     settings: {
       get: async (key, { strict, distinguishMissing } = {}) => {
@@ -1753,12 +1782,160 @@ describe("who is connected, and which port", () => {
   });
 });
 
+describe("protecting recovery copies", () => {
+  const DAY = 24 * 3600_000;
+
+  /** A real workspace, listed as hosted here and stopped, as the real server leaves it. */
+  async function realWorkspace(h: ReturnType<typeof harness>, folder = "rocket-team") {
+    const dataDir = join(h.dataRoot, folder);
+    const server = await createWorkspaceServer({
+      dataDir,
+      port: 0,
+      host: "127.0.0.1",
+      mdns: false,
+      workspaceName: "Rocket Team",
+      logger: false,
+    });
+    const id = server.store.getMeta("workspace_id")!;
+    await server.stop();
+    return { dataDir, id, folder };
+  }
+
+  /** A harness whose backups are the real server's, with one real workspace listed. */
+  async function realScheduled(keep: number) {
+    const settings = new Map<string, unknown>();
+    const h = harness({ settings });
+    h.realBackups = true;
+    const workspace = await realWorkspace(h);
+    settings.set("hostedWorkspaces", {
+      version: 1,
+      workspaces: [
+        {
+          id: workspace.id,
+          folder: workspace.folder,
+          name: "Rocket Team",
+          port: 9001,
+          lastHostedAt: 5,
+        },
+      ],
+    });
+    const destination = profile();
+    await h.controller.setAutoBackup({
+      folder: workspace.folder,
+      schedule: { destination, everyDays: 1, keep },
+    });
+    return { h, destination, ...workspace };
+  }
+
+  /** A real backup of the workspace, named as this app names them, at `stamp`. */
+  async function archive(dataDir: string, destination: string, stamp: string) {
+    const dir = join(destination, `rocket-team-${stamp}`);
+    await backupWorkspace({ dataDir, out: dir });
+    return dir;
+  }
+
+  it("never lets a damaged backup dated in the future take the place of the one just made", async () => {
+    const { h, destination, dataDir, folder } = await realScheduled(1);
+    // The same workspace's database, but its manifest ruined, and dated years ahead.
+    const future = await archive(dataDir, destination, "2099-01-01T00-00-00");
+    writeFileSync(join(future, "manifest.json"), "{}");
+    await expect(verifyBackup(future)).rejects.toThrow();
+
+    await h.controller.runDueBackups();
+
+    expect(h.backups).toHaveLength(1);
+    const fresh = h.backups[0]!.out;
+    expect(readdirSync(destination)).toEqual([fresh.slice(destination.length + 1)]);
+    await expect(verifyBackup(fresh)).resolves.toMatchObject({ workspaceName: "Rocket Team" });
+    const listed = (await h.controller.list()).workspaces.find((w) => w.folder === folder)!;
+    expect(listed.autoBackupError).toBeNull();
+    expect(listed.lastBackupAt).not.toBeNull();
+  });
+
+  it("counts only copies that pass the check, and leaves a failing one it still has room for", async () => {
+    const { h, destination, dataDir } = await realScheduled(2);
+    const future = await archive(dataDir, destination, "2099-01-01T00-00-00");
+    writeFileSync(join(future, "manifest.json"), "{}");
+    const good = await archive(dataDir, destination, "2020-01-02T00-00-00");
+    // Its manifest names an attachment that is not there.
+    const missing = await archive(dataDir, destination, "2020-01-01T00-00-00");
+    const manifest = JSON.parse(readFileSync(join(missing, "manifest.json"), "utf8"));
+    manifest.files.push({ name: "gone", bytes: 1, sha256: "0".repeat(64) });
+    writeFileSync(join(missing, "manifest.json"), JSON.stringify(manifest));
+    const damaged = await archive(dataDir, destination, "2019-01-01T00-00-00");
+    writeFileSync(join(damaged, "workspace.db"), "not a database");
+
+    await h.controller.runDueBackups();
+
+    const fresh = h.backups[0]!.out;
+    // The fresh copy and the newest good one are the two kept. The damaged
+    // future one never counted, so it was not removed to make room either.
+    // The one missing an attachment, past the two good copies, went. The one
+    // whose database is unreadable cannot be shown to be this workspace's,
+    // so it is not this app's to remove.
+    expect(readdirSync(destination).sort()).toEqual(
+      [fresh, good, future, damaged].map((dir) => dir.slice(destination.length + 1)).sort(),
+    );
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  it("keeps the backup just made when the clock has gone back", async () => {
+    const { h, destination, dataDir } = await realScheduled(1);
+    // Made when the clock read later than it does now.
+    await archive(dataDir, destination, "2030-06-01T00-00-00");
+    await h.controller.runDueBackups();
+    const fresh = h.backups[0]!.out;
+    expect(fresh < join(destination, "rocket-team-2030")).toBe(true);
+    expect(readdirSync(destination)).toEqual([fresh.slice(destination.length + 1)]);
+    await expect(verifyBackup(fresh)).resolves.toBeDefined();
+  });
+
+  it("refuses to back up a listed workspace whose folder now holds another", async () => {
+    const settings = new Map<string, unknown>();
+    const h = harness({ settings });
+    h.realBackups = true;
+    const other = await realWorkspace(h, "rocket-team");
+    // The list says this folder is a different workspace than the one in it.
+    settings.set("hostedWorkspaces", {
+      version: 1,
+      workspaces: [
+        {
+          id: "ws-listed",
+          folder: other.folder,
+          name: "Design Guild",
+          port: 9001,
+          lastHostedAt: 5,
+        },
+      ],
+    });
+    const destination = profile();
+    await expect(h.controller.backup({ folder: other.folder, destination })).rejects.toThrow(
+      /The folder listed as Design Guild holds “Rocket Team” instead/,
+    );
+    expect(h.backups).toEqual([]);
+    expect(readdirSync(destination)).toEqual([]);
+    expect(registryOf(h)[0]!.lastBackupAt).toBeUndefined();
+  });
+
+  it("removes a copy whose workspace changed while it was being made, and records nothing", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    const destination = profile();
+    // Checked before the copy starts, then swapped for another workspace's.
+    h.swapDuringBackup = "ws-swapped";
+    await expect(h.controller.backup({ folder: made.folder!, destination })).rejects.toThrow(
+      /changed while it was being copied, so the copy was removed/,
+    );
+    expect(readdirSync(destination)).toEqual([]);
+    expect(registryOf(h)[0]!.lastBackupAt).toBeUndefined();
+  });
+});
+
 describe("scheduled backups", () => {
   const DAY = 24 * 3600_000;
 
   async function scheduled(keep = 2) {
     const h = harness();
-    h.writeBackups = true;
     const made = await h.controller.start({ workspaceName: "Rocket Team" });
     const destination = profile();
     await h.controller.setAutoBackup({
