@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ID, User, ScheduleMessageBody } from "@slackoss/protocol";
-import { ApiError } from "@slackoss/client-core";
+import { ApiError, OUTBOX_LIMIT } from "@slackoss/client-core";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
@@ -83,6 +83,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   /** Replies only: also show this one in the channel's own timeline. */
   const [alsoToChannel, setAlsoToChannel] = useState(false);
   const [attachmentNote, setAttachmentNote] = useState<string | null>(null);
+  /** Why the last send was not taken, while the draft waits in the box. */
+  const [sendRefusal, setSendRefusal] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<PendingCaret | null>(null);
   const filePicker = useRef<HTMLInputElement>(null);
@@ -99,6 +101,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setMentionQuery(null);
     setPreview(false);
     setAttachmentNote(null);
+    setSendRefusal(null);
     setScheduleOpen(false);
     setCustomTime("");
     setScheduleNote(null);
@@ -350,11 +353,21 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     if (archived || scheduleLock.current || recoveryBlocksSend) return;
     const trimmed = text.trim();
     if ((!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT) return;
-    client.send(channelId, trimmed, {
+    const accepted = client.send(channelId, trimmed, {
       threadRootId,
       files: attached,
       alsoSendToChannel: alsoToChannel,
     });
+    if (!accepted) {
+      // Nothing was taken, so the words stay here rather than only in memory.
+      setSendRefusal(
+        client.outboxFull()
+          ? `${OUTBOX_LIMIT} messages are already waiting to send. Once they go, or you discard some, this one can be sent.`
+          : "This message could not be queued. It is still here; try again.",
+      );
+      return;
+    }
+    setSendRefusal(null);
     setText("");
     // A deliberate choice per reply, not a mode to get stuck in.
     setAlsoToChannel(false);
@@ -651,6 +664,11 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       {scheduleError && (
         <p role="alert" className="mb-2 text-sm text-ink-dim">
           {scheduleError}
+        </p>
+      )}
+      {sendRefusal && (
+        <p role="alert" className="mb-2 text-sm text-ink-dim">
+          {sendRefusal}
         </p>
       )}
       {pendingSchedule && (

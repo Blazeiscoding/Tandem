@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
-import { Api, WorkspaceClient } from "../src/index.js";
+import { Api, ApiError, OUTBOX_LIMIT, WorkspaceClient } from "../src/index.js";
 
 let server: WorkspaceServer;
 let client: WorkspaceClient;
@@ -234,6 +234,100 @@ describe("outbox durability", () => {
     client.retrySend(restored.nonce);
     await expect.poll(() => client.state.pending[0]?.failed).toBe(true);
     expect((await owner.listMessages(channelId, { limit: 50 })).messages).toHaveLength(0);
+  });
+
+  it("keeps every send it took, and refuses the one past the limit before taking it", async () => {
+    await disconnect();
+    vi.spyOn(client.api, "sendMessage").mockRejectedValue(new Error("network is down"));
+    for (let i = 1; i <= OUTBOX_LIMIT; i++)
+      expect(client.send(channelId, `queued ${i}`)).toBe(true);
+    await expect.poll(() => client.state.pending.every((p) => p.failed)).toBe(true);
+
+    // The composer keeps this one: nothing was taken, so nothing can be lost.
+    expect(client.outboxFull()).toBe(true);
+    expect(client.send(channelId, "one too many")).toBe(false);
+    expect(client.state.pending).toHaveLength(OUTBOX_LIMIT);
+    expect(client.outboxSnapshot().map((e) => e.text)).toEqual(
+      Array.from({ length: OUTBOX_LIMIT }, (_, i) => `queued ${i + 1}`),
+    );
+
+    await restart();
+    await expect.poll(() => client.state.pending).toHaveLength(0);
+    const { messages } = await owner.listMessages(channelId, { limit: 100 });
+    expect(messages.filter((m) => m.text.startsWith("queued "))).toHaveLength(OUTBOX_LIMIT);
+    expect(messages.some((m) => m.text === "one too many")).toBe(false);
+  });
+
+  it("drops nothing it restores, however much was waiting", async () => {
+    await disconnect();
+    const self = client.state.self!.id;
+    const waiting = Array.from({ length: OUTBOX_LIMIT + 10 }, (_, i) => ({
+      nonce: `kept-${i}`,
+      channelId,
+      threadRootId: null,
+      text: `kept ${i}`,
+      userId: self,
+      createdAt: i,
+      attachments: [],
+      refusal: "This conversation is archived.",
+    }));
+    client.restoreOutbox(waiting);
+    expect(client.state.pending).toHaveLength(OUTBOX_LIMIT + 10);
+    expect(client.outboxSnapshot().map((e) => e.nonce)).toEqual(waiting.map((e) => e.nonce));
+  });
+
+  it("keeps a send the server refused refused across a restart, until the author retries", async () => {
+    const { channel } = await owner.createChannel({ type: "public", name: "plans" });
+    await client.api.joinChannel(channel.id);
+    await expect.poll(() => client.state.channels[channel.id]?.id).toBe(channel.id);
+    await owner.updateChannel(channel.id, { archived: true });
+    client.send(channel.id, "sent while archived");
+    await expect
+      .poll(() => client.state.pending[0]?.failureReason)
+      .toBe("This conversation is archived.");
+    // Reopened before the restart: sending now would be the app's choice, not theirs.
+    await owner.updateChannel(channel.id, { archived: false });
+
+    await restart();
+    const restored = client.state.pending[0]!;
+    expect(restored).toMatchObject({
+      failed: true,
+      failureReason: "This conversation is archived.",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((await owner.listMessages(channel.id, { limit: 50 })).messages).toHaveLength(0);
+
+    client.retrySend(restored.nonce);
+    await expect.poll(() => client.state.pending).toHaveLength(0);
+    const { messages } = await owner.listMessages(channel.id, { limit: 50 });
+    expect(messages.map((m) => m.text)).toEqual(["sent while archived"]);
+  });
+
+  it("keeps a reply to a deleted message refused across a restart", async () => {
+    const { message: root } = await owner.sendMessage(channelId, { text: "Root", nonce: "root" });
+    await owner.deleteMessage(root.id);
+    client.send(channelId, "an answer", { threadRootId: root.id });
+    await expect.poll(() => client.state.pending[0]?.failed).toBe(true);
+
+    await restart();
+    expect(client.state.pending[0]).toMatchObject({
+      failed: true,
+      failureReason: "The message this replies to is gone.",
+    });
+  });
+
+  it("still sends again after a restart when the server only failed to answer", async () => {
+    vi.spyOn(client.api, "sendMessage").mockRejectedValueOnce(
+      new ApiError(503, "unavailable", "The workspace is busy"),
+    );
+    client.send(channelId, "outcome unknown");
+    await expect.poll(() => client.state.pending[0]?.failed).toBe(true);
+    expect(client.outboxSnapshot()[0]!.refusal).toBeUndefined();
+
+    await restart();
+    await expect.poll(() => client.state.pending).toHaveLength(0);
+    const { messages } = await owner.listMessages(channelId, { limit: 50 });
+    expect(messages.filter((m) => m.text === "outcome unknown")).toHaveLength(1);
   });
 
   it("keeps one account's unsent work out of another's", async () => {

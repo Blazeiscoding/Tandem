@@ -30,6 +30,7 @@ function validOutbox(value: unknown): value is StoredPending[] {
         typeof entry.text === "string" &&
         typeof entry.userId === "string" &&
         Number.isFinite(entry.createdAt) &&
+        (entry.refusal === undefined || typeof entry.refusal === "string") &&
         Array.isArray(entry.attachments) &&
         entry.attachments.every(
           (file: { name?: unknown; size?: unknown; mime?: unknown } | null) =>

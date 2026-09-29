@@ -51,6 +51,11 @@ export interface PendingMessage {
   failed: boolean;
   /** Why it did not send, in words the author can act on. Null while in flight. */
   failureReason: string | null;
+  /**
+   * The server answered and turned this send down. Unlike a send whose outcome
+   * is unknown, only the author's Retry sends it again, even after a restart.
+   */
+  refused?: boolean;
   attachments: LocalAttachment[];
   /** 0–1 while uploading attachments; null once the message itself is in flight. */
   uploadProgress: number | null;
@@ -69,13 +74,37 @@ export interface StoredPending {
   userId: ID;
   createdAt: number;
   attachments: { name: string; size: number; mime: string }[];
+  /**
+   * What the author was told when the server refused this send. Present only
+   * for a known refusal, which comes back failed and waits for Retry; a send
+   * whose outcome is unknown has none and is sent again, under the same nonce.
+   */
+  refusal?: string;
 }
 
-/** How many unsent messages are kept across a restart. */
-const OUTBOX_LIMIT = 50;
+/**
+ * How many unsent messages one account can have waiting at once. A send past
+ * this is refused before the composer lets go of it, rather than being kept
+ * only in memory where a restart would lose it.
+ */
+export const OUTBOX_LIMIT = 50;
 
 const MISSING_ATTACHMENTS =
   "The attached files were not kept when the app closed. Attach them again to send this.";
+
+/**
+ * Whether a failed send was answered and refused by the server, as opposed to
+ * lost on the way or refused for reasons that pass (signing in, rate limits,
+ * a server fault), after which sending the same request again is safe.
+ */
+function isRefusal(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    ![401, 408, 429].includes(error.status)
+  );
+}
 
 /** Turns a send failure into something the author can act on. */
 function sendFailureReason(error: unknown): string {
@@ -1437,24 +1466,27 @@ export class WorkspaceClient {
   /**
    * Optimistic send: the message (and local image previews) appear instantly,
    * then attachments upload and the server event reconciles it by nonce.
+   * Returns false, having taken nothing, when there is nothing to send or
+   * `OUTBOX_LIMIT` messages are already waiting; the caller keeps the draft.
    */
   send(
     channelId: ID,
     text: string,
     opts: { threadRootId?: ID; files?: File[]; alsoSendToChannel?: boolean } = {},
-  ): void {
+  ): boolean {
     const self = this.state.self;
-    if (!self) return;
+    if (!self) return false;
     const files = opts.files ?? [];
-    if (!text.trim() && files.length === 0) return;
+    if (!text.trim() && files.length === 0) return false;
 
     // A leading "/word" is a command, not a message. The trailing space or end
     // of line matters: it keeps a pasted path like /Users/me/notes.txt a
     // perfectly ordinary message.
     if (files.length === 0 && /^\/[a-zA-Z0-9_-]+(\s|$)/.test(text.trim())) {
       void this.runCommand(channelId, text.trim(), opts.threadRootId);
-      return;
+      return true;
     }
+    if (this.outboxFull()) return false;
 
     // getRandomValues also works on plain HTTP LAN origins, unlike randomUUID.
     const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
@@ -1483,6 +1515,13 @@ export class WorkspaceClient {
     if (files.length > 0) this.retryFiles.set(nonce, files);
 
     void this.deliver(channelId, text, files, nonce, opts.threadRootId, opts.alsoSendToChannel);
+    return true;
+  }
+
+  /** True when this account already has `OUTBOX_LIMIT` messages waiting to send. */
+  outboxFull(): boolean {
+    const self = this.state.self?.id;
+    return this.state.pending.filter((p) => p.userId === self).length >= OUTBOX_LIMIT;
   }
 
   private async deliver(
@@ -1524,14 +1563,16 @@ export class WorkspaceClient {
         this.applyEvent({ seq: message.seq, event: { type: "message.created", message } }, true);
       }
     } catch (error) {
-      this.failPending(nonce, sendFailureReason(error));
+      this.failPending(nonce, sendFailureReason(error), isRefusal(error));
     }
   }
 
-  private failPending(nonce: string, failureReason: string): void {
+  private failPending(nonce: string, failureReason: string, refused = false): void {
     this.store.setState((s) => ({
       pending: s.pending.map((p) =>
-        p.nonce === nonce ? { ...p, failed: true, failureReason, uploadProgress: null } : p,
+        p.nonce === nonce
+          ? { ...p, failed: true, failureReason, refused, uploadProgress: null }
+          : p,
       ),
     }));
   }
@@ -1547,15 +1588,20 @@ export class WorkspaceClient {
     }
     this.store.setState((s) => ({
       pending: s.pending.map((item) =>
-        item.nonce === nonce ? { ...item, failed: false, failureReason: null } : item,
+        item.nonce === nonce
+          ? { ...item, failed: false, failureReason: null, refused: false }
+          : item,
       ),
     }));
     void this.deliver(p.channelId, p.text, files, nonce, p.threadRootId ?? undefined, p.broadcast);
   }
 
-  /** The outbox in a form that survives a restart. Preview URLs are not kept. */
+  /**
+   * The whole outbox in a form that survives a restart: every send accepted
+   * stays, and a known refusal keeps its reason. Preview URLs are not kept.
+   */
   outboxSnapshot(): StoredPending[] {
-    return this.state.pending.slice(-OUTBOX_LIMIT).map((p) => ({
+    return this.state.pending.map((p) => ({
       nonce: p.nonce,
       channelId: p.channelId,
       threadRootId: p.threadRootId,
@@ -1564,6 +1610,7 @@ export class WorkspaceClient {
       userId: p.userId,
       createdAt: p.createdAt,
       attachments: p.attachments.map((a) => ({ name: a.name, size: a.size, mime: a.mime })),
+      ...(p.failed && p.refused ? { refusal: p.failureReason ?? "This message was refused." } : {}),
     }));
   }
 
@@ -1572,18 +1619,21 @@ export class WorkspaceClient {
    * safe because the server settles a repeated request key onto the same
    * message, so a send that did reach the server before the restart cannot
    * become a second one. Attachments do not survive a restart, so those entries
-   * stop and say so instead of posting the words without the files.
+   * stop and say so instead of posting the words without the files. A send the
+   * server refused stays refused until the author chooses Retry: whatever made
+   * it refuse may have changed since, and that is theirs to decide. Nothing is
+   * dropped for being one too many; every entry here was accepted once.
    */
   restoreOutbox(entries: StoredPending[]): void {
     const self = this.state.self;
     if (!self) return;
     const restored = entries
       .filter((e) => e.userId === self.id && !this.state.pending.some((p) => p.nonce === e.nonce))
-      .slice(-OUTBOX_LIMIT)
-      .map((e) => ({
+      .map(({ refusal, ...e }): PendingMessage => ({
         ...e,
-        failed: e.attachments.length > 0,
-        failureReason: e.attachments.length > 0 ? MISSING_ATTACHMENTS : null,
+        failed: refusal !== undefined || e.attachments.length > 0,
+        failureReason: refusal ?? (e.attachments.length > 0 ? MISSING_ATTACHMENTS : null),
+        refused: refusal !== undefined,
         attachments: e.attachments.map((a) => ({ ...a, previewUrl: null })),
         uploadProgress: null,
       }));
