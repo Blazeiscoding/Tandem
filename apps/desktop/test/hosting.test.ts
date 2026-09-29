@@ -1913,6 +1913,55 @@ describe("a stable public address configured for this computer", () => {
     expect(next.controller.status().openToAll).toBeUndefined();
   });
 
+  it("keeps saying the address was not reopened while hosting runs, until it is or the host dismisses it", async () => {
+    const { next, folder } = await reopeningLaunch();
+    let refuse = true;
+    next.beforeTunnel = () => {
+      if (refuse) throw new Error("address did not reach this workspace");
+    };
+    const started = await next.controller.startForLaunch();
+    expect(started?.running).toBe(true);
+    expect(next.controller.status()).toMatchObject({
+      running: true,
+      launchError: expect.stringMatching(/was not reopened/),
+      launchErrorPart: "public-address",
+      launchErrorFolder: folder,
+    });
+    // An unrelated change leaves it: the address is still not open.
+    await next.controller.setInviteOnly(false);
+    expect(next.controller.status().launchError).toMatch(/was not reopened/);
+
+    // Trying again, and succeeding, is what it was waiting for.
+    refuse = false;
+    await next.controller.openToAll({});
+    expect(next.controller.status().openToAll).toEqual({ phase: "open", url: expect.any(String) });
+    expect(next.controller.status().launchError).toBeUndefined();
+    expect(next.controller.status().launchErrorPart).toBeUndefined();
+  });
+
+  it("lets the host dismiss what did not happen, and keeps hosting as it is", async () => {
+    const { next } = await reopeningLaunch();
+    next.beforeTunnel = () => {
+      throw new Error("address did not reach this workspace");
+    };
+    await next.controller.startForLaunch();
+    expect(next.controller.status().launchError).toBeDefined();
+    const after = next.controller.dismissLaunchError();
+    expect(after.launchError).toBeUndefined();
+    expect(after.running).toBe(true);
+  });
+
+  it("stops saying the address was not reopened once the host chooses not to reopen it", async () => {
+    const { next } = await reopeningLaunch();
+    next.beforeTunnel = () => {
+      throw new Error("address did not reach this workspace");
+    };
+    await next.controller.startForLaunch();
+    expect(next.controller.status().launchErrorPart).toBe("public-address");
+    await next.controller.setReopenPublicOnLaunch(false);
+    expect(next.controller.status().launchError).toBeUndefined();
+  });
+
   /** A next launch of Rocket Team, chosen to start with Gatherline and reopen its address. */
   async function reopeningLaunch() {
     const first = harness({
