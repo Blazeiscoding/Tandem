@@ -970,6 +970,44 @@ describe("a workspace restored from a backup", () => {
     );
     expect(within(dialog).queryByRole("heading", { name: "Open to all" })).toBeNull();
   });
+
+  const daily: AutoBackup = { destination: "D:\\Backups", everyDays: 1, keep: 7 };
+
+  it("says in the list that its backup schedule waits until it is back in use", async () => {
+    const { hosting } = fakeHosting(stopped, {
+      workspaces: [{ ...restored, autoBackup: daily }],
+      unreadable: [],
+    });
+    render(<Harness hosting={hosting} />);
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+    expect(list).toHaveTextContent(
+      "Restored, not in use yet · Port 8543 · Backs up daily once back in use",
+    );
+  });
+
+  it("says while looking inside that nothing is backed up or removed on its schedule", async () => {
+    const { hosting } = fakeHosting(
+      { ...running, isolated: true, folder: "w-restored" },
+      { workspaces: [{ ...restored, running: true, autoBackup: daily }], unreadable: [] },
+    );
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "Automatic backups" });
+    expect(group).toHaveTextContent(
+      "Rocket Team is not backed up by itself until it is back in use, and nothing already in D:\\Backups is removed. Then it is backed up every day, keeping the newest 7.",
+    );
+    expect(group).not.toHaveTextContent(/Rocket Team is backed up every day/);
+  });
+
+  it("offers no schedule to set up while looking inside", async () => {
+    const { hosting } = fakeHosting(
+      { ...running, isolated: true, folder: "w-restored" },
+      { workspaces: [{ ...restored, running: true }], unreadable: [] },
+    );
+    render(<Harness hosting={hosting} />);
+    // Shown once the list has said which entry is running.
+    await screen.findByText("This workspace has not been backed up from this computer yet.");
+    expect(screen.queryByRole("group", { name: "Automatic backups" })).toBeNull();
+  });
 });
 
 describe("starting with the computer, while nothing is running", () => {

@@ -102,6 +102,12 @@ function harness(
     readFails: false,
     /** Keys that cannot be read, as a damaged settings file would leave one. */
     unreadableKeys: new Set<string>(),
+    /** Keys that cannot be saved, while the rest of the settings file can. */
+    unwritableKeys: new Set<string>(),
+    /** Runs as each setting is read; return a promise to hold that read. */
+    beforeRead: (_key: string): Promise<void> | void => {},
+    /** The ports the system hands out, in turn, to a server asking for any; then 50123. */
+    freePorts: [] as number[],
     /** Each name a running server was given. */
     renamedRunning: [] as string[],
     /** How many times a running server announced itself again. */
@@ -195,6 +201,7 @@ function harness(
     inventoryBackup: async (dir) => inventoryBackup(dir),
     settings: {
       get: async (key, { strict, distinguishMissing } = {}) => {
+        await h.beforeRead(key);
         if (h.readFails && strict) throw new Error("Could not read settings.");
         if (h.unreadableKeys.has(key)) {
           if (strict) throw new Error("Could not read settings.");
@@ -203,7 +210,7 @@ function harness(
         return h.settings.has(key) ? h.settings.get(key) : distinguishMissing ? undefined : null;
       },
       set: async (key, value) => {
-        if (h.saveFails) throw new Error("settings file is read-only");
+        if (h.saveFails || h.unwritableKeys.has(key)) throw new Error("settings file is read-only");
         h.settings.set(key, structuredClone(value));
         if (key === "lastHosted") h.saved.push(value);
       },
@@ -219,7 +226,7 @@ function harness(
       };
       h.databases.set(request.dataDir, db);
       const server = {
-        port: request.port === 0 ? 50123 : request.port,
+        port: request.port === 0 ? (h.freePorts.shift() ?? 50123) : request.port,
         instanceId: "workspace-run-1",
         workspaceId: () => db.id,
         workspaceName: () => db.name ?? "Unnamed",
@@ -1465,10 +1472,11 @@ describe("restoring a backup in the desktop app", () => {
     expect(h.starts).toEqual([]);
     // Nothing but the restored folder is left behind in the hosted folder.
     expect(readdirSync(h.dataRoot)).toEqual([restored.folder]);
-    // From the list it starts only to be looked inside, with its identity checked.
+    // From the list it starts only to be looked inside, with its identity
+    // checked, on a port of its own rather than the usual one.
     await h.controller.start({ folder: restored.folder });
     expect(h.starts).toEqual([
-      { port: 8543, dataDir: join(h.dataRoot, restored.folder), isolated: true },
+      { port: 0, dataDir: join(h.dataRoot, restored.folder), isolated: true },
     ]);
   });
 
@@ -1561,6 +1569,162 @@ describe("restoring a backup in the desktop app", () => {
       /restored from a backup and has not been put back in use/,
     );
     expect(later.starts).toEqual([]);
+  });
+
+  /** The list of an earlier computer: Rocket Team, chosen to start with Gatherline, its folder gone. */
+  function listedGone(id: string, extra: Record<string, unknown> = {}) {
+    return new Map<string, unknown>([
+      [
+        "hostedWorkspaces",
+        {
+          version: 1,
+          workspaces: [
+            {
+              id,
+              folder: "rocket-team",
+              name: "Rocket Team",
+              port: 9001,
+              portChosen: true,
+              lastHostedAt: 5,
+              ...extra,
+            },
+          ],
+        },
+      ],
+      ["startOnLaunch", "rocket-team"],
+    ]);
+  }
+
+  it("restores nothing, and says so, when it cannot save that the copy is held", async () => {
+    const backup = await realBackup();
+    const settings = listedGone(backup.id);
+    const h = harness({ settings });
+    h.saveFails = true;
+    await expect(h.controller.restore({ backupDir: backup.dir })).rejects.toThrow(
+      "Gatherline could not save its settings, so it did not restore the backup. Check that its settings folder is writable, then try again.",
+    );
+    // Nothing is left looking restored and safe: the folder is still gone.
+    expect(existsSync(join(h.dataRoot, "rocket-team"))).toBe(false);
+    expect((await h.controller.list()).workspaces[0]).toMatchObject({
+      restored: false,
+      missing: true,
+      startsOnLaunch: true,
+    });
+    // The next launch has nothing restored to start as the workspace.
+    const later = harness({ root: join(h.dataRoot, ".."), settings });
+    expect(await later.controller.startForLaunch()).toBeNull();
+    expect(later.starts).toEqual([]);
+
+    // The hold saves, but taking it off starting with Gatherline does not.
+    h.saveFails = false;
+    h.unwritableKeys.add("startOnLaunch");
+    await expect(h.controller.restore({ backupDir: backup.dir })).rejects.toThrow(
+      /could not save its settings, so it did not restore the backup/,
+    );
+    expect(existsSync(join(h.dataRoot, "rocket-team"))).toBe(false);
+    expect(settings.get("startOnLaunch")).toBe("rocket-team");
+    expect(registryOf(h)[0]!.restoredHold).toBeUndefined();
+
+    // Once both can be saved, it is restored, held, and off starting by itself.
+    h.unwritableKeys.clear();
+    await h.controller.restore({ backupDir: backup.dir });
+    expect(registryOf(h)[0]!.restoredHold).toEqual(expect.any(Number));
+    expect(settings.get("startOnLaunch")).toBeNull();
+    expect(existsSync(join(h.dataRoot, "rocket-team", "workspace.db"))).toBe(true);
+  });
+
+  it("looks inside a restored copy on a port of its own, and puts it back in use on its own port", async () => {
+    const backup = await realBackup();
+    const h = harness({ settings: listedGone(backup.id) });
+    await h.controller.restore({ backupDir: backup.dir });
+
+    // A tunnel or port forward still aimed at 9001 must not reach the copy.
+    const looking = await h.controller.start({ folder: "rocket-team" });
+    expect(looking).toMatchObject({ isolated: true, port: 50123 });
+    expect(h.starts.at(-1)).toMatchObject({ port: 0, isolated: true });
+    expect(registryOf(h)[0]).toMatchObject({ port: 9001, portChosen: true });
+    expect((await h.controller.list()).workspaces[0]!.port).toBe(9001);
+    await h.controller.stop();
+
+    // The system happens to hand out its own port, then the usual one: it asks again.
+    h.freePorts = [9001, 8543];
+    expect(await h.controller.start({ folder: "rocket-team" })).toMatchObject({ port: 50123 });
+    expect(h.servers.slice(-3).map((s) => s.port)).toEqual([9001, 8543, 50123]);
+    expect(h.servers.at(-3)!.stop).toHaveBeenCalled();
+    expect(h.servers.at(-2)!.stop).toHaveBeenCalled();
+    await h.controller.stop();
+
+    // Put back in use, it is on its own port again.
+    const live = await h.controller.start({ folder: "rocket-team", activate: true });
+    expect(live).toMatchObject({ port: 9001 });
+    expect(live.isolated).toBeUndefined();
+    expect(h.starts.at(-1)).toMatchObject({ port: 9001 });
+    expect(registryOf(h)[0]).toMatchObject({ port: 9001, portChosen: true });
+  });
+
+  it("makes no scheduled backup of a held copy, and removes none beside it", async () => {
+    // Rocket Team as another computer kept it: a backup, then one newer message
+    // and a newer backup in the folder its schedule writes to.
+    const elsewhere = profile();
+    const dataDir = join(elsewhere, "data");
+    const serve = () =>
+      createWorkspaceServer({
+        dataDir,
+        port: 0,
+        host: "127.0.0.1",
+        mdns: false,
+        workspaceName: "Rocket Team",
+        logger: false,
+      });
+    const first = await serve();
+    const id = first.store.getMeta("workspace_id")!;
+    const registered = await fetch(`http://127.0.0.1:${first.port}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: "owner", displayName: "Owner", password: "password123" }),
+    });
+    const { token } = (await registered.json()) as { token: string };
+    await first.stop();
+    const older = join(elsewhere, "older");
+    await backupWorkspace({ dataDir, out: older });
+    const again = await serve();
+    const general = again.store.getChannelByName("general")!.id;
+    const posted = await fetch(`http://127.0.0.1:${again.port}/api/channels/${general}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ text: "Written after the older backup" }),
+    });
+    expect(posted.status).toBe(201);
+    await again.stop();
+    const destination = profile();
+    const newer = join(destination, "rocket-team-2026-09-28T12-00-00");
+    await backupWorkspace({ dataDir, out: newer });
+    const [olderCount, newerCount] = await Promise.all(
+      [older, newer].map(async (dir) => (await verifyBackup(dir)).counts.messages!),
+    );
+    expect(newerCount).toBe(olderCount! + 1);
+
+    const h = harness({
+      settings: listedGone(id, { autoBackup: { destination, everyDays: 1, keep: 1 } }),
+    });
+    h.realBackups = true;
+    await h.controller.restore({ backupDir: older });
+    await h.controller.runDueBackups();
+
+    expect(h.backups).toEqual([]);
+    expect(readdirSync(destination)).toEqual(["rocket-team-2026-09-28T12-00-00"]);
+    expect((await verifyBackup(newer)).counts.messages).toBe(newerCount);
+    // The schedule is kept, to run once it is back in use, and nothing failed.
+    expect((await h.controller.list()).workspaces[0]).toMatchObject({
+      restored: true,
+      autoBackup: { destination, everyDays: 1, keep: 1 },
+      autoBackupError: null,
+    });
+    expect(registryOf(h)[0]!.autoBackup?.lastAt).toBeUndefined();
+
+    await h.controller.start({ folder: "rocket-team", activate: true });
+    await h.controller.runDueBackups();
+    expect(h.backups).toHaveLength(1);
   });
 
   it("leaves a workspace still on this computer alone", async () => {
@@ -1747,6 +1911,84 @@ describe("a stable public address configured for this computer", () => {
     // Nothing was published, and it is back to how it was before trying.
     expect(next.publicUrls.filter(Boolean)).toEqual([]);
     expect(next.controller.status().openToAll).toBeUndefined();
+  });
+
+  /** A next launch of Rocket Team, chosen to start with Gatherline and reopen its address. */
+  async function reopeningLaunch() {
+    const first = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, managed: true }),
+    });
+    await first.controller.start({ workspaceName: "Rocket Team" });
+    const folder = registryOf(first)[0]!.folder;
+    await first.controller.setStartOnLaunch(folder);
+    await first.controller.setReopenPublicOnLaunch(true);
+    await first.controller.stop();
+    const next = harness({
+      root: join(first.dataRoot, ".."),
+      settings: first.settings,
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, managed: true }),
+    });
+    for (const [path, found] of first.databases) next.databases.set(path, found);
+    return { next, folder };
+  }
+
+  it("publishes nothing when the launched workspace was stopped while its choice was read", async () => {
+    for (const replacement of ["another workspace", "the same one again"]) {
+      const { next, folder } = await reopeningLaunch();
+      const read = deferred();
+      let reads = 0;
+      next.beforeRead = async (key) => {
+        if (key !== "reopenPublicOnLaunch") return;
+        reads++;
+        await read.promise;
+      };
+      const launching = next.controller.startForLaunch();
+      // Started, and waiting to read whether to reopen its address.
+      await vi.waitFor(() => expect(reads).toBe(2));
+      await next.controller.stop();
+      const now =
+        replacement === "another workspace"
+          ? await next.controller.start({ workspaceName: "Design Guild" })
+          : await next.controller.start({ folder });
+      read.resolve();
+      await launching;
+
+      expect(next.tunnelStarts).toEqual([]);
+      expect(next.publicUrls.filter(Boolean)).toEqual([]);
+      expect(next.controller.status()).toMatchObject({
+        running: true,
+        folder: now.folder,
+      });
+      expect(next.controller.status().openToAll).toBeUndefined();
+      expect(next.controller.status().launchError).toBeUndefined();
+    }
+  });
+
+  it("publishes nothing when the launched workspace is replaced while it finishes starting", async () => {
+    const { next } = await reopeningLaunch();
+    const bound = deferred();
+    let binds = 0;
+    next.beforeBind = async () => {
+      if (binds++ === 0) await bound.promise;
+    };
+    const launching = next.controller.startForLaunch();
+    await vi.waitFor(() => expect(next.starts).toHaveLength(1));
+    // Asked for while the launch's own start still holds the turn.
+    const stopping = next.controller.stop();
+    const replacing = next.controller.start({ workspaceName: "Design Guild" });
+    bound.resolve();
+    await Promise.all([launching, stopping, replacing]);
+
+    expect(next.tunnelStarts).toEqual([]);
+    expect(next.publicUrls.filter(Boolean)).toEqual([]);
+    expect(next.controller.status()).toMatchObject({
+      running: true,
+      workspaceName: "Design Guild",
+    });
+    expect(next.controller.status().openToAll).toBeUndefined();
+    expect(next.controller.status().launchError).toBeUndefined();
   });
 
   it("offers reopening only for a stable address", async () => {

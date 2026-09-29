@@ -288,6 +288,8 @@ function AutoBackupSettings(props: {
   name: string;
   schedule: AutoBackup | null;
   error: string | null;
+  /** Restored and not yet back in use, so its schedule is not running. */
+  held: boolean;
   disabled: boolean;
   /** What changed, or went wrong changing it; null clears what was said. */
   onNote: (note: { ok: boolean; text: string } | null) => void;
@@ -295,8 +297,9 @@ function AutoBackupSettings(props: {
 }) {
   const setAutoBackup = props.hosting.setAutoBackup;
   const [saving, setSaving] = useState(false);
-  if (!setAutoBackup) return null;
   const schedule = props.schedule;
+  // A restored copy being looked inside has nothing to back up by itself yet.
+  if (!setAutoBackup || (props.held && !schedule)) return null;
 
   async function save(
     next: { everyDays: 1 | 7; keep: number } | null,
@@ -330,11 +333,20 @@ function AutoBackupSettings(props: {
       <legend className="mb-1 text-ink-dim">Automatic backups</legend>
       {schedule ? (
         <>
-          <p className="text-ink">
-            {props.name} is backed up {often(schedule.everyDays)}, keeping the newest{" "}
-            {schedule.keep}, into{" "}
-            <span className="break-all font-mono text-xs">{schedule.destination}</span>
-          </p>
+          {props.held ? (
+            <p className="text-ink">
+              {props.name} is not backed up by itself until it is back in use, and nothing already
+              in <span className="break-all font-mono text-xs">{schedule.destination}</span> is
+              removed. Then it is backed up {often(schedule.everyDays)}, keeping the newest{" "}
+              {schedule.keep}.
+            </p>
+          ) : (
+            <p className="text-ink">
+              {props.name} is backed up {often(schedule.everyDays)}, keeping the newest{" "}
+              {schedule.keep}, into{" "}
+              <span className="break-all font-mono text-xs">{schedule.destination}</span>
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-ink-dim">
               How often
@@ -1159,6 +1171,7 @@ export function HostDialog(props: {
               name={status.workspaceName}
               schedule={runningEntry.autoBackup ?? null}
               error={runningEntry.autoBackupError ?? null}
+              held={!!runningEntry.restored}
               disabled={unavailable}
               onNote={setBackupNote}
               onChanged={() => setListRevision((n) => n + 1)}
@@ -1546,9 +1559,9 @@ export function HostDialog(props: {
                               ? "Its folder is missing, so it cannot start"
                               : `${w.restored ? "Restored, not in use yet · " : ""}Port ${w.port}${w.startsOnLaunch ? " · Starts with Gatherline" : ""}${
                                   w.autoBackup
-                                    ? w.autoBackup.everyDays === 1
-                                      ? " · Backs up daily"
-                                      : " · Backs up weekly"
+                                    ? `${w.autoBackup.everyDays === 1 ? " · Backs up daily" : " · Backs up weekly"}${
+                                        w.restored ? " once back in use" : ""
+                                      }`
                                     : ""
                                 }${
                                   backupFn

@@ -367,6 +367,8 @@ export function createHostingController(options: HostingOptions) {
   let openError: string | undefined;
   /** Invalidates public-open requests that were queued before a close or stop. */
   let publicRequest = 0;
+  /** Counts starts, so a step that waited can tell the run it began with from a later one. */
+  let runs = 0;
   /**
    * The folder of the workspace to start when the app opens, once read: null
    * for none, undefined until read. Kept so a status snapshot, which cannot
@@ -674,7 +676,17 @@ export function createHostingController(options: HostingOptions) {
         folder: entry.folder,
         dataDir: join(options.dataRoot, entry.folder),
       };
-      const preferred = requested.port ?? (created ? options.defaultPort : entry.port);
+      // A restored workspace starts only for looking inside until it is put
+      // back in use on purpose: its queue, apps and sign-ins are live otherwise.
+      const isolated = !created && entry.restoredHold !== undefined && !requested.activate;
+      // Looked inside, it listens on a port the system picks, never the one
+      // it is listed with or the usual one: a tunnel, port forward or link
+      // still aimed at those must not reach it. Its listed port waits for
+      // it to be put back in use.
+      const preferred = isolated
+        ? 0
+        : (requested.port ?? (created ? options.defaultPort : entry.port));
+      const usualPorts = new Set([options.defaultPort, ...list.map((e) => e.port)]);
       // A port asked for now, or chosen before, is kept; only an automatic one
       // may move. Entries from before this was recorded count a port other
       // than the usual one as chosen, since that is how it usually got there.
@@ -682,9 +694,6 @@ export function createHostingController(options: HostingOptions) {
         requested.port !== undefined
           ? requested.port !== 0
           : (entry.portChosen ?? entry.port !== options.defaultPort);
-      // A restored workspace starts only for looking inside until it is put
-      // back in use on purpose: its queue, apps and sign-ins are live otherwise.
-      const isolated = !created && entry.restoredHold !== undefined && !requested.activate;
       const serverOptions = {
         dataDir: workspace.dataDir,
         // An existing workspace keeps the name it has; only a new one is given one.
@@ -714,6 +723,18 @@ export function createHostingController(options: HostingOptions) {
           // aimed at it now reaches that program instead of this workspace.
           movedFrom = preferred;
         }
+        // The system can happen to pick a port a workspace here is listed
+        // with. A restored copy then gives it back and asks again.
+        for (let tries = 1; isolated && usualPorts.has(server.port); tries++) {
+          const unwanted = server;
+          server = null;
+          await unwanted.stop();
+          if (tries === 3)
+            throw new Error(
+              `Gatherline could not find a free port for looking inside ${entry.name}. Try again.`,
+            );
+          server = await options.startServer({ ...serverOptions, port: 0 });
+        }
       } catch (error) {
         // The caller reports the failure. A lasting warning would repeat it, and
         // would still be showing long after the next attempt was made elsewhere.
@@ -733,11 +754,12 @@ export function createHostingController(options: HostingOptions) {
       updateEntry(entry.folder, {
         id: server.workspaceId?.() ?? entry.id,
         name: server.workspaceName?.() ?? entry.name,
-        port: server.port,
-        portChosen,
+        // A restored copy being looked inside keeps the port it is listed with.
+        ...(isolated ? {} : { port: server.port, portChosen }),
         lastHostedAt: now(),
         ...(requested.activate ? { restoredHold: undefined } : {}),
       });
+      runs += 1;
       isolatedRun = isolated;
       // So the status can say whether this workspace reopens its address.
       void readReopenPublic().then(
@@ -906,48 +928,65 @@ export function createHostingController(options: HostingOptions) {
             `There is not enough free space for it. Restoring needs about ${megabytes(needed)}, and ${megabytes(free)} is free.`,
           );
       }
-      const entry: HostedWorkspace = listed ?? {
-        id,
-        folder: newFolder(),
-        name: manifest.workspaceName.trim().slice(0, 80) || "Restored workspace",
-        port: options.defaultPort,
-        lastHostedAt: now(),
+      const entry: HostedWorkspace = {
+        ...(listed ?? {
+          id,
+          folder: newFolder(),
+          name: manifest.workspaceName.trim().slice(0, 80) || "Restored workspace",
+          port: options.defaultPort,
+          lastHostedAt: now(),
+        }),
+        // Held until someone puts it back in use, across restarts too.
         restoredHold: now(),
       };
-      // Listed first, as a new workspace is, so a restored one can always be found.
-      if (!listed) {
-        registry = [...list, entry];
+      const dataDir = join(options.dataRoot, entry.folder);
+      const unsaved = () =>
+        new Error(
+          "Gatherline could not save its settings, so it did not restore the backup. Check that its settings folder is writable, then try again.",
+        );
+      // Listed and held before anything is restored, as a new workspace is
+      // listed before it starts, so a restored one can always be found and
+      // is never taken for the workspace itself, even after a restart.
+      registry = listed ? list.map((e) => (e === listed ? entry : e)) : [...list, entry];
+      try {
+        await saveRegistry();
+      } catch {
+        registry = list;
+        throw unsaved();
+      }
+      // Nor may it start by itself as though nothing had happened, here or in
+      // an earlier version that knows nothing of the hold.
+      const wasLaunch = (await readLaunchFolder().catch(() => null)) === entry.folder;
+      if (wasLaunch) {
         try {
-          await saveRegistry();
+          await options.settings.set(START_ON_LAUNCH_KEY, null);
         } catch {
           registry = list;
-          throw new Error(
-            "Gatherline could not add the workspace to its settings, so it did not restore it. Check that its settings folder is writable, then try again.",
-          );
+          await saveRegistry().catch(() => {});
+          throw unsaved();
         }
+        launchFolder = null;
       }
       try {
-        await options.restoreWorkspace!({
-          backupDir,
-          dataDir: join(options.dataRoot, entry.folder),
-        });
+        await options.restoreWorkspace!({ backupDir, dataDir });
       } catch (error) {
-        if (!listed) {
+        // Nothing arrived, so everything goes back to how it was. Anything
+        // that did arrive stays listed and held.
+        if (!existsSync(dataDir)) {
           registry = list;
           await saveRegistry().catch(() => {});
+          if (wasLaunch)
+            await options.settings.set(START_ON_LAUNCH_KEY, entry.folder).then(
+              () => (launchFolder = entry.folder),
+              () => {},
+            );
         }
         throw error;
       }
       const name = manifest.workspaceName.trim().slice(0, 80) || entry.name;
-      // Held until someone puts it back in use, across restarts too.
-      updateEntry(entry.folder, { name, restoredHold: now() });
+      updateEntry(entry.folder, { name });
+      // The hold is saved already. Only the name shown for it can be lost.
       await saveRegistry().catch(() => {});
-      // A workspace brought back from a backup must not start by itself as
-      // though nothing had happened.
-      if ((await readLaunchFolder().catch(() => null)) === entry.folder) {
-        launchFolder = null;
-        await options.settings.set(START_ON_LAUNCH_KEY, null).catch(() => {});
-      }
       const inventory = options.inventoryBackup
         ? await options.inventoryBackup(backupDir).catch(() => null)
         : null;
@@ -1130,7 +1169,10 @@ export function createHostingController(options: HostingOptions) {
         const ran = await serialized(async () => {
           const entry = (await loadRegistry()).find((e) => e.folder === folder);
           const schedule = entry?.autoBackup;
-          if (!entry || !schedule || closing) return false;
+          // A restored copy is neither backed up nor allowed to remove older
+          // backups until it is put back in use: a newer one there may be the
+          // only copy of what the restore went back past.
+          if (!entry || !schedule || entry.restoredHold !== undefined || closing) return false;
           name = entry.name;
           if (!existsSync(join(options.dataRoot, entry.folder))) return false;
           // Never backed up by this schedule into its folder, it is due now.
@@ -1276,7 +1318,8 @@ export function createHostingController(options: HostingOptions) {
       changed();
       return null;
     }
-    return reopenPublicAfterLaunch(entry.name, folder, started);
+    // Read before any request queued behind the start can take its turn.
+    return reopenPublicAfterLaunch(entry.name, folder, runs, started);
   }
 
   async function readReopenPublic(): Promise<{ folder: string; address: string } | null> {
@@ -1298,13 +1341,20 @@ export function createHostingController(options: HostingOptions) {
    * checks that the address reaches this running workspace before publishing,
    * and asks for an invite unless told otherwise, so nothing is weakened. A
    * failure is kept to be shown; hosting on the network carries on.
+   *
+   * Only the run that started with Gatherline is published. One stopped
+   * meanwhile, or replaced by another workspace or another start of this
+   * one, is left alone.
    */
   async function reopenPublicAfterLaunch(
     name: string,
     folder: string,
+    run: number,
     started: HostingSnapshot,
   ): Promise<HostingSnapshot> {
+    const launched = () => server !== null && workspace?.folder === folder && runs === run;
     const wanted = await readReopenPublic();
+    if (!launched()) return status();
     if (!wanted || wanted.folder !== folder || isolatedRun) return started;
     const current = publicAddress();
     if (current.url !== wanted.address) {
@@ -1313,8 +1363,10 @@ export function createHostingController(options: HostingOptions) {
       return started;
     }
     try {
+      // Asked for now, before anything else can start; its turn checks the run again.
       return await openToAll({});
     } catch (error) {
+      if (!launched()) return status();
       launchError = `${name} started on this network, but ${wanted.address} was not reopened. ${
         error instanceof Error ? error.message : ""
       }`.trim();
@@ -1528,8 +1580,11 @@ export function createHostingController(options: HostingOptions) {
         new Error("Say whether joining needs an invite code with true or false."),
       );
     const request = publicRequest;
+    // Asked for one run, it never opens another that started while it waited.
+    const run = runs;
     return serialized(async () => {
-      if (closing || request !== publicRequest) throw new Error("Opening to all was cancelled.");
+      if (closing || request !== publicRequest || run !== runs)
+        throw new Error("Opening to all was cancelled.");
       const target = server;
       if (!target || phase !== "running")
         throw new Error("Start hosting the workspace before opening it to all.");
