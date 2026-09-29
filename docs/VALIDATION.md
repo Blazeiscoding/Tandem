@@ -1040,3 +1040,7 @@ from the repository root.
   (`container.yml`) run only on pull requests that change what they check, and
   nothing runs again on `main` after a merge, to stay inside the free Actions
   minutes. CONTRIBUTING.md lists which changes start which checks.
+
+## Recovery copies: retention and backup identity (29 September)
+
+`fix/backup-retention-and-identity` closes R29-1 and D3 from the [execution plan](CODE-AUDIT-AND-EXECUTION-PLAN-2026-09-27.md). Five regressions in `apps/desktop/test/hosting.test.ts`, under "protecting recovery copies", use archives written by the real server's `backupWorkspace` and checked by its `verifyBackup`. They cover a same-workspace archive dated 2099 with a ruined manifest at `keep=1`, where the fresh copy used to be deleted; a mixture of a good, a missing-attachment and a damaged-database archive at `keep=2`; a clock set back so the fresh copy's name sorts oldest; a listed workspace whose folder holds another; and a folder swapped during the copy. All five fail against `c75dbf7` and pass with the change. The harness's stand-in backups now always write a folder with the workspace's ID and a marked manifest, as the real server always writes one. Linux results: typecheck 8/8, build 3/3, and unit tests server 418, desktop 142, client-core 71, protocol 12, UI 442. The browser suite does not exercise this main-process path, and the packaged Windows suite could not run here.

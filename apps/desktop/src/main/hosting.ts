@@ -724,6 +724,10 @@ export function createHostingController(options: HostingOptions) {
    * Copies a hosted workspace into a new folder inside `destination`, running
    * or not, and records when. It waits its turn behind starting and stopping,
    * so the app cannot quit or change workspaces halfway through a copy.
+   *
+   * The folder must hold the workspace the list says it does, and so must the
+   * copy: a folder swapped for another workspace's, before or during the
+   * copy, is refused rather than reported as this workspace's backup.
    */
   function backup(value: unknown): Promise<{ path: string; at: number }> {
     const { folder, destination } = (value ?? {}) as Record<string, unknown>;
@@ -750,9 +754,24 @@ export function createHostingController(options: HostingOptions) {
             `There is not enough free space there. The backup needs about ${megabytes(needed)}, and ${megabytes(free)} is free.`,
           );
       }
+      const found = read(dataDir);
+      if (entry.id && found?.id !== entry.id)
+        throw new Error(
+          `The folder listed as ${entry.name} holds ${
+            found?.name ? `“${found.name}”` : "a different or unreadable workspace"
+          } instead, so nothing was backed up.`,
+        );
+      const expected = entry.id ?? found?.id ?? null;
       const stamp = new Date(now()).toISOString().slice(0, 19).replaceAll(":", "-");
       const out = join(destination, `${legacyFolder(entry.name)}-${stamp}`);
       await options.backupWorkspace!({ dataDir, out });
+      if (read(out)?.id !== expected) {
+        // A copy of something else must not stand in for this workspace's backup.
+        await rm(out, { recursive: true, force: true }).catch(() => {});
+        throw new Error(
+          `The folder of ${entry.name} changed while it was being copied, so the copy was removed. Try again.`,
+        );
+      }
       const at = now();
       updateEntry(entry.folder, { lastBackupAt: at });
       // The backup is made and verified either way. Only the date shown for it can be lost.
@@ -911,24 +930,49 @@ export function createHostingController(options: HostingOptions) {
   }
 
   /**
-   * Removes a workspace's oldest backups from its schedule's folder, keeping
-   * the newest `keep`. Only a folder this app named, holding a backup of this
-   * very workspace, is ever removed; anything else there is left alone.
+   * Removes a workspace's older backups from its schedule's folder, keeping
+   * `keep` recoverable copies: the one just made, which the server has
+   * verified, and the newest others that pass the same check. A copy that
+   * fails it never counts towards `keep`, so a damaged or oddly dated folder
+   * cannot take a good copy's place. Only a folder this app named, holding a
+   * backup of this very workspace, is ever removed; anything else there is
+   * left alone.
    */
-  async function pruneBackups(entry: HostedWorkspace, schedule: AutoBackup): Promise<void> {
+  async function pruneBackups(
+    entry: HostedWorkspace,
+    schedule: AutoBackup,
+    fresh: string,
+  ): Promise<void> {
     if (!entry.id) return;
     const found: { path: string; at: string }[] = [];
     for (const item of await readdir(schedule.destination, { withFileTypes: true })) {
       if (!item.isDirectory() || !BACKUP_NAME.test(item.name)) continue;
       const path = join(schedule.destination, item.name);
+      if (path === fresh) continue;
       if (!existsSync(join(path, "manifest.json"))) continue;
       if (read(path)?.id !== entry.id) continue;
       found.push({ path, at: item.name.slice(-19) });
     }
-    // The name ends in when the backup was made, which sorts as text.
+    // Newest first by the time in its name. A clock set wrong can make that
+    // order lie, which is why only checked copies count and the fresh one stays.
     found.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-    for (const old of found.slice(schedule.keep)) {
-      await rm(old.path, { recursive: true, force: true });
+    let kept = 1;
+    for (const candidate of found) {
+      if (kept >= schedule.keep) {
+        await rm(candidate.path, { recursive: true, force: true });
+        continue;
+      }
+      let recoverable = false;
+      try {
+        if (options.verifyBackup) {
+          await options.verifyBackup(candidate.path);
+          recoverable = read(candidate.path)?.id === entry.id;
+        }
+      } catch {
+        recoverable = false;
+      }
+      // One that fails is neither counted nor removed while copies are still wanted.
+      if (recoverable) kept++;
     }
   }
 
@@ -956,9 +1000,9 @@ export function createHostingController(options: HostingOptions) {
           : entry.lastBackupAt + schedule.everyDays * 24 * 3600_000 - 10 * 60_000;
       if (now() < due) continue;
       try {
-        await backup({ folder: entry.folder, destination: schedule.destination });
+        const made = await backup({ folder: entry.folder, destination: schedule.destination });
         const latest = registry?.find((e) => e.folder === entry.folder) ?? entry;
-        await pruneBackups(latest, schedule);
+        await pruneBackups(latest, schedule, made.path);
         autoBackupErrors.delete(entry.folder);
       } catch (error) {
         autoBackupErrors.set(
