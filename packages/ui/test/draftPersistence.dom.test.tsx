@@ -37,9 +37,11 @@ const design: Channel = {
   memberIds: [sam.id],
 };
 
-/** One device's storage, kept across the clients a test starts on it. */
-function device() {
-  const values = new Map<string, unknown>();
+/**
+ * One device's storage, kept across the clients a test starts on it. Passing
+ * another device's values gives a second window onto the same storage.
+ */
+function device(values = new Map<string, unknown>()) {
   const platform: Platform = {
     kind: "desktop",
     storage: {
@@ -72,6 +74,38 @@ function mount(client: WorkspaceClient, platform: Platform) {
       </ClientContext.Provider>
     </PlatformContext.Provider>,
   );
+}
+
+/** The texts in the stored outbox, in order. */
+function storedTexts(values: Map<string, unknown>, key: string) {
+  return ((values.get(key) ?? []) as Pick<Message, "text">[]).map((e) => e.text);
+}
+
+/**
+ * Lets queued promise work finish: far less than the pause drafts wait for
+ * before they are written, so anything stored by now was written at once.
+ */
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
+/** What the server answers a send with, once it has the message. */
+function sent(client: WorkspaceClient, nonce: string, text: string): Message {
+  return {
+    id: `M_${nonce}`,
+    channelId: design.id,
+    userId: client.state.self!.id,
+    text,
+    threadRootId: null,
+    broadcast: false,
+    seq: 1,
+    createdAt: 0,
+    editedAt: null,
+    nonce,
+    replyCount: 0,
+    reactions: [],
+    files: [],
+    pinned: false,
+    actions: [],
+  };
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -158,6 +192,127 @@ describe("queued messages kept on this device", () => {
     await waitFor(() =>
       expect((values.get(key) as Pick<Message, "text">[]).map((e) => e.text)).toEqual([
         "tab closing",
+      ]),
+    );
+  });
+
+  it("are written as soon as a send is accepted, and as soon as it is delivered", async () => {
+    const { platform, values } = device();
+    const { client, sendMessage } = signedIn();
+    let deliver = () => {};
+    sendMessage.mockImplementation(
+      (_channel, body) =>
+        new Promise((resolve) => {
+          deliver = () => resolve({ message: sent(client, body.nonce!, body.text!) });
+        }),
+    );
+    mount(client, platform);
+    const key = `outbox:${client.baseUrl}:${sam.id}`;
+    await waitFor(() => expect(values.has(key)).toBe(true));
+
+    expect(client.send(design.id, "on its way")).toBe(true);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    // Closing the app now must not lose it, and nothing waits for a pause in typing.
+    await settle();
+    expect(storedTexts(values, key)).toEqual(["on its way"]);
+
+    await act(async () => deliver());
+    expect(client.state.pending).toEqual([]);
+    await settle();
+    expect(storedTexts(values, key)).toEqual([]);
+  });
+
+  it("keep a refusal as soon as the server gives it, so a restart does not send it again", async () => {
+    const { platform, values } = device();
+    const { client, sendMessage } = signedIn();
+    let refuse = () => {};
+    sendMessage.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          refuse = () => reject(new ApiError(400, "channel_archived"));
+        }),
+    );
+    mount(client, platform);
+    const key = `outbox:${client.baseUrl}:${sam.id}`;
+    await waitFor(() => expect(values.has(key)).toBe(true));
+    client.send(design.id, "into an archived channel");
+    await waitFor(() => expect(storedTexts(values, key)).toEqual(["into an archived channel"]), {
+      timeout: 1500,
+    });
+
+    await act(async () => refuse());
+    expect(client.state.pending[0]).toMatchObject({ failed: true, refused: true });
+    await settle();
+    expect((values.get(key) as { refusal?: string }[])[0]?.refusal).toBe(
+      "This conversation is archived.",
+    );
+  });
+
+  it("keep the sends of every window open on the account, not only the last to write", async () => {
+    const { platform, values } = device();
+    // A second window on the same storage, with its own client and its own writes.
+    const other = device(values);
+    const first = signedIn();
+    const second = signedIn();
+    first.sendMessage.mockRejectedValue(new TypeError("Failed to fetch"));
+    second.sendMessage.mockRejectedValue(new TypeError("Failed to fetch"));
+    mount(first.client, platform);
+    mount(second.client, other.platform);
+    const key = `outbox:${first.client.baseUrl}:${sam.id}`;
+    await waitFor(() => expect(values.has(key)).toBe(true));
+
+    first.client.send(design.id, "from the first window");
+    await waitFor(() => expect(storedTexts(values, key)).toEqual(["from the first window"]), {
+      timeout: 1500,
+    });
+    second.client.send(design.id, "from the second window");
+    await waitFor(() => expect(storedTexts(values, key)).toContain("from the second window"), {
+      timeout: 1500,
+    });
+    expect(storedTexts(values, key)).toEqual(["from the first window", "from the second window"]);
+
+    // Both windows die without writing again; the next start sends both.
+    const next = signedIn();
+    const delivered: string[] = [];
+    next.sendMessage.mockImplementation(async (_channel, body) => {
+      delivered.push(body.text!);
+      throw new TypeError("Failed to fetch");
+    });
+    mount(next.client, device(values).platform);
+    await waitFor(() =>
+      expect(delivered.sort()).toEqual(["from the first window", "from the second window"]),
+    );
+  });
+
+  it("restore an outbox saved before this version, and keep it once another send is written", async () => {
+    const { platform, values } = device();
+    const { client, sendMessage } = signedIn();
+    const key = `outbox:${client.baseUrl}:${sam.id}`;
+    values.set(key, [
+      {
+        nonce: "saved-before-upgrade",
+        channelId: design.id,
+        threadRootId: null,
+        text: "queued by the previous version",
+        userId: sam.id,
+        createdAt: 1,
+        attachments: [],
+      },
+    ]);
+    const delivered: string[] = [];
+    sendMessage.mockImplementation(async (_channel, body) => {
+      delivered.push(body.text!);
+      throw new TypeError("Failed to fetch");
+    });
+    mount(client, platform);
+    await waitFor(() => expect(delivered).toEqual(["queued by the previous version"]));
+    expect(sendMessage.mock.calls[0]![1].nonce).toBe("saved-before-upgrade");
+
+    client.send(design.id, "queued by this one");
+    await waitFor(() =>
+      expect(storedTexts(values, key)).toEqual([
+        "queued by the previous version",
+        "queued by this one",
       ]),
     );
   });
