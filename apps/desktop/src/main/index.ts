@@ -439,6 +439,9 @@ ipcMain.handle(
     return saved;
   },
 );
+ipcMain.handle("hosting:setReopenPublicOnLaunch", (_e, reopen: unknown) =>
+  hosting.setReopenPublicOnLaunch(reopen),
+);
 ipcMain.handle("hosting:setStartOnLaunch", (_e, folder: unknown) =>
   hosting.setStartOnLaunch(folder),
 );

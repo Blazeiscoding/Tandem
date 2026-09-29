@@ -14,6 +14,7 @@ export interface SlackossBridge {
   hostingRename: (folder: string, name: string) => Promise<unknown>;
   hostingOpenFolder: (folder: string) => Promise<void>;
   hostingSetStartOnLaunch: (folder: string | null) => Promise<unknown>;
+  hostingSetReopenPublicOnLaunch: (reopen: boolean) => Promise<unknown>;
   hostingSetPort: (folder: string, port: number) => Promise<unknown>;
   hostingSetAutoBackup: (
     folder: string,
@@ -59,6 +60,8 @@ const bridge: SlackossBridge = {
   hostingRename: (folder, name) => ipcRenderer.invoke("hosting:rename", { folder, name }),
   hostingOpenFolder: (folder) => ipcRenderer.invoke("hosting:openFolder", folder),
   hostingSetStartOnLaunch: (folder) => ipcRenderer.invoke("hosting:setStartOnLaunch", folder),
+  hostingSetReopenPublicOnLaunch: (reopen) =>
+    ipcRenderer.invoke("hosting:setReopenPublicOnLaunch", reopen),
   hostingSetPort: (folder, port) => ipcRenderer.invoke("hosting:setPort", { folder, port }),
   hostingSetAutoBackup: (folder, schedule, chooseFolder) =>
     ipcRenderer.invoke("hosting:setAutoBackup", folder, schedule, chooseFolder),

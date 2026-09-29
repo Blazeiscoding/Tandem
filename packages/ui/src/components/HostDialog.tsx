@@ -27,19 +27,28 @@ function StartWithComputer(props: {
   folder: string;
   name: string;
   startsOnLaunch: boolean;
+  /** The stable public address set up for hosting, if there is one. */
+  publicAddress?: string;
+  /** It is reopened when this workspace starts with Gatherline. */
+  reopensPublic: boolean;
   disabled: boolean;
   /** What went wrong saving a choice, or null to clear it. */
   onError: (text: string | null) => void;
 }) {
   const setStart = props.hosting.setStartOnLaunch;
   const login = props.hosting.openAtLogin;
+  const reopen = props.hosting.setReopenPublicOnLaunch;
   const [atLogin, setAtLogin] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   /** The choice just made, shown until the status agrees or saving fails. */
   const [chosen, setChosen] = useState<boolean | null>(null);
+  const [reopenChosen, setReopenChosen] = useState<boolean | null>(null);
   useEffect(() => {
     if (chosen !== null && chosen === props.startsOnLaunch) setChosen(null);
   }, [chosen, props.startsOnLaunch]);
+  useEffect(() => {
+    if (reopenChosen !== null && reopenChosen === props.reopensPublic) setReopenChosen(null);
+  }, [reopenChosen, props.reopensPublic]);
   useEffect(() => {
     if (!login) return;
     let alive = true;
@@ -107,6 +116,28 @@ function StartWithComputer(props: {
             }}
           />
           <span>Open Gatherline when you sign in to this computer</span>
+        </label>
+      )}
+      {reopen && props.publicAddress && (
+        <label className="flex items-start gap-2 text-ink">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={reopenChosen ?? props.reopensPublic}
+            disabled={!(chosen ?? props.startsOnLaunch)}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setReopenChosen(next);
+              void save(
+                () => reopen(next),
+                () => setReopenChosen(null),
+              );
+            }}
+          />
+          <span>
+            Also reopen {props.publicAddress} when {props.name} starts with Gatherline, once it is
+            checked to reach this workspace. New accounts need an invite.
+          </span>
         </label>
       )}
       <p className="text-xs text-ink-faint">
@@ -1139,6 +1170,8 @@ export function HostDialog(props: {
               folder={status.folder}
               name={status.workspaceName}
               startsOnLaunch={!!status.startsOnLaunch}
+              publicAddress={status.publicAddressError ? undefined : status.publicAddress}
+              reopensPublic={!!status.reopensPublicOnLaunch}
               disabled={unavailable}
               onError={(text) => setBackupNote(text ? { ok: false, text } : null)}
             />

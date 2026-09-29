@@ -1678,6 +1678,86 @@ describe("a stable public address configured for this computer", () => {
     expect(h.controller.status().openToAllError).not.toMatch(/new link/);
   });
 
+  it("reopens a stable address when started with Gatherline, only when asked, and invite-only", async () => {
+    let address = configured;
+    const first = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: address, managed: true }),
+    });
+    await first.controller.start({ workspaceName: "Rocket Team" });
+    const folder = registryOf(first)[0]!.folder;
+    await first.controller.setStartOnLaunch(folder);
+    expect(await first.controller.setReopenPublicOnLaunch(true)).toBe(true);
+    expect(first.controller.status().reopensPublicOnLaunch).toBe(true);
+    expect(first.settings.get("reopenPublicOnLaunch")).toEqual({ folder, address: configured });
+    await first.controller.stop();
+
+    const next = harness({
+      root: join(first.dataRoot, ".."),
+      settings: first.settings,
+      publicAccess: true,
+      publicAddress: () => ({ url: address, managed: true }),
+    });
+    for (const [path, found] of first.databases) next.databases.set(path, found);
+    const started = await next.controller.startForLaunch();
+    expect(started?.openToAll).toEqual({ phase: "open", url: expect.any(String) });
+    expect(next.tunnelStarts).toHaveLength(1);
+    expect(next.controller.status().inviteOnly).toBe(true);
+    await next.controller.stop();
+
+    // The address it was set up with changed: nothing is published by it.
+    address = "https://other.example.org";
+    const moved = harness({
+      root: join(first.dataRoot, ".."),
+      settings: first.settings,
+      publicAccess: true,
+      publicAddress: () => ({ url: address, managed: true }),
+    });
+    for (const [path, found] of first.databases) moved.databases.set(path, found);
+    const running = await moved.controller.startForLaunch();
+    expect(running?.running).toBe(true);
+    expect(moved.tunnelStarts).toHaveLength(0);
+    expect(moved.controller.status().launchError).toMatch(/was not reopened.*has changed/);
+  });
+
+  it("keeps hosting and says so when the stable address cannot be reopened", async () => {
+    const first = harness({
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, managed: true }),
+    });
+    await first.controller.start({ workspaceName: "Rocket Team" });
+    await first.controller.setStartOnLaunch(registryOf(first)[0]!.folder);
+    await first.controller.setReopenPublicOnLaunch(true);
+    await first.controller.stop();
+    const next = harness({
+      root: join(first.dataRoot, ".."),
+      settings: first.settings,
+      publicAccess: true,
+      publicAddress: () => ({ url: configured, managed: true }),
+    });
+    for (const [path, found] of first.databases) next.databases.set(path, found);
+    next.beforeTunnel = () => {
+      throw new Error("address did not reach this workspace");
+    };
+    const started = await next.controller.startForLaunch();
+    expect(started?.running).toBe(true);
+    expect(next.controller.status().launchError).toMatch(
+      /started on this network, but .* was not reopened\. .*did not reach/,
+    );
+    // Nothing was published, and it is back to how it was before trying.
+    expect(next.publicUrls.filter(Boolean)).toEqual([]);
+    expect(next.controller.status().openToAll).toBeUndefined();
+  });
+
+  it("offers reopening only for a stable address", async () => {
+    const h = harness({ publicAccess: true });
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await expect(h.controller.setReopenPublicOnLaunch(true)).rejects.toThrow(
+      /Only a stable address/,
+    );
+    expect(await h.controller.setReopenPublicOnLaunch(false)).toBe(false);
+  });
+
   it("trusts the loopback visitor header for a Cloudflare connector it owns", async () => {
     const h = harness({
       publicAccess: true,

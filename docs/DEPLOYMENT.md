@@ -62,8 +62,15 @@ While a workspace is running, **When this computer starts** offers two choices:
 **Open Gatherline when you sign in to this computer**. With both on, the workspace
 is back for teammates once the computer restarts and someone signs in, and
 Gatherline waits in the tray. Only one workspace can be chosen. Starting this way
-hosts on the network only: **Open to all** and a stable address are not reopened
-by themselves, so share again after a restart. If the chosen workspace cannot
+hosts on the network; a temporary **Open to all** link is never reopened by
+itself, since its address changes every time. When a stable address is set up (see
+below), a third choice appears: **Also reopen it when the workspace starts with
+Gatherline**. It is kept for that workspace and that address only. After starting,
+Gatherline opens the address the usual way, checking that it reaches this
+workspace, and new accounts need an invite. If the address has changed, cannot be
+reached or fails the check, the workspace keeps running on the network and the
+reason is shown the next time the window is opened. A restored workspace still held
+from a backup is never started this way. If the chosen workspace cannot
 start, the reason is shown the next time the window is opened.
 
 A port you chose for a workspace, when creating it or with Change port, is kept:
