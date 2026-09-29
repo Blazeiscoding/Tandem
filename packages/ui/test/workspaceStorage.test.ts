@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Platform } from "../src/platform.js";
 import {
   readWorkspaceStorage,
+  updateWorkspaceStorage,
   workspaceStorageKey,
   writeWorkspaceStorage,
 } from "../src/lib/workspaceStorage.js";
@@ -141,6 +142,26 @@ describe("writing work kept on the device", () => {
       readWorkspaceStorage(platform, key),
     ]);
     expect([order[1], order[3]]).toEqual(["first", "second"]);
+  });
+
+  it("changes what is stored without letting two writers here lose each other's change", async () => {
+    const { platform, values } = fakePlatform();
+    const keyed = workspaceStorageKey(home, "W1", "U1", "outbox")!;
+    await writeWorkspaceStorage(platform, keyed, ["a"]);
+    const add = (item: string) => (current: unknown) => [...(current as string[]), item];
+    await Promise.all([
+      updateWorkspaceStorage(platform, keyed, add("b")),
+      updateWorkspaceStorage(platform, keyed, add("c")),
+    ]);
+    expect(values.get(keyed.key)).toEqual({ version: 1, value: ["a", "b", "c"] });
+
+    const addressed = workspaceStorageKey(home, null, "U1", "outbox")!;
+    await updateWorkspaceStorage(platform, addressed, (current) => [current, "d"]);
+    expect(values.get(addressed.key)).toEqual([null, "d"]);
+    // Something unreadable is replaced rather than stopping every later save.
+    values.set(keyed.key, "not an envelope");
+    await updateWorkspaceStorage(platform, keyed, (current) => [current, "e"]);
+    expect(values.get(keyed.key)).toEqual({ version: 1, value: [null, "e"] });
   });
 
   it("lets a later write go ahead after one that failed", async () => {

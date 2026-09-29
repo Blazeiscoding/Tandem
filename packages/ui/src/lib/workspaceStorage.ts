@@ -135,3 +135,27 @@ export function writeWorkspaceStorage(
     platform.storage.set(key.key, key.legacyKey ? envelope(value) : value),
   );
 }
+
+/**
+ * Reads a value and writes what `update` makes of it in one turn of its key's
+ * queue, so two writers here cannot lose each other's change in between. Call
+ * only after the value has been read once, which retires its legacy key. A
+ * value that cannot be read is replaced rather than blocking every later save.
+ */
+export function updateWorkspaceStorage(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+  update: (current: unknown) => unknown,
+): Promise<void> {
+  return serialized(platform, key.key, async () => {
+    let current: unknown = null;
+    try {
+      const stored = await platform.storage.get<unknown>(key.key, { strict: true });
+      current = key.legacyKey && stored !== null ? unwrap(stored) : stored;
+    } catch {
+      // Nothing unreadable can be kept; the writer's own value takes its place.
+    }
+    const value = update(current);
+    await platform.storage.set(key.key, key.legacyKey ? envelope(value) : value);
+  });
+}
