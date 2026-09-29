@@ -868,6 +868,86 @@ describe("starting with the computer", () => {
   });
 });
 
+describe("starting with the computer, while nothing is running", () => {
+  const teamA = {
+    folder: "team-a",
+    name: "Rocket Team",
+    port: 8543,
+    lastHostedAt: 1,
+    lastBackupAt: null,
+    running: false,
+    missing: false,
+  };
+
+  function stoppedWith(startsOnLaunch: boolean, launchError: string, atLogin: boolean) {
+    const fake = fakeHosting(
+      { ...stopped, launchError },
+      { workspaces: [{ ...teamA, startsOnLaunch }], unreadable: [] },
+    );
+    const hosting = fake.hosting as typeof fake.hosting & {
+      setStartOnLaunch: ReturnType<typeof vi.fn>;
+      openAtLogin: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> };
+    };
+    let login = atLogin;
+    hosting.setStartOnLaunch = vi.fn(async () => null);
+    hosting.openAtLogin = {
+      get: vi.fn(async () => login),
+      set: vi.fn(async (open: boolean) => (login = open)),
+    };
+    return hosting;
+  }
+
+  it("takes a workspace that failed to start off starting with Gatherline, and Gatherline off sign-in", async () => {
+    const user = userEvent.setup();
+    const hosting = stoppedWith(
+      true,
+      "Gatherline did not start hosting Rocket Team when it opened. Its database is unreadable.",
+      true,
+    );
+    render(<Harness hosting={hosting} />);
+    const section = await screen.findByRole("region", { name: "When this computer starts" });
+    expect(section).toHaveTextContent("Rocket Team starts hosting when Gatherline opens.");
+    await user.click(
+      within(section).getByRole("button", { name: "Don’t start Rocket Team with Gatherline" }),
+    );
+    expect(hosting.setStartOnLaunch).toHaveBeenCalledWith(null);
+
+    const login = await within(section).findByRole("checkbox", {
+      name: "Open Gatherline when you sign in to this computer",
+    });
+    expect(login).toBeChecked();
+    await user.click(login);
+    expect(hosting.openAtLogin.set).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(login).not.toBeChecked());
+    // Still listed, and still startable.
+    const list = screen.getByRole("region", { name: "Hosted on this computer" });
+    expect(within(list).getByRole("button", { name: "Start hosting Rocket Team" })).toBeVisible();
+  });
+
+  it("clears a choice that could not be read", async () => {
+    const user = userEvent.setup();
+    const hosting = stoppedWith(
+      false,
+      "Gatherline did not start hosting when it opened, because it could not read which workspace to start.",
+      false,
+    );
+    render(<Harness hosting={hosting} />);
+    const section = await screen.findByRole("region", { name: "When this computer starts" });
+    await user.click(
+      within(section).getByRole("button", { name: "Start nothing when Gatherline opens" }),
+    );
+    expect(hosting.setStartOnLaunch).toHaveBeenCalledWith(null);
+  });
+
+  it("shows nothing when nothing starts with the computer", async () => {
+    const hosting = stoppedWith(false, "", false);
+    render(<Harness hosting={hosting} />);
+    await screen.findByRole("region", { name: "Hosted on this computer" });
+    await waitFor(() => expect(hosting.openAtLogin.get).toHaveBeenCalled());
+    expect(screen.queryByRole("region", { name: "When this computer starts" })).toBeNull();
+  });
+});
+
 describe("who is connected, and which port", () => {
   const teamA = {
     folder: "team-a",

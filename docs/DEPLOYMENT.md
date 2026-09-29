@@ -71,11 +71,14 @@ if another program holds it, the workspace does not start and says so, rather
 than moving to another port. A workspace left on the usual port moves to a free
 one and Manage hosting says where.
 
-Current limits: these two
-choices can only be changed while the workspace is running; and opening at
-sign-in has not been tried on an installed macOS system. If macOS holds the
-registration for approval, the dialog says to allow Gatherline under Login Items
-in System Settings.
+While nothing is running, the same section appears above the list whenever a
+workspace is chosen to start, a start failed, or Gatherline opens at sign-in, so
+a workspace that cannot start can be taken off starting with Gatherline, and
+Gatherline off sign-in, without starting it first or removing it from the list.
+
+Current limit: opening at sign-in has not been tried on an installed macOS system.
+If macOS holds the registration for approval, the dialog says to allow Gatherline
+under Login Items in System Settings.
 
 ### Backing up from the desktop
 

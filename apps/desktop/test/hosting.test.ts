@@ -1736,6 +1736,24 @@ describe("starting with the computer", () => {
     expect(next.controller.status().launchError).toBeUndefined();
   });
 
+  it("lets a failed choice be taken back while nothing is running, keeping the workspace", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    const folder = registryOf(h)[0]!.folder;
+    await h.controller.setStartOnLaunch(folder);
+    await h.controller.stop();
+    h.beforeBind = () => {
+      throw Object.assign(new Error("listen EACCES"), { code: "EACCES" });
+    };
+    expect(await h.controller.startForLaunch()).toBeNull();
+    expect(h.controller.status().launchError).toBeDefined();
+
+    expect(await h.controller.setStartOnLaunch(null)).toBeNull();
+    expect(h.controller.status().launchError).toBeUndefined();
+    expect(h.settings.get("startOnLaunch")).toBeNull();
+    expect(registryOf(h).map((e) => e.folder)).toEqual([folder]);
+  });
+
   it("does not take a choice it cannot understand for no choice", async () => {
     const h = harness();
     h.settings.set("startOnLaunch", 42);
