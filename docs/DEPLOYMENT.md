@@ -17,10 +17,13 @@ Tailscale, a VPS, or a public IP with port forwarding are alternatives. An IP
 address alone does not bypass NAT, CGNAT, or firewalls. LAN discovery does not
 cross routers.
 
-Data is under the app's user-data folder in `hosted/<workspace-name>/`. Advanced
-deployments can set `GATHERLINE_USER_DATA_DIR` (`SLACKOSS_USER_DATA_DIR` still
-works) to choose the desktop profile location.
-Treat workspace names as identifiers when reopening existing local workspaces.
+Each hosted workspace has its own folder under the app's user-data folder, in
+`hosted/w-<random id>/`. The folder is fixed when the workspace is created and
+does not follow its name, so two workspaces may share a name and renaming one
+moves nothing; folders made by earlier versions, named after the workspace, are
+adopted as they are. **Manage hosting** shows the running workspace's data folder.
+Advanced deployments can set `GATHERLINE_USER_DATA_DIR` (`SLACKOSS_USER_DATA_DIR`
+still works) to choose the desktop profile location.
 
 ### Closing the window, and quitting
 
@@ -43,14 +46,41 @@ quitting, you can keep Gatherline open or quit anyway; quitting anyway ends at
 once and may lose changes still being written, but never deletes workspace data.
 
 If the last-used hosting settings cannot be saved, the workspace keeps running and
-Manage hosting shows a warning. Hosting does not resume by itself after quitting
-or restarting the computer, and the computer must stay awake. To reopen a
-workspace, host it again under the same name: the name decides its data folder,
-so a different name starts an empty workspace. After a restart the join screen
-offers the remembered workspace back with one click — Start hosting it on its
-remembered port, reopening the saved sign-in — instead of reconnecting to a
-server that is not there. A list of the workspaces on this
-computer, and renaming one, are not available yet.
+Manage hosting shows a warning.
+
+### Reopening, renaming and starting with the computer
+
+Every workspace hosted on this computer is listed under **Hosted on this
+computer** in the host dialog, where each can be started again with its messages,
+renamed, given a different port or backed up. The join screen offers the most
+recently hosted one back with one click. Use the list to reopen a workspace:
+creating a new one under the same name starts a separate, empty workspace, and
+the dialog says so.
+
+While a workspace is running, **When this computer starts** offers two choices:
+**Start hosting it when Gatherline opens**, and, where the system supports it,
+**Open Gatherline when you sign in to this computer**. With both on, the workspace
+is back for teammates once the computer restarts and someone signs in, and
+Gatherline waits in the tray. Only one workspace can be chosen. Starting this way
+hosts on the network only: **Open to all** and a stable address are not reopened
+by themselves, so share again after a restart. If the chosen workspace cannot
+start, the reason is shown the next time the window is opened.
+
+Current limits: a port chosen for a workspace can be replaced by a free one when
+that port is taken as it restarts, and Manage hosting then warns; these two
+choices can only be changed while the workspace is running; and on macOS, opening
+at sign-in has not been checked to keep the window hidden.
+
+### Backing up from the desktop
+
+**Back up now** copies a hosted workspace into a new folder you choose, and
+**Automatic backups** does the same every day or week into one folder, keeping
+the newest few. A copy is kept only if it holds the same workspace as the one
+listed, retention never removes the copy it has just made, and an older copy
+counts toward the number kept only after it passes the same check as
+`verify-backup`. **Restore from a backup…** checks a backup, then restores it as
+a hosted workspace without starting it; it will not restore over a workspace
+already hosted here.
 
 Only Windows has been checked. The packaged test closes the window while hosting,
 reads the tray menu, stops through the confirmation and quits with nothing
