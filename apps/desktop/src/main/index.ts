@@ -308,12 +308,16 @@ const hosting = createHostingController({
   },
   openFolder: (path) => shell.openPath(path),
   onChange: publishHostingStatus,
-  startServer: async ({ dataDir, port, workspaceName }) => {
+  inventoryBackup: (dir) => inWorker({ kind: "inventory", dir }),
+  startServer: async ({ dataDir, port, workspaceName, isolated }) => {
     const server = await createWorkspaceServer({
       dataDir,
       port,
       workspaceName,
-      mdns: true,
+      // A restored copy being looked inside is reachable from this computer
+      // only, sends nothing queued, calls no app, and is not announced.
+      ...(isolated ? { isolated: true, host: "127.0.0.1" } : {}),
+      mdns: !isolated,
       webDistPath: app.isPackaged
         ? join(process.resourcesPath, "web")
         : join(import.meta.dirname, "../../../web/dist"),

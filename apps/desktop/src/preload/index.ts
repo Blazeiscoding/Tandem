@@ -24,7 +24,9 @@ export interface SlackossBridge {
   hostingSetOpenAtLogin: (open: boolean) => Promise<unknown>;
   hostingRestore: () => Promise<unknown>;
   hostingStart: (
-    opts: { workspaceName: string; port?: number } | { folder: string; port?: number },
+    opts:
+      | { workspaceName: string; port?: number }
+      | { folder: string; port?: number; activate?: boolean },
   ) => Promise<unknown>;
   hostingStop: () => Promise<void>;
   hostingOpenToAll: (opts: { inviteOnly: boolean }) => Promise<unknown>;

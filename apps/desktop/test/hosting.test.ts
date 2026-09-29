@@ -27,6 +27,7 @@ import type { Tunnel } from "../src/main/tunnel.js";
 import {
   backupWorkspace,
   createWorkspaceServer,
+  inventoryBackup,
   restoreWorkspace,
   verifyBackup,
 } from "@slackoss/server";
@@ -191,6 +192,7 @@ function harness(
         ? { workspaceName: "Fake", database: { bytes: 0 }, files: [] }
         : verifyBackup(dir),
     restoreWorkspace,
+    inventoryBackup: async (dir) => inventoryBackup(dir),
     settings: {
       get: async (key, { strict, distinguishMissing } = {}) => {
         if (h.readFails && strict) throw new Error("Could not read settings.");
@@ -1448,7 +1450,11 @@ describe("restoring a backup in the desktop app", () => {
     const backup = await realBackup();
     const h = harness();
     const restored = await h.controller.restore({ backupDir: backup.dir });
-    expect(restored).toEqual({ folder: expect.stringMatching(NEW_FOLDER), name: "Rocket Team" });
+    expect(restored).toEqual({
+      folder: expect.stringMatching(NEW_FOLDER),
+      name: "Rocket Team",
+      inventory: expect.objectContaining({ sessions: expect.any(Number) }),
+    });
     expect(registryOf(h)).toEqual([
       expect.objectContaining({ id: backup.id, folder: restored.folder, name: "Rocket Team" }),
     ]);
@@ -1459,9 +1465,11 @@ describe("restoring a backup in the desktop app", () => {
     expect(h.starts).toEqual([]);
     // Nothing but the restored folder is left behind in the hosted folder.
     expect(readdirSync(h.dataRoot)).toEqual([restored.folder]);
-    // It starts from the list like any other, with its identity checked.
+    // From the list it starts only to be looked inside, with its identity checked.
     await h.controller.start({ folder: restored.folder });
-    expect(h.starts).toEqual([{ port: 8543, dataDir: join(h.dataRoot, restored.folder) }]);
+    expect(h.starts).toEqual([
+      { port: 8543, dataDir: join(h.dataRoot, restored.folder), isolated: true },
+    ]);
   });
 
   it("brings a listed workspace whose folder is gone back into that folder", async () => {
@@ -1478,7 +1486,7 @@ describe("restoring a backup in the desktop app", () => {
       ],
     ]);
     const h = harness({ settings });
-    expect(await h.controller.restore({ backupDir: backup.dir })).toEqual({
+    expect(await h.controller.restore({ backupDir: backup.dir })).toMatchObject({
       folder: "rocket-team",
       name: "Rocket Team",
     });
@@ -1486,6 +1494,73 @@ describe("restoring a backup in the desktop app", () => {
       expect.objectContaining({ folder: "rocket-team", port: 9001, name: "Rocket Team" }),
     ]);
     expect(existsSync(join(h.dataRoot, "rocket-team", "workspace.db"))).toBe(true);
+  });
+
+  it("holds a restored workspace until it is put back in use, across a restart", async () => {
+    const backup = await realBackup();
+    const settings = new Map<string, unknown>([
+      [
+        "hostedWorkspaces",
+        {
+          version: 1,
+          workspaces: [
+            { id: backup.id, folder: "rocket-team", name: "Rocket", port: 9001, lastHostedAt: 5 },
+          ],
+        },
+      ],
+      // Chosen to start with Gatherline before its folder went missing.
+      ["startOnLaunch", "rocket-team"],
+    ]);
+    const h = harness({ settings });
+    const restored = await h.controller.restore({ backupDir: backup.dir });
+    expect(restored.inventory).toMatchObject({
+      scheduled: expect.any(Object),
+      sessions: expect.any(Number),
+    });
+    // Restoring takes it off starting by itself.
+    expect(settings.get("startOnLaunch")).toBeNull();
+
+    // A later launch finds it still held, and starts it only to look inside.
+    const later = harness({ root: join(h.dataRoot, ".."), settings });
+    expect(await later.controller.startForLaunch()).toBeNull();
+    const listed = (await later.controller.list()).workspaces[0]!;
+    expect(listed).toMatchObject({ folder: "rocket-team", restored: true });
+    const looking = await later.controller.start({ folder: "rocket-team" });
+    expect(looking.isolated).toBe(true);
+    expect(later.starts.at(-1)).toMatchObject({ isolated: true });
+    await expect(later.controller.openToAll({})).rejects.toThrow(/cannot be opened to all/);
+    await expect(later.controller.start({ folder: "rocket-team", activate: true })).rejects.toThrow(
+      /Stop looking inside/,
+    );
+    await expect(later.controller.setStartOnLaunch("rocket-team")).rejects.toThrow(
+      /back in use before choosing it/,
+    );
+    await later.controller.stop();
+
+    // Put back in use on purpose: a normal start, and the hold is gone for good.
+    const live = await later.controller.start({ folder: "rocket-team", activate: true });
+    expect(live.isolated).toBeUndefined();
+    expect(later.starts.at(-1)).not.toHaveProperty("isolated");
+    expect(registryOf(later)[0]!.restoredHold).toBeUndefined();
+    await later.controller.stop();
+    await later.controller.start({ folder: "rocket-team" });
+    expect(later.starts.at(-1)).not.toHaveProperty("isolated");
+  });
+
+  it("does not start a held workspace with Gatherline, even if an older version chose it", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    const saved = h.settings.get("hostedWorkspaces") as { workspaces: Record<string, unknown>[] };
+    saved.workspaces[0]!.restoredHold = "unreadable";
+    h.settings.set("startOnLaunch", saved.workspaces[0]!.folder);
+    const later = harness({ root: join(h.dataRoot, ".."), settings: h.settings });
+    for (const [path, found] of h.databases) later.databases.set(path, found);
+    expect(await later.controller.startForLaunch()).toBeNull();
+    expect(later.controller.status().launchError).toMatch(
+      /restored from a backup and has not been put back in use/,
+    );
+    expect(later.starts).toEqual([]);
   });
 
   it("leaves a workspace still on this computer alone", async () => {

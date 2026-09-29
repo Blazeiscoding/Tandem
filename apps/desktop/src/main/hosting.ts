@@ -51,6 +51,11 @@ export interface HostingSnapshot {
   launchError?: string;
   /** How many people are connected to the running workspace now. */
   connected?: number;
+  /**
+   * The running workspace is a restored copy started only for looking inside:
+   * nothing queued is sent, no app is called, and only this computer reaches it.
+   */
+  isolated?: boolean;
 }
 
 /** The settings key naming, by its folder, the workspace to start when the app opens. */
@@ -90,6 +95,8 @@ export interface HostedWorkspaceSummary {
   autoBackup: AutoBackup | null;
   /** Why the last scheduled backup did not finish, until one does. */
   autoBackupError: string | null;
+  /** Restored from a backup and not yet put back in use. */
+  restored: boolean;
 }
 
 /**
@@ -141,6 +148,8 @@ interface HostingOptions {
     workspaceName?: string;
     port: number;
     dataDir: string;
+    /** A restored copy started only for looking inside; see `HostedWorkspace.restoredHold`. */
+    isolated?: boolean;
   }): Promise<HostedServer>;
   /** Where the list of hosted workspaces is kept. `strict` reads throw when the file is unreadable. */
   settings: {
@@ -169,6 +178,8 @@ interface HostingOptions {
     database: { bytes: number };
     files: { bytes: number }[];
   }>;
+  /** What a checked backup would reach or set off once started, for the host to see. */
+  inventoryBackup?(dir: string): Promise<RestoreInventory>;
   /** The server's restore: verified, staged beside `dataDir`, then swapped in. */
   restoreWorkspace?(options: { backupDir: string; dataDir: string }): Promise<unknown>;
   now?: () => number;
@@ -202,7 +213,19 @@ interface HostingOptions {
   verifyLoopback?(port: number, instanceId?: string): Promise<boolean>;
 }
 
-type StartRequest = ({ workspaceName: string } | { folder: string }) & { port?: number };
+type StartRequest = ({ workspaceName: string } | { folder: string }) & {
+  port?: number;
+  /** Puts a restored workspace back in use, rather than starting it only to look inside. */
+  activate?: boolean;
+};
+
+/** What a restored backup brings with it, as the server's inventory reports it. */
+export interface RestoreInventory {
+  appAddresses: { origin: string; uses: string[] }[];
+  scheduled: { waiting: number; earliestAt: number | null };
+  undeliveredEvents: number;
+  sessions: number;
+}
 
 /**
  * Why a workspace did not start, fit to show. A system error's own message
@@ -243,7 +266,9 @@ function workspaceNameOf(value: unknown): string {
 function startOptions(value: unknown): StartRequest {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Choose a workspace name before starting hosting.");
-  const { workspaceName, folder, port } = value as Record<string, unknown>;
+  const { workspaceName, folder, port, activate } = value as Record<string, unknown>;
+  if (activate !== undefined && typeof activate !== "boolean")
+    throw new Error("Say whether to put the workspace back in use with true or false.");
   if (
     port !== undefined &&
     (typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > 65535)
@@ -252,7 +277,7 @@ function startOptions(value: unknown): StartRequest {
   if (folder !== undefined) {
     if (typeof folder !== "string" || workspaceName !== undefined)
       throw new Error("Choose one workspace to start.");
-    return { folder, port: port as number | undefined };
+    return { folder, port: port as number | undefined, ...(activate ? { activate: true } : {}) };
   }
   return { workspaceName: workspaceNameOf(workspaceName), port: port as number | undefined };
 }
@@ -301,6 +326,8 @@ function megabytes(bytes: number): string {
 export function createHostingController(options: HostingOptions) {
   let server: HostedServer | null = null;
   let workspace: { workspaceName: string; folder: string; dataDir: string } | null = null;
+  /** The running workspace is a restored copy started only to look inside. */
+  let isolatedRun = false;
   let phase: HostingSnapshot["phase"] = "stopped";
   const now = options.now ?? Date.now;
   const read = options.readWorkspace ?? readWorkspace;
@@ -389,6 +416,7 @@ export function createHostingController(options: HostingOptions) {
       ...(server && workspace && launchFolder === workspace.folder ? { startsOnLaunch: true } : {}),
       ...(server?.connectedPeople ? { connected: server.connectedPeople() } : {}),
       ...(launchError ? { launchError } : {}),
+      ...(server && isolatedRun ? { isolated: true } : {}),
     };
   }
 
@@ -555,6 +583,10 @@ export function createHostingController(options: HostingOptions) {
           throw new Error(
             "Another workspace is already running. Stop it before starting this one.",
           );
+        if (requested.activate && isolatedRun)
+          throw new Error(
+            `Stop looking inside ${workspace?.workspaceName ?? "the restored workspace"} before putting it back in use.`,
+          );
         if (requested.port !== undefined && requested.port !== 0 && requested.port !== server.port)
           throw new Error(
             "This workspace is already running on another port. Stop it before changing ports.",
@@ -632,10 +664,14 @@ export function createHostingController(options: HostingOptions) {
         requested.port !== undefined
           ? requested.port !== 0
           : (entry.portChosen ?? entry.port !== options.defaultPort);
+      // A restored workspace starts only for looking inside until it is put
+      // back in use on purpose: its queue, apps and sign-ins are live otherwise.
+      const isolated = !created && entry.restoredHold !== undefined && !requested.activate;
       const serverOptions = {
         dataDir: workspace.dataDir,
         // An existing workspace keeps the name it has; only a new one is given one.
         ...(created ? { workspaceName: entry.name } : {}),
+        ...(isolated ? { isolated: true } : {}),
       };
       phase = "starting";
       warning = undefined;
@@ -682,7 +718,9 @@ export function createHostingController(options: HostingOptions) {
         port: server.port,
         portChosen,
         lastHostedAt: now(),
+        ...(requested.activate ? { restoredHold: undefined } : {}),
       });
+      isolatedRun = isolated;
       workspace.workspaceName = server.workspaceName?.() ?? entry.name;
       phase = "running";
       launchError = undefined;
@@ -726,6 +764,7 @@ export function createHostingController(options: HostingOptions) {
           startsOnLaunch: entry.folder === starting,
           autoBackup: entry.autoBackup ?? null,
           autoBackupError: autoBackupErrors.get(entry.folder) ?? null,
+          restored: entry.restoredHold !== undefined,
         })),
       unreadable: unreadableFolders,
     };
@@ -813,7 +852,9 @@ export function createHostingController(options: HostingOptions) {
    * whose folder is gone comes back into that folder. One still here is left
    * alone: replacing it is a separate, confirmed step.
    */
-  function restore(value: unknown): Promise<{ folder: string; name: string }> {
+  function restore(
+    value: unknown,
+  ): Promise<{ folder: string; name: string; inventory: RestoreInventory | null }> {
     const { backupDir } = (value ?? {}) as Record<string, unknown>;
     if (typeof backupDir !== "string" || !isAbsolute(backupDir))
       return Promise.reject(new Error("Choose the folder of a backup to restore."));
@@ -846,6 +887,7 @@ export function createHostingController(options: HostingOptions) {
         name: manifest.workspaceName.trim().slice(0, 80) || "Restored workspace",
         port: options.defaultPort,
         lastHostedAt: now(),
+        restoredHold: now(),
       };
       // Listed first, as a new workspace is, so a restored one can always be found.
       if (!listed) {
@@ -872,10 +914,20 @@ export function createHostingController(options: HostingOptions) {
         throw error;
       }
       const name = manifest.workspaceName.trim().slice(0, 80) || entry.name;
-      updateEntry(entry.folder, { name });
+      // Held until someone puts it back in use, across restarts too.
+      updateEntry(entry.folder, { name, restoredHold: now() });
       await saveRegistry().catch(() => {});
+      // A workspace brought back from a backup must not start by itself as
+      // though nothing had happened.
+      if ((await readLaunchFolder().catch(() => null)) === entry.folder) {
+        launchFolder = null;
+        await options.settings.set(START_ON_LAUNCH_KEY, null).catch(() => {});
+      }
+      const inventory = options.inventoryBackup
+        ? await options.inventoryBackup(backupDir).catch(() => null)
+        : null;
       changed();
-      return { folder: entry.folder, name };
+      return { folder: entry.folder, name, inventory };
     });
   }
 
@@ -1129,8 +1181,14 @@ export function createHostingController(options: HostingOptions) {
     if (value !== null && typeof value !== "string")
       return Promise.reject(new Error("Choose a workspace to start when Gatherline opens."));
     return serialized(async () => {
-      if (value !== null && !(await loadRegistry()).some((e) => e.folder === value))
+      const chosen =
+        value === null ? undefined : (await loadRegistry()).find((e) => e.folder === value);
+      if (value !== null && !chosen)
         throw new Error("That workspace is not in the list hosted on this computer.");
+      if (chosen?.restoredHold !== undefined)
+        throw new Error(
+          `Put ${chosen.name} back in use before choosing it to start with Gatherline.`,
+        );
       try {
         await options.settings.set(START_ON_LAUNCH_KEY, value);
       } catch {
@@ -1176,6 +1234,11 @@ export function createHostingController(options: HostingOptions) {
     if (!entry) {
       launchFolder = null;
       await options.settings.set(START_ON_LAUNCH_KEY, null).catch(() => {});
+      return null;
+    }
+    if (entry.restoredHold !== undefined) {
+      launchError = `Gatherline did not start hosting ${entry.name} when it opened, because it was restored from a backup and has not been put back in use.`;
+      changed();
       return null;
     }
     try {
@@ -1362,6 +1425,10 @@ export function createHostingController(options: HostingOptions) {
       const target = server;
       if (!target || phase !== "running")
         throw new Error("Start hosting the workspace before opening it to all.");
+      if (isolatedRun)
+        throw new Error(
+          "A restored copy you are looking inside cannot be opened to all. Put it back in use first.",
+        );
       if (stopFailed)
         throw new Error("Finish stopping the workspace before changing its public access.");
       if (!options.openTunnel) throw new Error("Opening to all is not available in this app.");

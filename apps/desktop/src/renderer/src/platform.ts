@@ -6,6 +6,7 @@ import type {
   HostingStatus,
   LastHosted,
   Platform,
+  RestoreInventory,
 } from "@slackoss/ui";
 
 interface SlackossBridge {
@@ -31,7 +32,11 @@ interface SlackossBridge {
   ) => Promise<AutoBackup | null | undefined>;
   hostingOpenAtLogin: () => Promise<boolean | null>;
   hostingSetOpenAtLogin: (open: boolean) => Promise<boolean>;
-  hostingRestore: () => Promise<{ folder: string; name: string } | null>;
+  hostingRestore: () => Promise<{
+    folder: string;
+    name: string;
+    inventory?: RestoreInventory | null;
+  } | null>;
   hostingStop: () => Promise<void>;
   hostingOpenToAll: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
   hostingEndOpenToAll: () => Promise<HostingStatus>;

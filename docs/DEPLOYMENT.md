@@ -87,9 +87,17 @@ under Login Items in System Settings.
 the newest few. A copy is kept only if it holds the same workspace as the one
 listed, retention never removes the copy it has just made, and an older copy
 counts toward the number kept only after it passes the same check as
-`verify-backup`. **Restore from a backup…** checks a backup, then restores it as
-a hosted workspace without starting it; it will not restore over a workspace
-already hosted here.
+`verify-backup`. **Restore from a backup…** checks a backup, then restores it as a hosted
+workspace without starting it; it will not restore over a workspace already
+hosted here. A restored workspace is held until you put it back in use, and the
+hold survives restarting Gatherline. While held, it is listed as "Restored, not
+in use yet", is taken off starting with Gatherline, and **Look inside** starts
+it on this computer only: nothing it had queued is sent, no app is called, it is
+not announced on the network and it cannot be opened to all. After restoring,
+the dialog says what the backup would bring back: sign-ins it still accepts,
+scheduled messages waiting, app events not yet delivered and the apps it calls.
+**Put back in use…** asks first, then starts it as the workspace itself, which
+clears the hold for good.
 
 Only Windows has been checked. The packaged test closes the window while hosting,
 reads the tray menu, stops through the confirmation and quits with nothing

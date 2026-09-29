@@ -9,6 +9,7 @@ import type {
   HostingStart,
   HostingStatus,
   Platform,
+  RestoreInventory,
 } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 
@@ -44,10 +45,22 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
       ? {
           list: vi.fn(async () => hosted),
           forget: vi.fn(async (_folder: string) => {}),
-          restore: vi.fn(async (): Promise<{ folder: string; name: string } | null> => ({
-            folder: "w-restored",
-            name: "Rocket Team",
-          })),
+          restore: vi.fn(
+            async (): Promise<{
+              folder: string;
+              name: string;
+              inventory?: RestoreInventory | null;
+            } | null> => ({
+              folder: "w-restored",
+              name: "Rocket Team",
+              inventory: {
+                appAddresses: [{ origin: "https://bot.example", uses: ["events"] }],
+                scheduled: { waiting: 1, earliestAt: null },
+                undeliveredEvents: 0,
+                sessions: 2,
+              },
+            }),
+          ),
           backup: vi.fn(async (folder: string): Promise<{ path: string; at: number } | null> => ({
             path: `/backups/${folder}-2026-09-25T10-00-00`,
             at: Date.now(),
@@ -398,9 +411,11 @@ describe("hosting a workspace from the host dialog", () => {
 
     const listReads = hosting.list!.mock.calls.length;
     await user.click(restore);
-    expect(
-      await screen.findByText("Restored Rocket Team. Start it from the list when you are ready."),
-    ).toHaveAttribute("role", "status");
+    const note = await screen.findByText(/^Restored Rocket Team\. Until you put it back in use/);
+    expect(note).toHaveAttribute("role", "status");
+    expect(note).toHaveTextContent(
+      "Put back in use, it brings 2 sign-ins it still accepts, 1 scheduled message waiting, 0 app events not yet delivered, apps it calls at https://bot.example.",
+    );
     expect(hosting.start).not.toHaveBeenCalled();
     await waitFor(() => expect(hosting.list!.mock.calls.length).toBeGreaterThan(listReads));
   });
@@ -865,6 +880,57 @@ describe("starting with the computer", () => {
     );
     const list = await screen.findByRole("region", { name: "Hosted on this computer" });
     expect(list).toHaveTextContent("Port 8543 · Starts with Gatherline");
+  });
+});
+
+describe("a workspace restored from a backup", () => {
+  const restored = {
+    folder: "w-restored",
+    name: "Rocket Team",
+    port: 8543,
+    lastHostedAt: 1,
+    lastBackupAt: null,
+    running: false,
+    missing: false,
+    restored: true,
+  };
+
+  it("is only looked inside until it is put back in use on purpose", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, { workspaces: [restored], unreadable: [] });
+    render(<Harness hosting={hosting} />);
+    const list = await screen.findByRole("region", { name: "Hosted on this computer" });
+    expect(list).toHaveTextContent("Restored, not in use yet · Port 8543");
+    expect(within(list).queryByRole("button", { name: "Start hosting Rocket Team" })).toBeNull();
+
+    await user.click(within(list).getByRole("button", { name: "Put Rocket Team back in use" }));
+    const question = within(list).getByRole("region", { name: "Put Rocket Team back in use?" });
+    expect(question).toHaveTextContent(/sends the messages it had waiting, calls its apps again/);
+    await user.click(within(question).getByRole("button", { name: "Not yet" }));
+    expect(within(list).queryByRole("region", { name: /back in use\?/ })).toBeNull();
+
+    await user.click(within(list).getByRole("button", { name: "Put Rocket Team back in use" }));
+    await user.click(within(list).getByRole("button", { name: /^Put back in use$/ }));
+    expect(hosting.start).toHaveBeenLastCalledWith({ folder: "w-restored", activate: true });
+  });
+
+  it("starts only to be looked inside from its Look inside button", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(stopped, { workspaces: [restored], unreadable: [] });
+    render(<Harness hosting={hosting} />);
+    await user.click(await screen.findByRole("button", { name: "Look inside Rocket Team" }));
+    expect(hosting.start).toHaveBeenLastCalledWith({ folder: "w-restored" });
+  });
+
+  it("says it is being looked inside, and offers no public address meanwhile", async () => {
+    const { hosting } = fakeHosting({ ...running, isolated: true, workspaceName: "Rocket Team" });
+    render(<Harness hosting={hosting} />);
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    expect(within(dialog).getByText(/You are looking inside Rocket Team/)).toHaveAttribute(
+      "role",
+      "status",
+    );
+    expect(within(dialog).queryByRole("heading", { name: "Open to all" })).toBeNull();
   });
 });
 

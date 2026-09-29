@@ -28,6 +28,12 @@ export interface HostedWorkspace {
   lastBackupAt?: number;
   /** Backing it up by itself, into a folder the host chose, keeping the newest few. */
   autoBackup?: AutoBackup;
+  /**
+   * When it was restored from a backup, until someone puts it back in use.
+   * Until then it starts only on its own, for looking inside: nothing queued
+   * is sent, no app is called, and only this computer can reach it.
+   */
+  restoredHold?: number;
 }
 
 /** How often, and where, a workspace is backed up without being asked. */
@@ -122,8 +128,17 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
   const entries: HostedWorkspace[] = [];
   for (const raw of workspaces) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const { id, folder, name, port, portChosen, lastHostedAt, lastBackupAt, autoBackup } =
-      raw as Record<string, unknown>;
+    const {
+      id,
+      folder,
+      name,
+      port,
+      portChosen,
+      lastHostedAt,
+      lastBackupAt,
+      autoBackup,
+      restoredHold,
+    } = raw as Record<string, unknown>;
     if (typeof folder !== "string" || !FOLDER.test(folder) || folders.has(folder)) continue;
     if (id !== null && (typeof id !== "string" || !id || ids.has(id))) continue;
     if (typeof name !== "string" || !name.trim() || name.length > 80) continue;
@@ -142,6 +157,13 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
         ? { lastBackupAt }
         : {}),
       ...(parseAutoBackup(autoBackup) ? { autoBackup: parseAutoBackup(autoBackup) } : {}),
+      // Anything present holds it: a hold that cannot be read is still a hold.
+      ...(restoredHold !== undefined
+        ? {
+            restoredHold:
+              typeof restoredHold === "number" && Number.isFinite(restoredHold) ? restoredHold : 0,
+          }
+        : {}),
     });
   }
   return entries;
