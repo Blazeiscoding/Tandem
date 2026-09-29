@@ -1585,14 +1585,6 @@ export class Store {
   }
 
   /**
-   * How far the account of follow row `f` has read the thread rooted at `m`:
-   * its own cursor, or its channel's once that has gone further, since reading
-   * a channel past replies reads them too (see `UNREAD`).
-   */
-  private static readonly THREAD_READ_SEQ =
-    "MAX(f.last_read_seq, COALESCE((SELECT cm.last_read_seq FROM channel_members cm WHERE cm.channel_id = m.channel_id AND cm.user_id = f.user_id), 0))";
-
-  /**
    * Followed threads, most recent activity first. Ordering by last activity
    * then root id keeps paging stable when two threads share a last seq.
    */
@@ -1617,7 +1609,7 @@ export class Store {
              ), 0)) AS last_seq,
              (SELECT COUNT(*) FROM messages r
               WHERE r.thread_root_id = m.id AND r.deleted_at IS NULL
-              AND r.seq > ${Store.THREAD_READ_SEQ}) AS unread_count
+              AND r.seq > f.last_read_seq) AS unread_count
            FROM thread_follows f
            JOIN messages m ON m.id = f.root_id
            JOIN channels c ON c.id = m.channel_id
@@ -1674,7 +1666,7 @@ export class Store {
          )
          AND EXISTS (
            SELECT 1 FROM messages r WHERE r.thread_root_id = m.id AND r.deleted_at IS NULL
-           AND r.seq > ${Store.THREAD_READ_SEQ}
+           AND r.seq > f.last_read_seq
          )`,
       )
       .get(userId, userId) as { n: number };

@@ -297,23 +297,10 @@ const initialState: WorkspaceState = {
   commands: [],
 };
 
-/**
- * How far this account has read a thread. As in `isMessageRead`, a reply is
- * read once its thread's cursor or its channel's passes it, so reading the
- * channel past a thread's replies reads them too.
- */
-export function threadReadSeq(follow: ThreadFollow, memberships: Record<ID, number>): number {
-  return Math.max(follow.lastReadSeq, memberships[follow.channelId] ?? 0);
-}
-
 /** Followed threads with replies this account has not read. */
-export function unreadThreadCount(
-  threadFollows: Record<ID, ThreadFollow>,
-  memberships: Record<ID, number>,
-): number {
-  return Object.values(threadFollows).filter(
-    (f) => f.following && f.lastSeq > threadReadSeq(f, memberships),
-  ).length;
+export function unreadThreadCount(threadFollows: Record<ID, ThreadFollow>): number {
+  return Object.values(threadFollows).filter((f) => f.following && f.lastSeq > f.lastReadSeq)
+    .length;
 }
 
 /**

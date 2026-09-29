@@ -760,32 +760,4 @@ describe("reading a thread", () => {
     expect(await unreadActivity()).toEqual([]);
     expect([mention.seq, reply.seq].every((seq) => seq < later.seq)).toBe(true);
   });
-
-  it("counts a followed thread read once the channel is read past its replies, until a newer one", async () => {
-    const root = await post("Lunch plans", peer.token);
-    await request(`/api/messages/${root.id}/follow`, { following: true }, "PUT");
-    const reply = await post("Noodles?", peer.token, root.id);
-    const later = await post("Back to work", peer.token);
-    const followed = async (unreadOnly = false) =>
-      (
-        await request(
-          `/api/threads/followed${unreadOnly ? "?unreadOnly=true" : ""}`,
-          undefined,
-          "GET",
-        )
-      ).body.threads;
-    expect((await followed())[0].unreadCount).toBe(1);
-
-    await request(`/api/channels/${channelId}/read`, { seq: later.seq });
-    expect(reply.seq).toBeLessThan(later.seq);
-    expect((await followed())[0].unreadCount).toBe(0);
-    expect(await followed(true)).toEqual([]);
-    expect(server.store.unreadThreadCount(owner.id)).toBe(0);
-
-    const newer = await post("Ramen, actually", peer.token, root.id);
-    expect(newer.seq).toBeGreaterThan(later.seq);
-    expect((await followed())[0].unreadCount).toBe(1);
-    expect(await followed(true)).toEqual([expect.objectContaining({ unreadCount: 1 })]);
-    expect(server.store.unreadThreadCount(owner.id)).toBe(1);
-  });
 });
