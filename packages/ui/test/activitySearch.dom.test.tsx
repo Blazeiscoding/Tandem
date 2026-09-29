@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { WorkspaceClient } from "@slackoss/client-core";
+import { ApiError, WorkspaceClient } from "@slackoss/client-core";
 import type { Channel, Message, User } from "@slackoss/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { ActivityPanel } from "../src/components/ActivityPanel.js";
@@ -176,6 +176,27 @@ describe("the search dialog", () => {
     const box = within(dialog).getByRole("textbox", { name: "Search messages" });
     return { spy, dialog, box };
   }
+
+  it("says back the days it was given, and which ones are not dates", async () => {
+    const user = userEvent.setup();
+    const { dialog, box } = renderSearch(async () => {
+      throw new ApiError(
+        400,
+        "invalid_search_date",
+        "Not a date: before:2026-02-31. Write dates as YYYY-MM-DD.",
+      );
+    });
+    await user.type(box, "after:2026-03-08 before:2026-02-31");
+    const day = new Date(Date.UTC(2026, 2, 8)).toLocaleDateString(undefined, { timeZone: "UTC" });
+    // The day that was named, not the one the bound happens to start on.
+    expect(within(dialog).getByText(`after ${day}`)).toBeVisible();
+    expect(within(dialog).getByText("not a date: before:2026-02-31")).toBeVisible();
+
+    await user.keyboard("{Enter}");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Not a date: before:2026-02-31. Write dates as YYYY-MM-DD.",
+    );
+  });
 
   it("says a search failed, and Retry asks the same question again", async () => {
     const user = userEvent.setup();

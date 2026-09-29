@@ -670,6 +670,9 @@ export class Api {
     const params = new URLSearchParams({ q, limit: String(limit) });
     if (opts.cursor) params.set("cursor", opts.cursor);
     if (opts.channelId) params.set("channelId", opts.channelId);
+    // Dates in the query name days on the reader's calendar, not the server's.
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timeZone) params.set("tz", timeZone);
     return this.request("GET", `/api/search?${params}`, undefined, {
       timeoutMs: 10_000,
       signal: opts.signal,

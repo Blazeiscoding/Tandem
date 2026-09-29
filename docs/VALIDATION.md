@@ -1064,3 +1064,20 @@ from the repository root.
 ## Webhooks and calls to apps are admitted, not taken on trust (29 September)
 
 `fix/webhook-and-action-admission` closes the rest of S1. New cases in `packages/server/test/limits.test.ts`. Under "incoming webhooks": with a webhook burst of 2, a third post to one webhook is refused with `Retry-After`, while the same app's other webhook and a person's own post still go through; three guessed tokens from one address exhaust an address burst of 3, so the real token from there is refused too; and with limits turned off a webhook takes more than its default burst. Under "calls out to apps", against a stand-in app that can hold answers open: with an `appCall` burst of 2, a command and a button press go through, a third command and a second press are refused, the app receives exactly two requests, and another account is unaffected; a fifth unanswered command from one account is refused while another account's still reaches the app, and all of them finish once the app answers; and a seventeenth unanswered call to one app, from a fifth account, is refused as `app_busy` until the others finish. All six fail on the previous code. The whole server suite, including the integration tests that run at the default limits, passed 438/438. Linux results: typecheck 8/8, build 3/3, unit tests server 438, desktop 148, client-core 79, protocol 12, UI 451, and browser E2E 18/18. In one of three parallel `turbo test` runs, `backup.test.ts` "rejects missing inventory entries even when the listed checksums all match" hit its 5-second timeout (5182 ms); it passed in the other parallel runs and alone, and does not touch the limiter. It belongs with the recurring parallel timeouts in the plan's item 5.
+
+## Search dates by the reader's calendar day (29 September)
+
+`fix/search-dates-by-calendar-day` closes S6. New cases in `packages/protocol/test/search.test.ts`, under "dates in a search":
+
+- In New York, `after:2026-03-08` starts at 04:00 UTC on the 9th and `after:2026-11-01` at 05:00 UTC on the 2nd, where adding 24 hours gave 01:00 and 23:00 local.
+- Havana and Santiago days that skip midnight start at their first real instant.
+- Kolkata, Kiritimati (UTC+14), Pago Pago (UTC-11) and UTC give the expected starts.
+- The same bounds come back with the process running in Tokyo, Los Angeles or UTC.
+- 29 February 2028 is accepted, while 29 February 2026, 31 February, month 13, month 00 and year 0099 are listed as invalid.
+- The named days are returned for display, and an unknown zone is recognised as one.
+
+`packages/server/test/searchDates.test.ts` covers the route. A message at 22:00 on 8 March in New York is excluded by `after:2026-03-08` and one at 00:30 on the 9th is included, while a Tokyo reader gets both. An invalid date is refused with both tokens named, and an unknown zone is refused.
+
+`packages/ui/test/activitySearch.dom.test.tsx` checks the dialog: it shows the named day for `after:`, marks "not a date", and shows the server's refusal.
+
+All new cases fail on the previous code. Linux results: typecheck 8/8, build 3/3, unit tests server 441, desktop 148, client-core 79, protocol 20, UI 452, and browser E2E 18/18.

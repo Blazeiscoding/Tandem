@@ -45,6 +45,7 @@ import {
   threadHistoryQuery,
   registerBody,
   parseSearchQuery,
+  isTimeZone,
   hasSearchCriteria,
   searchQuery,
   activityQuery,
@@ -3683,7 +3684,21 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const me = requireUser(req);
     const q = searchQuery.parse(req.query);
     if (q.channelId) requireChannelAccess(q.channelId, me);
-    const parsed = parseSearchQuery(q.q);
+    if (q.tz !== undefined && !isTimeZone(q.tz))
+      throw new HttpError(
+        400,
+        "invalid_time_zone",
+        `${q.tz} is not a time zone this server knows.`,
+      );
+    const parsed = parseSearchQuery(q.q, { timeZone: q.tz });
+    // A date that is not one would otherwise be dropped, and the search would
+    // quietly cover more than was asked for.
+    if (parsed.invalid.length > 0)
+      throw new HttpError(
+        400,
+        "invalid_search_date",
+        `Not a date: ${parsed.invalid.join(", ")}. Write dates as YYYY-MM-DD.`,
+      );
     // A query of nothing but stray punctuation should return nothing, not everything.
     if (!hasSearchCriteria(parsed) && !q.channelId) return { messages: [], nextCursor: null };
     const matches = store.searchMessages(me.id, parsed, q.limit + 1, q);

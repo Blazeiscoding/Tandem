@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ApiError } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
 import { parseSearchQuery } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
@@ -16,9 +17,17 @@ const MODIFIER_HELP = [
   { token: "in:#channel", what: "in one channel" },
   { token: "has:link", what: "contains a link" },
   { token: "has:file", what: "has an attachment" },
-  { token: "after:2026-01-01", what: "since a date" },
-  { token: "before:2026-02-01", what: "up to a date" },
+  { token: "after:2026-01-01", what: "after a day" },
+  { token: "before:2026-02-01", what: "before a day" },
 ];
+
+/** A YYYY-MM-DD day in the reader's own date style, without moving it a day. */
+function dayLabel(day: string): string {
+  const [year, month, date] = day.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, date)).toLocaleDateString(undefined, {
+    timeZone: "UTC",
+  });
+}
 
 /** Shows the modifiers, then what the current query was understood to mean. */
 function SearchHints({ query }: { query: string }) {
@@ -27,11 +36,11 @@ function SearchHints({ query }: { query: string }) {
     ...parsed.from.map((h) => `from @${h}`),
     ...parsed.in.map((c) => `in #${c}`),
     ...parsed.has.map((h) => (h === "link" ? "has a link" : "has a file")),
-    ...(parsed.after !== null ? [`after ${new Date(parsed.after).toLocaleDateString()}`] : []),
-    ...(parsed.before !== null ? [`before ${new Date(parsed.before).toLocaleDateString()}`] : []),
+    ...(parsed.afterDay ? [`after ${dayLabel(parsed.afterDay)}`] : []),
+    ...(parsed.beforeDay ? [`before ${dayLabel(parsed.beforeDay)}`] : []),
   ];
 
-  if (chips.length === 0) {
+  if (chips.length === 0 && parsed.invalid.length === 0) {
     return (
       <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-faint">
         {MODIFIER_HELP.map((m) => (
@@ -49,6 +58,11 @@ function SearchHints({ query }: { query: string }) {
       {chips.map((c) => (
         <span key={c} className="rounded-full border border-edge px-2 py-0.5 text-copper">
           {c}
+        </span>
+      ))}
+      {parsed.invalid.map((token) => (
+        <span key={token} className="rounded-full border border-alert/40 px-2 py-0.5 text-alert">
+          not a date: {token}
         </span>
       ))}
       {parsed.terms.length > 0 && (
@@ -128,9 +142,13 @@ export function SearchDialog(props: {
       setCursors(nextCursors);
       if (nextPage === 0) recent.remember(criteria);
       list.current?.closest('[role="dialog"]')?.scrollTo({ top: 0 });
-    } catch {
+    } catch (err) {
       if (!controller.signal.aborted)
-        setError("Could not search this workspace. Check your connection and try again.");
+        setError(
+          err instanceof ApiError && err.code === "invalid_search_date"
+            ? err.message
+            : "Could not search this workspace. Check your connection and try again.",
+        );
     } finally {
       if (request.current === controller && !controller.signal.aborted) setBusy(false);
     }
@@ -225,7 +243,7 @@ export function SearchDialog(props: {
             </button>
           </div>
           <label className="min-w-0 text-xs text-ink-faint">
-            On or after
+            After
             <input
               type="date"
               className={inputCls}
