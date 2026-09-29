@@ -356,11 +356,13 @@ test("restarting offers to host the last workspace again instead of reconnecting
     expect(await page.evaluate(() => (window as any).slackoss.hostingRestore())).toEqual({
       folder: other.folder,
       name: "Resume-Test",
+      // What the backup would set off once put back in use, for the host to see first.
+      inventory: expect.objectContaining({ sessions: expect.any(Number) }),
     });
     const afterRestore = await page.evaluate(() => (window as any).slackoss.hostingList());
     expect(
       afterRestore.workspaces.find((w: { folder: string }) => w.folder === other.folder),
-    ).toMatchObject({ missing: false, running: false });
+    ).toMatchObject({ missing: false, running: false, restored: true });
     rmSync(backups, { recursive: true, force: true });
     await expect(page.locator("textarea")).toBeVisible();
 
