@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { holdWorkspace } from "@slackoss/server/ownership";
 
 /**
  * A workspace this computer hosts, as the settings file remembers it. The
@@ -205,16 +206,23 @@ export function writeWorkspaceName(dataDir: string, name: string): void {
   const file = join(dataDir, "workspace.db");
   // Opening a file that is not there would create an empty database.
   if (!existsSync(file)) throw new Error("There is no workspace database in that folder.");
-  const db = new DatabaseSync(file);
+  // A server started by hand on the same folder would go on under the old name
+  // and could write it back, so the rename is refused while one has it.
+  const hold = holdWorkspace(dataDir, "a rename");
   try {
-    // Something else holding the file, such as a server started by hand, gets
-    // a moment to finish rather than failing the rename at once.
-    db.exec("PRAGMA busy_timeout = 2000");
-    db.prepare(
-      "INSERT INTO meta (key, value) VALUES ('workspace_name', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(name);
+    const db = new DatabaseSync(file);
+    try {
+      // A backup reading the file gets a moment to finish rather than failing
+      // the rename at once.
+      db.exec("PRAGMA busy_timeout = 2000");
+      db.prepare(
+        "INSERT INTO meta (key, value) VALUES ('workspace_name', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      ).run(name);
+    } finally {
+      db.close();
+    }
   } finally {
-    db.close();
+    hold.release();
   }
 }
 
