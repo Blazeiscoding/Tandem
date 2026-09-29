@@ -66,8 +66,12 @@ hosts on the network only: **Open to all** and a stable address are not reopened
 by themselves, so share again after a restart. If the chosen workspace cannot
 start, the reason is shown the next time the window is opened.
 
-Current limits: a port chosen for a workspace can be replaced by a free one when
-that port is taken as it restarts, and Manage hosting then warns; these two
+A port you chose for a workspace, when creating it or with Change port, is kept:
+if another program holds it, the workspace does not start and says so, rather
+than moving to another port. A workspace left on the usual port moves to a free
+one and Manage hosting says where.
+
+Current limits: these two
 choices can only be changed while the workspace is running; and opening at
 sign-in has not been tried on an installed macOS system. If macOS holds the
 registration for approval, the dialog says to allow Gatherline under Login Items

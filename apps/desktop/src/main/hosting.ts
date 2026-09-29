@@ -595,6 +595,7 @@ export function createHostingController(options: HostingOptions) {
           folder: newFolder(),
           name: requested.workspaceName,
           port: requested.port ?? options.defaultPort,
+          portChosen: requested.port !== undefined && requested.port !== 0,
           lastHostedAt: now(),
         };
         const dataDir = join(options.dataRoot, entry.folder);
@@ -617,6 +618,13 @@ export function createHostingController(options: HostingOptions) {
         dataDir: join(options.dataRoot, entry.folder),
       };
       const preferred = requested.port ?? (created ? options.defaultPort : entry.port);
+      // A port asked for now, or chosen before, is kept; only an automatic one
+      // may move. Entries from before this was recorded count a port other
+      // than the usual one as chosen, since that is how it usually got there.
+      const portChosen =
+        requested.port !== undefined
+          ? requested.port !== 0
+          : (entry.portChosen ?? entry.port !== options.defaultPort);
       const serverOptions = {
         dataDir: workspace.dataDir,
         // An existing workspace keeps the name it has; only a new one is given one.
@@ -633,19 +641,13 @@ export function createHostingController(options: HostingOptions) {
         } catch (error) {
           // Only the automatic port choice may change behind the user's back.
           // A port someone asked for is theirs to change.
-          if (
-            requested.port !== undefined &&
-            requested.port !== 0 &&
-            (error as NodeJS.ErrnoException)?.code === "EADDRINUSE"
-          )
+          if (portChosen && (error as NodeJS.ErrnoException)?.code === "EADDRINUSE")
             throw new Error(
-              `Port ${requested.port} is already in use on this computer. Choose another, or leave the port empty to use one that is free.`,
+              created || requested.port !== undefined
+                ? `Port ${preferred} is already in use on this computer. Choose another, or leave the port empty to use one that is free.`
+                : `Port ${preferred}, chosen for ${entry.name}, is already in use on this computer, so it did not start. Close the program using it, or change ${entry.name}'s port. Its port was not changed.`,
             );
-          if (
-            requested.port !== undefined ||
-            (error as NodeJS.ErrnoException)?.code !== "EADDRINUSE"
-          )
-            throw error;
+          if (portChosen || (error as NodeJS.ErrnoException)?.code !== "EADDRINUSE") throw error;
           server = await options.startServer({ ...serverOptions, port: 0 });
           // Whatever holds the usual port is still answering there. Anything
           // aimed at it now reaches that program instead of this workspace.
@@ -671,6 +673,7 @@ export function createHostingController(options: HostingOptions) {
         id: server.workspaceId?.() ?? entry.id,
         name: server.workspaceName?.() ?? entry.name,
         port: server.port,
+        portChosen,
         lastHostedAt: now(),
       });
       workspace.workspaceName = server.workspaceName?.() ?? entry.name;
@@ -1096,11 +1099,11 @@ export function createHostingController(options: HostingOptions) {
       if (!entry) throw new Error("That workspace is not in the list hosted on this computer.");
       if (server && workspace?.folder === entry.folder)
         throw new Error(`Stop hosting ${entry.name} before changing its port.`);
-      updateEntry(entry.folder, { port: next });
+      updateEntry(entry.folder, { port: next, portChosen: true });
       try {
         await saveRegistry();
       } catch {
-        updateEntry(entry.folder, { port: entry.port });
+        updateEntry(entry.folder, { port: entry.port, portChosen: entry.portChosen });
         throw new Error(
           "Gatherline could not save the new port. Check that its settings folder is writable, then try again.",
         );
