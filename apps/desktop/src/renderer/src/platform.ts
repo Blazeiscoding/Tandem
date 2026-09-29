@@ -24,6 +24,7 @@ interface SlackossBridge {
   hostingRename: (folder: string, name: string) => Promise<{ folder: string; name: string }>;
   hostingOpenFolder: (folder: string) => Promise<void>;
   hostingSetStartOnLaunch: (folder: string | null) => Promise<string | null>;
+  hostingSetReopenPublicOnLaunch: (reopen: boolean) => Promise<boolean>;
   hostingSetPort: (folder: string, port: number) => Promise<{ folder: string; port: number }>;
   hostingSetAutoBackup: (
     folder: string,
@@ -111,6 +112,7 @@ export function electronPlatform(): Platform {
       forget: (folder) => plainly(bridge.hostingForget(folder)),
       rename: (folder, name) => plainly(bridge.hostingRename(folder, name)),
       openFolder: (folder) => plainly(bridge.hostingOpenFolder(folder)),
+      setReopenPublicOnLaunch: (reopen) => plainly(bridge.hostingSetReopenPublicOnLaunch(reopen)),
       setStartOnLaunch: async (folder) => {
         await plainly(bridge.hostingSetStartOnLaunch(folder));
       },

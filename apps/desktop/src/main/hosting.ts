@@ -56,10 +56,19 @@ export interface HostingSnapshot {
    * nothing queued is sent, no app is called, and only this computer reaches it.
    */
   isolated?: boolean;
+  /** The running workspace reopens its stable public address when it starts with Gatherline. */
+  reopensPublicOnLaunch?: boolean;
 }
 
 /** The settings key naming, by its folder, the workspace to start when the app opens. */
 export const START_ON_LAUNCH_KEY = "startOnLaunch";
+
+/**
+ * The settings key for reopening a stable public address when the workspace
+ * starts with Gatherline: which workspace, and which address, so a changed
+ * address or another workspace is never published by it.
+ */
+export const REOPEN_PUBLIC_KEY = "reopenPublicOnLaunch";
 
 /**
  * Calls through a tunnel still go directly between people, so each side has
@@ -328,6 +337,8 @@ export function createHostingController(options: HostingOptions) {
   let workspace: { workspaceName: string; folder: string; dataDir: string } | null = null;
   /** The running workspace is a restored copy started only to look inside. */
   let isolatedRun = false;
+  /** What `REOPEN_PUBLIC_KEY` holds, once read; null when nothing is to reopen. */
+  let reopenPublic: { folder: string; address: string } | null | undefined;
   let phase: HostingSnapshot["phase"] = "stopped";
   const now = options.now ?? Date.now;
   const read = options.readWorkspace ?? readWorkspace;
@@ -417,6 +428,13 @@ export function createHostingController(options: HostingOptions) {
       ...(server?.connectedPeople ? { connected: server.connectedPeople() } : {}),
       ...(launchError ? { launchError } : {}),
       ...(server && isolatedRun ? { isolated: true } : {}),
+      ...(server &&
+      workspace &&
+      reopenPublic &&
+      reopenPublic.folder === workspace.folder &&
+      reopenPublic.address === address.url
+        ? { reopensPublicOnLaunch: true }
+        : {}),
     };
   }
 
@@ -721,6 +739,13 @@ export function createHostingController(options: HostingOptions) {
         ...(requested.activate ? { restoredHold: undefined } : {}),
       });
       isolatedRun = isolated;
+      // So the status can say whether this workspace reopens its address.
+      void readReopenPublic().then(
+        (value) => {
+          if (value && value.folder === workspace?.folder) changed();
+        },
+        () => {},
+      );
       workspace.workspaceName = server.workspaceName?.() ?? entry.name;
       phase = "running";
       launchError = undefined;
@@ -1241,8 +1266,9 @@ export function createHostingController(options: HostingOptions) {
       changed();
       return null;
     }
+    let started: HostingSnapshot;
     try {
-      return await start({ folder });
+      started = await start({ folder });
     } catch (error) {
       launchError = `Gatherline did not start hosting ${entry.name} when it opened. ${
         error instanceof Error ? error.message : ""
@@ -1250,6 +1276,88 @@ export function createHostingController(options: HostingOptions) {
       changed();
       return null;
     }
+    return reopenPublicAfterLaunch(entry.name, folder, started);
+  }
+
+  async function readReopenPublic(): Promise<{ folder: string; address: string } | null> {
+    if (reopenPublic !== undefined) return reopenPublic;
+    const stored = (await options.settings.get(REOPEN_PUBLIC_KEY).catch(() => null)) as {
+      folder?: unknown;
+      address?: unknown;
+    } | null;
+    reopenPublic =
+      stored && typeof stored.folder === "string" && typeof stored.address === "string"
+        ? { folder: stored.folder, address: stored.address }
+        : null;
+    return reopenPublic;
+  }
+
+  /**
+   * Publishes the stable address again after starting with Gatherline, when
+   * the host asked for that for this workspace and this address. Open to all
+   * checks that the address reaches this running workspace before publishing,
+   * and asks for an invite unless told otherwise, so nothing is weakened. A
+   * failure is kept to be shown; hosting on the network carries on.
+   */
+  async function reopenPublicAfterLaunch(
+    name: string,
+    folder: string,
+    started: HostingSnapshot,
+  ): Promise<HostingSnapshot> {
+    const wanted = await readReopenPublic();
+    if (!wanted || wanted.folder !== folder || isolatedRun) return started;
+    const current = publicAddress();
+    if (current.url !== wanted.address) {
+      launchError = `${name} started, but ${wanted.address} was not reopened, because the stable address Gatherline is set up with has changed${current.url ? ` to ${current.url}` : ""}. Open it to all again, then choose to reopen it.`;
+      changed();
+      return started;
+    }
+    try {
+      return await openToAll({});
+    } catch (error) {
+      launchError = `${name} started on this network, but ${wanted.address} was not reopened. ${
+        error instanceof Error ? error.message : ""
+      }`.trim();
+      changed();
+      return status();
+    }
+  }
+
+  /**
+   * Chooses whether the running workspace reopens its stable public address
+   * when it starts with Gatherline. Only a stable address can be chosen: a
+   * temporary one is different every time, so reopening it would publish an
+   * address nobody was given.
+   */
+  function setReopenPublicOnLaunch(value: unknown): Promise<boolean> {
+    if (typeof value !== "boolean")
+      return Promise.reject(new Error("Say whether to reopen the address with true or false."));
+    return serialized(async () => {
+      if (value) {
+        if (!server || !workspace || phase !== "running")
+          throw new Error("Start hosting the workspace before choosing to reopen its address.");
+        if (isolatedRun)
+          throw new Error(
+            "A restored copy you are looking inside has no public address to reopen.",
+          );
+        const address = publicAddress();
+        if (!address.url || address.error)
+          throw new Error(
+            "Only a stable address can be reopened when Gatherline starts. Set one up first; a temporary address changes every time.",
+          );
+      }
+      const next = value ? { folder: workspace!.folder, address: publicAddress().url! } : null;
+      try {
+        await options.settings.set(REOPEN_PUBLIC_KEY, next);
+      } catch {
+        throw new Error(
+          "Gatherline could not save that choice. Check that its settings folder is writable, then try again.",
+        );
+      }
+      reopenPublic = next;
+      changed();
+      return value;
+    });
   }
 
   /**
@@ -1603,6 +1711,7 @@ export function createHostingController(options: HostingOptions) {
     rename,
     openFolder,
     setStartOnLaunch,
+    setReopenPublicOnLaunch,
     setPort,
     setAutoBackup,
     runDueBackups,

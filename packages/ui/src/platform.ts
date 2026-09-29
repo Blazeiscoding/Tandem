@@ -119,6 +119,8 @@ export interface HostingStatus {
    * app is called, and only this computer can reach it.
    */
   isolated?: boolean;
+  /** The running workspace reopens its stable public address when it starts with Gatherline. */
+  reopensPublicOnLaunch?: boolean;
 }
 
 /**
@@ -191,6 +193,12 @@ export interface Platform {
      * opens, or none. Rejects, saying why, a workspace not in the list.
      */
     setStartOnLaunch?: (folder: string | null) => Promise<void>;
+    /**
+     * Whether the running workspace also reopens its stable public address
+     * when it starts with Gatherline. Rejects, saying why, without a stable
+     * address or while nothing is running.
+     */
+    setReopenPublicOnLaunch?: (reopen: boolean) => Promise<boolean>;
     /**
      * Changes the port a stopped workspace starts on. Rejects, saying why,
      * a port outside 1 to 65535 or a workspace that is running.

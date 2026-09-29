@@ -836,6 +836,44 @@ describe("starting with the computer", () => {
     await waitFor(() => expect(start).not.toBeChecked());
   });
 
+  it("reopens a stable address with the workspace only once it starts with Gatherline", async () => {
+    const user = userEvent.setup();
+    const status = {
+      ...running,
+      folder: "team-a",
+      publicAddress: "https://chat.example.org",
+      startsOnLaunch: false,
+    };
+    const { hosting, push } = withLaunch(status);
+    const withReopen = hosting as typeof hosting & {
+      setReopenPublicOnLaunch: ReturnType<typeof vi.fn>;
+    };
+    withReopen.setReopenPublicOnLaunch = vi.fn(async (reopen: boolean) => {
+      push({ ...status, startsOnLaunch: true, reopensPublicOnLaunch: reopen });
+      return reopen;
+    });
+    render(<Harness hosting={withReopen} />);
+    const group = await screen.findByRole("group", { name: "When this computer starts" });
+    const reopen = within(group).getByRole("checkbox", {
+      name: /Also reopen https:\/\/chat\.example\.org when Rocket Team starts with Gatherline/,
+    });
+    expect(reopen).toBeDisabled();
+
+    push({ ...status, startsOnLaunch: true });
+    await waitFor(() => expect(reopen).toBeEnabled());
+    await user.click(reopen);
+    expect(withReopen.setReopenPublicOnLaunch).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(reopen).toBeChecked());
+  });
+
+  it("offers no reopening without a stable address", async () => {
+    const { hosting } = withLaunch({ ...running, folder: "team-a" });
+    (hosting as { setReopenPublicOnLaunch?: unknown }).setReopenPublicOnLaunch = vi.fn();
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "When this computer starts" });
+    expect(within(group).queryByRole("checkbox", { name: /Also reopen/ })).toBeNull();
+  });
+
   it("offers only what this copy of the app can do", async () => {
     const { hosting } = withLaunch({ ...running, folder: "team-a" }, null);
     render(<Harness hosting={hosting} />);
