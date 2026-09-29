@@ -117,6 +117,115 @@ function StartWithComputer(props: {
   );
 }
 
+/**
+ * The same choices while nothing is running, so a workspace that fails to
+ * start with Gatherline can be taken off it, and Gatherline off sign-in,
+ * without having to start it first. Nothing here removes it from the list.
+ */
+function StartupWhileStopped(props: {
+  hosting: Hosting;
+  /** The workspace chosen to start with Gatherline, if it is listed. */
+  chosen: { folder: string; name: string } | null;
+  /** Why starting with Gatherline did not happen, if it did not. */
+  launchError: string | undefined;
+  disabled: boolean;
+  onChanged: () => void;
+  onError: (text: string | null) => void;
+}) {
+  const setStart = props.hosting.setStartOnLaunch;
+  const login = props.hosting.openAtLogin;
+  const [atLogin, setAtLogin] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!login) return;
+    let alive = true;
+    login.get().then(
+      (value) => {
+        if (alive) setAtLogin(value);
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, [login]);
+  if (!setStart || (!props.chosen && !props.launchError && !atLogin)) return null;
+
+  async function save(action: () => Promise<unknown>) {
+    setSaving(true);
+    props.onError(null);
+    try {
+      await action();
+      props.onChanged();
+    } catch (reason) {
+      props.onError(
+        reason instanceof Error && reason.message
+          ? reason.message
+          : "That choice could not be saved. Try again.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section aria-label="When this computer starts" className="mb-5 space-y-2 text-sm">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
+        When this computer starts
+      </h3>
+      {props.chosen ? (
+        <p className="text-ink-dim">
+          {props.chosen.name} starts hosting when Gatherline opens.{" "}
+          <button
+            type="button"
+            disabled={props.disabled || saving}
+            className={linkBtnCls}
+            onClick={() => void save(() => setStart(null))}
+          >
+            Don’t start {props.chosen.name} with Gatherline
+          </button>
+        </p>
+      ) : (
+        props.launchError && (
+          <p className="text-ink-dim">
+            <button
+              type="button"
+              disabled={props.disabled || saving}
+              className={linkBtnCls}
+              onClick={() => void save(() => setStart(null))}
+            >
+              Start nothing when Gatherline opens
+            </button>
+          </p>
+        )
+      )}
+      {login && atLogin !== null && (
+        <label className="flex items-start gap-2 text-ink">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={atLogin}
+            disabled={props.disabled || saving}
+            onChange={(event) => {
+              const open = event.target.checked;
+              setAtLogin(open);
+              void save(async () => {
+                try {
+                  setAtLogin(await login.set(open));
+                } catch (reason) {
+                  setAtLogin(!open);
+                  throw reason;
+                }
+              });
+            }}
+          />
+          <span>Open Gatherline when you sign in to this computer</span>
+        </label>
+      )}
+    </section>
+  );
+}
+
 const KEEP_CHOICES = [3, 7, 14, 30];
 
 /**
@@ -1326,6 +1435,14 @@ export function HostDialog(props: {
             </p>
           )}
           {backupStatus}
+          <StartupWhileStopped
+            hosting={props.hosting}
+            chosen={existing.find((w) => w.startsOnLaunch) ?? null}
+            launchError={status.launchError}
+            disabled={unavailable}
+            onChanged={() => setListRevision((n) => n + 1)}
+            onError={(text) => setBackupNote(text ? { ok: false, text } : null)}
+          />
           {existing.length > 0 && (
             <section aria-label="Hosted on this computer" className="mb-5">
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-dim">

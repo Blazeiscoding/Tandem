@@ -1139,6 +1139,8 @@ export function createHostingController(options: HostingOptions) {
         );
       }
       launchFolder = value;
+      // Starting nothing leaves nothing that failed to start.
+      if (value === null) launchError = undefined;
       changed();
       return value;
     });
