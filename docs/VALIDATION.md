@@ -1141,3 +1141,12 @@ Measurement in this Linux container on Node 22: 2,000 messages due at once in an
 | 10 (default) | 2,929 ms   | 85, 76, 74, 50      | 13 ms        |
 
 Linux results: typecheck 8/8, build 3/3, unit tests server 448, desktop 148, client-core 79, protocol 20, UI 453, and browser E2E 18/18.
+
+## Timeouts under parallel load, characterized (29 September)
+
+Two tests had been seen exceeding their five-second limit when `turbo test` ran every suite at once, and passing alone. Timing them step by step showed each carried a cost of its own that the load multiplied:
+
+- **`packages/server/test/backup.test.ts`.** Three cases spent about 1.2 s on `expect(readFileSync(db)).toEqual(before)`, Vitest's deep equality walking a whole database file byte by byte: "rejects missing inventory entries even when the listed checksums all match", "rejects overlapping directories without moving the workspace" and "refuses a damaged backup before touching the workspace". Their other steps and the hooks took about 250 ms together. They now compare SHA-256 digests, and each takes about 210 ms.
+- **`packages/ui/test/accountDevicesListStatus.dom.test.tsx`.** "Ignores an older initial list result after a password change has refreshed sessions" typed three passwords one key at a time, re-rendering the account dialog on every key (703 ms alone). It now pastes them (302 ms); the case is about which session list wins, not about typing.
+
+Forced parallel runs of `pnpm exec turbo test --force` on this 4-thread container: 2 of 7 timed out on the backup case before the change, and 4 of 4 passed after it. That is evidence, not proof, that the load-sensitive failures are gone. The remaining tests over a second in isolation are listed in the plan to watch.
