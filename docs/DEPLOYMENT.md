@@ -691,8 +691,12 @@ An hourly sweep removes conversation older than the window outright — rows,
 attachments, pins, saves, reactions, and the text in the event log — rather than
 hiding it. A thread ages out as one thing: a root is taken only once its newest
 reply is past the window too, so nobody is left with replies hanging under
-nothing. Up to 2,000 threads go per pass, so the first sweep after turning this
-on does not hold the database for a minute; the rest follow on the next hour.
+nothing. Each pass removes at most 5,000 messages, counting replies, taking the
+oldest threads first; a single thread larger than that goes whole, on its own.
+The hourly sweep runs passes back to back, giving other requests the server
+between them, until nothing is left or it has run for 30 seconds, and the rest
+follow on the next hour. A sweep that fails is logged as an error and tried
+again on the next hour; it does not stop the server.
 
 Nothing is announced to connected clients. These messages are old enough that no
 screen is showing them, and announcing a year of deletions would put the events
