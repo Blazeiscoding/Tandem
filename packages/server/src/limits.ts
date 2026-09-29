@@ -40,6 +40,22 @@ export interface Limits {
   socket: LimitRule;
   /** Typing notices and call signalling from one account. */
   ephemeral: LimitRule;
+  /**
+   * Posts to one incoming webhook. Whoever holds its URL can post, with no
+   * account behind them, so each webhook has a budget of its own rather than
+   * spending a person's or starving the app's other webhooks.
+   */
+  hook: LimitRule;
+  /**
+   * Webhook posts from one address, counted before the token is looked up, so
+   * guessing tokens costs the same as using one. Loose, for the NAT reason.
+   */
+  hookByAddress: LimitRule;
+  /**
+   * Calls out to apps that one account causes: slash commands, buttons and
+   * form submissions. Each is a request this server makes on their behalf.
+   */
+  appCall: LimitRule;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -49,7 +65,17 @@ export const DEFAULT_LIMITS: Limits = {
   upload: { burst: 20, perMinute: 60 },
   socket: { burst: 30, perMinute: 60 },
   ephemeral: { burst: 60, perMinute: 300 },
+  hook: { burst: 30, perMinute: 60 },
+  hookByAddress: { burst: 120, perMinute: 240 },
+  appCall: { burst: 20, perMinute: 60 },
 };
+
+/**
+ * Calls to apps allowed in flight at once. The rate limit bounds how many
+ * start; these bound how many a slow app can hold open, per account and per
+ * app, so neither one person nor one app ties up this server's connections.
+ */
+export const APP_CALLS_IN_FLIGHT = { perAccount: 4, perApp: 16 };
 
 interface Bucket {
   tokens: number;

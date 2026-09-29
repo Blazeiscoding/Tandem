@@ -71,7 +71,7 @@ import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { parsePort, parsePublicUrl } from "./config.js";
 import { iceServersSchema } from "./rtc.js";
-import { DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
+import { APP_CALLS_IN_FLIGHT, DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
 import { LOGGER_OPTIONS } from "./redact.js";
 import {
   firstHeaderValue,
@@ -404,6 +404,46 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       "That is more than this workspace allows for now. Try again shortly.",
       seconds,
     );
+  };
+
+  /** Calls to apps in flight, keyed `account:<id>` and `app:<id>`. */
+  const appCallsInFlight = new Map<string, number>();
+  /**
+   * Admits one call out to an app on an account's behalf, before anything is
+   * prepared for it: a slow app holds its slot until it answers, so a person
+   * pressing a button again and again, or everyone pressing one app's buttons,
+   * is refused rather than queued without end. Returns the release, which the
+   * caller runs however the call ends.
+   */
+  const admitAppCall = (accountId: ID, appId: ID): (() => void) => {
+    if (!limiter) return () => {};
+    const keys = [`account:${accountId}`, `app:${appId}`] as const;
+    if ((appCallsInFlight.get(keys[0]) ?? 0) >= APP_CALLS_IN_FLIGHT.perAccount)
+      throw new HttpError(
+        429,
+        "too_many_requests",
+        "Your earlier requests to apps have not been answered yet. Try again when they finish.",
+        1,
+      );
+    if ((appCallsInFlight.get(keys[1]) ?? 0) >= APP_CALLS_IN_FLIGHT.perApp)
+      throw new HttpError(
+        429,
+        "app_busy",
+        "That app is still answering other requests. Try again shortly.",
+        1,
+      );
+    ration("appCall", accountId);
+    for (const key of keys) appCallsInFlight.set(key, (appCallsInFlight.get(key) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const key of keys) {
+        const left = (appCallsInFlight.get(key) ?? 1) - 1;
+        if (left > 0) appCallsInFlight.set(key, left);
+        else appCallsInFlight.delete(key);
+      }
+    };
   };
 
   const gateway = new Gateway(store, workspaceName, limiter, (req) =>
@@ -2167,8 +2207,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * integrations send it that way.
    */
   app.post<{ Params: { token: string } }>("/hooks/:token", async (req, reply) => {
+    // Before the lookup, so a wrong token costs as much as a right one.
+    ration("hookByAddress", callerAddress(req));
     const found = store.webhookForToken(hashToken(req.params.token));
     if (!found) return reply.status(404).send({ ok: false, error: "invalid_webhook" });
+    ration("hook", found.webhook.id);
 
     let payload: { text?: unknown; blocks?: unknown } = {};
     const raw = req.body as Record<string, unknown> | string | undefined;
@@ -2578,65 +2621,70 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const found = store.slashCommandByName(name);
     if (!found) throw new HttpError(404, "unknown_command", `/${name} is not a command here`);
 
-    // The bot has to be in the channel to answer in it.
-    mutate((emit) => {
-      if (store.addMember(channel.id, found.app.botUserId)) {
-        emit(
-          { type: "member.joined", channelId: channel.id, userId: found.app.botUserId },
-          channel.id,
-        );
-      }
-    });
-
-    const target = {
-      channelId: channel.id,
-      invokerId: me.id,
-      botUserId: found.app.botUserId,
-      threadRootId,
-    };
-    const form = new URLSearchParams({
-      command: `/${name}`,
-      text: argText,
-      team_id: store.getMeta("workspace_id") ?? "",
-      team_domain: workspaceName(),
-      channel_id: channel.id,
-      channel_name: channel.name,
-      user_id: me.id,
-      user_name: me.handle,
-      api_app_id: found.app.id,
-      response_url: newResponseUrl(target, requestOrigin(req)),
-      trigger_id: newTrigger({
-        userId: me.id,
-        channelId: channel.id,
-        appId: found.app.id,
-        botUserId: found.app.botUserId,
-      }),
-    }).toString();
-
+    const release = admitAppCall(me.id, found.app.id);
     try {
-      const res = await postToApp(found.command.url, form, "application/x-www-form-urlencoded", {
-        allowPrivate: opts.allowPrivateHooks,
-        signal: shutdown.signal,
-        headers: signatureHeaders(store.appSigningSecret(found.app.id) ?? "", form),
+      // The bot has to be in the channel to answer in it.
+      mutate((emit) => {
+        if (store.addMember(channel.id, found.app.botUserId)) {
+          emit(
+            { type: "member.joined", channelId: channel.id, userId: found.app.botUserId },
+            channel.id,
+          );
+        }
       });
-      if (res.status < 200 || res.status >= 300) {
-        sayEphemeral(
-          channel.id,
-          me.id,
-          found.app.botUserId,
-          `\`/${name}\` failed: the app answered ${res.status}.`,
-        );
+
+      const target = {
+        channelId: channel.id,
+        invokerId: me.id,
+        botUserId: found.app.botUserId,
+        threadRootId,
+      };
+      const form = new URLSearchParams({
+        command: `/${name}`,
+        text: argText,
+        team_id: store.getMeta("workspace_id") ?? "",
+        team_domain: workspaceName(),
+        channel_id: channel.id,
+        channel_name: channel.name,
+        user_id: me.id,
+        user_name: me.handle,
+        api_app_id: found.app.id,
+        response_url: newResponseUrl(target, requestOrigin(req)),
+        trigger_id: newTrigger({
+          userId: me.id,
+          channelId: channel.id,
+          appId: found.app.id,
+          botUserId: found.app.botUserId,
+        }),
+      }).toString();
+
+      try {
+        const res = await postToApp(found.command.url, form, "application/x-www-form-urlencoded", {
+          allowPrivate: opts.allowPrivateHooks,
+          signal: shutdown.signal,
+          headers: signatureHeaders(store.appSigningSecret(found.app.id) ?? "", form),
+        });
+        if (res.status < 200 || res.status >= 300) {
+          sayEphemeral(
+            channel.id,
+            me.id,
+            found.app.botUserId,
+            `\`/${name}\` failed: the app answered ${res.status}.`,
+          );
+          return { ok: false, error: "command_failed" };
+        }
+        deliverCommandReply(target, res.body, res.contentType);
+        return { ok: true };
+      } catch (err) {
+        const why =
+          err instanceof OutboundError && err.code === "blocked_host"
+            ? err.message
+            : "the app did not answer";
+        sayEphemeral(channel.id, me.id, found.app.botUserId, `\`/${name}\` failed: ${why}.`);
         return { ok: false, error: "command_failed" };
       }
-      deliverCommandReply(target, res.body, res.contentType);
-      return { ok: true };
-    } catch (err) {
-      const why =
-        err instanceof OutboundError && err.code === "blocked_host"
-          ? err.message
-          : "the app did not answer";
-      sayEphemeral(channel.id, me.id, found.app.botUserId, `\`/${name}\` failed: ${why}.`);
-      return { ok: false, error: "command_failed" };
+    } finally {
+      release();
     }
   });
 
@@ -2980,69 +3028,74 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     // should never have to defend against a submission the form itself forbids.
     if (Object.keys(missing).length > 0) return { ok: false, errors: missing };
 
-    const payload = JSON.stringify({
-      type: "view_submission",
-      team: { id: store.getMeta("workspace_id") ?? "", domain: workspaceName() },
-      user: { id: me.id, username: me.handle, name: me.displayName },
-      api_app_id: owner.id,
-      trigger_id: newTrigger({
-        userId: me.id,
-        channelId: open.channelId,
-        appId: owner.id,
-        botUserId: owner.botUserId,
-      }),
-      view: {
-        id: open.view.id,
-        type: "modal",
-        callback_id: open.view.callbackId,
-        private_metadata: open.view.privateMetadata,
-        title: { type: "plain_text", text: open.view.title },
-        state: { values },
-      },
-    });
-    const form = new URLSearchParams({ payload }).toString();
-
+    const release = admitAppCall(me.id, owner.id);
     try {
-      const res = await postToApp(
-        owner.interactivityUrl,
-        form,
-        "application/x-www-form-urlencoded",
-        {
-          allowPrivate: opts.allowPrivateHooks,
-          signal: shutdown.signal,
-          headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
+      const payload = JSON.stringify({
+        type: "view_submission",
+        team: { id: store.getMeta("workspace_id") ?? "", domain: workspaceName() },
+        user: { id: me.id, username: me.handle, name: me.displayName },
+        api_app_id: owner.id,
+        trigger_id: newTrigger({
+          userId: me.id,
+          channelId: open.channelId,
+          appId: owner.id,
+          botUserId: owner.botUserId,
+        }),
+        view: {
+          id: open.view.id,
+          type: "modal",
+          callback_id: open.view.callbackId,
+          private_metadata: open.view.privateMetadata,
+          title: { type: "plain_text", text: open.view.title },
+          state: { values },
         },
-      );
-      if (res.status < 200 || res.status >= 300) {
-        return { ok: false, errors: {}, message: `The app answered ${res.status}.` };
-      }
-      const answered = res.body.trim();
-      if (answered.startsWith("{")) {
-        let parsed: { response_action?: unknown; errors?: Record<string, string> };
-        try {
-          parsed = JSON.parse(answered) as typeof parsed;
-        } catch {
-          // The app did answer, so saying it did not would send someone
-          // looking for a network problem that is not there.
-          return {
-            ok: false,
-            errors: {},
-            message: "The app answered with something that could not be read.",
-          };
+      });
+      const form = new URLSearchParams({ payload }).toString();
+
+      try {
+        const res = await postToApp(
+          owner.interactivityUrl,
+          form,
+          "application/x-www-form-urlencoded",
+          {
+            allowPrivate: opts.allowPrivateHooks,
+            signal: shutdown.signal,
+            headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
+          },
+        );
+        if (res.status < 200 || res.status >= 300) {
+          return { ok: false, errors: {}, message: `The app answered ${res.status}.` };
         }
-        // Slack's shape for "your answers are not acceptable, here is why".
-        if (parsed.response_action === "errors" && parsed.errors) {
-          return { ok: false, errors: parsed.errors };
+        const answered = res.body.trim();
+        if (answered.startsWith("{")) {
+          let parsed: { response_action?: unknown; errors?: Record<string, string> };
+          try {
+            parsed = JSON.parse(answered) as typeof parsed;
+          } catch {
+            // The app did answer, so saying it did not would send someone
+            // looking for a network problem that is not there.
+            return {
+              ok: false,
+              errors: {},
+              message: "The app answered with something that could not be read.",
+            };
+          }
+          // Slack's shape for "your answers are not acceptable, here is why".
+          if (parsed.response_action === "errors" && parsed.errors) {
+            return { ok: false, errors: parsed.errors };
+          }
         }
+        openViews.delete(open.view.id);
+        return { ok: true };
+      } catch (err) {
+        const why =
+          err instanceof OutboundError && err.code === "blocked_host"
+            ? err.message
+            : "the app did not answer";
+        return { ok: false, errors: {}, message: `That did not go through: ${why}.` };
       }
-      openViews.delete(open.view.id);
-      return { ok: true };
-    } catch (err) {
-      const why =
-        err instanceof OutboundError && err.code === "blocked_host"
-          ? err.message
-          : "the app did not answer";
-      return { ok: false, errors: {}, message: `That did not go through: ${why}.` };
+    } finally {
+      release();
     }
   });
 
@@ -3144,75 +3197,80 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     if (!owner) throw new HttpError(400, "not_an_app_message");
     if (!owner.interactivityUrl) throw new HttpError(400, "no_interactivity_url");
 
-    const target = {
-      channelId: channel.id,
-      invokerId: me.id,
-      botUserId: owner.botUserId,
-      threadRootId: message.threadRootId,
-    };
-    const responseUrl = newResponseUrl(
-      { ...target, originMessageId: message.id },
-      requestOrigin(req),
-    );
-    const payload = JSON.stringify({
-      type: "block_actions",
-      // Slack sends this as a form field named payload; so do we below.
-      team: { id: store.getMeta("workspace_id") ?? "", domain: workspaceName() },
-      user: { id: me.id, username: me.handle, name: me.displayName },
-      api_app_id: owner.id,
-      channel: { id: channel.id, name: channel.name },
-      message: { ts: message.id, text: message.text, user: message.userId },
-      container: { type: "message", message_ts: message.id, channel_id: channel.id },
-      trigger_id: newTrigger({
-        userId: me.id,
-        channelId: channel.id,
-        appId: owner.id,
-        botUserId: owner.botUserId,
-      }),
-      response_url: responseUrl,
-      actions: [
-        {
-          type: "button",
-          action_id: action.actionId,
-          block_id: action.blockId,
-          text: { type: "plain_text", text: action.text },
-          value: action.value,
-          style: action.style === "default" ? undefined : action.style,
-          action_ts: String(Date.now() / 1000),
-        },
-      ],
-    });
-    const form = new URLSearchParams({ payload }).toString();
-
+    const release = admitAppCall(me.id, owner.id);
     try {
-      const res = await postToApp(
-        owner.interactivityUrl,
-        form,
-        "application/x-www-form-urlencoded",
-        {
-          allowPrivate: opts.allowPrivateHooks,
-          signal: shutdown.signal,
-          headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
-        },
+      const target = {
+        channelId: channel.id,
+        invokerId: me.id,
+        botUserId: owner.botUserId,
+        threadRootId: message.threadRootId,
+      };
+      const responseUrl = newResponseUrl(
+        { ...target, originMessageId: message.id },
+        requestOrigin(req),
       );
-      if (res.status < 200 || res.status >= 300) {
-        sayEphemeral(
-          channel.id,
-          me.id,
-          owner.botUserId,
-          `That button failed: the app answered ${res.status}.`,
+      const payload = JSON.stringify({
+        type: "block_actions",
+        // Slack sends this as a form field named payload; so do we below.
+        team: { id: store.getMeta("workspace_id") ?? "", domain: workspaceName() },
+        user: { id: me.id, username: me.handle, name: me.displayName },
+        api_app_id: owner.id,
+        channel: { id: channel.id, name: channel.name },
+        message: { ts: message.id, text: message.text, user: message.userId },
+        container: { type: "message", message_ts: message.id, channel_id: channel.id },
+        trigger_id: newTrigger({
+          userId: me.id,
+          channelId: channel.id,
+          appId: owner.id,
+          botUserId: owner.botUserId,
+        }),
+        response_url: responseUrl,
+        actions: [
+          {
+            type: "button",
+            action_id: action.actionId,
+            block_id: action.blockId,
+            text: { type: "plain_text", text: action.text },
+            value: action.value,
+            style: action.style === "default" ? undefined : action.style,
+            action_ts: String(Date.now() / 1000),
+          },
+        ],
+      });
+      const form = new URLSearchParams({ payload }).toString();
+
+      try {
+        const res = await postToApp(
+          owner.interactivityUrl,
+          form,
+          "application/x-www-form-urlencoded",
+          {
+            allowPrivate: opts.allowPrivateHooks,
+            signal: shutdown.signal,
+            headers: signatureHeaders(store.appSigningSecret(owner.id) ?? "", form),
+          },
         );
+        if (res.status < 200 || res.status >= 300) {
+          sayEphemeral(
+            channel.id,
+            me.id,
+            owner.botUserId,
+            `That button failed: the app answered ${res.status}.`,
+          );
+          return { ok: false, error: "action_failed" };
+        }
+        deliverCommandReply(target, res.body, res.contentType, message.id);
+        return { ok: true };
+      } catch (err) {
+        const why =
+          err instanceof OutboundError && err.code === "blocked_host"
+            ? err.message
+            : "the app did not answer";
+        sayEphemeral(channel.id, me.id, owner.botUserId, `That button failed: ${why}.`);
         return { ok: false, error: "action_failed" };
       }
-      deliverCommandReply(target, res.body, res.contentType, message.id);
-      return { ok: true };
-    } catch (err) {
-      const why =
-        err instanceof OutboundError && err.code === "blocked_host"
-          ? err.message
-          : "the app did not answer";
-      sayEphemeral(channel.id, me.id, owner.botUserId, `That button failed: ${why}.`);
-      return { ok: false, error: "action_failed" };
+    } finally {
+      release();
     }
   });
 

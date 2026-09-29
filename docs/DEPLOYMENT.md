@@ -751,6 +751,17 @@ however often they sign in or change it. A refused request answers `429` with a
 `Retry-After` telling the client when to come back, and nothing is charged for a
 refusal, so a client that retries too eagerly does not push its own recovery out.
 
+Incoming webhooks have no account behind them, so each webhook has an allowance
+of its own (a burst of 30, then one a second) rather than spending a person's or
+starving the same app's other webhooks. Requests to `/hooks/…` are also counted
+per address before the token is looked up, loosely, so guessing tokens costs the
+same as using one. Slash commands, buttons and form submissions that call out to
+an app spend an allowance of the account that caused them (a burst of 20, then one
+a second), and at most four such calls per account and sixteen per app may be
+waiting for an answer at once. A call past either cap is refused with `429`
+straight away rather than queued behind a slow app, and nothing is sent to the
+app for a refused call.
+
 The allowances are held in memory, so a restart grants one fresh burst. Buckets
 are dropped once they refill, which keeps the bookkeeping proportional to who is
 active rather than to everyone who has ever connected.
