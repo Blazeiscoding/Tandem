@@ -95,9 +95,11 @@ All results below concern `c85132b` on this Windows machine. No actual OS sign-i
 
 ### Immediate work order
 
+_Status, 29 September: every item below that can be done without real machines is merged (#126–#142). What remains needs installed systems, a second network or target hardware: real OS sign-in on macOS and Windows, the D5 participant path, cross-platform/device drills, and the `utilityProcess` decision against the 100 ms budget measured on the machines it has to hold for._
+
 1. **Protect recovery copies:** R29-1 and D3 are fixed on `fix/backup-retention-and-identity`, and R29-2/R29-3 on `fix/backup-schedule-freshness`. Preserve a verified copy before any retention deletion and make destination freshness explicit.
-2. **Finish restore safety before replacement release:** require D2's persisted hold/preflight/activation in `feat/replace-from-backup`; backup listing alone does not satisfy it.
-3. **Correct hosting continuity:** R29-4 first, then R29-5–R29-7 and D4 guidance. Validate the real OS/network paths separately from simulated tests.
+2. **Finish restore safety before replacement release:** D2 is fixed in #141: a restore is held (persisted), drops the launch choice, reports its inventory, starts only isolated until an explicit, confirmed activation. `feat/replace-from-backup` must use the same hold when it lands.
+3. **Correct hosting continuity:** R29-4 (#138), R29-5 in source (#137), R29-6 (#139), R29-7 (#140), D4 guidance (#136) and opt-in stable-address resume for D5 (#142) are merged. Still to do on real systems: an installed macOS/Windows sign-in, and the D5 participant path from a second network after an OS-login restart.
 4. **Continue the existing integrity work:** CU-1 is fixed on `fix/thread-read-leaves-channel`, CU-2/CU-3 on `fix/outbox-keeps-every-send`, S4/CU-4 on `fix/scheduled-sends-hold-their-files` the remaining S1 admission on `fix/webhook-and-action-admission` and S6 on `fix/search-dates-by-calendar-day`. Item 4 is complete. They were not changed by the four hosting PRs.
 5. **Repair evidence and release gates:** S8 is fixed on `fix/scheduled-queue-bounded` and R29-8 on `fix/stall-benchmark-valid`. The recurring parallel timeouts are characterized and fixed on `fix/backup-tests-fast-compare`. The isolation decision against the 100 ms budget and actual cross-platform/device drills remain open. Do not add more backups or startup features to conceal these gaps.
 
