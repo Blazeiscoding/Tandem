@@ -5,7 +5,13 @@ export { decideNotification, notificationBody } from "./notify.js";
 export type { NotifyDecision } from "./notify.js";
 export { HuddleSession } from "./huddle.js";
 export type { HuddlePeer, HuddleState } from "./huddle.js";
-export { OUTBOX_LIMIT, WorkspaceClient, isMessageRead, unreadThreadCount } from "./workspace.js";
+export {
+  OUTBOX_LIMIT,
+  WorkspaceClient,
+  isMessageRead,
+  threadReadSeq,
+  unreadThreadCount,
+} from "./workspace.js";
 export type {
   ChannelTimeline,
   EphemeralMessage,

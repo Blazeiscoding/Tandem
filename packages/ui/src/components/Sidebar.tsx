@@ -47,7 +47,7 @@ export interface OtherWorkspace {
 
 export function Sidebar(props: Props) {
   const client = useClient();
-  const unreadThreads = useWorkspace((s) => unreadThreadCount(s.threadFollows));
+  const unreadThreads = useWorkspace((s) => unreadThreadCount(s.threadFollows, s.memberships));
   const friendRequests = useWorkspace(
     (s) => s.friends.filter((f) => f.status === "incoming").length,
   );

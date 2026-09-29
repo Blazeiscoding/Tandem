@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import type { Channel, Message, User } from "@slackoss/protocol";
@@ -111,6 +111,40 @@ describe("the threads list", () => {
     // The button went with the empty list; focus stayed in the panel with it.
     expect(document.activeElement).not.toBe(document.body);
     expect(panel).toContainElement(document.activeElement as HTMLElement);
+  });
+
+  it("asks again once reading the channel reads a followed thread's replies", async () => {
+    const client = offlineClient();
+    client.store.setState({
+      threadFollows: {
+        M_1: {
+          rootId: "M_1",
+          channelId: "C_GENERAL",
+          following: true,
+          lastReadSeq: 7,
+          lastSeq: 8,
+          revision: 1,
+        },
+      },
+    });
+    let unreadCount = 1;
+    const list = vi.spyOn(client.api, "listFollowedThreads").mockImplementation(async () => ({
+      threads: [{ root: message, lastSeq: 8, unreadCount }],
+      nextCursor: null,
+    }));
+    render(
+      <ClientContext.Provider value={client}>
+        <ThreadsPanel onClose={vi.fn()} onJump={vi.fn()} />
+      </ClientContext.Provider>,
+    );
+    const panel = screen.getByRole("complementary", { name: "Threads" });
+    expect(await within(panel).findByText("1 new reply")).toBeVisible();
+
+    // The channel is read through 9, past the thread's reply at 8.
+    unreadCount = 0;
+    act(() => client.store.setState({ memberships: { C_GENERAL: 9 } }));
+    await waitFor(() => expect(within(panel).queryByText("1 new reply")).toBeNull());
+    expect(list).toHaveBeenCalledTimes(2);
   });
 });
 

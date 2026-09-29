@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { threadReadSeq } from "@slackoss/client-core";
 import type { ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle, formatDay, formatTime } from "../lib/format.js";
@@ -282,11 +283,12 @@ export function ThreadsPanel(props: {
   const client = useClient();
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [unread, setUnread] = useState<Record<ID, number>>({});
-  // Following, unfollowing and reading all change what belongs in this list.
+  // Following, unfollowing and reading all change what belongs in this list,
+  // including reading a channel past a thread's replies.
   const followSignature = useWorkspace((s) =>
     Object.values(s.threadFollows)
       .filter((f) => f.following)
-      .map((f) => `${f.rootId}:${f.lastReadSeq}`)
+      .map((f) => `${f.rootId}:${Math.min(f.lastSeq, threadReadSeq(f, s.memberships))}`)
       .sort()
       .join(","),
   );

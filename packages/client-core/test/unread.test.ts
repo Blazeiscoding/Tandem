@@ -122,26 +122,58 @@ describe("mark unread", () => {
     expect(lastRead()).toBe(message.seq);
   });
 
+  it("keeps a read chosen after marking unread when the mark then fails", async () => {
+    const message = await incoming("Changed my mind");
+    client.markRead(channelId, message.seq);
+    await expect.poll(lastRead).toBe(message.seq);
+
+    let refuse = () => {};
+    vi.spyOn(client.api, "markUnread").mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          refuse = () => reject(new Error("offline"));
+        }),
+    );
+    client.markUnread(channelId, message.seq);
+    expect(lastRead()).toBe(message.seq - 1);
+
+    const later = await incoming("Read this instead");
+    const markRead = vi.spyOn(client.api, "markRead");
+    client.markRead(channelId, later.seq, { explicit: true });
+    await markRead.mock.results[0]!.value;
+    expect(lastRead()).toBe(later.seq);
+
+    refuse();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(lastRead()).toBe(later.seq);
+  });
+
   it("marks a thread unread without touching the channel, and counts it", async () => {
     const root = await incoming("Thread root");
     await client.loadThread(root.id, channelId, "latest");
     const reply = await incoming("A reply", root.id);
     client.focusThread(root.id);
     client.markThreadRead(root.id);
-    await expect.poll(() => unreadThreadCount(client.state.threadFollows)).toBe(0);
+    await expect
+      .poll(() => unreadThreadCount(client.state.threadFollows, client.state.memberships))
+      .toBe(0);
 
     const channelCursor = lastRead();
     client.markThreadUnread(root.id, reply.seq);
-    await expect.poll(() => unreadThreadCount(client.state.threadFollows)).toBe(1);
+    await expect
+      .poll(() => unreadThreadCount(client.state.threadFollows, client.state.memberships))
+      .toBe(1);
     expect(lastRead()).toBe(channelCursor);
 
     // Reading the thread again is held until the panel is left.
     client.markThreadRead(root.id);
-    expect(unreadThreadCount(client.state.threadFollows)).toBe(1);
+    expect(unreadThreadCount(client.state.threadFollows, client.state.memberships)).toBe(1);
     client.focusThread(null);
     client.focusThread(root.id);
     client.markThreadRead(root.id);
-    await expect.poll(() => unreadThreadCount(client.state.threadFollows)).toBe(0);
+    await expect
+      .poll(() => unreadThreadCount(client.state.threadFollows, client.state.memberships))
+      .toBe(0);
   });
 });
 
@@ -167,7 +199,7 @@ describe("reading a thread", () => {
     expect(lastRead()).toBe(root.seq);
     expect(isMessageRead(reply, client.state)).toBe(true);
     expect(isMessageRead(mention, client.state)).toBe(false);
-    expect(unreadThreadCount(client.state.threadFollows)).toBe(0);
+    expect(unreadThreadCount(client.state.threadFollows, client.state.memberships)).toBe(0);
 
     // A fresh connection agrees: nothing about the channel was acknowledged.
     const again = new WorkspaceClient(`http://127.0.0.1:${server.port}`, member.token);
@@ -194,6 +226,52 @@ describe("reading a thread", () => {
     client.markThreadRead(root.id);
     expect(client.state.threadFollows[root.id]?.lastReadSeq).toBeGreaterThan(0);
     await expect.poll(() => client.state.threadFollows[root.id]).toBeUndefined();
+  });
+
+  it("keeps a newer read of a thread when an older one fails after it", async () => {
+    const root = await incoming("Two replies");
+    await client.loadThread(root.id, channelId, "latest");
+    const first = await incoming("First", root.id);
+    const markThreadRead = vi.spyOn(client.api, "markThreadRead");
+    let refuse = () => {};
+    markThreadRead.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          refuse = () => reject(new Error("offline"));
+        }),
+    );
+    client.markThreadRead(root.id);
+    expect(client.state.threadFollows[root.id]?.lastReadSeq).toBe(first.seq);
+
+    const second = await incoming("Second", root.id);
+    client.markThreadRead(root.id);
+    await markThreadRead.mock.results[1]!.value;
+    expect(client.state.threadFollows[root.id]?.lastReadSeq).toBe(second.seq);
+
+    refuse();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(client.state.threadFollows[root.id]?.lastReadSeq).toBe(second.seq);
+  });
+
+  it("counts a followed thread read once the channel's cursor passes its replies, as each reply is", () => {
+    const follow = {
+      rootId: "M_ROOT",
+      channelId: "C_A",
+      following: true,
+      lastReadSeq: 10,
+      lastSeq: 11,
+      revision: 1,
+    };
+    const reply = (seq: number) => ({ channelId: "C_A", seq, threadRootId: "M_ROOT" });
+    // The channel was read through 12, past the thread's reply 11.
+    const read = { memberships: { C_A: 12 }, threadFollows: { M_ROOT: follow } };
+    expect(isMessageRead(reply(11), read)).toBe(true);
+    expect(unreadThreadCount(read.threadFollows, read.memberships)).toBe(0);
+
+    // A newer reply, past the channel's cursor, is unread by both.
+    const newer = { ...read, threadFollows: { M_ROOT: { ...follow, lastSeq: 13 } } };
+    expect(isMessageRead(reply(13), newer)).toBe(false);
+    expect(unreadThreadCount(newer.threadFollows, newer.memberships)).toBe(1);
   });
 
   it("counts a reply toward the channel's badge only when it is also sent to the channel", async () => {
