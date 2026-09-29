@@ -2571,6 +2571,146 @@ test("the layout holds at phone, tablet, laptop and short-window sizes", async (
   }
 });
 
+test("reading a thread on a phone leaves an unseen mention in its channel unread", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const port = 18550;
+  const origin = `http://127.0.0.1:${port}`;
+  const readData = mkdtempSync(join(tmpdir(), "slackoss-e2e-thread-read-"));
+  const readServer = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      readData,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Read Team",
+      "--no-rate-limits",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    await expect
+      .poll(async () => {
+        try {
+          return (await fetch(`${origin}/api/health`)).status;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(200);
+    const account = async (handle: string) =>
+      (await (
+        await fetch(`${origin}/api/auth/register`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ handle, displayName: handle, password: "password123" }),
+        })
+      ).json()) as { token: string; user: { id: string } };
+    const hana = await account("hana");
+    const omar = await account("omar");
+    const call = async (token: string, path: string, body: unknown, method = "POST") =>
+      (
+        await fetch(`${origin}${path}`, {
+          method,
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      ).json();
+    const { channels } = await (
+      await fetch(`${origin}/api/channels`, {
+        headers: { authorization: `Bearer ${hana.token}` },
+      })
+    ).json();
+    const general = channels.find((c: { name: string }) => c.name === "general");
+    const { channel: design } = await call(hana.token, "/api/channels", {
+      type: "public",
+      name: "design",
+    });
+    // Hana has read up to the root and follows its thread. Then, unseen by
+    // her, a mention in the channel and a reply in the thread.
+    const { message: root } = await call(omar.token, `/api/channels/${general.id}/messages`, {
+      text: "Plans for Friday",
+    });
+    await call(hana.token, `/api/channels/${general.id}/read`, { seq: root.seq });
+    await call(hana.token, `/api/messages/${root.id}/follow`, { following: true }, "PUT");
+    await call(omar.token, `/api/channels/${general.id}/messages`, {
+      text: `Can you check the venue <@${hana.user.id}>`,
+    });
+    await call(omar.token, `/api/channels/${general.id}/messages`, {
+      text: "Friday works for me",
+      threadRootId: root.id,
+    });
+
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.evaluate(
+      (server) => localStorage.setItem("slackoss:servers", JSON.stringify([server])),
+      { url: origin, token: hana.token, workspaceName: "Read Team", handle: "hana", lastUsedAt: 1 },
+    );
+    await page.goto(`${origin}/#/c/${design.id}`);
+    await page.reload();
+    await expect(page.locator("textarea")).toBeVisible();
+
+    const nav = page.getByRole("navigation", { name: "Workspace navigation" });
+    const openNavigation = page.getByRole("button", { name: "Open navigation", exact: true });
+    const mention = nav.getByLabel("1 unread mention in general", { exact: true });
+    await openNavigation.click();
+    await expect(mention).toBeVisible();
+    await expect(nav.getByLabel("Threads with unread replies", { exact: true })).toHaveText("1");
+    await nav.getByRole("button", { name: /^Threads\b/ }).click();
+    const threads = page.getByRole("complementary", { name: "Threads", exact: true });
+    await threads.getByRole("button", { name: "Open thread", exact: true }).click();
+    const thread = page.getByRole("complementary", { name: "Thread", exact: true });
+    await expect(thread.getByText("Friday works for me", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(`${origin}/#/c/${general.id}/t/${root.id}`);
+
+    // The thread is read; the channel's own mention is not.
+    const unreadActivity = async () =>
+      (
+        (await (
+          await fetch(`${origin}/api/activity?mode=unread`, {
+            headers: { authorization: `Bearer ${hana.token}` },
+          })
+        ).json()) as { messages: { text: string }[] }
+      ).messages.map((m) => m.text);
+    await expect.poll(unreadActivity).toEqual([`Can you check the venue <@${hana.user.id}>`]);
+
+    // Back returns to the Threads list over #design; closed, the mention is
+    // still there.
+    await page.goBack();
+    await expect(page).toHaveURL(`${origin}/#/c/${design.id}/p/threads`);
+    await threads.getByRole("button", { name: "Close Threads", exact: true }).click();
+    await openNavigation.click();
+    await expect(mention).toBeVisible();
+    await expect(nav.getByLabel("Threads with unread replies", { exact: true })).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+
+    // And after a reload, which connects again from nothing.
+    await page.reload();
+    await expect(page.locator("textarea")).toBeVisible();
+    await openNavigation.click();
+    await expect(mention).toBeVisible();
+    expect(await unreadActivity()).toEqual([`Can you check the venue <@${hana.user.id}>`]);
+  } finally {
+    await context.close().catch(() => {});
+    if (readServer.exitCode === null) {
+      const exited = new Promise((resolve) => readServer.once("exit", resolve));
+      readServer.kill();
+      await exited;
+    }
+    rmSync(readData, { recursive: true, force: true });
+  }
+});
+
 test("a browser refetches authenticated file bytes after access is revoked", async ({ page }) => {
   const registerAccount = async (handle: string) => {
     const response = await fetch(`${base}/api/auth/register`, {

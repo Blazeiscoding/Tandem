@@ -63,10 +63,8 @@ export function ThreadPanel({
       document.visibilityState !== "visible"
     )
       return;
-    client.markRead(
-      channelId,
-      Math.max(root?.seq ?? 0, ...(replies ?? []).map((message) => message.seq)),
-    );
+    // Replies are read in their thread. The channel's own cursor stays where
+    // its timeline left it, so a thread cannot acknowledge channel messages.
     client.markThreadRead(rootId);
   }
 

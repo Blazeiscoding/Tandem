@@ -272,6 +272,20 @@ export function unreadThreadCount(threadFollows: Record<ID, ThreadFollow>): numb
     .length;
 }
 
+/**
+ * Whether this account has read a message. The channel's cursor reads
+ * anything up to it; a reply is also read once its own thread's cursor passes
+ * it, since a thread is read without moving the channel's.
+ */
+export function isMessageRead(
+  message: Pick<Message, "channelId" | "seq" | "threadRootId">,
+  state: Pick<WorkspaceState, "memberships" | "threadFollows">,
+): boolean {
+  if (message.seq <= (state.memberships[message.channelId] ?? 0)) return true;
+  if (!message.threadRootId) return false;
+  return message.seq <= (state.threadFollows[message.threadRootId]?.lastReadSeq ?? 0);
+}
+
 function sortedInsert(items: Message[], msg: Message): Message[] {
   // Messages almost always arrive in order — fast path append.
   if (items.length === 0 || items[items.length - 1]!.id < msg.id) return [...items, msg];
@@ -676,10 +690,12 @@ export class WorkspaceClient {
         )
           return;
         if (fromHttp && seq > s.lastSeq) this.acknowledgedMessages.add(message.id);
-        patch.channelLastSeq = {
-          ...s.channelLastSeq,
-          [message.channelId]: Math.max(s.channelLastSeq[message.channelId] ?? 0, seq),
-        };
+        // A reply belongs to its thread; only what the channel shows moves its badge.
+        if (!message.threadRootId || message.broadcast)
+          patch.channelLastSeq = {
+            ...s.channelLastSeq,
+            [message.channelId]: Math.max(s.channelLastSeq[message.channelId] ?? 0, seq),
+          };
         // The real message replaces our optimistic one — release its previews.
         const settled = s.pending.find(
           (p) => p.userId === message.userId && p.nonce === message.nonce,
@@ -1707,24 +1723,37 @@ export class WorkspaceClient {
   }
 
   /**
-   * Marks a followed thread read up to its loaded tail. Only followed threads
-   * carry a cursor, so reading one you do not follow is deliberately nothing.
+   * Marks a thread read up to its loaded tail. This is the only cursor that
+   * reading a thread moves: the channel's stays put, so unseen channel
+   * messages and mentions stay unread. A thread you do not follow keeps its
+   * cursor too, without following it.
    */
   markThreadRead(rootId: ID, opts: { explicit?: boolean } = {}): void {
     if (opts.explicit) this.threadReadHold.delete(rootId);
     else if (this.threadReadHold.has(rootId)) return;
     const before = this.state.threadFollows[rootId];
-    if (!before?.following) return;
+    const channelId = before?.channelId ?? this.threadRoot(rootId)?.channelId;
+    if (!channelId) return;
     const seq = this.threadTailSeq(rootId);
-    if (seq <= before.lastReadSeq) return;
-    this.applyThreadFollow({ ...before, lastReadSeq: seq, revision: before.revision + 1 });
+    if (seq <= (before?.lastReadSeq ?? 0)) return;
+    this.applyThreadFollow({
+      rootId,
+      channelId,
+      following: before?.following ?? false,
+      lastReadSeq: seq,
+      lastSeq: Math.max(before?.lastSeq ?? 0, seq),
+      revision: (before?.revision ?? 0) + 1,
+    });
     void this.api
       .markThreadRead(rootId, seq)
       .then(({ state }) => this.applyThreadFollow(state))
       .catch(() => {
-        this.store.setState((s) => ({
-          threadFollows: { ...s.threadFollows, [rootId]: before },
-        }));
+        this.store.setState((s) => {
+          const threadFollows = { ...s.threadFollows };
+          if (before) threadFollows[rootId] = before;
+          else delete threadFollows[rootId];
+          return { threadFollows };
+        });
       });
   }
 
