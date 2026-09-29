@@ -162,9 +162,16 @@ describe("Signed-in devices list status", () => {
     vi.spyOn(client.api, "changePassword").mockResolvedValue({ ok: true });
     const { dialog } = renderDialog("security");
 
-    await user.type(within(dialog).getByLabelText("Current password"), "previous-password");
-    await user.type(within(dialog).getByLabelText("New password"), "replacement-password");
-    await user.type(within(dialog).getByLabelText("Confirm new password"), "replacement-password");
+    // Pasted rather than typed: this is about which list wins, and a keystroke
+    // at a time is most of this test's time on a busy machine.
+    for (const [label, value] of [
+      ["Current password", "previous-password"],
+      ["New password", "replacement-password"],
+      ["Confirm new password", "replacement-password"],
+    ] as const) {
+      await user.click(within(dialog).getByLabelText(label));
+      await user.paste(value);
+    }
     await user.click(within(dialog).getByRole("button", { name: "Update password" }));
     expect(
       await within(dialog).findByText(

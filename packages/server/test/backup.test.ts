@@ -57,6 +57,13 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
+/**
+ * A file's digest, for saying it is unchanged. Deep equality on the bytes of a
+ * whole database walks them one by one: about a second here, and past the
+ * five-second limit when the machine is also running every other suite.
+ */
+const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+
 /** A workspace with something of every kind worth losing. */
 async function populate() {
   const owner = (
@@ -150,7 +157,7 @@ describe("backup and restore", () => {
     await expect(restoreWorkspace({ backupDir: out, dataDir })).rejects.toThrow(
       /attachment.*missing/,
     );
-    expect(readFileSync(join(dataDir, "workspace.db"))).toEqual(before);
+    expect(sha256(readFileSync(join(dataDir, "workspace.db")))).toBe(sha256(before));
   });
 
   it.each(["../escape", "..\\escape", "C:\\escape", "file:stream"])(
@@ -195,7 +202,7 @@ describe("backup and restore", () => {
     await expect(restoreWorkspace({ backupDir: dataDir, dataDir: root })).rejects.toThrow(
       /separate/,
     );
-    expect(readFileSync(join(dataDir, "workspace.db"))).toEqual(before);
+    expect(sha256(readFileSync(join(dataDir, "workspace.db")))).toBe(sha256(before));
   });
 
   it("preserves accounts, messages, attachments, memberships, friendships and queued work", async () => {
@@ -248,7 +255,7 @@ describe("backup and restore", () => {
     writeFileSync(join(out, "files", manifest.files[0]!.name), "tampered");
     await expect(verifyBackup(out)).rejects.toThrow(/checksum/);
     await expect(restoreWorkspace({ backupDir: out, dataDir })).rejects.toThrow(/checksum/);
-    expect(readFileSync(join(dataDir, "workspace.db"))).toEqual(before);
+    expect(sha256(readFileSync(join(dataDir, "workspace.db")))).toBe(sha256(before));
   });
 
   it("refuses a backup written by a newer server", async () => {
