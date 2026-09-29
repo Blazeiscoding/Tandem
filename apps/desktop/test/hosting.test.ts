@@ -296,6 +296,7 @@ describe("hosting a workspace from the desktop app", () => {
       folder: expect.stringMatching(NEW_FOLDER),
       name: "Rocket Team",
       port: 8543,
+      portChosen: false,
       lastHostedAt: expect.any(Number),
     });
     const dataDir = join(h.dataRoot, entry!.folder);
@@ -402,6 +403,72 @@ describe("hosting a workspace from the desktop app", () => {
     );
     expect(chosen.starts.map((s) => s.port)).toEqual([9000]);
     expect(chosen.controller.status()).toEqual({ running: false, phase: "stopped" });
+  });
+
+  it("keeps a port chosen at creation when it is busy on reopening, and does not start", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team", port: 9100 });
+    await h.controller.stop();
+    const folder = registryOf(h)[0]!.folder;
+    h.beforeBind = (port) => {
+      if (port === 9100) throw inUse();
+    };
+    h.starts.length = 0;
+    await expect(h.controller.start({ folder })).rejects.toThrow(
+      "Port 9100, chosen for Rocket Team, is already in use on this computer, so it did not start.",
+    );
+    expect(h.starts.map((s) => s.port)).toEqual([9100]);
+    expect(registryOf(h)[0]).toMatchObject({ port: 9100, portChosen: true });
+    expect(made.port).toBe(9100);
+  });
+
+  it("keeps a port chosen through Change port when starting with the app", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    const folder = registryOf(h)[0]!.folder;
+    await h.controller.setPort({ folder, port: 9100 });
+    await h.controller.setStartOnLaunch(folder);
+    h.beforeBind = (port) => {
+      if (port === 9100) throw inUse();
+    };
+    h.starts.length = 0;
+    expect(await h.controller.startForLaunch()).toBeNull();
+    expect(h.starts.map((s) => s.port)).toEqual([9100]);
+    expect(h.controller.status().launchError).toMatch(/Port 9100, chosen for Rocket Team/);
+    expect(registryOf(h)[0]).toMatchObject({ port: 9100, portChosen: true });
+  });
+
+  it("still moves a workspace whose port was never chosen", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    const folder = registryOf(h)[0]!.folder;
+    expect(registryOf(h)[0]!.portChosen).toBe(false);
+    h.beforeBind = (port) => {
+      if (port === 8543) throw inUse();
+    };
+    h.starts.length = 0;
+    const status = await h.controller.start({ folder });
+    expect(h.starts.map((s) => s.port)).toEqual([8543, 0]);
+    expect(status.port).toBe(50123);
+  });
+
+  it("treats an older entry's unusual port as chosen", async () => {
+    const h = harness();
+    await h.controller.start({ workspaceName: "Rocket Team", port: 9100 });
+    await h.controller.stop();
+    // As saved before chosen ports were recorded.
+    const saved = h.settings.get("hostedWorkspaces") as { workspaces: Record<string, unknown>[] };
+    for (const entry of saved.workspaces) delete entry.portChosen;
+    const folder = registryOf(h)[0]!.folder;
+    h.beforeBind = (port) => {
+      if (port === 9100) throw inUse();
+    };
+    const later = harness({ root: join(h.dataRoot, ".."), settings: h.settings });
+    for (const [path, found] of h.databases) later.databases.set(path, found);
+    later.beforeBind = h.beforeBind;
+    await expect(later.controller.start({ folder })).rejects.toThrow(/Port 9100, chosen for/);
   });
 
   it("reports a failed start once, and leaves nothing claiming to be hosted", async () => {

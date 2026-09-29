@@ -17,6 +17,12 @@ export interface HostedWorkspace {
   /** What the server called itself when it last started. The server is the authority. */
   name: string;
   port: number;
+  /**
+   * Whether someone chose `port`. A chosen port is kept even when it is busy,
+   * and the workspace does not start; an automatic one may move to a free port.
+   * Absent in entries saved before this was recorded.
+   */
+  portChosen?: boolean;
   lastHostedAt: number;
   /** When a backup of it last finished, if one has. */
   lastBackupAt?: number;
@@ -116,10 +122,8 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
   const entries: HostedWorkspace[] = [];
   for (const raw of workspaces) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const { id, folder, name, port, lastHostedAt, lastBackupAt, autoBackup } = raw as Record<
-      string,
-      unknown
-    >;
+    const { id, folder, name, port, portChosen, lastHostedAt, lastBackupAt, autoBackup } =
+      raw as Record<string, unknown>;
     if (typeof folder !== "string" || !FOLDER.test(folder) || folders.has(folder)) continue;
     if (id !== null && (typeof id !== "string" || !id || ids.has(id))) continue;
     if (typeof name !== "string" || !name.trim() || name.length > 80) continue;
@@ -132,6 +136,7 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
       folder,
       name,
       port,
+      ...(typeof portChosen === "boolean" ? { portChosen } : {}),
       lastHostedAt,
       ...(typeof lastBackupAt === "number" && Number.isFinite(lastBackupAt)
         ? { lastBackupAt }
