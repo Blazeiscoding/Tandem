@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { PROTOCOL_VERSION, type ServerToClient } from "@slackoss/protocol";
 import { createWorkspaceServer, type WorkspaceServer } from "../src/index.js";
-import { DEFAULT_LIMITS, RateLimiter } from "../src/limits.js";
+import { APP_CALLS_IN_FLIGHT, DEFAULT_LIMITS, RateLimiter } from "../src/limits.js";
 
 let server: WorkspaceServer | undefined;
 let dataDir: string | undefined;
@@ -31,6 +32,8 @@ async function start(
     logger: false,
     rateLimits,
     trustedClientProxy,
+    // The stand-in app below listens on loopback.
+    allowPrivateHooks: true,
   });
   base = `http://127.0.0.1:${server.port}`;
 }
@@ -465,5 +468,271 @@ describe("typing notices", () => {
     expect(ws.readyState).toBe(WebSocket.OPEN);
     expect(seen.some((m) => m.type === "error")).toBe(false);
     ws.close();
+  });
+});
+
+/**
+ * An app that answers its verification handshake at once and holds every
+ * other request until told to answer, so calls can be kept in flight.
+ */
+class HeldApp {
+  server: Server;
+  port = 0;
+  calls: string[] = [];
+  hold = true;
+  private waiting: (() => void)[] = [];
+
+  constructor() {
+    this.server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk: Buffer) => (body += chunk.toString("utf8")));
+      req.on("end", () => {
+        if (body.includes("url_verification")) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify({ challenge: (JSON.parse(body) as { challenge: string }).challenge }),
+          );
+          return;
+        }
+        this.calls.push(req.url ?? "");
+        const answer = () => {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("");
+        };
+        if (this.hold) this.waiting.push(answer);
+        else answer();
+      });
+    });
+  }
+
+  async start(): Promise<void> {
+    await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
+    this.port = (this.server.address() as { port: number }).port;
+  }
+
+  url(path: string): string {
+    return `http://127.0.0.1:${this.port}${path}`;
+  }
+
+  get held(): number {
+    return this.waiting.length;
+  }
+
+  answerAll(): void {
+    this.hold = false;
+    for (const answer of this.waiting.splice(0)) answer();
+  }
+
+  async stop(): Promise<void> {
+    this.answerAll();
+    await new Promise<void>((resolve) => this.server.close(() => resolve()));
+  }
+}
+
+describe("incoming webhooks", () => {
+  async function webhooks(owner: string, count: number) {
+    const channelId = server!.store.getChannelByName("general")!.id;
+    const { data: created } = await call<{ app: { id: string } }>("/api/apps", {
+      token: owner,
+      body: { name: "Alerts" },
+    });
+    const urls: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const { data } = await call<{ url: string }>(`/api/apps/${created.app.id}/webhooks`, {
+        token: owner,
+        body: { channelId },
+      });
+      urls.push(data.url);
+    }
+    return { channelId, urls };
+  }
+  /** Posts to a webhook, which answers Slack's way: plain "ok" on success. */
+  const hook = async (url: string, text: string) => {
+    const res = await fetch(`${base}${url}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    await res.text();
+    return { status: res.status, retryAfter: res.headers.get("retry-after") };
+  };
+
+  it("gives each webhook its own budget, apart from the app's other webhooks and from people", async () => {
+    await start({ hook: { burst: 2, perMinute: 1 }, post: { burst: 1, perMinute: 1 } });
+    const owner = await register("owner");
+    const { channelId, urls } = await webhooks(owner, 2);
+    const [noisy, quiet] = urls as [string, string];
+
+    expect((await hook(noisy, "one")).status).toBe(200);
+    expect((await hook(noisy, "two")).status).toBe(200);
+    const refused = await hook(noisy, "three");
+    expect(refused.status).toBe(429);
+    expect(Number(refused.retryAfter)).toBeGreaterThan(0);
+
+    expect((await hook(quiet, "from the other webhook")).status).toBe(200);
+    expect(
+      (await call(`/api/channels/${channelId}/messages`, { token: owner, body: { text: "me" } }))
+        .status,
+    ).toBe(201);
+    expect(
+      server!.store
+        .listMessages({ channelId, limit: 10 })
+        .map((m) => m.text)
+        .sort(),
+    ).toEqual(["from the other webhook", "me", "one", "two"]);
+  });
+
+  it("counts guessed tokens against the address they come from", async () => {
+    await start({ hookByAddress: { burst: 3, perMinute: 1 } });
+    const owner = await register("owner");
+    const { urls } = await webhooks(owner, 1);
+    for (const guess of ["/hooks/nope-1", "/hooks/nope-2", "/hooks/nope-3"])
+      expect((await hook(guess, "guess")).status).toBe(404);
+    // The right token from the same address waits like everything else from it.
+    expect((await hook(urls[0]!, "real")).status).toBe(429);
+  });
+
+  it("stays unlimited when the workspace turns limits off", async () => {
+    await start(false);
+    const owner = await register("owner");
+    const { urls } = await webhooks(owner, 1);
+    for (let i = 0; i < DEFAULT_LIMITS.hook.burst + 5; i++)
+      expect((await hook(urls[0]!, `n${i}`)).status).toBe(200);
+  });
+});
+
+describe("calls out to apps", () => {
+  let app: HeldApp;
+  afterEach(async () => {
+    await app?.stop();
+  });
+
+  /** An app with a slash command and buttons, all pointing at `app`. */
+  async function installed(owner: string) {
+    const channelId = server!.store.getChannelByName("general")!.id;
+    const { data: created } = await call<{ app: { id: string } }>("/api/apps", {
+      token: owner,
+      body: { name: "Deployer" },
+    });
+    const appId = created.app.id;
+    expect(
+      (
+        await call(`/api/apps/${appId}/commands`, {
+          token: owner,
+          body: { command: "/deploy", url: app.url("/deploy") },
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await call(`/api/apps/${appId}/interactivity`, {
+          method: "PUT",
+          token: owner,
+          body: { url: app.url("/interact") },
+        })
+      ).status,
+    ).toBe(200);
+    const { data: hook } = await call<{ url: string }>(`/api/apps/${appId}/webhooks`, {
+      token: owner,
+      body: { channelId },
+    });
+    await fetch(`${base}${hook.url}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        text: "Ship it?",
+        blocks: [
+          {
+            type: "actions",
+            elements: [
+              { type: "button", text: { type: "plain_text", text: "Ship" }, action_id: "ship" },
+            ],
+          },
+        ],
+      }),
+    });
+    const withButton = server!.store
+      .listMessages({ channelId, limit: 10 })
+      .find((m) => m.actions.length > 0)!;
+    const command = (token: string) =>
+      call<{ ok?: boolean; error?: string; message?: string }>(
+        `/api/channels/${channelId}/commands`,
+        { token, body: { text: "/deploy now" } },
+      );
+    const press = (token: string) =>
+      call<{ ok?: boolean; error?: string }>(`/api/messages/${withButton.id}/actions`, {
+        token,
+        body: { actionId: "ship" },
+      });
+    return { command, press };
+  }
+
+  it("spends one budget per account on commands and buttons, and sends nothing it refuses", async () => {
+    app = new HeldApp();
+    await app.start();
+    app.hold = false;
+    await start({ appCall: { burst: 2, perMinute: 1 } });
+    const owner = await register("owner");
+    const other = await register("other");
+    const { command, press } = await installed(owner);
+
+    expect((await command(owner)).status).toBe(200);
+    expect((await press(owner)).status).toBe(200);
+    const refused = await command(owner);
+    expect(refused.status).toBe(429);
+    expect(refused.data.error).toBe("too_many_requests");
+    expect((await press(owner)).status).toBe(429);
+    expect(app.calls).toEqual(["/deploy", "/interact"]);
+
+    expect((await command(other)).status).toBe(200);
+    expect(app.calls).toHaveLength(3);
+  });
+
+  it("holds no more than a few unanswered calls per account, and frees them as they finish", async () => {
+    app = new HeldApp();
+    await app.start();
+    await start();
+    const owner = await register("owner");
+    const other = await register("other");
+    const { command } = await installed(owner);
+
+    const waiting = Array.from({ length: APP_CALLS_IN_FLIGHT.perAccount }, () => command(owner));
+    await expect.poll(() => app.held).toBe(APP_CALLS_IN_FLIGHT.perAccount);
+    const refused = await command(owner);
+    expect(refused.status).toBe(429);
+    expect(refused.data.message).toMatch(/not been answered yet/);
+    expect(app.held).toBe(APP_CALLS_IN_FLIGHT.perAccount);
+
+    // Someone else is not held up by it.
+    const theirs = command(other);
+    await expect.poll(() => app.held).toBe(APP_CALLS_IN_FLIGHT.perAccount + 1);
+
+    app.answerAll();
+    for (const done of [...waiting, theirs]) expect((await done).status).toBe(200);
+    expect((await command(owner)).status).toBe(200);
+  });
+
+  it("holds no more than a bounded number of unanswered calls to one app", async () => {
+    app = new HeldApp();
+    await app.start();
+    await start({ authByAddress: { burst: 100, perMinute: 100 } });
+    const owner = await register("owner");
+    const { command } = await installed(owner);
+    const people = [owner];
+    const needed = Math.ceil(APP_CALLS_IN_FLIGHT.perApp / APP_CALLS_IN_FLIGHT.perAccount);
+    for (let i = 1; i < needed; i++) people.push(await register(`member${i}`));
+    const latecomer = await register("latecomer");
+
+    const waiting = people.flatMap((token) =>
+      Array.from({ length: APP_CALLS_IN_FLIGHT.perAccount }, () => command(token)),
+    );
+    await expect.poll(() => app.held).toBe(APP_CALLS_IN_FLIGHT.perApp);
+    const busy = await command(latecomer);
+    expect(busy.status).toBe(429);
+    expect(busy.data.error).toBe("app_busy");
+
+    app.answerAll();
+    for (const done of waiting) expect((await done).status).toBe(200);
+    expect((await command(latecomer)).status).toBe(200);
   });
 });
