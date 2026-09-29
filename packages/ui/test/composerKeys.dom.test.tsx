@@ -37,7 +37,7 @@ const design: Channel = {
   memberIds: [sam.id],
 };
 
-async function renderComposer(enterSends = true) {
+async function renderComposer(enterSends = true, threadRootId?: string) {
   const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
   client.store.setState({
     self: sam,
@@ -59,7 +59,7 @@ async function renderComposer(enterSends = true) {
   const { container } = render(
     <PlatformContext.Provider value={platform}>
       <ClientContext.Provider value={client}>
-        <Composer channelId={design.id} placeholder="Message #design" />
+        <Composer channelId={design.id} threadRootId={threadRootId} placeholder="Message #design" />
       </ClientContext.Provider>
     </PlatformContext.Provider>,
   );
@@ -183,5 +183,54 @@ describe("a send the outbox cannot take", () => {
     expect(send).toHaveBeenLastCalledWith(design.id, "one more thing", expect.anything());
     expect(box).toHaveValue("");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("scheduling a reply that is also for the channel", () => {
+  async function scheduleReply(alsoToChannel: boolean) {
+    const user = userEvent.setup();
+    const { client, box } = await renderComposer(true, "M_ROOT");
+    const schedule = vi
+      .spyOn(client.api, "scheduleMessage")
+      .mockImplementation(async (channelId, body) => ({
+        scheduled: {
+          id: "S1",
+          channelId,
+          userId: sam.id,
+          text: body.text,
+          threadRootId: body.threadRootId ?? null,
+          broadcast: body.alsoSendToChannel === true,
+          fileIds: [],
+          sendAt: body.sendAt,
+          createdAt: 0,
+          status: "queued",
+          failureReason: null,
+          attempts: 0,
+          messageId: null,
+        },
+      }));
+    await user.type(box, "Friday it is");
+    const checkbox = screen.getByRole("checkbox", { name: "Also send to channel" });
+    if (alsoToChannel) await user.click(checkbox);
+    await user.click(screen.getByRole("button", { name: "Send later" }));
+    fireEvent.change(screen.getByLabelText("Choose a date and time"), {
+      target: { value: "2099-01-05T09:00" },
+    });
+    await user.click(screen.getByRole("button", { name: "Schedule message" }));
+    await waitFor(() => expect(schedule).toHaveBeenCalledOnce());
+    return { body: schedule.mock.calls[0]![1], checkbox, box };
+  }
+
+  it("carries the choice in the request, then clears it as sending does", async () => {
+    const { body, checkbox, box } = await scheduleReply(true);
+    expect(body).toMatchObject({ threadRootId: "M_ROOT", alsoSendToChannel: true });
+    await waitFor(() => expect(box).toHaveValue(""));
+    expect(checkbox).not.toBeChecked();
+  });
+
+  it("leaves it out when the reply is only for the thread", async () => {
+    const { body } = await scheduleReply(false);
+    expect(body.threadRootId).toBe("M_ROOT");
+    expect(body).not.toHaveProperty("alsoSendToChannel");
   });
 });

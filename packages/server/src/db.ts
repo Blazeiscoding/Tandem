@@ -395,6 +395,27 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE users ADD COLUMN can_invite INTEGER NOT NULL DEFAULT 0;
   `,
+  // v26 — a file waiting in a scheduled message belongs to that message alone,
+  // held by a key rather than found by scanning JSON, so a second schedule or
+  // an ordinary send cannot take it. A scheduled reply also remembers whether
+  // it was to be shown in the channel. Outstanding rows claim their files in
+  // the order they were queued; a file two of them named goes to the first.
+  `
+  ALTER TABLE scheduled_messages ADD COLUMN broadcast INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE scheduled_files (
+    file_id TEXT PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+    scheduled_id TEXT NOT NULL REFERENCES scheduled_messages(id) ON DELETE CASCADE
+  );
+  CREATE INDEX idx_scheduled_files_item ON scheduled_files(scheduled_id);
+  INSERT OR IGNORE INTO scheduled_files (file_id, scheduled_id)
+    SELECT j.value, s.id
+    FROM scheduled_messages s,
+      json_each(CASE WHEN json_valid(s.file_ids) AND json_type(s.file_ids) = 'array'
+        THEN s.file_ids ELSE '[]' END) j
+    WHERE s.status != 'sent'
+      AND EXISTS (SELECT 1 FROM files f WHERE f.id = j.value AND f.message_id IS NULL)
+    ORDER BY s.created_at, s.id;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

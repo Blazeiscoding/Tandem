@@ -90,6 +90,22 @@ describe("the Scheduled panel", () => {
     expect(await accessibilityProblems(panel)).toEqual([]);
   });
 
+  it("says which replies will also appear in the channel", async () => {
+    const { panel } = renderPanel(async () => ({
+      scheduled: [
+        { ...queued("S1", "Everyone should see this"), threadRootId: "M1", broadcast: true },
+        { ...queued("S2", "Just the thread", 3), threadRootId: "M1", broadcast: false },
+        queued("S3", "In the channel", 4),
+      ],
+    }));
+    const row = async (text: string) => (await within(panel).findByText(text)).closest("li")!;
+    expect(await row("Everyone should see this")).toHaveTextContent(
+      "Reply, also sent to the channel",
+    );
+    expect(await row("Just the thread")).toHaveTextContent("Reply in thread");
+    expect(await row("In the channel")).not.toHaveTextContent(/Reply/);
+  });
+
   it("says a first load failed, and Refresh in the message loads it", async () => {
     const user = userEvent.setup();
     let fail = true;

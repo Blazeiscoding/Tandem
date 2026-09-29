@@ -115,6 +115,8 @@ export const scheduleMessageBody = z
     /** Epoch ms; must be in the future. */
     sendAt: z.number().int().positive(),
     threadRootId: z.string().optional(),
+    /** A reply that is also to be shown in the channel. Ignored without a thread. */
+    alsoSendToChannel: z.boolean().optional(),
     fileIds: z.array(z.string()).max(10).optional(),
   })
   .refine((b) => b.text.trim().length > 0 || (b.fileIds?.length ?? 0) > 0, {

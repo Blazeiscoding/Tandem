@@ -716,8 +716,23 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           ),
         );
       }
+      // A file a scheduled message is waiting to send is already promised.
+      if (store.filesHeldBySchedule(input.fileIds, input.scheduledId ?? null))
+        throw new HttpError(
+          409,
+          "attachments_scheduled",
+          "One of these files is part of a scheduled message. Cancel that message to use it here.",
+        );
       const created = store.createMessage(input);
-      if (!store.attachFiles(input.fileIds, created.id, input.channelId, input.userId))
+      if (
+        !store.attachFiles(
+          input.fileIds,
+          created.id,
+          input.channelId,
+          input.userId,
+          input.scheduledId ?? null,
+        )
+      )
         throw new HttpError(400, "invalid_attachments");
       const hydrated = store.getMessage(created.id)!;
       if (input.nonce !== null)
@@ -3283,13 +3298,18 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const me = requireUser(req);
     const channel = requireChannelAccess(req.params.id, me);
     const body = scheduleMessageBody.parse(req.body);
+    const fileIds = body.fileIds ?? [];
+    // Only a reply can also be shown in the channel, as with an ordinary send.
+    const broadcast = !!body.threadRootId && body.alsoSendToChannel === true;
     const requestHash = hashToken(
       JSON.stringify([
         channel.id,
         body.text,
         body.threadRootId ?? null,
-        [...(body.fileIds ?? [])].sort(),
+        [...fileIds].sort(),
         body.sendAt,
+        // Absent when false, so a request recorded before this existed still matches.
+        ...(broadcast ? [true] : []),
       ]),
     );
     const result = store.transaction(() => {
@@ -3319,16 +3339,27 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           throw new HttpError(400, "bad_thread_root");
         }
       }
-      if (!store.unattachedFiles(body.fileIds ?? [], channel.id, me.id)) {
+      if (
+        new Set(fileIds).size !== fileIds.length ||
+        !store.unattachedFiles(fileIds, channel.id, me.id)
+      ) {
         throw new HttpError(400, "invalid_attachments");
+      }
+      if (store.filesHeldBySchedule(fileIds)) {
+        throw new HttpError(
+          409,
+          "attachments_scheduled",
+          "One of these files is already part of another scheduled message.",
+        );
       }
       const scheduled = store.scheduleMessage({
         channelId: channel.id,
         userId: me.id,
         text: body.text,
         threadRootId: body.threadRootId ?? null,
-        fileIds: body.fileIds ?? [],
+        fileIds,
         sendAt: body.sendAt,
+        broadcast,
       });
       if (body.nonce) store.recordScheduledRequest(me.id, body.nonce, scheduled.id, requestHash);
       return { scheduled, replayed: false };
@@ -3669,6 +3700,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           userId: item.userId,
           text: item.text,
           threadRootId: item.threadRootId,
+          broadcast: item.broadcast,
           nonce: null,
           fileIds: item.fileIds,
           scheduledId: item.id,

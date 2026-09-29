@@ -1181,16 +1181,37 @@ export class Store {
     };
   }
 
-  /** Binds uploads to their message. Only the uploader's own unattached files in this channel. */
-  attachFiles(fileIds: ID[], messageId: ID, channelId: ID, userId: ID): boolean {
+  /**
+   * Binds uploads to their message. Only the uploader's own unattached files in
+   * this channel, and none a scheduled message is holding unless it is that
+   * scheduled message being delivered.
+   */
+  attachFiles(
+    fileIds: ID[],
+    messageId: ID,
+    channelId: ID,
+    userId: ID,
+    scheduledId: ID | null = null,
+  ): boolean {
     const stmt = this.db.prepare(
       `UPDATE files SET message_id = ?
-       WHERE id = ? AND user_id = ? AND channel_id = ? AND message_id IS NULL`,
+       WHERE id = ? AND user_id = ? AND channel_id = ? AND message_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM scheduled_files sf WHERE sf.file_id = files.id AND sf.scheduled_id IS NOT ?
+         )`,
     );
     for (const fileId of fileIds) {
-      if (stmt.run(messageId, fileId, userId, channelId).changes !== 1) return false;
+      if (stmt.run(messageId, fileId, userId, channelId, scheduledId).changes !== 1) return false;
     }
     return true;
+  }
+
+  /** True when a scheduled message other than `except` is holding any of these files. */
+  filesHeldBySchedule(fileIds: ID[], except: ID | null = null): boolean {
+    const stmt = this.db.prepare(
+      "SELECT 1 FROM scheduled_files WHERE file_id = ? AND scheduled_id IS NOT ?",
+    );
+    return fileIds.some((id) => stmt.get(id, except) !== undefined);
   }
 
   /**
@@ -1217,6 +1238,10 @@ export class Store {
       if (!Array.isArray(ids)) return null;
       for (const id of ids) spokenFor.add(String(id));
     }
+    for (const row of this.db.prepare("SELECT file_id FROM scheduled_files").all() as {
+      file_id: string;
+    }[])
+      spokenFor.add(row.file_id);
     const candidates = this.db
       .prepare("SELECT id FROM files WHERE message_id IS NULL AND created_at < ?")
       .all(olderThan) as { id: string }[];
@@ -1785,14 +1810,15 @@ export class Store {
     threadRootId: ID | null;
     fileIds: ID[];
     sendAt: number;
+    broadcast?: boolean;
   }): ScheduledMessage {
     const id = ulid();
     const now = Date.now();
     this.db
       .prepare(
         `INSERT INTO scheduled_messages
-           (id, channel_id, user_id, text, thread_root_id, file_ids, send_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, channel_id, user_id, text, thread_root_id, file_ids, send_at, created_at, broadcast)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -1803,7 +1829,14 @@ export class Store {
         JSON.stringify(input.fileIds),
         input.sendAt,
         now,
+        input.threadRootId && input.broadcast ? 1 : 0,
       );
+    // The key refuses a file some other scheduled message already holds, so
+    // the caller's checks and this row cannot disagree.
+    const hold = this.db.prepare(
+      "INSERT INTO scheduled_files (file_id, scheduled_id) VALUES (?, ?)",
+    );
+    for (const fileId of input.fileIds) hold.run(fileId, id);
     return this.getScheduled(id)!;
   }
 
@@ -1820,6 +1853,7 @@ export class Store {
     failure_reason: string | null;
     attempts: number;
     message_id: string | null;
+    broadcast: number;
   }): ScheduledMessage {
     let fileIds: ID[] = [];
     try {
@@ -1833,6 +1867,7 @@ export class Store {
       userId: r.user_id,
       text: r.text,
       threadRootId: r.thread_root_id,
+      broadcast: r.broadcast === 1,
       fileIds,
       sendAt: r.send_at,
       createdAt: r.created_at,
@@ -1878,13 +1913,17 @@ export class Store {
     return rows.map((r) => this.toScheduled(r));
   }
 
-  /** Delivery, written inside the posting transaction so neither can happen alone. */
+  /**
+   * Delivery, written inside the posting transaction so neither can happen
+   * alone. Its files are the message's now, so the schedule lets go of them.
+   */
   markScheduledSent(id: ID, messageId: ID): void {
     this.db
       .prepare(
         "UPDATE scheduled_messages SET status = 'sent', message_id = ?, failure_reason = NULL WHERE id = ?",
       )
       .run(messageId, id);
+    this.db.prepare("DELETE FROM scheduled_files WHERE scheduled_id = ?").run(id);
   }
 
   /** A reason that may clear on its own. The next flush tries again. */
@@ -1950,6 +1989,7 @@ export class Store {
     return fileIds.every((id) => stmt.get(id, userId, channelId) !== undefined);
   }
 
+  /** Cancels one. Its files go with the row, free for another message. */
   deleteScheduled(id: ID): boolean {
     const res = this.db.prepare("DELETE FROM scheduled_messages WHERE id = ?").run(id);
     return res.changes > 0;
