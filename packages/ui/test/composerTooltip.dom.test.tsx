@@ -40,7 +40,7 @@ function renderComposer(enterSends: boolean) {
     channels: { [design.id]: design },
     status: "online",
   });
-  const send = vi.spyOn(client, "send").mockImplementation(() => undefined);
+  const send = vi.spyOn(client, "send").mockImplementation(() => true);
   const platform: Platform = {
     kind: "web",
     storage: {

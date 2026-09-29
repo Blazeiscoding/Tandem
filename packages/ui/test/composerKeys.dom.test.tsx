@@ -45,7 +45,7 @@ async function renderComposer(enterSends = true) {
     channels: { [design.id]: design },
     status: "online",
   });
-  const send = vi.spyOn(client, "send").mockImplementation(() => undefined);
+  const send = vi.spyOn(client, "send").mockImplementation(() => true);
   const values = new Map<string, unknown>();
   const platform: Platform = {
     kind: "web",
@@ -161,5 +161,27 @@ describe("a scheduled send that cannot upload its files", () => {
     expect(schedule).not.toHaveBeenCalled();
     expect(box).toHaveValue("The quarterly numbers");
     expect(screen.getByText("numbers.csv")).toBeVisible();
+  });
+});
+
+describe("a send the outbox cannot take", () => {
+  it("keeps the words in the composer and says why, then sends once there is room", async () => {
+    const user = userEvent.setup();
+    const { client, send, box } = await renderComposer();
+    const full = vi.spyOn(client, "outboxFull").mockReturnValue(true);
+    send.mockImplementation(() => false);
+    await user.type(box, "one more thing{Enter}");
+    expect(send).toHaveBeenCalledOnce();
+    expect(box).toHaveValue("one more thing");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "50 messages are already waiting to send. Once they go, or you discard some, this one can be sent.",
+    );
+
+    full.mockReturnValue(false);
+    send.mockImplementation(() => true);
+    await user.keyboard("{Enter}");
+    expect(send).toHaveBeenLastCalledWith(design.id, "one more thing", expect.anything());
+    expect(box).toHaveValue("");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
