@@ -20,7 +20,23 @@ export interface SavedServer {
  * What starts hosting: `folder` for a workspace already hosted on this
  * computer, or `workspaceName` for a new one. A name never finds an old one.
  */
-export type HostingStart = ({ folder: string } | { workspaceName: string }) & { port?: number };
+export type HostingStart = ({ folder: string } | { workspaceName: string }) & {
+  port?: number;
+  /** Puts a restored workspace back in use, rather than starting it only to look inside. */
+  activate?: boolean;
+};
+
+/** What a restored backup brings with it once it is put back in use. */
+export interface RestoreInventory {
+  /** Where its apps are sent events, commands and button clicks. */
+  appAddresses: { origin: string; uses: string[] }[];
+  /** Messages waiting to be posted, and when the earliest is due. */
+  scheduled: { waiting: number; earliestAt: number | null };
+  /** App events accepted but not yet delivered. */
+  undeliveredEvents: number;
+  /** Sign-ins it accepts, including any ended after the backup was taken. */
+  sessions: number;
+}
 
 /** The workspace this computer hosted most recently. */
 export interface LastHosted {
@@ -55,6 +71,8 @@ export interface HostedWorkspaces {
     autoBackup?: AutoBackup | null;
     /** Why its last scheduled backup did not finish, until one does. */
     autoBackupError?: string | null;
+    /** Restored from a backup and not yet put back in use. */
+    restored?: boolean;
   }[];
   /** Folders holding a workspace that could not be read. */
   unreadable: string[];
@@ -96,6 +114,11 @@ export interface HostingStatus {
   launchError?: string;
   /** How many people are connected to the running workspace now. */
   connected?: number;
+  /**
+   * A restored copy started only to look inside: nothing queued is sent, no
+   * app is called, and only this computer can reach it.
+   */
+  isolated?: boolean;
 }
 
 /**
@@ -195,7 +218,11 @@ export interface Platform {
      * Asks for a backup's folder and restores it as a workspace hosted here,
      * without starting it. Null when no folder was chosen.
      */
-    restore?: () => Promise<{ folder: string; name: string } | null>;
+    restore?: () => Promise<{
+      folder: string;
+      name: string;
+      inventory?: RestoreInventory | null;
+    } | null>;
   };
 }
 

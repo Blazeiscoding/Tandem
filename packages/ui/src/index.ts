@@ -8,5 +8,6 @@ export type {
   HostingStatus,
   LastHosted,
   Platform,
+  RestoreInventory,
   SavedServer,
 } from "./platform.js";

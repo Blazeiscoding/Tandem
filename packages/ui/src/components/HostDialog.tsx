@@ -3,6 +3,7 @@ import type {
   AutoBackup,
   HostedWorkspaces,
   HostingStart,
+  RestoreInventory,
   HostingStatus,
   LastHosted,
   Platform,
@@ -224,6 +225,23 @@ function StartupWhileStopped(props: {
       )}
     </section>
   );
+}
+
+/** What a restored backup would bring back into use, in a sentence. */
+function inventorySummary(inventory: RestoreInventory): string {
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts = [
+    count(inventory.sessions, "sign-in it still accepts", "sign-ins it still accepts"),
+    count(inventory.scheduled.waiting, "scheduled message waiting", "scheduled messages waiting"),
+    count(
+      inventory.undeliveredEvents,
+      "app event not yet delivered",
+      "app events not yet delivered",
+    ),
+  ];
+  const origins = inventory.appAddresses.map((a) => a.origin);
+  if (origins.length > 0) parts.push(`apps it calls at ${origins.join(", ")}`);
+  return `Put back in use, it brings ${parts.join(", ")}.`;
 }
 
 const KEEP_CHOICES = [3, 7, 14, 30];
@@ -661,6 +679,8 @@ export function HostDialog(props: {
   const backupFn = props.hosting.backup;
   const forgetFn = props.hosting.forget;
   const restoreFn = props.hosting.restore;
+  /** The restored workspace whose "put back in use" question is showing. */
+  const [activating, setActivating] = useState<string | null>(null);
   const renameFn = props.hosting.rename;
   const openFolderFn = props.hosting.openFolder;
   /** The folder of the workspace being renamed, while its form is open. */
@@ -760,7 +780,9 @@ export function HostDialog(props: {
       if (restored)
         setBackupNote({
           ok: true,
-          text: `Restored ${restored.name}. Start it from the list when you are ready.`,
+          text:
+            `Restored ${restored.name}. Until you put it back in use, Look inside opens it on this computer only, sends nothing it had waiting and calls no app.` +
+            (restored.inventory ? ` ${inventorySummary(restored.inventory)}` : ""),
         });
     } catch (reason) {
       const why = reason instanceof Error && reason.message ? ` ${reason.message}` : "";
@@ -1121,7 +1143,14 @@ export function HostDialog(props: {
               onError={(text) => setBackupNote(text ? { ok: false, text } : null)}
             />
           )}
-          {props.hosting.openToAll && (
+          {status.isolated && (
+            <p role="status" className="rounded-xl border border-edge bg-ground p-3 text-sm">
+              You are looking inside {status.workspaceName ?? "a restored workspace"}. Only this
+              computer can reach it, nothing it had waiting is sent, and no app is called. Stop it,
+              then choose Put back in use from the list when it is ready.
+            </p>
+          )}
+          {props.hosting.openToAll && !status.isolated && (
             <div className="rounded-xl border border-edge bg-ground p-3">
               <div className="mb-1 flex items-center justify-between gap-3">
                 <h3 className="font-semibold text-ink">Open to all</h3>
@@ -1452,7 +1481,7 @@ export function HostDialog(props: {
                 {existing.map((w) => (
                   <li
                     key={w.folder}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-edge px-3 py-2"
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-edge px-3 py-2"
                   >
                     {setPortFn && changingPort === w.folder && !w.missing ? (
                       <PortForm
@@ -1482,7 +1511,7 @@ export function HostDialog(props: {
                           <p className="text-xs text-ink-dim">
                             {w.missing
                               ? "Its folder is missing, so it cannot start"
-                              : `Port ${w.port}${w.startsOnLaunch ? " · Starts with Gatherline" : ""}${
+                              : `${w.restored ? "Restored, not in use yet · " : ""}Port ${w.port}${w.startsOnLaunch ? " · Starts with Gatherline" : ""}${
                                   w.autoBackup
                                     ? w.autoBackup.everyDays === 1
                                       ? " · Backs up daily"
@@ -1560,17 +1589,66 @@ export function HostDialog(props: {
                             Remove
                           </button>
                         ) : (
-                          <button
-                            type="button"
-                            disabled={unavailable || w.missing}
-                            aria-label={`Start hosting ${w.name}`}
-                            onClick={() => void launch({ folder: w.folder })}
-                            className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink hover:border-copper disabled:opacity-40"
-                          >
-                            Start
-                          </button>
+                          <>
+                            {w.restored && !w.missing && (
+                              <button
+                                type="button"
+                                disabled={unavailable}
+                                aria-label={`Put ${w.name} back in use`}
+                                onClick={() => setActivating(w.folder)}
+                                className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+                              >
+                                Put back in use…
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={unavailable || w.missing}
+                              aria-label={
+                                w.restored ? `Look inside ${w.name}` : `Start hosting ${w.name}`
+                              }
+                              onClick={() => void launch({ folder: w.folder })}
+                              className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm text-ink hover:border-copper disabled:opacity-40"
+                            >
+                              {w.restored ? "Look inside" : "Start"}
+                            </button>
+                          </>
                         )}
                       </>
+                    )}
+                    {activating === w.folder && (
+                      <div
+                        role="region"
+                        aria-label={`Put ${w.name} back in use?`}
+                        className="mt-2 w-full space-y-2 rounded-lg border border-edge bg-ground p-3 text-sm text-ink-dim"
+                      >
+                        <p>
+                          {w.name} starts as the workspace itself: it sends the messages it had
+                          waiting, calls its apps again, and accepts every sign-in it held when the
+                          backup was taken, including ones ended since. Ask people to check their
+                          signed-in devices afterwards.
+                        </p>
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            disabled={unavailable}
+                            onClick={() => {
+                              setActivating(null);
+                              void launch({ folder: w.folder, activate: true });
+                            }}
+                            className="rounded-lg bg-copper px-3 py-1.5 text-sm font-medium text-ground disabled:opacity-40"
+                          >
+                            Put back in use
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActivating(null)}
+                            className={linkBtnCls}
+                          >
+                            Not yet
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </li>
                 ))}

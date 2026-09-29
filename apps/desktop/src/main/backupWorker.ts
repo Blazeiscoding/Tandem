@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { backupWorkspace, restoreWorkspace, verifyBackup } from "@slackoss/server";
+import { backupWorkspace, inventoryBackup, restoreWorkspace, verifyBackup } from "@slackoss/server";
 
 /**
  * Backing up, checking and restoring a workspace, off the main thread. Each
@@ -11,6 +11,7 @@ import { backupWorkspace, restoreWorkspace, verifyBackup } from "@slackoss/serve
 export type BackupJob =
   | { kind: "backup"; dataDir: string; out: string }
   | { kind: "verify"; dir: string }
+  | { kind: "inventory"; dir: string }
   | { kind: "restore"; backupDir: string; dataDir: string };
 
 export type BackupReply = { ok: true; result: unknown } | { ok: false; message: string };
@@ -21,6 +22,8 @@ async function run(job: BackupJob): Promise<unknown> {
       return backupWorkspace({ dataDir: job.dataDir, out: job.out });
     case "verify":
       return verifyBackup(job.dir);
+    case "inventory":
+      return inventoryBackup(job.dir);
     case "restore":
       return restoreWorkspace({ backupDir: job.backupDir, dataDir: job.dataDir });
   }
