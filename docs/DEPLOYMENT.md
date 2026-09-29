@@ -68,8 +68,10 @@ start, the reason is shown the next time the window is opened.
 
 Current limits: a port chosen for a workspace can be replaced by a free one when
 that port is taken as it restarts, and Manage hosting then warns; these two
-choices can only be changed while the workspace is running; and on macOS, opening
-at sign-in has not been checked to keep the window hidden.
+choices can only be changed while the workspace is running; and opening at
+sign-in has not been tried on an installed macOS system. If macOS holds the
+registration for approval, the dialog says to allow Gatherline under Login Items
+in System Settings.
 
 ### Backing up from the desktop
 

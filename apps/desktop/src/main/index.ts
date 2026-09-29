@@ -22,6 +22,7 @@ import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
 import { createHostingController } from "./hosting.js";
+import { loginItemOptions, loginItemProblem, openedAtLogin } from "./loginItem.js";
 import {
   findCloudflared,
   openConfiguredAddress,
@@ -447,15 +448,13 @@ ipcMain.handle("hosting:setStartOnLaunch", (_e, folder: unknown) =>
  */
 const loginItemAvailable =
   app.isPackaged && (process.platform === "win32" || process.platform === "darwin");
-/** Passed by the OS at sign-in, so the app can stay in the tray. */
-const HIDDEN_ARG = "--hidden";
 /** Tests must never register the real app with the OS; they get this instead. */
 let testOpenAtLogin = false;
 
 function openAtLogin(): boolean | null {
   if (!loginItemAvailable) return null;
   if (isTest) return testOpenAtLogin;
-  return app.getLoginItemSettings({ args: [HIDDEN_ARG] }).openAtLogin;
+  return app.getLoginItemSettings(loginItemOptions(process.platform)).openAtLogin;
 }
 
 ipcMain.handle("hosting:openAtLogin", () => openAtLogin());
@@ -464,8 +463,14 @@ ipcMain.handle("hosting:setOpenAtLogin", (_e, open: unknown) => {
     throw new Error("Say whether to open at sign-in with true or false.");
   if (!loginItemAvailable)
     throw new Error("Opening at sign-in needs Gatherline installed on Windows or macOS.");
-  if (isTest) testOpenAtLogin = open;
-  else app.setLoginItemSettings({ openAtLogin: open, args: [HIDDEN_ARG] });
+  if (isTest) {
+    testOpenAtLogin = open;
+    return openAtLogin();
+  }
+  const options = loginItemOptions(process.platform);
+  app.setLoginItemSettings({ openAtLogin: open, ...options });
+  const problem = loginItemProblem(process.platform, open, app.getLoginItemSettings(options));
+  if (problem) throw new Error(problem);
   return openAtLogin();
 });
 
@@ -821,7 +826,8 @@ void app.whenReady().then(async () => {
   // Opened by the OS at sign-in, with a workspace hosting and a tray to reach
   // it by, Gatherline stays out of the way. Otherwise the window opens, and
   // hosting starts meanwhile: it enters "starting" long before the window asks.
-  if (process.argv.includes(HIDDEN_ARG)) {
+  const loginSettings = loginItemAvailable && !isTest ? app.getLoginItemSettings() : {};
+  if (openedAtLogin(process.platform, process.argv, loginSettings)) {
     const hosted = await hosting.startForLaunch().catch(() => null);
     if (!hosted?.running || !tray) createWindow();
   } else {
