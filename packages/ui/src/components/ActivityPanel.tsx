@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isMessageRead } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle, formatTime } from "../lib/format.js";
@@ -23,6 +24,7 @@ export function ActivityPanel({
   const channels = useWorkspace((s) => s.channels);
   const users = useWorkspace((s) => s.users);
   const memberships = useWorkspace((s) => s.memberships);
+  const threadFollows = useWorkspace((s) => s.threadFollows);
   const { panel, heading } = usePanelFocus({ takeFocus: true });
   const [mode, setMode] = useState<ActivityMode>("unread");
   const [cursors, setCursors] = useState<(ID | undefined)[]>([undefined]);
@@ -67,7 +69,7 @@ export function ActivityPanel({
     (message) =>
       channels[message.channelId] &&
       message.channelId in memberships &&
-      (mode === "mentions" || message.seq > (memberships[message.channelId] ?? 0)),
+      (mode === "mentions" || !isMessageRead(message, { memberships, threadFollows })),
   );
 
   return (
@@ -133,7 +135,7 @@ export function ActivityPanel({
         />
         <ul className="space-y-3">
           {messages.map((message) => {
-            const unread = message.seq > (memberships[message.channelId] ?? 0);
+            const unread = !isMessageRead(message, { memberships, threadFollows });
             return (
               <li key={message.id} className="rounded-xl border border-edge bg-raised p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">

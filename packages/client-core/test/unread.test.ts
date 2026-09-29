@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
-import { Api, WorkspaceClient, unreadThreadCount } from "../src/index.js";
+import { Api, WorkspaceClient, isMessageRead, unreadThreadCount } from "../src/index.js";
 
 let server: WorkspaceServer;
 let client: WorkspaceClient;
 let owner: Api;
+let member: { token: string; id: string };
 let channelId: string;
 
 beforeEach(async () => {
@@ -23,6 +24,7 @@ beforeEach(async () => {
     password: "password123",
   });
   owner = new Api(base, a.token);
+  member = { token: b.token, id: b.user.id };
   client = new WorkspaceClient(base, b.token);
   client.connect();
   await expect.poll(() => client.state.status).toBe("online");
@@ -140,5 +142,73 @@ describe("mark unread", () => {
     client.focusThread(root.id);
     client.markThreadRead(root.id);
     await expect.poll(() => unreadThreadCount(client.state.threadFollows)).toBe(0);
+  });
+});
+
+describe("reading a thread", () => {
+  it("moves only the thread's cursor, so an unseen channel mention stays unread", async () => {
+    const root = await incoming("Plans for Friday");
+    client.markRead(channelId, root.seq);
+    await expect.poll(lastRead).toBe(root.seq);
+    const mention = await incoming(`can you look <@${member.id}>`);
+    await client.loadThread(root.id, channelId, "latest");
+    const reply = await incoming(`and this <@${member.id}>`, root.id);
+    await expect.poll(() => client.state.mentionCounts[channelId]).toBe(2);
+    // The reply lives in its thread; the channel's newest is the mention.
+    expect(client.state.channelLastSeq[channelId]).toBe(mention.seq);
+
+    client.focusThread(root.id);
+    client.markThreadRead(root.id);
+    expect(client.state.threadFollows[root.id]).toMatchObject({
+      following: false,
+      lastReadSeq: reply.seq,
+    });
+    await expect.poll(() => client.state.mentionCounts[channelId]).toBe(1);
+    expect(lastRead()).toBe(root.seq);
+    expect(isMessageRead(reply, client.state)).toBe(true);
+    expect(isMessageRead(mention, client.state)).toBe(false);
+    expect(unreadThreadCount(client.state.threadFollows)).toBe(0);
+
+    // A fresh connection agrees: nothing about the channel was acknowledged.
+    const again = new WorkspaceClient(`http://127.0.0.1:${server.port}`, member.token);
+    try {
+      again.connect();
+      await expect.poll(() => again.state.status).toBe("online");
+      expect(again.state.memberships[channelId]).toBe(root.seq);
+      expect(again.state.mentionCounts[channelId]).toBe(1);
+      expect(again.state.channelLastSeq[channelId]).toBe(mention.seq);
+      expect(again.state.threadFollows[root.id]).toMatchObject({
+        following: false,
+        lastReadSeq: reply.seq,
+      });
+    } finally {
+      again.destroy();
+    }
+  });
+
+  it("puts back a thread cursor the server refused, including having none", async () => {
+    const root = await incoming("Unfollowed");
+    await client.loadThread(root.id, channelId, "latest");
+    await incoming("A reply", root.id);
+    vi.spyOn(client.api, "markThreadRead").mockRejectedValue(new Error("offline"));
+    client.markThreadRead(root.id);
+    expect(client.state.threadFollows[root.id]?.lastReadSeq).toBeGreaterThan(0);
+    await expect.poll(() => client.state.threadFollows[root.id]).toBeUndefined();
+  });
+
+  it("counts a reply toward the channel's badge only when it is also sent to the channel", async () => {
+    const root = await incoming("Root");
+    client.markRead(channelId, root.seq);
+    await client.loadThread(root.id, channelId, "latest");
+    await incoming("Only in the thread", root.id);
+    expect(client.state.channelLastSeq[channelId]).toBe(root.seq);
+
+    const { message } = await owner.sendMessage(channelId, {
+      text: "For everyone",
+      nonce: "copied",
+      threadRootId: root.id,
+      alsoSendToChannel: true,
+    });
+    await expect.poll(() => client.state.channelLastSeq[channelId]).toBe(message.seq);
   });
 });

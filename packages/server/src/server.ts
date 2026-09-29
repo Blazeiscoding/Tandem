@@ -417,7 +417,12 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   const recordEvent = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
     const envelope = store.appendEvent(event, channelId);
     if (event.type === "message.created") {
-      store.stampMessageSeq(event.message.id, event.message.channelId, envelope.seq);
+      store.stampMessageSeq(
+        event.message.id,
+        event.message.channelId,
+        envelope.seq,
+        !event.message.threadRootId || event.message.broadcast === true,
+      );
       event.message.seq = envelope.seq;
       // Every way a reply can be written arrives here, so following belongs
       // here too rather than in each of the routes that can create one.
@@ -3473,6 +3478,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     const state = store.markThreadRead(me.id, message.id, body.seq);
     if (!state) throw new HttpError(404, "message_not_found");
     gateway.sendToUser(me.id, { type: "thread.follow", state });
+    // Reading a thread can read a mention in its replies.
+    pushMentionCounts([me.id]);
     return { state };
   });
 

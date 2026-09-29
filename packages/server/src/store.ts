@@ -801,12 +801,17 @@ export class Store {
     this.db.prepare("UPDATE messages SET actions = '[]' WHERE id = ?").run(id);
   }
 
-  /** Called after the event log assigns a seq to message.created. */
-  stampMessageSeq(messageId: ID, channelId: ID, seq: number): void {
+  /**
+   * Called after the event log assigns a seq to message.created. A reply
+   * belongs to its thread, so only a message in the channel itself, or a
+   * reply also sent there, moves the channel's newest seq and so its badge.
+   */
+  stampMessageSeq(messageId: ID, channelId: ID, seq: number, inChannel = true): void {
     this.db.prepare("UPDATE messages SET seq = ? WHERE id = ?").run(seq, messageId);
-    this.db
-      .prepare("UPDATE channels SET last_msg_seq = MAX(last_msg_seq, ?) WHERE id = ?")
-      .run(seq, channelId);
+    if (inChannel)
+      this.db
+        .prepare("UPDATE channels SET last_msg_seq = MAX(last_msg_seq, ?) WHERE id = ?")
+        .run(seq, channelId);
   }
 
   getMessage(id: ID): Message | null {
@@ -1427,9 +1432,11 @@ export class Store {
   }
 
   /**
-   * Advances a followed thread's read cursor. Clamped to what exists, so a
-   * client reporting a seq from a message it has since lost cannot park the
-   * cursor in the future and hide later replies.
+   * Advances a thread's read cursor, followed or not: reading a thread is how
+   * its replies, and the mentions in them, are read, and it reads nothing else
+   * in the channel. A thread not followed gets a cursor without following it.
+   * Clamped to what exists, so a client reporting a seq from a message it has
+   * since lost cannot park the cursor in the future and hide later replies.
    */
   markThreadRead(userId: ID, rootId: ID, seq: number): ThreadFollow | null {
     const current = this.threadFollow(userId, rootId);
@@ -1437,10 +1444,14 @@ export class Store {
     const target = Math.min(seq, this.threadLastSeq(rootId));
     this.db
       .prepare(
-        `UPDATE thread_follows SET last_read_seq = ?, revision = MAX(revision + 1, ?)
-         WHERE user_id = ? AND root_id = ? AND last_read_seq < ?`,
+        `INSERT INTO thread_follows (user_id, root_id, following, last_read_seq, revision)
+         VALUES (?, ?, 0, ?, ?)
+         ON CONFLICT(user_id, root_id) DO UPDATE SET
+           last_read_seq = excluded.last_read_seq,
+           revision = MAX(thread_follows.revision + 1, excluded.revision)
+         WHERE thread_follows.last_read_seq < excluded.last_read_seq`,
       )
-      .run(target, this.nextFollowRevision(), userId, rootId, target);
+      .run(userId, rootId, target, this.nextFollowRevision());
     return this.threadFollow(userId, rootId);
   }
 
@@ -2782,7 +2793,7 @@ export class Store {
   ): Message[] {
     const conditions = ["cm.user_id = ?", "m.user_id != ?", "m.deleted_at IS NULL"];
     const params: (string | number)[] = [userId, userId];
-    if (opts.mode === "unread") conditions.push("m.seq > cm.last_read_seq");
+    if (opts.mode === "unread") conditions.push(Store.UNREAD);
     else {
       conditions.push(Store.MENTIONS_ME);
       params.push(`<@${userId}>`);
@@ -2803,6 +2814,15 @@ export class Store {
   }
 
   /**
+   * The condition for "this message is unread", beside `channel_members cm`.
+   * A message is read once the channel's cursor passes it, and a reply is
+   * read too once its thread's cursor does: reading a thread reads its
+   * replies and nothing else in the channel.
+   */
+  private static readonly UNREAD =
+    "(m.seq > cm.last_read_seq AND NOT (m.thread_root_id IS NOT NULL AND EXISTS (SELECT 1 FROM thread_follows tf WHERE tf.user_id = cm.user_id AND tf.root_id = m.thread_root_id AND tf.last_read_seq >= m.seq)))";
+
+  /**
    * The condition for "this message mentions me", shared by the Activity list
    * and the badge counts so a count can never disagree with what it opens.
    * A direct mention counts anywhere; a room-wide one only in a room, since
@@ -2818,7 +2838,7 @@ export class Store {
         `SELECT m.channel_id, COUNT(*) AS n FROM messages m
          JOIN channels c ON c.id = m.channel_id
          JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ?
-         WHERE m.user_id != ? AND m.deleted_at IS NULL AND m.seq > cm.last_read_seq
+         WHERE m.user_id != ? AND m.deleted_at IS NULL AND ${Store.UNREAD}
          AND ${Store.MENTIONS_ME}
          AND (m.thread_root_id IS NULL OR EXISTS (
            SELECT 1 FROM messages root WHERE root.id = m.thread_root_id AND root.deleted_at IS NULL

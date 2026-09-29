@@ -661,3 +661,103 @@ describe("thread following", () => {
     expect((await request("/api/threads/followed?limit=0", undefined, "GET")).status).toBe(400);
   });
 });
+
+describe("reading a thread", () => {
+  /** Root, then an unseen channel mention, then a reply that also mentions. */
+  async function rootMentionReply() {
+    const root = await post("Plans for Friday", peer.token);
+    await request(`/api/channels/${channelId}/read`, { seq: root.seq });
+    const mention = (
+      await request(
+        `/api/channels/${channelId}/messages`,
+        { text: `can you look at this <@${owner.id}>`, nonce: "top" },
+        "POST",
+        peer.token,
+      )
+    ).body.message;
+    const reply = (
+      await request(
+        `/api/channels/${channelId}/messages`,
+        { text: `and this one <@${owner.id}>`, nonce: "reply", threadRootId: root.id },
+        "POST",
+        peer.token,
+      )
+    ).body.message;
+    expect([root.seq < mention.seq, mention.seq < reply.seq]).toEqual([true, true]);
+    return { root, mention, reply };
+  }
+
+  const ready = async () =>
+    (await connect(owner.token)).frames.find((f) => f.type === "ready") as any;
+  const cursor = (snapshot: any) =>
+    snapshot.memberships.find((m: any) => m.channelId === channelId).lastReadSeq;
+  const unreadActivity = async () =>
+    ((await request("/api/activity?mode=unread", undefined, "GET")).body.messages as any[]).map(
+      (m) => m.id,
+    );
+
+  it("reads only the thread, leaving an unseen channel mention unread", async () => {
+    const { root, mention, reply } = await rootMentionReply();
+    expect(server.store.unreadMentionCounts(owner.id)[channelId]).toBe(2);
+
+    const read = await request(`/api/messages/${root.id}/thread/read`, { seq: reply.seq });
+    expect(read.status).toBe(200);
+    // Reading a thread you do not follow keeps its cursor without following it.
+    expect(read.body.state).toMatchObject({ following: false, lastReadSeq: reply.seq });
+
+    const snapshot = await ready();
+    expect(cursor(snapshot)).toBe(root.seq);
+    expect(snapshot.mentionCounts[channelId]).toBe(1);
+    expect(await unreadActivity()).toEqual([mention.id]);
+    // Not following it, the thread is not one of yours with anything new.
+    expect(snapshot.threadFollows).toEqual([
+      expect.objectContaining({ rootId: root.id, following: false, lastReadSeq: reply.seq }),
+    ]);
+  });
+
+  it("tells the reader's devices the mention count once the thread is read", async () => {
+    const { root, reply } = await rootMentionReply();
+    const socket = await connect(owner.token);
+    await request(`/api/messages/${root.id}/thread/read`, { seq: reply.seq });
+    await expect
+      .poll(
+        () =>
+          socket.frames
+            .flatMap((f) =>
+              f.type === "ephemeral" && f.event.type === "mentions" ? [f.event.counts] : [],
+            )
+            .at(-1)?.[channelId],
+      )
+      .toBe(1);
+  });
+
+  it("counts a reply toward the channel's newest message only when it is also sent there", async () => {
+    const { mention, reply } = await rootMentionReply();
+    expect((await ready()).channelLastSeq[channelId]).toBe(mention.seq);
+    expect(reply.seq).toBeGreaterThan(mention.seq);
+
+    const copied = (
+      await request(
+        `/api/channels/${channelId}/messages`,
+        {
+          text: "for everyone",
+          nonce: "copied",
+          threadRootId: reply.threadRootId,
+          alsoSendToChannel: true,
+        },
+        "POST",
+        peer.token,
+      )
+    ).body.message;
+    expect((await ready()).channelLastSeq[channelId]).toBe(copied.seq);
+  });
+
+  it("still reads earlier replies when the channel itself is read past them", async () => {
+    const { mention, reply } = await rootMentionReply();
+    const later = await post("Later in the channel", peer.token);
+    await request(`/api/channels/${channelId}/read`, { seq: later.seq });
+    expect(server.store.unreadMentionCounts(owner.id)[channelId] ?? 0).toBe(0);
+    expect(await unreadActivity()).toEqual([]);
+    expect([mention.seq, reply.seq].every((seq) => seq < later.seq)).toBe(true);
+  });
+});
