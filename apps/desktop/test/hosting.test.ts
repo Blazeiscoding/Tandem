@@ -99,6 +99,8 @@ function harness(
     /** What each fake server keeps in its database, by folder path. */
     databases: new Map<string, { id: string | null; name: string | null }>(),
     readFails: false,
+    /** Keys that cannot be read, as a damaged settings file would leave one. */
+    unreadableKeys: new Set<string>(),
     /** Each name a running server was given. */
     renamedRunning: [] as string[],
     /** How many times a running server announced itself again. */
@@ -192,6 +194,10 @@ function harness(
     settings: {
       get: async (key, { strict, distinguishMissing } = {}) => {
         if (h.readFails && strict) throw new Error("Could not read settings.");
+        if (h.unreadableKeys.has(key)) {
+          if (strict) throw new Error("Could not read settings.");
+          return null;
+        }
         return h.settings.has(key) ? h.settings.get(key) : distinguishMissing ? undefined : null;
       },
       set: async (key, value) => {
@@ -1708,6 +1714,35 @@ describe("starting with the computer", () => {
     ]);
   });
 
+  it("says so when the choice itself cannot be read, and finds it once it can", async () => {
+    const first = harness();
+    await first.controller.start({ workspaceName: "Rocket Team" });
+    const folder = registryOf(first)[0]!.folder;
+    await first.controller.setStartOnLaunch(folder);
+    await first.controller.stop();
+
+    const next = harness({ root: join(first.dataRoot, ".."), settings: first.settings });
+    for (const [path, found] of first.databases) next.databases.set(path, found);
+    next.unreadableKeys.add("startOnLaunch");
+    expect(await next.controller.startForLaunch()).toBeNull();
+    expect(next.controller.status().launchError).toMatch(/could not read which workspace to start/);
+    // The rest of hosting still works, and lists what it can.
+    expect((await next.controller.list()).workspaces.map((w) => w.folder)).toEqual([folder]);
+
+    // Repaired: nothing unreadable was remembered as "none".
+    next.unreadableKeys.clear();
+    const started = await next.controller.startForLaunch();
+    expect(started?.running).toBe(true);
+    expect(next.controller.status().launchError).toBeUndefined();
+  });
+
+  it("does not take a choice it cannot understand for no choice", async () => {
+    const h = harness();
+    h.settings.set("startOnLaunch", 42);
+    expect(await h.controller.startForLaunch()).toBeNull();
+    expect(h.controller.status().launchError).toMatch(/could not read which workspace to start/);
+  });
+
   it("starts nothing when nothing was chosen, or the choice was taken back", async () => {
     const h = harness();
     expect(await h.controller.startForLaunch()).toBeNull();
@@ -1772,7 +1807,7 @@ describe("starting with the computer", () => {
   it("says the list could not be read rather than starting nothing silently", async () => {
     const h = harness();
     h.settings.set("startOnLaunch", "w-anything");
-    h.readFails = true;
+    h.unreadableKeys.add("hostedWorkspaces");
     expect(await h.controller.startForLaunch()).toBeNull();
     expect(h.controller.status().launchError).toMatch(
       /could not read its list of hosted workspaces/,
