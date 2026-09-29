@@ -330,6 +330,79 @@ describe("posting and upload limits", () => {
     expect(server!.store.listMessages({ channelId, limit: 10 })).toHaveLength(1);
   });
 
+  it("refuses to schedule a message once the post budget is spent", async () => {
+    await start({ post: { burst: 1, perMinute: 1 } });
+    const noisy = await register("noisy");
+    const quiet = await register("quiet");
+    const channelId = server!.store.getChannelByName("general")!.id;
+    const sendAt = Date.now() + 60_000;
+
+    expect(
+      (await call(`/api/channels/${channelId}/messages`, { token: noisy, body: { text: "one" } }))
+        .status,
+    ).toBe(201);
+    // A scheduled message becomes an ordinary one later, so queuing it is
+    // posting on a delay, not a way round the limit.
+    const blocked = await call<{ error: string }>(`/api/channels/${channelId}/scheduled`, {
+      token: noisy,
+      body: { text: "later instead", sendAt },
+    });
+    expect(blocked.status).toBe(429);
+    expect(blocked.data.error).toBe("too_many_requests");
+    expect(Number(blocked.retryAfter)).toBeGreaterThan(0);
+    expect(
+      (await call<{ scheduled: unknown[] }>("/api/scheduled", { token: noisy })).data.scheduled,
+    ).toEqual([]);
+
+    const other = await call(`/api/channels/${channelId}/scheduled`, {
+      token: quiet,
+      body: { text: "unaffected", sendAt },
+    });
+    expect(other.status).toBe(201);
+  });
+
+  it("charges a scheduled message once, when it is queued, not on a retry or at delivery", async () => {
+    await start({ post: { burst: 1, perMinute: 1 } });
+    const token = await register("planner");
+    const channelId = server!.store.getChannelByName("general")!.id;
+    const request = { text: "queued once", sendAt: Date.now() + 60_000, nonce: "schedule-once" };
+
+    const accepted = await call<{ scheduled: { id: string } }>(
+      `/api/channels/${channelId}/scheduled`,
+      { token, body: request },
+    );
+    expect(accepted.status).toBe(201);
+    expect(
+      (await call(`/api/channels/${channelId}/messages`, { token, body: { text: "now too" } }))
+        .status,
+    ).toBe(429);
+
+    // A client that lost the answer retries; it gets what was accepted, not a refusal.
+    const replay = await call<{ scheduled: { id: string } }>(
+      `/api/channels/${channelId}/scheduled`,
+      { token, body: request },
+    );
+    expect(replay.status).toBe(200);
+    expect(replay.data.scheduled.id).toBe(accepted.data.scheduled.id);
+
+    // Paid for when queued, so the empty budget does not hold it back when due.
+    const id = accepted.data.scheduled.id;
+    expect(
+      (
+        await call(`/api/scheduled/${id}`, {
+          token,
+          method: "PATCH",
+          body: { sendAt: Date.now() - 1000 },
+        })
+      ).status,
+    ).toBe(200);
+    server!.flushScheduled();
+    expect(server!.store.getScheduled(id)?.status).toBe("sent");
+    expect(server!.store.listMessages({ channelId, limit: 10 }).map((m) => m.text)).toEqual([
+      "queued once",
+    ]);
+  });
+
   it("refuses a flood from one account without touching anyone else", async () => {
     await start({ post: { burst: 3, perMinute: 1 } });
     const noisy = await register("noisy");
@@ -423,6 +496,14 @@ describe("turning limits off", () => {
         })
       ).status,
     ).toBe(200);
+    expect(
+      (
+        await call(`/api/channels/${channelId}/scheduled`, {
+          token,
+          body: { text: "scheduled unbounded", sendAt: Date.now() + 60_000 },
+        })
+      ).status,
+    ).toBe(201);
   }, 15_000);
 });
 

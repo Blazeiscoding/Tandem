@@ -3445,6 +3445,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           "This workspace has as many scheduled messages waiting as it holds. Try again once some have been sent.",
         );
       }
+      // Queuing a message is posting it later, so it spends the post budget here,
+      // once. Delivery spends nothing, so an accepted message is never held back.
+      ration("post", me.id);
       const scheduled = store.scheduleMessage({
         channelId: channel.id,
         userId: me.id,
