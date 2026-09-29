@@ -430,6 +430,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         text: trimmed,
         sendAt: at.getTime(),
         ...(threadRootId ? { threadRootId } : {}),
+        // The choice travels with the request, so the reply lands where it said.
+        ...(threadRootId && alsoToChannel ? { alsoSendToChannel: true } : {}),
         ...(fileIds.length > 0 ? { fileIds } : {}),
       };
       // Persist the exact payload before it can reach the server, including
@@ -443,7 +445,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       await confirmSchedule(body, scheduleStorageKey, context);
     } catch (error) {
       if (!current()) return;
-      if (error instanceof ApiError && error.code === "invalid_attachments")
+      if (
+        error instanceof ApiError &&
+        (error.code === "invalid_attachments" || error.code === "attachments_scheduled")
+      )
         scheduleUploads.current = new WeakMap();
       setScheduleError(
         savingRecovery
@@ -484,6 +489,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       client.setDraft(draftKey, "");
     }
     setAttached([]);
+    // As after sending: a deliberate choice per reply, not a mode.
+    setAlsoToChannel(false);
     scheduleUploads.current = new WeakMap();
     setScheduleError(null);
     setScheduleNote(

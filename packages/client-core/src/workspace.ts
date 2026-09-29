@@ -120,6 +120,8 @@ function sendFailureReason(error: unknown): string {
       return "The message this replies to is gone.";
     case "invalid_attachments":
       return "The attached files are no longer available.";
+    case "attachments_scheduled":
+      return "One of the attached files is part of a scheduled message.";
     case "storage_quota_exceeded":
       return "Workspace attachment storage is full. Ask the host to free space or raise the limit, then retry.";
     case "nonce_conflict":

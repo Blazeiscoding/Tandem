@@ -280,6 +280,8 @@ export interface ScheduledMessage {
   userId: ID;
   text: string;
   threadRootId: ID | null;
+  /** A reply that is also to be shown in the channel when it is sent. */
+  broadcast: boolean;
   fileIds: ID[];
   sendAt: number;
   createdAt: number;

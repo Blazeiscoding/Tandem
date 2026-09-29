@@ -309,6 +309,11 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                         : channelTitle(channel, users, selfId)
                       : "Unavailable conversation"}
                   </button>
+                  {s.threadRootId && (
+                    <span className="text-ink-faint">
+                      {s.broadcast ? "Reply, also sent to the channel" : "Reply in thread"}
+                    </span>
+                  )}
                   <span className="ml-auto font-mono text-ink-faint">
                     {formatScheduleTime(s.sendAt)}
                   </span>
