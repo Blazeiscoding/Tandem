@@ -90,6 +90,22 @@ export const SERVER_VERSION = "0.1.0";
 /** How many times an unexplained delivery error is retried before giving up. */
 const SCHEDULED_ATTEMPTS = 3;
 
+/**
+ * Bounds on the scheduled queue. An account may have this many waiting, and
+ * the workspace this many in all; the flush takes due rows a batch at a time,
+ * yielding between batches; and a held row is looked at again after a pause,
+ * or as soon as what held it clears, rather than on every tick. A batch of ten
+ * held the loop for about 13 ms (median) when 2,000 came due at once in
+ * docs/VALIDATION.md's run, where fifty held it for about 64 ms; draining took
+ * the same three seconds either way.
+ */
+export const SCHEDULED_LIMITS = {
+  perAccount: 200,
+  perWorkspace: 10_000,
+  batch: 10,
+  heldRetryMs: 60_000,
+};
+
 /** Delivered queue rows are kept this long as proof of completion. */
 const SCHEDULED_RETENTION_MS = 7 * 24 * 3600_000;
 
@@ -169,6 +185,8 @@ export interface ServerOptions {
    * anywhere reachable from outside it.
    */
   rateLimits?: Partial<Limits> | false;
+  /** Overrides for the scheduled queue's bounds; see `SCHEDULED_LIMITS`. */
+  scheduledLimits?: Partial<typeof SCHEDULED_LIMITS>;
   /**
    * Copy an existing workspace before upgrading its schema. On by default; see
    * `OpenDbOptions.backupBeforeUpgrade` for when turning it off is reasonable.
@@ -374,6 +392,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     opts.rateLimits === false
       ? null
       : new RateLimiter({ ...DEFAULT_LIMITS, ...(opts.rateLimits ?? {}) });
+  const scheduledLimits = { ...SCHEDULED_LIMITS, ...opts.scheduledLimits };
   let trustLoopbackProxy = opts.trustedClientProxy === "loopback";
 
   /** The address a request came from, as the limiter keys on it. */
@@ -3411,6 +3430,21 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
           "One of these files is already part of another scheduled message.",
         );
       }
+      // A replay above has already returned, so a retry never meets these.
+      if (store.outstandingScheduled(me.id) >= scheduledLimits.perAccount) {
+        throw new HttpError(
+          409,
+          "scheduled_limit",
+          `You already have ${scheduledLimits.perAccount} messages waiting to be sent. Send or cancel some before scheduling more.`,
+        );
+      }
+      if (store.outstandingScheduled() >= scheduledLimits.perWorkspace) {
+        throw new HttpError(
+          409,
+          "scheduled_limit",
+          "This workspace has as many scheduled messages waiting as it holds. Try again once some have been sent.",
+        );
+      }
       const scheduled = store.scheduleMessage({
         channelId: channel.id,
         userId: me.id,
@@ -3750,9 +3784,12 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    * or duplicating the message. An obstacle that the author can clear holds the
    * row; one they cannot fails it. Either way the reason is theirs to read.
    */
+  let scheduledDrain: ReturnType<typeof setImmediate> | null = null;
   const flushScheduled = () => {
     if (opts.isolated) return;
-    for (const item of store.dueScheduled()) {
+    const due = store.dueScheduled(Date.now(), scheduledLimits.batch);
+    const retryAt = Date.now() + scheduledLimits.heldRetryMs;
+    for (const item of due) {
       const channel = store.getChannel(item.channelId);
       const held = !channel
         ? "That channel no longer exists."
@@ -3764,7 +3801,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
               ? "Your account is deactivated."
               : null;
       if (held) {
-        store.holdScheduled(item.id, held);
+        store.holdScheduled(item.id, held, retryAt);
         continue;
       }
       try {
@@ -3787,9 +3824,17 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         } else if (store.countScheduledAttempt(item.id) >= SCHEDULED_ATTEMPTS) {
           store.failScheduled(item.id, "Sending failed repeatedly, so it was not posted.");
         } else {
-          store.holdScheduled(item.id, "Sending failed. It will be tried again shortly.");
+          store.holdScheduled(item.id, "Sending failed. It will be tried again shortly.", retryAt);
         }
       }
+    }
+    // A full batch may mean more are due. They are taken on a later turn, so
+    // the window and every other request get the loop between batches.
+    if (due.length === scheduledLimits.batch && !scheduledDrain && !closing) {
+      scheduledDrain = setImmediate(() => {
+        scheduledDrain = null;
+        flushScheduled();
+      });
     }
   };
   flushScheduled();
@@ -3861,6 +3906,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
       if (stopping) return stopping;
       closing = true;
       clearInterval(scheduleTimer);
+      if (scheduledDrain) clearImmediate(scheduledDrain);
       clearInterval(eventDeliveryTimer);
       clearInterval(pruneTimer);
       mdnsHandle?.stop();

@@ -259,6 +259,15 @@ describe("scheduled delivery", () => {
   const listed = async () =>
     (await request("/api/scheduled", undefined, "GET")).body.scheduled as any[];
   const posted = () => server.store.listMessages({ channelId, limit: 50 });
+  /** Brings a held row's next attempt forward, as waiting out its pause would. */
+  const retryHeldNow = (id: string) =>
+    (
+      server.store as unknown as {
+        db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } };
+      }
+    ).db
+      .prepare("UPDATE scheduled_messages SET next_attempt_at = 0 WHERE id = ?")
+      .run(id);
 
   it("refuses to queue a reply that could never be delivered", async () => {
     const root = await request(`/api/channels/${channelId}/messages`, { text: "Root" });
@@ -330,7 +339,12 @@ describe("scheduled delivery", () => {
     expect(server.store.getScheduled(id)!.status).toBe("held");
     expect(server.store.getScheduled(id)!.attempts).toBe(1);
 
+    // A held row waits for its next attempt rather than the next tick.
     server.flushScheduled();
+    expect(server.store.getScheduled(id)!.attempts).toBe(1);
+    retryHeldNow(id);
+    server.flushScheduled();
+    retryHeldNow(id);
     server.flushScheduled();
     const exhausted = server.store.getScheduled(id)!;
     expect(exhausted.status).toBe("failed");

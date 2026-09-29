@@ -318,6 +318,8 @@ export class Store {
         .prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`)
         .run(...(params as (string | number | null)[]), id);
     }
+    // What this account scheduled while deactivated can go at the next flush.
+    if (patch.deactivated === false) this.wakeHeldScheduled({ userId: id });
     return this.getUser(id)!;
   }
 
@@ -580,6 +582,8 @@ export class Store {
         .prepare(`UPDATE channels SET ${sets.join(", ")} WHERE id = ?`)
         .run(...(params as string[]), id);
     }
+    // Messages waiting for this channel to reopen can go at the next flush.
+    if (patch.archived === false) this.wakeHeldScheduled({ channelId: id });
     return this.getChannel(id)!;
   }
 
@@ -612,6 +616,7 @@ export class Store {
          VALUES (?, ?, ?, ?)`,
       )
       .run(channelId, userId, Date.now(), notifyLevel);
+    if (res.changes > 0) this.wakeHeldScheduled({ channelId, userId });
     return res.changes > 0;
   }
 
@@ -1902,15 +1907,55 @@ export class Store {
    * could post itself in the name of someone whose access was taken away
    * yesterday.
    */
-  dueScheduled(now = Date.now()): ScheduledMessage[] {
+  dueScheduled(now = Date.now(), limit = 50): ScheduledMessage[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM scheduled_messages
-         WHERE send_at <= ? AND status IN ('queued', 'held')
-         ORDER BY send_at`,
+         WHERE send_at <= ? AND (
+           status = 'queued' OR (status = 'held' AND next_attempt_at <= ?)
+         )
+         ORDER BY send_at, id
+         LIMIT ?`,
       )
-      .all(now) as unknown as Parameters<Store["toScheduled"]>[0][];
+      .all(now, now, limit) as unknown as Parameters<Store["toScheduled"]>[0][];
     return rows.map((r) => this.toScheduled(r));
+  }
+
+  /**
+   * Brings held messages forward to the next flush, once what held them may
+   * have cleared: a channel reopened, a membership regained, an account
+   * reactivated. The flush checks again, so waking one too many is harmless.
+   */
+  wakeHeldScheduled(scope: { channelId?: ID; userId?: ID }): void {
+    const where = ["status = 'held'"];
+    const params: string[] = [];
+    if (scope.channelId) {
+      where.push("channel_id = ?");
+      params.push(scope.channelId);
+    }
+    if (scope.userId) {
+      where.push("user_id = ?");
+      params.push(scope.userId);
+    }
+    this.db
+      .prepare(`UPDATE scheduled_messages SET next_attempt_at = 0 WHERE ${where.join(" AND ")}`)
+      .run(...params);
+  }
+
+  /** Scheduled messages not yet delivered, for one account or, without one, everyone. */
+  outstandingScheduled(userId?: ID): number {
+    const row = (
+      userId
+        ? this.db
+            .prepare(
+              "SELECT COUNT(*) AS n FROM scheduled_messages WHERE user_id = ? AND status != 'sent'",
+            )
+            .get(userId)
+        : this.db
+            .prepare("SELECT COUNT(*) AS n FROM scheduled_messages WHERE status != 'sent'")
+            .get()
+    ) as { n: number };
+    return row.n;
   }
 
   /**
@@ -1926,11 +1971,16 @@ export class Store {
     this.db.prepare("DELETE FROM scheduled_files WHERE scheduled_id = ?").run(id);
   }
 
-  /** A reason that may clear on its own. The next flush tries again. */
-  holdScheduled(id: ID, reason: string): void {
+  /**
+   * A reason that may clear on its own. It is tried again at `retryAt`, or
+   * sooner if `wakeHeldScheduled` hears that the obstacle has gone.
+   */
+  holdScheduled(id: ID, reason: string, retryAt = 0): void {
     this.db
-      .prepare("UPDATE scheduled_messages SET status = 'held', failure_reason = ? WHERE id = ?")
-      .run(reason, id);
+      .prepare(
+        "UPDATE scheduled_messages SET status = 'held', failure_reason = ?, next_attempt_at = ? WHERE id = ?",
+      )
+      .run(reason, retryAt, id);
   }
 
   /** Terminal. Only an explicit reschedule puts it back in the queue. */
@@ -1956,7 +2006,8 @@ export class Store {
     this.db
       .prepare(
         `UPDATE scheduled_messages
-         SET send_at = ?, status = 'queued', failure_reason = NULL, attempts = 0
+         SET send_at = ?, status = 'queued', failure_reason = NULL, attempts = 0,
+           next_attempt_at = 0
          WHERE id = ? AND status != 'sent'`,
       )
       .run(sendAt, id);

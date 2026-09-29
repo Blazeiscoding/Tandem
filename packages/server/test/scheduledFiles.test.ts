@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, openDbAtVersion, SCHEMA_VERSION } from "../src/db.js";
+import { openDb, openDbAtVersion } from "../src/db.js";
 import { createWorkspaceServer, type WorkspaceServer } from "../src/server.js";
 
 /**
@@ -195,7 +195,8 @@ describe("upgrading a workspace with messages already scheduled", () => {
     await server!.stop();
     server = undefined;
     const file = join(dataDir, "old.db");
-    const old = openDbAtVersion(file, SCHEMA_VERSION - 1);
+    // v25 is the last schema before files were held by key.
+    const old = openDbAtVersion(file, 25);
     old.exec(`
       INSERT INTO users (id, handle, display_name, password_hash, salt, created_at)
         VALUES ('U1', 'owner', 'Owner', 'x', 'y', 0);
