@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasSearchCriteria, isTimeZone, parseSearchQuery } from "../src/search.js";
+import { cachedTimeZones, hasSearchCriteria, isTimeZone, parseSearchQuery } from "../src/search.js";
 
 describe("parseSearchQuery", () => {
   it("keeps plain words as search terms", () => {
@@ -133,5 +133,52 @@ describe("dates in a search", () => {
   it("knows a time zone from a made-up one", () => {
     expect(isTimeZone("Europe/Paris")).toBe(true);
     expect(isTimeZone("Mars/Olympus_Mons")).toBe(false);
+  });
+});
+
+describe("the time zones kept for dates", () => {
+  // Any signed-in member chooses the zone a search is read in, so what is kept
+  // for zones has to be bounded by this process, not by what they send.
+  const name = "America/Argentina/Buenos_Aires";
+
+  it("keeps one formatter for a zone however its name is capitalised", () => {
+    const canonical = new Intl.DateTimeFormat("en-US", { timeZone: name }).resolvedOptions()
+      .timeZone;
+    for (let mask = 0; mask < 512; mask++) {
+      let bit = 0;
+      const spelling = [...name]
+        .map((c) =>
+          /[A-Za-z]/.test(c) && bit < 9
+            ? (mask >> bit++) & 1
+              ? c.toUpperCase()
+              : c.toLowerCase()
+            : c,
+        )
+        .join("");
+      expect(isTimeZone(spelling)).toBe(true);
+      // Buenos Aires keeps UTC-3 all year.
+      expect(parseSearchQuery("before:2026-11-01", { timeZone: spelling }).before).toBe(
+        Date.UTC(2026, 10, 1, 3),
+      );
+    }
+    expect(cachedTimeZones().filter((zone) => /buenos_aires/i.test(zone))).toEqual([canonical]);
+  });
+
+  it("holds a bounded number of zones however many different ones are asked for", () => {
+    const zones = Intl.supportedValuesOf("timeZone");
+    expect(zones.length).toBeGreaterThan(32);
+    for (const zone of zones) expect(isTimeZone(zone)).toBe(true);
+    expect(cachedTimeZones().length).toBeLessThanOrEqual(32);
+    // A zone pushed out is made again when asked for, with the same answers.
+    const p = parseSearchQuery("after:2026-03-08 before:2026-11-01", {
+      timeZone: "america/new_york",
+    });
+    expect([p.after, p.before]).toEqual([Date.UTC(2026, 2, 9, 4), Date.UTC(2026, 10, 1, 4)]);
+  });
+
+  it("keeps nothing for a zone it does not know", () => {
+    const before = cachedTimeZones();
+    for (let i = 0; i < 100; i++) expect(isTimeZone(`Mars/Crater_${i}`)).toBe(false);
+    expect(cachedTimeZones()).toEqual(before);
   });
 });

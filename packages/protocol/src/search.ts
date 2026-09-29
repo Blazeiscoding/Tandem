@@ -55,19 +55,41 @@ function calendarDay(value: string): [year: number, month: number, day: number] 
   return [year, month, day];
 }
 
+/**
+ * How many zones keep a formatter, the least recently used going first. A
+ * workspace's readers share a handful of zones; the bound is what stops a
+ * stream of different ones, and every UTC offset is one, from filling memory.
+ */
+const FORMATTERS_KEPT = 32;
 const formatters = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * A formatter for calendar days in a zone, kept under the zone's canonical
+ * name: names are case-insensitive and have aliases, so keyed as written,
+ * every spelling of one zone would cost a formatter of its own.
+ */
 function formatter(timeZone: string): Intl.DateTimeFormat {
-  let found = formatters.get(timeZone);
+  let zone = timeZone;
+  let found = formatters.get(zone);
   if (!found) {
-    found = new Intl.DateTimeFormat("en-US", {
+    const made = new Intl.DateTimeFormat("en-US", {
       timeZone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
     });
-    formatters.set(timeZone, found);
+    zone = made.resolvedOptions().timeZone;
+    found = formatters.get(zone) ?? made;
   }
+  formatters.delete(zone);
+  formatters.set(zone, found);
+  if (formatters.size > FORMATTERS_KEPT) formatters.delete(formatters.keys().next().value!);
   return found;
+}
+
+/** The zones a formatter is kept for, so a test can prove the cache stays bounded. */
+export function cachedTimeZones(): string[] {
+  return [...formatters.keys()];
 }
 
 /** True when `timeZone` is a zone this runtime knows, such as "Europe/Paris". */
@@ -81,11 +103,11 @@ export function isTimeZone(timeZone: string): boolean {
 }
 
 /** The calendar day an instant falls on in a zone, as the number yyyymmdd. */
-function dayNumberAt(instant: number, timeZone: string): number {
+function dayNumberAt(instant: number, zone: Intl.DateTimeFormat): number {
   let year = 0;
   let month = 0;
   let day = 0;
-  for (const part of formatter(timeZone).formatToParts(instant)) {
+  for (const part of zone.formatToParts(instant)) {
     if (part.type === "year") year = Number(part.value);
     else if (part.type === "month") month = Number(part.value);
     else if (part.type === "day") day = Number(part.value);
@@ -102,6 +124,7 @@ const HOUR = 3_600_000;
  * changes at midnight the day does not begin at 00:00 at all.
  */
 function startOfDay([year, month, day]: [number, number, number], timeZone: string): number {
+  const zone = formatter(timeZone);
   const target = year * 10_000 + month * 100 + day;
   const utcMidnight = Date.UTC(year, month - 1, day);
   // Every zone is within UTC-12 and UTC+14, so the day starts in this window.
@@ -109,7 +132,7 @@ function startOfDay([year, month, day]: [number, number, number], timeZone: stri
   let atOrAfter = utcMidnight + 13 * HOUR;
   while (atOrAfter - before > 1) {
     const middle = Math.floor((before + atOrAfter) / 2);
-    if (dayNumberAt(middle, timeZone) >= target) atOrAfter = middle;
+    if (dayNumberAt(middle, zone) >= target) atOrAfter = middle;
     else before = middle;
   }
   return atOrAfter;
