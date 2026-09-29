@@ -122,6 +122,32 @@ describe("mark unread", () => {
     expect(lastRead()).toBe(message.seq);
   });
 
+  it("keeps a read chosen after marking unread when the mark then fails", async () => {
+    const message = await incoming("Changed my mind");
+    client.markRead(channelId, message.seq);
+    await expect.poll(lastRead).toBe(message.seq);
+
+    let refuse = () => {};
+    vi.spyOn(client.api, "markUnread").mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          refuse = () => reject(new Error("offline"));
+        }),
+    );
+    client.markUnread(channelId, message.seq);
+    expect(lastRead()).toBe(message.seq - 1);
+
+    const later = await incoming("Read this instead");
+    const markRead = vi.spyOn(client.api, "markRead");
+    client.markRead(channelId, later.seq, { explicit: true });
+    await markRead.mock.results[0]!.value;
+    expect(lastRead()).toBe(later.seq);
+
+    refuse();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(lastRead()).toBe(later.seq);
+  });
+
   it("marks a thread unread without touching the channel, and counts it", async () => {
     const root = await incoming("Thread root");
     await client.loadThread(root.id, channelId, "latest");
@@ -194,6 +220,31 @@ describe("reading a thread", () => {
     client.markThreadRead(root.id);
     expect(client.state.threadFollows[root.id]?.lastReadSeq).toBeGreaterThan(0);
     await expect.poll(() => client.state.threadFollows[root.id]).toBeUndefined();
+  });
+
+  it("keeps a newer read of a thread when an older one fails after it", async () => {
+    const root = await incoming("Two replies");
+    await client.loadThread(root.id, channelId, "latest");
+    const first = await incoming("First", root.id);
+    const markThreadRead = vi.spyOn(client.api, "markThreadRead");
+    let refuse = () => {};
+    markThreadRead.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          refuse = () => reject(new Error("offline"));
+        }),
+    );
+    client.markThreadRead(root.id);
+    expect(client.state.threadFollows[root.id]?.lastReadSeq).toBe(first.seq);
+
+    const second = await incoming("Second", root.id);
+    client.markThreadRead(root.id);
+    await markThreadRead.mock.results[1]!.value;
+    expect(client.state.threadFollows[root.id]?.lastReadSeq).toBe(second.seq);
+
+    refuse();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(client.state.threadFollows[root.id]?.lastReadSeq).toBe(second.seq);
   });
 
   it("counts a reply toward the channel's badge only when it is also sent to the channel", async () => {

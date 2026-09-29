@@ -1751,24 +1751,42 @@ export class WorkspaceClient {
     const channelId = before?.channelId ?? this.threadRoot(rootId)?.channelId;
     if (!channelId) return;
     const tail = this.threadTailSeq(rootId);
-    this.applyThreadFollow({
-      rootId,
-      channelId,
-      following,
-      // Following from here means caught up to whatever is loaded.
-      lastReadSeq: following ? Math.max(before?.lastReadSeq ?? 0, tail) : 0,
-      lastSeq: Math.max(before?.lastSeq ?? 0, tail),
-      revision: (before?.revision ?? 0) + 1,
-    });
-    void this.api
-      .setThreadFollow(rootId, following)
+    this.writeThreadFollow(
+      {
+        rootId,
+        channelId,
+        following,
+        // Following from here means caught up to whatever is loaded.
+        lastReadSeq: following ? Math.max(before?.lastReadSeq ?? 0, tail) : 0,
+        lastSeq: Math.max(before?.lastSeq ?? 0, tail),
+        revision: (before?.revision ?? 0) + 1,
+      },
+      () => this.api.setThreadFollow(rootId, following),
+    );
+  }
+
+  /**
+   * Shows a thread's new state at once, then the server's. If the server
+   * refuses, this puts back exactly what was there, including "no row at all",
+   * but only while nothing has replaced this state since: a later read, follow
+   * or unread, or the server's word, is newer than the request that failed.
+   */
+  private writeThreadFollow(
+    next: ThreadFollow,
+    request: () => Promise<{ state: ThreadFollow }>,
+    onRefused?: () => void,
+  ): void {
+    const before = this.state.threadFollows[next.rootId];
+    this.applyThreadFollow(next);
+    void request()
       .then(({ state }) => this.applyThreadFollow(state))
       .catch(() => {
-        // Put back exactly what was there, including "no row at all".
+        if (this.state.threadFollows[next.rootId] !== next) return;
+        onRefused?.();
         this.store.setState((s) => {
           const threadFollows = { ...s.threadFollows };
-          if (before) threadFollows[rootId] = before;
-          else delete threadFollows[rootId];
+          if (before) threadFollows[next.rootId] = before;
+          else delete threadFollows[next.rootId];
           return { threadFollows };
         });
       });
@@ -1788,25 +1806,17 @@ export class WorkspaceClient {
     if (!channelId) return;
     const seq = this.threadTailSeq(rootId);
     if (seq <= (before?.lastReadSeq ?? 0)) return;
-    this.applyThreadFollow({
-      rootId,
-      channelId,
-      following: before?.following ?? false,
-      lastReadSeq: seq,
-      lastSeq: Math.max(before?.lastSeq ?? 0, seq),
-      revision: (before?.revision ?? 0) + 1,
-    });
-    void this.api
-      .markThreadRead(rootId, seq)
-      .then(({ state }) => this.applyThreadFollow(state))
-      .catch(() => {
-        this.store.setState((s) => {
-          const threadFollows = { ...s.threadFollows };
-          if (before) threadFollows[rootId] = before;
-          else delete threadFollows[rootId];
-          return { threadFollows };
-        });
-      });
+    this.writeThreadFollow(
+      {
+        rootId,
+        channelId,
+        following: before?.following ?? false,
+        lastReadSeq: seq,
+        lastSeq: Math.max(before?.lastSeq ?? 0, seq),
+        revision: (before?.revision ?? 0) + 1,
+      },
+      () => this.api.markThreadRead(rootId, seq),
+    );
   }
 
   /** The root message of a thread, from its open panel or a loaded timeline. */
@@ -1986,6 +1996,8 @@ export class WorkspaceClient {
     const before = this.state.memberships[channelId] ?? 0;
     this.store.setState((s) => ({ memberships: { ...s.memberships, [channelId]: seq - 1 } }));
     void this.api.markUnread(channelId, seq).catch(() => {
+      // A read or another mark unread since has moved the cursor, and is newer.
+      if (this.state.memberships[channelId] !== seq - 1) return;
       this.readHold.delete(channelId);
       this.store.setState((s) => ({ memberships: { ...s.memberships, [channelId]: before } }));
     });
@@ -1998,26 +2010,18 @@ export class WorkspaceClient {
     const channelId = before?.channelId ?? this.threadRoot(rootId)?.channelId;
     if (!channelId) return;
     this.threadReadHold.add(rootId);
-    this.applyThreadFollow({
-      rootId,
-      channelId,
-      following: true,
-      lastReadSeq: seq - 1,
-      lastSeq: Math.max(before?.lastSeq ?? 0, this.threadTailSeq(rootId)),
-      revision: (before?.revision ?? 0) + 1,
-    });
-    void this.api
-      .markThreadUnread(rootId, seq)
-      .then(({ state }) => this.applyThreadFollow(state))
-      .catch(() => {
-        this.threadReadHold.delete(rootId);
-        this.store.setState((s) => {
-          const threadFollows = { ...s.threadFollows };
-          if (before) threadFollows[rootId] = before;
-          else delete threadFollows[rootId];
-          return { threadFollows };
-        });
-      });
+    this.writeThreadFollow(
+      {
+        rootId,
+        channelId,
+        following: true,
+        lastReadSeq: seq - 1,
+        lastSeq: Math.max(before?.lastSeq ?? 0, this.threadTailSeq(rootId)),
+        revision: (before?.revision ?? 0) + 1,
+      },
+      () => this.api.markThreadUnread(rootId, seq),
+      () => this.threadReadHold.delete(rootId),
+    );
   }
 
   private clearReadRequests(): void {
