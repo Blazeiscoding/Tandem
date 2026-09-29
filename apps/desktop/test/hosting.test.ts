@@ -17,6 +17,7 @@ import {
   type HostingSnapshot,
 } from "../src/main/hosting.js";
 import {
+  parseAutoBackup,
   parseRegistry,
   readWorkspace,
   writeWorkspaceName,
@@ -123,6 +124,8 @@ function harness(
     realBackups: false,
     /** A workspace ID the stand-in backup writes instead, as if the folder were swapped mid-copy. */
     swapDuringBackup: null as string | null,
+    /** While set, the stand-in backup waits for it, holding its turn. */
+    backupGate: null as Promise<void> | null,
     free: Number.MAX_SAFE_INTEGER,
     changes: [] as HostingSnapshot[],
     /** Runs as each server binds; throw to fail that attempt, or return a promise to hold it. */
@@ -164,6 +167,7 @@ function harness(
     },
     backupWorkspace: async (request) => {
       h.backups.push(request);
+      if (h.backupGate) await h.backupGate;
       if (h.realBackups) return backupWorkspace(request);
       if (h.writeBackups) {
         const inside = h.databases.get(request.dataDir);
@@ -1991,6 +1995,97 @@ describe("scheduled backups", () => {
     );
   });
 
+  it("backs up into a new folder at once, however recently the workspace was backed up elsewhere", async () => {
+    const h = harness();
+    const made = await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.backup({ folder: made.folder!, destination: profile() });
+    const weekly = profile();
+    await h.controller.setAutoBackup({
+      folder: made.folder,
+      schedule: { destination: weekly, everyDays: 7, keep: 3 },
+    });
+    await h.controller.runDueBackups();
+    expect(readdirSync(weekly)).toHaveLength(1);
+    // Moved to another folder, that one is due at once too.
+    const moved = profile();
+    await h.controller.setAutoBackup({
+      folder: made.folder,
+      schedule: { destination: moved, everyDays: 7, keep: 3 },
+    });
+    await h.controller.runDueBackups();
+    expect(readdirSync(moved)).toHaveLength(1);
+    // Changing only how often or how many keeps its last run, so it waits.
+    await h.controller.setAutoBackup({
+      folder: made.folder,
+      schedule: { everyDays: 1, keep: 5 },
+    });
+    await h.controller.runDueBackups();
+    expect(readdirSync(moved)).toHaveLength(1);
+    expect(registryOf(h)[0]!.autoBackup).toMatchObject({
+      destination: moved,
+      everyDays: 1,
+      keep: 5,
+      lastAt: expect.any(Number),
+    });
+  });
+
+  it("keeps a first backup that failed due, and says so, until one is made", async () => {
+    const { h, destination } = await scheduled();
+    h.free = 0;
+    await h.controller.runDueBackups();
+    expect((await h.controller.list()).workspaces[0]!.autoBackupError).toMatch(/did not finish/);
+    expect(readdirSync(destination)).toEqual([]);
+    // No day has passed, and it is still due.
+    h.free = Number.MAX_SAFE_INTEGER;
+    await h.controller.runDueBackups();
+    expect(readdirSync(destination)).toHaveLength(1);
+    expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+  });
+
+  it("makes one backup when two checks overlap, and reports no failure", async () => {
+    const { h, destination } = await scheduled();
+    await Promise.all([h.controller.runDueBackups(), h.controller.runDueBackups()]);
+    expect(h.backups).toHaveLength(1);
+    expect(readdirSync(destination)).toHaveLength(1);
+    expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+  });
+
+  it("does not back up a schedule turned off while it waited its turn", async () => {
+    const h = harness();
+    const first = await h.controller.start({ workspaceName: "Rocket Team" });
+    await h.controller.stop();
+    const second = await h.controller.start({ workspaceName: "Design Guild" });
+    const [one, two] = [profile(), profile()];
+    await h.controller.setAutoBackup({
+      folder: first.folder,
+      schedule: { destination: one, everyDays: 1, keep: 2 },
+    });
+    await h.controller.setAutoBackup({
+      folder: second.folder,
+      schedule: { destination: two, everyDays: 1, keep: 2 },
+    });
+    const gate = deferred();
+    h.backupGate = gate.promise;
+    const pass = h.controller.runDueBackups();
+    await vi.waitFor(() => expect(h.backups).toHaveLength(1));
+    // Turned off while the first workspace's copy holds the turn.
+    const off = h.controller.setAutoBackup({ folder: second.folder, schedule: null });
+    h.backupGate = null;
+    gate.resolve();
+    await Promise.all([pass, off]);
+    expect(readdirSync(one)).toHaveLength(1);
+    expect(readdirSync(two)).toEqual([]);
+    expect(h.backups).toHaveLength(1);
+  });
+
+  it("names two backups made in the same second apart", async () => {
+    const { h, folder, destination } = await scheduled();
+    await h.controller.backup({ folder, destination });
+    await h.controller.runDueBackups();
+    expect(readdirSync(destination)).toHaveLength(2);
+    expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+  });
+
   it("says why a scheduled backup did not finish, and clears it once one does", async () => {
     const { h, folder } = await scheduled();
     h.free = 0;
@@ -2046,6 +2141,13 @@ describe("scheduled backups", () => {
       h.controller.setAutoBackup({ folder: "w-elsewhere", schedule: null }),
     ).rejects.toThrow("That workspace is not in the list hosted on this computer.");
     expect(registryOf(h)[0]!.autoBackup).toBeUndefined();
+  });
+
+  it("reads when a schedule last ran, and forgets a time it cannot read", () => {
+    const base = { destination: profile(), everyDays: 7, keep: 3 };
+    expect(parseAutoBackup({ ...base, lastAt: 1234 })).toEqual({ ...base, lastAt: 1234 });
+    for (const lastAt of [-1, "yesterday", Number.NaN, null])
+      expect(parseAutoBackup({ ...base, lastAt })).toEqual(base);
   });
 
   it("reads a schedule back from the settings file, and drops one it could not follow", () => {

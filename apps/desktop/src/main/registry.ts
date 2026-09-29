@@ -32,17 +32,27 @@ export interface AutoBackup {
   everyDays: 1 | 7;
   /** How many of its own backups to keep there; older ones are removed. */
   keep: number;
+  /**
+   * When this schedule last made a backup into its destination. Absent until
+   * it has, so a new or changed destination is due at once, whatever other
+   * backups the workspace has had elsewhere.
+   */
+  lastAt?: number;
 }
 
 /** A schedule as stored, or undefined when it is not one this version can follow. */
 export function parseAutoBackup(value: unknown): AutoBackup | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const { destination, everyDays, keep } = value as Record<string, unknown>;
+  const { destination, everyDays, keep, lastAt } = value as Record<string, unknown>;
   if (typeof destination !== "string" || !isAbsolute(destination)) return undefined;
   if (everyDays !== 1 && everyDays !== 7) return undefined;
   if (typeof keep !== "number" || !Number.isInteger(keep) || keep < 1 || keep > 60)
     return undefined;
-  return { destination, everyDays, keep };
+  const schedule: AutoBackup = { destination, everyDays, keep };
+  // A time it cannot read only makes the next backup due sooner.
+  if (typeof lastAt === "number" && Number.isFinite(lastAt) && lastAt >= 0)
+    schedule.lastAt = lastAt;
+  return schedule;
 }
 
 /** The settings key the registry lives under. */

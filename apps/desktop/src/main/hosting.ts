@@ -739,46 +739,61 @@ export function createHostingController(options: HostingOptions) {
       if (closing) throw new Error("The app is quitting.");
       const entry = (await loadRegistry()).find((e) => e.folder === folder);
       if (!entry) throw new Error("That workspace is not in the list hosted on this computer.");
-      const dataDir = join(options.dataRoot, entry.folder);
-      if (!existsSync(dataDir))
-        throw new Error(
-          `The folder that held ${entry.name} is missing, so there is nothing to back up.`,
-        );
-      if (options.freeBytes) {
-        // The copy is about the size of the folder. A little over that leaves
-        // room for the database's snapshot to be larger than the file it came from.
-        const needed = Math.ceil((await folderBytes(dataDir)) * 1.1) + 16 * 1024 * 1024;
-        const free = await options.freeBytes(destination);
-        if (free < needed)
-          throw new Error(
-            `There is not enough free space there. The backup needs about ${megabytes(needed)}, and ${megabytes(free)} is free.`,
-          );
-      }
-      const found = read(dataDir);
-      if (entry.id && found?.id !== entry.id)
-        throw new Error(
-          `The folder listed as ${entry.name} holds ${
-            found?.name ? `“${found.name}”` : "a different or unreadable workspace"
-          } instead, so nothing was backed up.`,
-        );
-      const expected = entry.id ?? found?.id ?? null;
-      const stamp = new Date(now()).toISOString().slice(0, 19).replaceAll(":", "-");
-      const out = join(destination, `${legacyFolder(entry.name)}-${stamp}`);
-      await options.backupWorkspace!({ dataDir, out });
-      if (read(out)?.id !== expected) {
-        // A copy of something else must not stand in for this workspace's backup.
-        await rm(out, { recursive: true, force: true }).catch(() => {});
-        throw new Error(
-          `The folder of ${entry.name} changed while it was being copied, so the copy was removed. Try again.`,
-        );
-      }
-      const at = now();
-      updateEntry(entry.folder, { lastBackupAt: at });
-      // The backup is made and verified either way. Only the date shown for it can be lost.
-      await saveRegistry().catch(() => {});
-      changed();
-      return { path: out, at };
+      return backupNow(entry, destination);
     });
+  }
+
+  /** The copy itself, for a caller already holding the serialized turn. */
+  async function backupNow(
+    entry: HostedWorkspace,
+    destination: string,
+  ): Promise<{ path: string; at: number }> {
+    const dataDir = join(options.dataRoot, entry.folder);
+    if (!existsSync(dataDir))
+      throw new Error(
+        `The folder that held ${entry.name} is missing, so there is nothing to back up.`,
+      );
+    if (options.freeBytes) {
+      // The copy is about the size of the folder. A little over that leaves
+      // room for the database's snapshot to be larger than the file it came from.
+      const needed = Math.ceil((await folderBytes(dataDir)) * 1.1) + 16 * 1024 * 1024;
+      const free = await options.freeBytes(destination);
+      if (free < needed)
+        throw new Error(
+          `There is not enough free space there. The backup needs about ${megabytes(needed)}, and ${megabytes(free)} is free.`,
+        );
+    }
+    const found = read(dataDir);
+    if (entry.id && found?.id !== entry.id)
+      throw new Error(
+        `The folder listed as ${entry.name} holds ${
+          found?.name ? `“${found.name}”` : "a different or unreadable workspace"
+        } instead, so nothing was backed up.`,
+      );
+    const expected = entry.id ?? found?.id ?? null;
+    // Two backups in one second would want one name; the later moves on a second.
+    let at = now();
+    const named = (time: number) =>
+      join(
+        destination,
+        `${legacyFolder(entry.name)}-${new Date(time).toISOString().slice(0, 19).replaceAll(":", "-")}`,
+      );
+    while (existsSync(named(at))) at += 1000;
+    const out = named(at);
+    await options.backupWorkspace!({ dataDir, out });
+    if (read(out)?.id !== expected) {
+      // A copy of something else must not stand in for this workspace's backup.
+      await rm(out, { recursive: true, force: true }).catch(() => {});
+      throw new Error(
+        `The folder of ${entry.name} changed while it was being copied, so the copy was removed. Try again.`,
+      );
+    }
+    const done = now();
+    updateEntry(entry.folder, { lastBackupAt: done });
+    // The backup is made and verified either way. Only the date shown for it can be lost.
+    await saveRegistry().catch(() => {});
+    changed();
+    return { path: out, at: done };
   }
 
   /**
@@ -907,7 +922,15 @@ export function createHostingController(options: HostingOptions) {
         if (destination === undefined)
           throw new Error("Choose a folder to back the workspace up into.");
         chosen =
-          parseAutoBackup({ destination, everyDays: asked.everyDays, keep: asked.keep }) ?? null;
+          parseAutoBackup({
+            destination,
+            everyDays: asked.everyDays,
+            keep: asked.keep,
+            // Only a schedule still writing to the same folder keeps its last run;
+            // a new folder is due at once.
+            lastAt:
+              destination === entry.autoBackup?.destination ? entry.autoBackup?.lastAt : undefined,
+          }) ?? null;
         if (!chosen)
           throw new Error("Choose a folder, daily or weekly, and to keep 1 to 60 backups.");
       }
@@ -980,39 +1003,76 @@ export function createHostingController(options: HostingOptions) {
    * Backs up every workspace whose schedule has come due, one at a time, then
    * keeps only the newest of its backups. A failure is kept for the window to
    * show, and tried again at the next check.
+   *
+   * One pass runs at a time. A check asked for while one runs, such as a
+   * schedule just saved, runs once more after it rather than beside it, and
+   * each workspace's schedule and freshness are read again in the same turn
+   * that makes its copy, so a schedule turned off or already served is not
+   * backed up twice.
    */
-  async function runDueBackups(): Promise<void> {
+  let duePass: Promise<void> | null = null;
+  let dueAgain = false;
+  function runDueBackups(): Promise<void> {
+    if (duePass) {
+      dueAgain = true;
+      return duePass;
+    }
+    duePass = (async () => {
+      do {
+        dueAgain = false;
+        await dueOnce();
+      } while (dueAgain && !closing);
+    })().finally(() => {
+      duePass = null;
+    });
+    return duePass;
+  }
+
+  async function dueOnce(): Promise<void> {
     let entries: HostedWorkspace[];
     try {
       entries = await loadRegistry();
     } catch {
       return;
     }
-    for (const entry of entries) {
-      const schedule = entry.autoBackup;
-      if (!schedule || closing) continue;
-      if (!existsSync(join(options.dataRoot, entry.folder))) continue;
-      // Never backed up here, it is due now. Otherwise a little early is fine:
-      // the check runs every few minutes, not on the dot.
-      const due =
-        entry.lastBackupAt === undefined
-          ? 0
-          : entry.lastBackupAt + schedule.everyDays * 24 * 3600_000 - 10 * 60_000;
-      if (now() < due) continue;
+    for (const { folder } of entries) {
+      if (closing) return;
+      let name = folder;
       try {
-        const made = await backup({ folder: entry.folder, destination: schedule.destination });
-        const latest = registry?.find((e) => e.folder === entry.folder) ?? entry;
-        await pruneBackups(latest, schedule, made.path);
-        autoBackupErrors.delete(entry.folder);
+        const ran = await serialized(async () => {
+          const entry = (await loadRegistry()).find((e) => e.folder === folder);
+          const schedule = entry?.autoBackup;
+          if (!entry || !schedule || closing) return false;
+          name = entry.name;
+          if (!existsSync(join(options.dataRoot, entry.folder))) return false;
+          // Never backed up by this schedule into its folder, it is due now.
+          // Otherwise a little early is fine: the check runs every few minutes.
+          const due =
+            schedule.lastAt === undefined
+              ? 0
+              : schedule.lastAt + schedule.everyDays * 24 * 3600_000 - 10 * 60_000;
+          if (now() < due) return false;
+          const made = await backupNow(entry, schedule.destination);
+          const latest = registry?.find((e) => e.folder === entry.folder) ?? entry;
+          // Recorded against this schedule only if it is still the one in force.
+          if (latest.autoBackup?.destination === schedule.destination) {
+            updateEntry(entry.folder, { autoBackup: { ...latest.autoBackup, lastAt: made.at } });
+            await saveRegistry().catch(() => {});
+          }
+          await pruneBackups(latest, schedule, made.path);
+          return true;
+        });
+        if (ran) autoBackupErrors.delete(folder);
+        if (ran) changed();
       } catch (error) {
         autoBackupErrors.set(
-          entry.folder,
-          `The scheduled backup of ${entry.name} did not finish. ${
+          folder,
+          `The scheduled backup of ${name} did not finish. ${
             error instanceof Error ? error.message : ""
           }`.trim(),
         );
+        changed();
       }
-      changed();
     }
   }
 
