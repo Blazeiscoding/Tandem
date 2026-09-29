@@ -393,10 +393,17 @@ export function createHostingController(options: HostingOptions) {
   }
 
   /** The folder chosen to start when the app opens. An unreadable setting is no choice. */
+  /**
+   * The workspace chosen to start with the app, or null when none was. A
+   * choice that cannot be read is not "none": it throws, and nothing is kept,
+   * so reading again after the settings file is repaired finds it.
+   */
   async function readLaunchFolder(): Promise<string | null> {
     if (launchFolder !== undefined) return launchFolder;
-    const stored = await options.settings.get(START_ON_LAUNCH_KEY).catch(() => null);
-    launchFolder = typeof stored === "string" && stored ? stored : null;
+    const stored = await options.settings.get(START_ON_LAUNCH_KEY, { strict: true });
+    if (stored !== null && (typeof stored !== "string" || !stored))
+      throw new Error("The workspace chosen to start with Gatherline is not one it can read.");
+    launchFolder = stored;
     return launchFolder;
   }
 
@@ -703,7 +710,8 @@ export function createHostingController(options: HostingOptions) {
   /** Every workspace hosted here, most recent first, and the folders that could not be read. */
   async function list(): Promise<{ workspaces: HostedWorkspaceSummary[]; unreadable: string[] }> {
     const entries = await loadRegistry();
-    const starting = await readLaunchFolder();
+    // The list is still worth showing when only this choice cannot be read.
+    const starting = await readLaunchFolder().catch(() => null);
     return {
       workspaces: [...entries]
         .sort((a, b) => b.lastHostedAt - a.lastHostedAt)
@@ -892,7 +900,7 @@ export function createHostingController(options: HostingOptions) {
         throw error;
       }
       // Nothing is left to start when the app opens.
-      if ((await readLaunchFolder()) === entry.folder) {
+      if ((await readLaunchFolder().catch(() => null)) === entry.folder) {
         launchFolder = null;
         await options.settings.set(START_ON_LAUNCH_KEY, null).catch(() => {});
       }
@@ -1142,7 +1150,15 @@ export function createHostingController(options: HostingOptions) {
    * open to say it. A choice whose workspace has left the list is dropped.
    */
   async function startForLaunch(): Promise<HostingSnapshot | null> {
-    const folder = await readLaunchFolder();
+    let folder: string | null;
+    try {
+      folder = await readLaunchFolder();
+    } catch {
+      launchError =
+        "Gatherline did not start hosting when it opened, because it could not read which workspace to start. Check that its settings file can be read, then choose the workspace again under When this computer starts.";
+      changed();
+      return null;
+    }
     if (!folder) return null;
     let entry: HostedWorkspace | undefined;
     try {
