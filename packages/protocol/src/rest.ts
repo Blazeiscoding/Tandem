@@ -255,6 +255,11 @@ export const searchQuery = z.object({
   limit: z.coerce.number().int().positive().max(100).default(30),
   cursor: z.string().min(1).max(100).optional(),
   channelId: z.string().min(1).max(100).optional(),
+  /**
+   * The reader's IANA time zone, whose calendar days `before:` and `after:`
+   * name. Without it the server's own zone is used, as older clients expect.
+   */
+  tz: z.string().min(1).max(64).optional(),
 });
 
 export const activityQuery = z.object({
