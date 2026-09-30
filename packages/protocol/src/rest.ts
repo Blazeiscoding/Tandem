@@ -92,6 +92,15 @@ export const updateChannelBody = z.object({
 
 export const channelManagerBody = z.object({ manager: z.boolean() });
 
+/**
+ * How long an app goes on sending a message from its outbox on its own. An
+ * older one waits for its author to choose Retry or Discard. For at least this
+ * long after a message is posted, the server remembers its send key, without
+ * its words, even after retention has removed it. So an app's own retry can
+ * never post a removed message again.
+ */
+export const SEND_RETRY_WINDOW_MS = 30 * 24 * 3600_000;
+
 export const sendMessageBody = z
   .object({
     text: z.string().max(12000),

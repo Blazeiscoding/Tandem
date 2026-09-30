@@ -495,6 +495,18 @@ const MIGRATIONS: string[] = [
     WHERE instr(rest, '>') > 1
       AND substr(rest, 1, instr(rest, '>') - 1) NOT GLOB '*[^A-Za-z0-9_-]*';
   `,
+  // v32 — the send keys of messages retention removed, so a retry held since
+  // cannot post one again. Only who sent it, its key and when: no words, no
+  // channel, nothing the removal was meant to discard.
+  `
+  CREATE TABLE purged_message_requests (
+    user_id TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    sent_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, nonce)
+  ) WITHOUT ROWID;
+  CREATE INDEX idx_purged_message_requests_sent ON purged_message_requests(sent_at);
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

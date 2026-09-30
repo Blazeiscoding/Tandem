@@ -150,6 +150,20 @@ export class Store {
     );
   }
 
+  /** Whether this key sent a message retention has since removed; see `purgeMessagesBefore`. */
+  messageRequestPurged(userId: ID, nonce: string): boolean {
+    return !!this.db
+      .prepare("SELECT 1 FROM purged_message_requests WHERE user_id = ? AND nonce = ?")
+      .get(userId, nonce);
+  }
+
+  /** Forgets the keys of removed messages posted before `before`. */
+  pruneMessageRequestsPurged(before: number): number {
+    return Number(
+      this.db.prepare("DELETE FROM purged_message_requests WHERE sent_at < ?").run(before).changes,
+    );
+  }
+
   recordMessageRequest(userId: ID, nonce: string, messageId: ID, requestHash: string): void {
     this.db
       .prepare(
@@ -1010,6 +1024,14 @@ export class Store {
         .prepare(`SELECT id, body FROM event_deliveries WHERE message_id IN ${doomed}`)
         .all() as { id: string; body: string }[];
 
+      // A send's key outlives its message, so an app still holding the send
+      // is refused rather than posting it again. Who, which key and when only.
+      this.db.exec(
+        `INSERT OR REPLACE INTO purged_message_requests (user_id, nonce, sent_at)
+         SELECT mr.user_id, mr.nonce, m.created_at FROM message_requests mr
+         JOIN messages m ON m.id = mr.message_id
+         WHERE mr.message_id IN ${doomed}`,
+      );
       // Everything that points at a message, before the messages themselves:
       // foreign keys are on, so a leftover reference would refuse the delete
       // rather than quietly orphan.

@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   PROTOCOL_VERSION,
+  SEND_RETRY_WINDOW_MS,
   type Channel,
   type ChannelPrefs,
   type EphemeralEvent,
@@ -91,6 +92,10 @@ export const OUTBOX_LIMIT = 50;
 
 const MISSING_ATTACHMENTS =
   "The attached files were not kept when the app closed. Attach them again to send this.";
+
+const STALE_SEND =
+  `Not sent again on its own: this was written more than ${SEND_RETRY_WINDOW_MS / 86_400_000} days ago ` +
+  "and may have been posted already. Retry to send it anyway, or discard it.";
 
 /**
  * Whether a failed send was answered and refused by the server, as opposed to
@@ -1706,25 +1711,39 @@ export class WorkspaceClient {
    * Puts back work the author had already committed to sending. Re-delivery is
    * safe because the server settles a repeated request key onto the same
    * message, so a send that did reach the server before the restart cannot
-   * become a second one. Attachments do not survive a restart, so those entries
-   * stop and say so instead of posting the words without the files. A send the
-   * server refused stays refused until the author chooses Retry: whatever made
-   * it refuse may have changed since, and that is theirs to decide. Nothing is
-   * dropped for being one too many; every entry here was accepted once.
+   * become a second one. Once retention has removed that message, the server
+   * remembers its key only for a while, so a send older than
+   * `SEND_RETRY_WINDOW_MS` is not sent again on its own: it waits, saying so,
+   * for its author's Retry.
+   * Attachments do not survive a restart, so those entries stop and say so
+   * instead of posting the words without the files. A send the server refused
+   * stays refused until the author chooses Retry: whatever made it refuse may
+   * have changed since, and that is theirs to decide. Nothing is dropped for
+   * being one too many; every entry here was accepted once.
    */
   restoreOutbox(entries: StoredPending[]): void {
     const self = this.state.self;
     if (!self) return;
+    const now = Date.now();
     const restored = entries
       .filter((e) => e.userId === self.id && !this.state.pending.some((p) => p.nonce === e.nonce))
-      .map(({ refusal, ...e }): PendingMessage => ({
-        ...e,
-        failed: refusal !== undefined || e.attachments.length > 0,
-        failureReason: refusal ?? (e.attachments.length > 0 ? MISSING_ATTACHMENTS : null),
-        refused: refusal !== undefined,
-        attachments: e.attachments.map((a) => ({ ...a, previewUrl: null })),
-        uploadProgress: null,
-      }));
+      .map(({ refusal, ...e }): PendingMessage => {
+        const reason =
+          refusal ??
+          (e.attachments.length > 0
+            ? MISSING_ATTACHMENTS
+            : now - e.createdAt > SEND_RETRY_WINDOW_MS
+              ? STALE_SEND
+              : null);
+        return {
+          ...e,
+          failed: reason !== null,
+          failureReason: reason,
+          refused: refusal !== undefined,
+          attachments: e.attachments.map((a) => ({ ...a, previewUrl: null })),
+          uploadProgress: null,
+        };
+      });
     if (restored.length === 0) return;
     this.store.setState((s) => ({ pending: [...s.pending, ...restored] }));
     for (const entry of restored) {

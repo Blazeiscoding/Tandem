@@ -727,10 +727,30 @@ Cost, measured on a 38.8 MiB copy holding 200,000 messages (Linux container, Nod
 
 **Evidence:** acknowledged post → hard purge → same nonce/text returns 201 with a new ID. Soft-delete control refuses with 409.
 
-- [ ] Define nonce retry lifetime relative to supported offline/outbox staleness.
-  - [ ] Retain bounded text-free terminal identity or visibly refuse expired retries; preserve account/channel scope.
-  - [ ] Do not retain deleted words/attachments just to remember terminal state.
-  - [ ] Cover lost response, acknowledged old send, hard purge, soft delete, restart and old outboxes past the chosen horizon.
+**Status:** implemented; see the PR after #172. The contract is one window, `SEND_RETRY_WINDOW_MS` in `@slackoss/protocol`, set to 30 days:
+
+- **Client:** an app sends an outbox entry again on its own only inside the window. `restoreOutbox` holds an older entry for its author. It shows "Not sent again on its own: this was written more than 30 days ago and may have been posted already. Retry to send it anyway, or discard it." Retry and Discard work as they do for any failed send.
+- **Server:** when retention removes a message, schema v32 moves its send key into `purged_message_requests`. Only the account, the nonce and when the message was posted are kept: no words, request hash, channel or attachment. A send with that key is refused with the soft-delete control's answer, 409 `message_deleted`, which apps already show as "This was already sent once. Discard it to clear it." The hourly maintenance forgets a key 37 days after its message was posted: the window plus a week for a clock that disagrees. A workspace keeping more than 37 days of history holds none of these keys for longer than one maintenance round.
+
+Reproduced first. `packages/server/test/purgedSendKeys.test.ts` runs real authenticated HTTP against a workspace on disk. On the old code all five cases get 201 and the words back. Now:
+
+- The retry after retention gets 409 `message_deleted`, and no table holds the words.
+- A deleted message's retry and a removed one's are answered alike.
+- The refusal survives a restart.
+- Another account's same nonce still posts.
+- The key is kept a day inside the window and six days past it, and is gone after eight.
+
+In `packages/client-core/test/recovery.test.ts`:
+
+- An entry past the window waits with its reason and posts once on Retry, while one just inside the window goes on its own. This fails on the old client, which sends both.
+- A send posted and then removed by retention, restored inside the window, ends refused with the "already sent" reason, and nothing is posted. This fails on the old server, which posts it again.
+
+Three UI outbox fixtures dated their queued sends to 1970 (`createdAt: 1`) and now use the present time.
+
+- [x] Define nonce retry lifetime relative to supported offline/outbox staleness.
+  - [x] Retain bounded text-free terminal identity or visibly refuse expired retries; preserve account/channel scope. Both: the key is kept for the window, and apps hold older sends visibly. Keys are per account. Channel scope is not stored for a removed message, because every retry of its key is refused, whatever the channel.
+  - [x] Do not retain deleted words/attachments just to remember terminal state.
+  - [ ] Cover lost response, acknowledged old send, hard purge, soft delete, restart and old outboxes past the chosen horizon. All are covered for this version's apps. Not covered: an app from before this change has no window. It still re-sends a held entry on its own, so once the key is forgotten, 37 days after posting, it can post a removed message again.
 
 **Completion:** supported stale retry cannot silently recreate a retained-away message. This is not a concurrent duplicate-request reproduction.
 
