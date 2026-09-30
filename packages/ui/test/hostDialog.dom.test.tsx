@@ -921,6 +921,56 @@ describe("starting with the computer", () => {
   });
 });
 
+describe("what did not happen when Gatherline opened, while hosting runs", () => {
+  const launched: HostingStatus = {
+    ...running,
+    folder: "team-a",
+    tunnelAvailable: true,
+    publicAddress: "https://team.example.org",
+    publicAddressManaged: true,
+    launchError:
+      "Rocket Team started on this network, but https://team.example.org was not reopened. The address did not reach this workspace.",
+    launchErrorPart: "public-address",
+    launchErrorFolder: "team-a",
+  };
+
+  it("says so beside the running workspace and offers to try again", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(launched);
+    render(<Harness hosting={hosting} />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/was not reopened/);
+    // Hosting on this network is still what the dialog shows it doing.
+    expect(screen.getByText("192.168.1.20:8543")).toBeInTheDocument();
+
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(hosting.openToAll).toHaveBeenCalledWith({ inviteOnly: true });
+  });
+
+  it("offers to try again only for the workspace it is about", async () => {
+    const { hosting } = fakeHosting({ ...launched, folder: "design-guild" });
+    render(<Harness hosting={hosting} />);
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("goes when the host dismisses it", async () => {
+    const user = userEvent.setup();
+    const fake = fakeHosting(launched);
+    const hosting = fake.hosting as typeof fake.hosting & {
+      dismissLaunchError: ReturnType<typeof vi.fn>;
+    };
+    hosting.dismissLaunchError = vi.fn(async () => {
+      fake.push({ ...launched, launchError: undefined, launchErrorPart: undefined });
+    });
+    render(<Harness hosting={hosting} />);
+    const alert = await screen.findByRole("alert");
+    await user.click(within(alert).getByRole("button", { name: "Dismiss" }));
+    expect(hosting.dismissLaunchError).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByText(/was not reopened/)).toBeNull());
+  });
+});
+
 describe("a workspace restored from a backup", () => {
   const restored = {
     folder: "w-restored",

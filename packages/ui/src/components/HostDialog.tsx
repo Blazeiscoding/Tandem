@@ -150,6 +150,69 @@ function StartWithComputer(props: {
 }
 
 /**
+ * What did not happen when Gatherline opened, shown whether or not anything
+ * hosts now. A workspace can be live on this network while its public address
+ * failed to reopen, and that is exactly the failure a host would otherwise
+ * never see. It stays until that part recovers or the host dismisses it.
+ */
+function LaunchProblem(props: {
+  hosting: Hosting;
+  message: string | undefined;
+  /** Tries the part that failed again, when this dialog can. */
+  onRetry: (() => void) | null;
+  disabled: boolean;
+  className?: string;
+  onDismissed: () => void;
+  onError: (text: string | null) => void;
+}) {
+  const dismiss = props.hosting.dismissLaunchError;
+  const [saving, setSaving] = useState(false);
+  if (!props.message) return null;
+  return (
+    <div role="alert" className={`text-sm ${props.className ?? ""}`}>
+      <p className="text-alert">{props.message}</p>
+      {(props.onRetry || dismiss) && (
+        <div className="mt-1 flex flex-wrap gap-3">
+          {props.onRetry && (
+            <button
+              type="button"
+              disabled={props.disabled || saving}
+              className={linkBtnCls}
+              onClick={props.onRetry}
+            >
+              Try again
+            </button>
+          )}
+          {dismiss && (
+            <button
+              type="button"
+              disabled={props.disabled || saving}
+              className={linkBtnCls}
+              onClick={() => {
+                setSaving(true);
+                props.onError(null);
+                dismiss().then(
+                  () => {
+                    setSaving(false);
+                    props.onDismissed();
+                  },
+                  () => {
+                    setSaving(false);
+                    props.onError("That message could not be dismissed. Try again.");
+                  },
+                );
+              }}
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * The same choices while nothing is running, so a workspace that fails to
  * start with Gatherline can be taken off it, and Gatherline off sign-in,
  * without having to start it first. Nothing here removes it from the list.
@@ -1106,6 +1169,25 @@ export function HostDialog(props: {
               )}
             </div>
           )}
+          <LaunchProblem
+            hosting={props.hosting}
+            message={status.launchError}
+            onRetry={
+              status.launchErrorPart === "public-address" &&
+              status.launchErrorFolder === status.folder &&
+              phase === "running" &&
+              !status.isolated &&
+              !status.openToAll &&
+              !status.publicAddressError &&
+              status.tunnelAvailable !== false &&
+              props.hosting.openToAll
+                ? () => void openToAll()
+                : null
+            }
+            disabled={unavailable}
+            onDismissed={() => void refresh()}
+            onError={(text) => setBackupNote(text ? { ok: false, text } : null)}
+          />
           {status.running && phase !== "stopping" && (
             <p className="text-ink-dim">
               {status.backgroundAvailable === true
@@ -1499,11 +1581,15 @@ export function HostDialog(props: {
             Your computer becomes the server. Teammates on your network can connect while Gatherline
             is running. Messages, files and accounts are stored on this machine.
           </p>
-          {status.launchError && (
-            <p role="alert" className="mb-4 text-sm text-alert">
-              {status.launchError}
-            </p>
-          )}
+          <LaunchProblem
+            hosting={props.hosting}
+            message={status.launchError}
+            onRetry={null}
+            disabled={unavailable}
+            className="mb-4"
+            onDismissed={() => void refresh()}
+            onError={(text) => setBackupNote(text ? { ok: false, text } : null)}
+          />
           {listFailed && (
             <p role="alert" className="mb-4 text-sm text-alert">
               {listFailed}

@@ -47,8 +47,17 @@ export interface HostingSnapshot {
   inviteOnly?: boolean;
   /** The running workspace is the one chosen to start when Gatherline opens. */
   startsOnLaunch?: boolean;
-  /** Why the workspace chosen to start with Gatherline did not, until hosting next starts. */
+  /**
+   * What did not happen when Gatherline opened: the workspace chosen to start
+   * with it did not start, or started on this network without reopening its
+   * stable address. Kept, whatever else runs meanwhile, until that part
+   * recovers or the host dismisses it.
+   */
   launchError?: string;
+  /** Which part `launchError` is about. */
+  launchErrorPart?: "hosting" | "public-address";
+  /** The folder of the workspace `launchError` is about, when it is about one. */
+  launchErrorFolder?: string;
   /** How many people are connected to the running workspace now. */
   connected?: number;
   /**
@@ -375,7 +384,8 @@ export function createHostingController(options: HostingOptions) {
    * wait for the settings file, can say whether the running one is it.
    */
   let launchFolder: string | null | undefined;
-  let launchError: string | undefined;
+  let launchError:
+    { message: string; part: "hosting" | "public-address"; folder: string | null } | undefined;
   /** Stops listening for who connects to the running server. */
   let stopWatchingConnections: (() => void) | null = null;
   /** Why each workspace's last scheduled backup failed, by folder, until one finishes. */
@@ -428,7 +438,13 @@ export function createHostingController(options: HostingOptions) {
         : {}),
       ...(server && workspace && launchFolder === workspace.folder ? { startsOnLaunch: true } : {}),
       ...(server?.connectedPeople ? { connected: server.connectedPeople() } : {}),
-      ...(launchError ? { launchError } : {}),
+      ...(launchError
+        ? {
+            launchError: launchError.message,
+            launchErrorPart: launchError.part,
+            ...(launchError.folder ? { launchErrorFolder: launchError.folder } : {}),
+          }
+        : {}),
       ...(server && isolatedRun ? { isolated: true } : {}),
       ...(server &&
       workspace &&
@@ -770,7 +786,9 @@ export function createHostingController(options: HostingOptions) {
       );
       workspace.workspaceName = server.workspaceName?.() ?? entry.name;
       phase = "running";
-      launchError = undefined;
+      // Hosting has started, which is what a failed start needed. An address
+      // that was not reopened is still not open, and stays said until it is.
+      if (launchError?.part === "hosting") launchError = undefined;
       stopWatchingConnections = server.onConnectedChange?.(changed) ?? null;
       // A carrier forwards to one port and keeps forwarding there. Say so
       // while it can still be corrected, rather than letting Open to all
@@ -1281,8 +1299,12 @@ export function createHostingController(options: HostingOptions) {
     try {
       folder = await readLaunchFolder();
     } catch {
-      launchError =
-        "Gatherline did not start hosting when it opened, because it could not read which workspace to start. Check that its settings file can be read, then choose the workspace again under When this computer starts.";
+      launchError = {
+        part: "hosting",
+        folder: null,
+        message:
+          "Gatherline did not start hosting when it opened, because it could not read which workspace to start. Check that its settings file can be read, then choose the workspace again under When this computer starts.",
+      };
       changed();
       return null;
     }
@@ -1291,10 +1313,14 @@ export function createHostingController(options: HostingOptions) {
     try {
       entry = (await loadRegistry()).find((e) => e.folder === folder);
     } catch (error) {
-      launchError =
-        error instanceof RegistryFormatError
-          ? `Gatherline did not start hosting when it opened. ${error.message}`
-          : "Gatherline did not start hosting when it opened, because it could not read its list of hosted workspaces.";
+      launchError = {
+        part: "hosting",
+        folder,
+        message:
+          error instanceof RegistryFormatError
+            ? `Gatherline did not start hosting when it opened. ${error.message}`
+            : "Gatherline did not start hosting when it opened, because it could not read its list of hosted workspaces.",
+      };
       changed();
       return null;
     }
@@ -1304,7 +1330,11 @@ export function createHostingController(options: HostingOptions) {
       return null;
     }
     if (entry.restoredHold !== undefined) {
-      launchError = `Gatherline did not start hosting ${entry.name} when it opened, because it was restored from a backup and has not been put back in use.`;
+      launchError = {
+        part: "hosting",
+        folder,
+        message: `Gatherline did not start hosting ${entry.name} when it opened, because it was restored from a backup and has not been put back in use.`,
+      };
       changed();
       return null;
     }
@@ -1312,9 +1342,13 @@ export function createHostingController(options: HostingOptions) {
     try {
       started = await start({ folder });
     } catch (error) {
-      launchError = `Gatherline did not start hosting ${entry.name} when it opened. ${
-        error instanceof Error ? error.message : ""
-      }`.trim();
+      launchError = {
+        part: "hosting",
+        folder,
+        message: `Gatherline did not start hosting ${entry.name} when it opened. ${
+          error instanceof Error ? error.message : ""
+        }`.trim(),
+      };
       changed();
       return null;
     }
@@ -1358,7 +1392,11 @@ export function createHostingController(options: HostingOptions) {
     if (!wanted || wanted.folder !== folder || isolatedRun) return started;
     const current = publicAddress();
     if (current.url !== wanted.address) {
-      launchError = `${name} started, but ${wanted.address} was not reopened, because the stable address Gatherline is set up with has changed${current.url ? ` to ${current.url}` : ""}. Open it to all again, then choose to reopen it.`;
+      launchError = {
+        part: "public-address",
+        folder,
+        message: `${name} started, but ${wanted.address} was not reopened, because the stable address Gatherline is set up with has changed${current.url ? ` to ${current.url}` : ""}. Open it to all again, then choose to reopen it.`,
+      };
       changed();
       return started;
     }
@@ -1367,9 +1405,13 @@ export function createHostingController(options: HostingOptions) {
       return await openToAll({});
     } catch (error) {
       if (!launched()) return status();
-      launchError = `${name} started on this network, but ${wanted.address} was not reopened. ${
-        error instanceof Error ? error.message : ""
-      }`.trim();
+      launchError = {
+        part: "public-address",
+        folder,
+        message: `${name} started on this network, but ${wanted.address} was not reopened. ${
+          error instanceof Error ? error.message : ""
+        }`.trim(),
+      };
       changed();
       return status();
     }
@@ -1407,9 +1449,27 @@ export function createHostingController(options: HostingOptions) {
         );
       }
       reopenPublic = next;
+      // Not reopening it any more leaves nothing that failed to reopen.
+      if (!value && launchError?.part === "public-address") launchError = undefined;
       changed();
       return value;
     });
+  }
+
+  /**
+   * The host has read what did not happen when Gatherline opened and does not
+   * need it said again. Whatever is running carries on as it is.
+   */
+  function dismissLaunchError(): HostingSnapshot {
+    launchError = undefined;
+    changed();
+    return status();
+  }
+
+  /** The running workspace is public now, which a failed reopen of it was waiting for. */
+  function publicReopened(): void {
+    if (launchError?.part === "public-address" && launchError.folder === workspace?.folder)
+      launchError = undefined;
   }
 
   /**
@@ -1618,6 +1678,7 @@ export function createHostingController(options: HostingOptions) {
       openError = undefined;
       target.setInviteOnly(requestedInviteOnly);
       if (tunnel) {
+        publicReopened();
         changed();
         return status();
       }
@@ -1672,6 +1733,7 @@ export function createHostingController(options: HostingOptions) {
       }
       tunnel = opened;
       externalCarrier = carriedElsewhere;
+      publicReopened();
       opened.onUnexpectedExit((reason) => {
         if (tunnel !== opened) return;
         tunnel = null;
@@ -1767,6 +1829,7 @@ export function createHostingController(options: HostingOptions) {
     openFolder,
     setStartOnLaunch,
     setReopenPublicOnLaunch,
+    dismissLaunchError,
     setPort,
     setAutoBackup,
     runDueBackups,

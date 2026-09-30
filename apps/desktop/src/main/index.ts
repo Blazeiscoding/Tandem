@@ -445,6 +445,10 @@ ipcMain.handle("hosting:setReopenPublicOnLaunch", (_e, reopen: unknown) =>
 ipcMain.handle("hosting:setStartOnLaunch", (_e, folder: unknown) =>
   hosting.setStartOnLaunch(folder),
 );
+ipcMain.handle("hosting:dismissLaunchError", () => {
+  hosting.dismissLaunchError();
+  return hostingStatus();
+});
 
 // ---------- starting with the computer ----------
 
@@ -634,7 +638,10 @@ function updateTray(): void {
               status.connected !== undefined ? ` · ${status.connected} connected` : ""
             }`
           : "Not hosting";
-  tray.setToolTip(`Gatherline — ${label}`.slice(0, 127));
+  // Hosting can be running while part of starting with Gatherline failed; the
+  // tray is often all there is to see at sign-in, so it says so too.
+  const attention = status.launchError ? " · needs attention" : "";
+  tray.setToolTip(`Gatherline — ${label}${attention}`.slice(0, 127));
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -644,6 +651,19 @@ function updateTray(): void {
         },
       },
       { label: label.replaceAll("&", "&&"), enabled: false },
+      ...(status.launchError
+        ? [
+            {
+              label:
+                status.launchErrorPart === "public-address"
+                  ? "Public address not reopened: see why…"
+                  : "Did not start with Gatherline: see why…",
+              click: () => {
+                showMainWindow();
+              },
+            },
+          ]
+        : []),
       {
         label: "Stop hosting…",
         enabled: status.phase === "running" && !quitting && !trayStopPending,
@@ -831,12 +851,15 @@ void app.whenReady().then(async () => {
   setTimeout(() => void hosting.runDueBackups(), 60_000).unref();
   setInterval(() => void hosting.runDueBackups(), 15 * 60_000).unref();
   // Opened by the OS at sign-in, with a workspace hosting and a tray to reach
-  // it by, Gatherline stays out of the way. Otherwise the window opens, and
-  // hosting starts meanwhile: it enters "starting" long before the window asks.
+  // it by, Gatherline stays out of the way, unless part of what it was asked
+  // to do at sign-in did not happen: hosting on this network while the public
+  // address failed to reopen is a failure nobody would otherwise see. Without
+  // a sign-in the window opens, and hosting starts meanwhile: it enters
+  // "starting" long before the window asks.
   const loginSettings = loginItemAvailable && !isTest ? app.getLoginItemSettings() : {};
   if (openedAtLogin(process.platform, process.argv, loginSettings)) {
     const hosted = await hosting.startForLaunch().catch(() => null);
-    if (!hosted?.running || !tray) createWindow();
+    if (!hosted?.running || !tray || hosting.status().launchError) createWindow();
   } else {
     void hosting.startForLaunch().catch(() => {});
     createWindow();

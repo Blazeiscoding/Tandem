@@ -110,8 +110,16 @@ export interface HostingStatus {
   inviteOnly?: boolean;
   /** The running workspace is the one chosen to start when Gatherline opens. */
   startsOnLaunch?: boolean;
-  /** Why the workspace chosen to start with Gatherline did not, until hosting next starts. */
+  /**
+   * What did not happen when Gatherline opened: the workspace chosen to start
+   * with it did not start, or started without reopening its stable address.
+   * Kept until that part recovers or the host dismisses it.
+   */
   launchError?: string;
+  /** Whether `launchError` is about hosting itself or only its public address. */
+  launchErrorPart?: "hosting" | "public-address";
+  /** The folder of the workspace `launchError` is about, when it is about one. */
+  launchErrorFolder?: string;
   /** How many people are connected to the running workspace now. */
   connected?: number;
   /**
@@ -199,6 +207,8 @@ export interface Platform {
      * address or while nothing is running.
      */
     setReopenPublicOnLaunch?: (reopen: boolean) => Promise<boolean>;
+    /** Stops showing what did not happen when Gatherline opened. */
+    dismissLaunchError?: () => Promise<void>;
     /**
      * Changes the port a stopped workspace starts on. Rejects, saying why,
      * a port outside 1 to 65535 or a workspace that is running.
