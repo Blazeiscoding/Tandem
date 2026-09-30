@@ -2,6 +2,8 @@
 
 Gatherline source baseline: `7d91fd3ff676fa88641b7f45f1353d1fd043d441` (`origin/main`, after #149). These are source-supported experiment candidates. No dependencies were installed, no upstream application was run, and no comparative speed or memory result was measured.
 
+The requested [Rocket.Chat follow-up](rocket-chat-comparison.md) inspects its chat/server and Electron repositories and reconciles recommendations against Gatherline `7d70dac`. This Element report retains its original dated baseline.
+
 ## Pinned upstream snapshots
 
 | Repository                                                                                                     | Inspected snapshot                         | Scope                                                                                  |

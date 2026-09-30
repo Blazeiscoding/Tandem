@@ -2,7 +2,7 @@
 
 **30 September 2026 · Gatherline `7d91fd3` · proposed experiments, not performance claims.** This expands the [complete update plan](UPDATE-PLAN-2026-09-30.md) following the request to study [T3 Code](https://github.com/pingdotgg/t3code/tree/ff1db030b179ef712cacc0098366d976e2877f45) and similar chat applications. Every experiment must preserve access, event order, accepted-message integrity, recovery and usable keyboard/touch interaction.
 
-Inspected references: T3 Code `ff1db030…`, Signal Desktop `abe80d32…`, Zulip `7a921db6…`, Mattermost `cc0611f2…`, with further comparisons in the [additional chat report](research/2026-09-30/additional-chat-comparison.md). Pinned paths, source mechanisms and caveats are in the [Electron](research/2026-09-30/electron-comparison.md), [client](research/2026-09-30/chat-client-comparison.md), and [server](research/2026-09-30/server-comparison.md) reports. Source inspection demonstrates a technique exists; none of these applications was benchmarked against Gatherline.
+Inspected references: T3 Code `ff1db030…`, Signal Desktop `abe80d32…`, Zulip `7a921db6…`, Mattermost `cc0611f2…`, Element in the [additional chat report](research/2026-09-30/additional-chat-comparison.md), and Rocket.Chat `aa73c68a…` / Electron `d3d3f165…` in the [Rocket.Chat comparison](research/2026-09-30/rocket-chat-comparison.md). The Rocket.Chat follow-up was reconciled against Gatherline `7d70dac`, preserving #151–#165's merged work. Pinned paths, source mechanisms and caveats are in the [Electron](research/2026-09-30/electron-comparison.md), [client](research/2026-09-30/chat-client-comparison.md), and [server](research/2026-09-30/server-comparison.md) reports. Source inspection demonstrates a technique exists; none of these applications was benchmarked against Gatherline.
 
 ## 1. Preserve optimizations already present
 
@@ -74,7 +74,7 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 **References:** T3 supervised backend, Signal SQL worker ownership. **Gatherline:** `index.ts` server construction, hosting controller, backup worker and CLI bundle.
 
 - [ ] Compare the smallest isolated-backend boundary using a worker, `utilityProcess`, or supervised child, without changing participant REST/WebSocket contracts.
-  - [ ] Establish one directory/database writer first: FIX-11. Keep queues, discovery, route, port and hold state owned by one run.
+  - [ ] Preserve #153's directory ownership when moving the backend. Keep queues, discovery, route, port and hold state owned by one run, including the remaining recovery-boundary limitations recorded under FIX-11.
   - [ ] Add bounded readiness/start/stop/restart behavior and fence all async callbacks to that run.
   - [ ] Coordinate backup/restore, shutdown, crash recovery and IPC; never restart a held copy into ordinary use.
   - [ ] Compare UI stall p95/max, HTTP latency, total process memory, startup and recovery at 50k/200k mixed workloads.
@@ -117,6 +117,7 @@ The cost is the selectors: every replica change now runs two per row, about 0.1 
   - [ ] Measure variable rows after image load, edits, wrapping, thread summaries and menu opening.
   - [ ] Preserve first-visible ID/offset, tail following, around-message jumps, unread divider and Back/reload reading position.
   - [ ] Keep focused rows/menus available and support keyboard/screen-reader navigation through unmounted rows.
+  - [ ] Bound any keep-mounted exception for focused/playing media. [Rocket.Chat RC-1](research/2026-09-30/rocket-chat-comparison.md#rc-1-window-rendering-without-retaining-every-media-row) shows why retaining every attachment/preview row can defeat windowing; compare redecode/reload cost and preserve accessible list/reading-position behavior.
   - [ ] Measure scroll/frame/commit cost, memory and library/entry-size overhead; include touch and real browser geometry.
 
 **Done:** windowing beats the existing cap in a relevant task without lost anchors or inaccessible history. T3/Zulip overscan and height constants are not Gatherline defaults; reject the dependency if the current DOM is already cheap enough.
@@ -129,6 +130,7 @@ The cost is the selectors: every replica change now runs two per row, about 0.1 
   - [ ] Keep durable outbox mutations/persistence and notification/access hooks independent of delayed visual publication. `DraftPersistence` currently observes store changes; blanket subscription batching must not reopen #147's delayed-persistence gap.
   - [ ] Bound visual latency and provide a hidden-window fallback for frame-based work. Apply Element's incremental sidebar ordering and frame-coalesced visual emissions only after measuring current full-sort cost; see [ELM-1](research/2026-09-30/additional-chat-comparison.md#elm-1-batch-visual-room-list-publication-and-update-the-affected-entry).
   - [ ] Yield large replay work at bounded units and publish coherent snapshots without skipping seq/nonce reconciliation.
+  - [ ] Check loaded, protected inactive and evicted history through edits/deletes/root removal and later refetch. [Rocket.Chat RC-2/3](research/2026-09-30/rocket-chat-comparison.md#rc-2-stable-selection-is-separate-from-selection-cost) refines derivation/catch-up profiling; keep Gatherline's sequence authority rather than introducing timestamp sync.
   - [ ] Apply deactivation/membership/access invalidation promptly; do not leave forbidden previews rendered until a long batch ends.
   - [ ] Deduplicate replaceable typing/presence work when safe, while retaining durable read/unread and mutation order.
   - [ ] Measure 100/1,000/10,000-event reconnect bursts within configured replay limits, interaction delay and resync bytes.
@@ -157,6 +159,7 @@ The cost is the selectors: every replica change now runs two per row, about 0.1 
   - [ ] Avoid decoding originals for small previews; keep original file download/lightbox explicit and cancellable.
   - [ ] Consider a shared viewport observer and release offscreen decode resources without losing reserved geometry/anchors.
   - [ ] Evaluate a byte budget in addition to existing history-count LRU if long text/metadata exceeds target memory.
+  - [ ] Distinguish Blink image-cache accounting from retained blobs, decoded dimensions and whole-process/GPU memory. [Rocket.Chat RC-7](research/2026-09-30/rocket-chat-comparison.md#rc-7-distinguish-browser-image-cache-pressure-from-stored-attachment-bytes) provides an event-driven pressure signal; broad frame-cache clearing needs measured refill/scroll costs and supported diagnostic APIs.
 
 **Done:** image-heavy/long-text navigation stays within a declared memory envelope and access removal revokes local resources. Preserve current fetch deduplication, four-transfer cap and 32 MiB idle-blob budget.
 
@@ -210,7 +213,7 @@ At 50,000 messages the old thread's newest page went from 25.73 / 38.64 to 2.30 
 
 **Gatherline:** `Store.hydrateMessages`, thread summaries, unread/mention/Activity counts and server snapshot.
 
-**Status:** mention counts done; see the PR after #164. Counting one account's unread mentions read every message in each of its channels, and a message naming the whole room, or a deletion, recounts every member of the channel, one scan each. Schema v31 adds `message_mentions` (message, channel, who it names; `'!'` for the whole room), filled by the migration from every message's text and kept by `Store` on send, edit and delete, with retention's purge cascading through the foreign key. Unread mention counts and the Activity mentions list start from it and apply FIX-08's read rule to each candidate, so they cost what this account's mentions cost. Nothing is cached: every count is still computed from the rows, under the same rule as `MENTIONS_ME`.
+**Status:** mention counts merged in #165 (`7d70dac`). Counting one account's unread mentions read every message in each of its channels, and a message naming the whole room, or a deletion, recounts every member of the channel, one scan each. Schema v31 adds `message_mentions` (message, channel, who it names; `'!'` for the whole room), filled by the migration from every message's text and kept by `Store` on send, edit and delete, with retention's purge cascading through the foreign key. Unread mention counts and the Activity mentions list start from it and apply FIX-08's read rule to each candidate, so they cost what this account's mentions cost. Nothing is cached: every count is still computed from the rows, under the same rule as `MENTIONS_ME`.
 
 Measured with [`scripts/measure-unread-counts.mts`](../scripts/measure-unread-counts.mts) on `e02d2ac` against the candidate: one channel of 200,000 messages (seven in ten top-level, the rest replies in threads of ten; one in a hundred names a member, one in a thousand is `<!here>`), 50 members read to the last 300 messages, replies read to 60%, 20 followed threads each. Linux container, Xeon 2.8 GHz, 4 threads, Node 24.21.0; answers checked against the text rule before timing. Candidate figures are from two runs.
 
@@ -231,6 +234,7 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
   - [ ] Use bounded indexed aggregation for thread/unread counts and avoid repeating equivalent calculations per socket. Mention counts and the Activity mentions list are done; thread counts and the Activity unread walk are not.
   - [x] Coordinate count semantics with FIX-08 before caching them. Nothing is cached; the counts apply FIX-08's rule.
   - [ ] Measure channel/thread page and snapshot hydration at varied files/reactions/follows, including membership changes.
+  - [ ] Measure page normalization separately from unread marker/count and boundary-query costs, following [Rocket.Chat RC-4](research/2026-09-30/rocket-chat-comparison.md#rc-4-separate-page-normalization-from-unreadcount-work). Preserve the current four page-scoped relation queries, #160's thread index and #165's mention index; a generic N+1 repair is not established.
 
 **Done:** fewer queries/allocations improve the measured path with authoritative consistent counts. A stale global unread cache is not an acceptable shortcut.
 
@@ -263,10 +267,11 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
 **References:** Zulip row-aware retention, Mattermost bounded bulk operations. **Gatherline:** due schedules, retention, file-deletion ledger and event delivery queues.
 
 - [ ] Measure work by actual dependent rows/bytes/time in addition to item count.
-  - [ ] Repair FIX-05 first, then yield at safe transaction boundaries so ordinary reads/posts remain responsive.
+  - [ ] Preserve #151's table-based purge and caught/yielding passes; measure large whole-thread work before selecting smaller safe transaction boundaries.
   - [ ] Bound aggregate installed-app/failed-queue cost and capability counts, preserving per-subscription order/admission.
   - [ ] Keep retry/backoff/state wakeups explicit; do not busy-poll held or exhausted work.
   - [ ] Exercise mixed live chat with due/held jobs, oversized threads, failed integrations and deletion recovery.
+  - [ ] Compare grouped visual invalidation and dependent-row/byte/time budgets using [Rocket.Chat RC-5](research/2026-09-30/rocket-chat-comparison.md#rc-5-bound-maintenance-effects-and-make-queue-ownership-explicit). Preserve ordered durable events and #153's writer ownership; introduce claims only for deliberately added concurrent workers.
 
 **Done:** queues drain without starvation or loop stalls beyond the chosen envelope, with observable backlog/failure and safe restart semantics.
 
@@ -316,7 +321,8 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
 - [ ] Eliminate avoidable wrong-theme flash through a minimal trusted appearance bootstrap or a measured reveal policy.
   - [ ] If hiding until ready helps, enforce a load-error/deadline fallback and restore background throttling after startup.
   - [ ] Add bounded renderer crash/OOM/load recovery without resetting the hosted server or route.
-  - [ ] Rehydrate durable draft/outbox/route state and reconcile nonces; resolve FIX-01's durability contract first.
+  - [ ] Rehydrate durable draft/outbox/route state and reconcile nonces under #162's accepted-send contract. Disposable-cache cleanup must never clear accepted sends.
+  - [ ] Define usable milestones separately from page load, generation-fenced deadlines and persisted bounded attempts with a manual fallback; see [Rocket.Chat RC-8](research/2026-09-30/rocket-chat-comparison.md#rc-8-distinguish-loaded-from-usable-and-bound-renderer-recovery).
   - [ ] Measure paint/usable time and hidden CPU; exercise crash during send, host management and restore progress.
 
 **Done:** first use improves and a renderer failure has a safe visible recovery path. Permanently disabling throttling is not part of this proposal.
@@ -330,6 +336,7 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
   - [ ] Cap recent samples/log bytes; redact messages/credentials/token URLs and bound label cardinality.
   - [ ] Measure panel-open/closed idle overhead and stop expensive collection when not requested.
   - [ ] Extend OPS-10 support export without automatic external telemetry.
+  - [ ] Add fixed-route duration/response-byte/in-flight counters with exactly-once sampling and cleanup through exceptions/aborts; keep labels private and bounded. [Rocket.Chat RC-6](research/2026-09-30/rocket-chat-comparison.md#rc-6-measure-named-routes-with-bounded-labels) is a mechanism reference, including upstream cardinality cautions.
 
 **Done:** operators and optimization PRs get useful evidence without creating another CPU/privacy/storage problem.
 
@@ -338,7 +345,7 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
 **Reference:** SQLite WAL/backup contracts; Signal one write owner plus measured reads. **Gatherline:** startup inventory/orphans, pre-upgrade backup, migrations and checkpoints.
 
 - [ ] Time startup stages on large message/blob sets and separate mandatory integrity work from deferrable safe cleanup.
-  - [ ] Protect current rollback copy (FIX-06) and acquire directory ownership (FIX-11) before changing order.
+  - [ ] Preserve #152's current rollback-copy protection and #153's directory ownership before changing startup order.
   - [ ] Measure checkpoint stalls, WAL growth, write latency, busy waits and filesystem behavior; retain durability guarantees.
   - [ ] Compare a single isolated writer with a bounded read-worker pool only when profiling justifies the latter.
   - [ ] Define read-after-write/snapshot/connection ownership and stop secondary work before closing the primary.
@@ -365,6 +372,7 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
   - [ ] Pause unnecessary visual rendering offscreen while preserving required media and remote state.
   - [ ] Investigate supported sender frame-rate/resolution and receiver adaptation; do not assume CSS-hiding a video stops decoding or uplink.
   - [ ] Add correct screen/window choice, permission error and track-ended cleanup from CALL-01/03.
+  - [ ] If preview/window enumeration is expensive, compare one in-flight enumeration and short-lived bounded thumbnails, with refresh/cancel and source revalidation; see [Rocket.Chat RC-9](research/2026-09-30/rocket-chat-comparison.md#rc-9-cache-capture-enumeration-only-if-an-expanded-picker-needs-it). Basic screen selection already exists.
   - [ ] Measure readable screen text, frame cadence, camera quality, CPU and bandwidth across layout changes.
 
 **Done:** reduced media cost preserves useful quality and all participants' explicit sending state. Any network subscription changes need protocol/media evidence.
@@ -383,8 +391,8 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
 
 ## 8. What to adopt first and what to reject without evidence
 
-1. Run OPT-01 and implement OPT-10's measured query candidate in a small migration PR.
-2. Implement OPT-05's narrow subscriptions and compare row commits under unrelated updates.
+1. Preserve merged #160/#164/#165 query/subscription/mention improvements and their recorded evidence. Complete OPT-01's current mixed-workload/browser traces instead of implementing those changes again.
+2. Select remaining OPT-11/12/13/15 work from measured query, hydration, snapshot or maintenance cost; retain read, outbox, ownership and access contracts.
 3. Trial OPT-02/03 only if traces show module/package startup cost; add OPT-20's bounded timings as needed.
 4. Select OPT-04, OPT-06/07/09/11 from actual main-loop/render/memory/query bottlenecks. Maintain FIX/OPS integrity gates alongside changes.
 5. Gate OPT-22–24 on real devices and participation mode. Keep rejected experiments recorded.
