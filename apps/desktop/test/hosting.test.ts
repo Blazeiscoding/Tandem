@@ -30,6 +30,7 @@ import {
   inventoryBackup,
   restoreWorkspace,
   verifyBackup,
+  type WorkspaceServer,
 } from "@slackoss/server";
 
 interface StartRequest {
@@ -131,6 +132,10 @@ function harness(
     writeBackups: true,
     /** Whether backups are the real server's, of a real workspace, checked as the app checks them. */
     realBackups: false,
+    /** Whether each start runs the real server, adapted as the app adapts it. */
+    realServers: false,
+    /** The real servers started, while `realServers` is set. */
+    real: [] as WorkspaceServer[],
     /** A workspace ID the stand-in backup writes instead, as if the folder were swapped mid-copy. */
     swapDuringBackup: null as string | null,
     /** While set, the stand-in backup waits for it, holding its turn. */
@@ -218,6 +223,26 @@ function harness(
     startServer: async (request) => {
       h.starts.push(request);
       await h.beforeBind(request.port);
+      if (h.realServers) {
+        const real = await createWorkspaceServer({
+          dataDir: request.dataDir,
+          workspaceName: request.workspaceName,
+          port: 0,
+          host: "127.0.0.1",
+          mdns: false,
+          logger: false,
+        });
+        h.real.push(real);
+        const server = {
+          port: real.port,
+          instanceId: real.instanceId,
+          workspaceId: () => real.store.getMeta("workspace_id") ?? null,
+          workspaceName: () => real.store.getMeta("workspace_name") ?? "",
+          stop: vi.fn(() => real.stop()),
+        };
+        h.servers.push(server);
+        return server;
+      }
       // The server keeps the name it has unless it is given one, as the real one does.
       const kept = inside(request.dataDir);
       const db = {
@@ -670,6 +695,38 @@ describe("hosting a workspace from the desktop app", () => {
     expect(h.controller.status()).toEqual({ running: false, phase: "stopped" });
     await h.controller.start({ workspaceName: "Rocket Team" });
     expect(h.starts).toHaveLength(2);
+  });
+
+  it("finishes stopping the real server when asked again after its drain failed", async () => {
+    const h = harness();
+    h.realServers = true;
+    await h.controller.start({ workspaceName: "Rocket Team" });
+    const real = h.real[0]!;
+    const workspaceId = real.store.getMeta("workspace_id");
+    const closeSockets = vi.spyOn(real.gateway, "close");
+    closeSockets.mockRejectedValueOnce(new Error("could not close the sockets"));
+
+    await expect(h.controller.stop()).rejects.toThrow("could not close the sockets");
+    expect(h.controller.status()).toMatchObject({
+      running: true,
+      warning: expect.stringMatching(/could not finish stopping/),
+    });
+    // The server still holds its folder, so nothing else can open it yet.
+    const dataDir = h.starts[0]!.dataDir;
+    await expect(
+      createWorkspaceServer({ dataDir, port: 0, host: "127.0.0.1", mdns: false, logger: false }),
+    ).rejects.toThrow(/already open/);
+
+    // Asking again carries on from where the first try stopped.
+    await h.controller.stop();
+    expect(h.controller.status()).toEqual({ running: false, phase: "stopped" });
+    expect(closeSockets).toHaveBeenCalledTimes(2);
+    // And the same workspace starts again in the same folder.
+    const [entry] = (await h.controller.list()).workspaces;
+    await h.controller.start({ folder: entry!.folder });
+    expect(h.starts.at(-1)!.dataDir).toBe(dataDir);
+    expect(h.real[1]!.store.getMeta("workspace_id")).toBe(workspaceId);
+    await h.controller.stop();
   });
 
   it("goes on hosting when telling the windows about a change throws", async () => {

@@ -764,10 +764,17 @@ Reproduced first (`test/restoreFailure.test.ts`, `mkdtemp` failing once with ENO
 
 **Evidence:** injected gateway-close rejection; second stop returns the same rejected promise with workspace still held. Desktop presents Retry; its test uses a one-time-rejecting mock.
 
-- [ ] Track completed stages and safely resume unfinished work, or expose a truthful nonretryable state.
-  - [ ] Keep ownership while remaining handlers/database users can operate.
-  - [ ] Inject gateway, HTTP drain, delivery/deletion drain and database-close failures.
-  - [ ] Verify actual controller→production retry, then deadlines/cancellation and forced-exit recovery under OPS-04.
+**Status:** implemented; see the PR after #171. `stop()` now records each stage as it finishes: timers and the shutdown signal, sockets, HTTP, the handler/deletion/delivery drain, and the database. A failed stop no longer keeps its rejected promise. The next `stop()` starts at the first stage not yet done, so a stage that finished, such as closing the database, never runs twice. The workspace is released only after the database closes, so it stays held while anything of this server can still use it. `Gateway.close()` no longer caches a rejection either; closing again ends whatever sockets are left.
+
+Reproduced first. In `packages/server/test/stopRetry.test.ts`, with the gateway close rejecting once, the second stop used to return the same rejection with the folder still held. It now finishes, releases the folder, and the folder reopens. With `DatabaseSync.close` throwing once, the retry releases the folder without closing the sockets a second time. In `apps/desktop/test/hosting.test.ts` the hosting controller runs the real server, adapted as `index.ts` adapts it. Its first Stop fails and shows "could not finish stopping", and the folder refuses a second server. Its second Stop ends in `stopped`, and the same workspace starts again from its folder. On the old code both of these tests fail with the cached "could not close the sockets".
+
+- [x] Track completed stages and safely resume unfinished work, or expose a truthful nonretryable state.
+  - [x] Keep ownership while remaining handlers/database users can operate.
+  - [ ] Inject gateway, HTTP drain, delivery/deletion drain and database-close failures. Gateway and database close are injected. HTTP and the drain were checked but not injected, because the server does not expose them:
+    - A second Fastify `close()` after an `onClose` hook rejects resolves without running the hook again (probed on Fastify 5.12.1).
+    - Handler promises and the file-deletion flush never reject.
+    - The delivery flush clears itself when it settles, and pending deliveries stay queued in the database.
+  - [ ] Verify actual controller→production retry, then deadlines/cancellation and forced-exit recovery under OPS-04. The controller→production retry is covered, as above. Deadlines, cancellation and forced exit stay with OPS-04.
 
 **Completion:** advertised recovery makes progress without reopening a closed database or repeating unsafe stages. Clearing a cached promise alone is insufficient.
 
