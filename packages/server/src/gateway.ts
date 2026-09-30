@@ -112,7 +112,14 @@ export class Gateway {
             ws.terminate();
           }),
       ),
-    ).then(() => {});
+    ).then(
+      () => {},
+      (error: unknown) => {
+        // Not kept: closing again ends whatever sockets are left.
+        this.closePromise = null;
+        throw error;
+      },
+    );
     return this.closePromise;
   }
 

@@ -3981,6 +3981,10 @@ async function startWorkspaceServer(
     void sweepRetention();
   }, 3600_000);
   let stopping: Promise<void> | null = null;
+  // The stages of stopping that have finished. A stop that fails part-way
+  // can be asked again, and the next try picks up at the first stage not yet
+  // done instead of repeating the failure or a stage that must happen once.
+  const stopped = { started: false, gateway: false, http: false, drained: false, database: false };
 
   return {
     port: actualPort,
@@ -4027,25 +4031,44 @@ async function startWorkspaceServer(
     onConnectedChange: (listener) => gateway.onPresenceChange(listener),
     stop: () => {
       if (stopping) return stopping;
-      closing = true;
-      clearInterval(scheduleTimer);
-      if (scheduledDrain) clearImmediate(scheduledDrain);
-      clearInterval(eventDeliveryTimer);
-      clearInterval(pruneTimer);
-      mdnsHandle?.stop();
-      // Before waiting on anything, so whatever is waiting on an app hears
-      // about it now rather than at the end of its timeout.
-      shutdown.abort();
+      if (!stopped.started) {
+        stopped.started = true;
+        closing = true;
+        clearInterval(scheduleTimer);
+        if (scheduledDrain) clearImmediate(scheduledDrain);
+        clearInterval(eventDeliveryTimer);
+        clearInterval(pruneTimer);
+        mdnsHandle?.stop();
+        // Before waiting on anything, so whatever is waiting on an app hears
+        // about it now rather than at the end of its timeout.
+        shutdown.abort();
+      }
       stopping = (async () => {
-        await gateway.close();
-        await app.close();
-        // Nothing new can arrive now, so this set only shrinks.
-        while (runningHandlers.size > 0) await Promise.all(runningHandlers);
-        await Promise.all([flushFileDeletions(), eventDeliveryFlush ?? Promise.resolve()]);
-        db.close();
+        if (!stopped.gateway) {
+          await gateway.close();
+          stopped.gateway = true;
+        }
+        if (!stopped.http) {
+          await app.close();
+          stopped.http = true;
+        }
+        if (!stopped.drained) {
+          // Nothing new can arrive now, so this set only shrinks.
+          while (runningHandlers.size > 0) await Promise.all(runningHandlers);
+          await Promise.all([flushFileDeletions(), eventDeliveryFlush ?? Promise.resolve()]);
+          stopped.drained = true;
+        }
+        if (!stopped.database) {
+          db.close();
+          stopped.database = true;
+        }
         // Last, once nothing of this server can touch the folder again.
         ownership.hold?.release();
-      })();
+      })().catch((error: unknown) => {
+        // Still held, and still stoppable: the next stop() carries on from here.
+        stopping = null;
+        throw error;
+      });
       return stopping;
     },
   };
