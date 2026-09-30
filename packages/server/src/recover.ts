@@ -1,6 +1,8 @@
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import type { DatabaseSync } from "node:sqlite";
 import { openDb } from "./db.js";
+import { holdWorkspace } from "./ownership.js";
 import { Store } from "./store.js";
 import { hashPassword } from "./auth.js";
 import { secretToken } from "./ids.js";
@@ -19,19 +21,37 @@ export interface RecoverableAccount {
  * file already has everything in it, so no new trust is granted, and a locked
  * out owner does not need a working sign-in to get back.
  *
- * The server must be stopped. SQLite would let a second writer in, and handing
- * out a password while the old sessions are still live is not a recovery.
+ * The server must be stopped, and is refused if it is not. SQLite would let a
+ * second writer in, and handing out a password while the old sessions are
+ * still live is not a recovery.
  */
 function openWorkspace(dataDir: string) {
   const path = join(dataDir, "workspace.db");
   if (!existsSync(path)) {
     throw new Error(`No workspace found at ${path}. Check --data points at the data directory.`);
   }
-  return openDb(path);
+  const hold = holdWorkspace(dataDir, "an account recovery");
+  let db: DatabaseSync;
+  try {
+    db = openDb(path);
+  } catch (err) {
+    hold.release();
+    throw err;
+  }
+  return {
+    db,
+    close: () => {
+      try {
+        db.close();
+      } finally {
+        hold.release();
+      }
+    },
+  };
 }
 
 export function listAccounts(dataDir: string): RecoverableAccount[] {
-  const db = openWorkspace(dataDir);
+  const { db, close } = openWorkspace(dataDir);
   try {
     const store = new Store(db);
     return store
@@ -45,7 +65,7 @@ export function listAccounts(dataDir: string): RecoverableAccount[] {
         mustChangePassword: store.mustChangePassword(user.id),
       }));
   } finally {
-    db.close();
+    close();
   }
 }
 
@@ -60,7 +80,7 @@ export async function recoverAccount(opts: {
   /** Also make this account the owner. For a workspace whose owner is gone. */
   makeOwner?: boolean;
 }): Promise<{ temporaryPassword: string; role: string; revokedSessions: number }> {
-  const db = openWorkspace(opts.dataDir);
+  const { db, close } = openWorkspace(opts.dataDir);
   try {
     const store = new Store(db);
     const user = store.getUserAuthByHandle(opts.handle);
@@ -102,6 +122,6 @@ export async function recoverAccount(opts: {
     });
     return { temporaryPassword, role, revokedSessions: revoked };
   } finally {
-    db.close();
+    close();
   }
 }

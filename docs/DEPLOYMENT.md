@@ -575,8 +575,18 @@ of the server. Note them where you keep the backup.
 
 `restore` verifies the backup, stages and re-verifies it beside the target, and only then swaps
 it in; the previous data directory is renamed to `data.superseded-<timestamp>`
-rather than deleted. Stop the server before restoring. A backup from a newer
+rather than deleted. Stop the server before restoring: a restore, like `recover`,
+is refused while a server has the data directory open. A backup from a newer
 server than the one restoring it is refused instead of half-applied.
+
+Only one server can have a data directory open at a time. A second one started
+on the same directory, through any path or link to it, is refused before it
+opens anything and says which process has it. The lock is the operating
+system's, held on `workspace.lock` inside the directory, so it goes when that
+process exits or crashes, and there is nothing to clear by hand afterwards.
+`workspace.owner.json` beside it only describes the holder. Keep the data
+directory on a local disk: file locking on a network share is not dependable,
+for this lock or for SQLite itself.
 
 To check that a backup really holds what you need, restore it into a new
 directory and start that copy with `--isolated`:

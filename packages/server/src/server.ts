@@ -62,6 +62,7 @@ import {
   type WorkspaceEvent,
 } from "@slackoss/protocol";
 import { openDb } from "./db.js";
+import { holdWorkspace, type WorkspaceHold } from "./ownership.js";
 import { Store } from "./store.js";
 import { StorageBudget } from "./storageBudget.js";
 import { Gateway } from "./gateway.js";
@@ -312,6 +313,21 @@ class HttpError extends Error {
 }
 
 export async function createWorkspaceServer(opts: ServerOptions): Promise<WorkspaceServer> {
+  // Whatever stops the start after the workspace is taken gives it back, so a
+  // failed start, such as a port in use, does not keep it from the next one.
+  const ownership: { hold: WorkspaceHold | null } = { hold: null };
+  try {
+    return await startWorkspaceServer(opts, ownership);
+  } catch (err) {
+    ownership.hold?.release();
+    throw err;
+  }
+}
+
+async function startWorkspaceServer(
+  opts: ServerOptions,
+  ownership: { hold: WorkspaceHold | null },
+): Promise<WorkspaceServer> {
   const instanceId = randomUUID();
   if (
     opts.maxStorageBytes !== undefined &&
@@ -339,6 +355,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     opts.publicUrl === undefined ? undefined : parsePublicUrl(opts.publicUrl, "publicUrl");
   let iceServers = opts.iceServers ?? [];
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
+  // Before anything reads or changes the folder: a second server would keep
+  // its own count of the attachments and run its own queue and clean-up.
+  if (opts.dataDir !== ":memory:") ownership.hold = holdWorkspace(opts.dataDir, "a server");
   let upgradeBackup: string | null = null;
   const unprunedCopies: { file: string; error: Error }[] = [];
   const db = openDb(dbPath, undefined, {
@@ -3824,6 +3843,7 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     throw err;
   }
   const actualPort = (app.server.address() as { port: number }).port;
+  ownership.hold?.describe({ port: actualPort });
 
   let mdnsHandle: MdnsHandle | null = null;
   // An isolated copy shares the original's name, and would be offered to
@@ -4008,6 +4028,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
         while (runningHandlers.size > 0) await Promise.all(runningHandlers);
         await Promise.all([flushFileDeletions(), eventDeliveryFlush ?? Promise.resolve()]);
         db.close();
+        // Last, once nothing of this server can touch the folder again.
+        ownership.hold?.release();
       })();
       return stopping;
     },

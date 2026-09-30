@@ -18,6 +18,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./db.js";
+import { holdWorkspace } from "./ownership.js";
 import { SERVER_VERSION } from "./server.js";
 
 /** What a backup directory contains, and what it must still look like on restore. */
@@ -378,6 +379,12 @@ export async function restoreWorkspace(opts: {
   await separateDirectories(dataDir, source);
   const manifest = await verifyBackup(source);
   await mkdir(dirname(dataDir), { recursive: true });
+  // A workspace something still has open cannot be replaced: the server would
+  // go on writing to the copy moved aside, or on Windows stop the move. Held
+  // while the backup is staged, so none starts on the old one meanwhile, and
+  // let go just before the swap, since on Windows a folder with an open file
+  // in it cannot be renamed.
+  const hold = existsSync(dataDir) ? holdWorkspace(dataDir, "a restore") : null;
   const staged = await mkdtemp(`${dataDir}.restoring-`);
 
   let supersededDir: string | null = null;
@@ -390,12 +397,14 @@ export async function restoreWorkspace(opts: {
     await writeFile(join(staged, MANIFEST), JSON.stringify(manifest, null, 2));
     // Check the bytes we will install, not only the source before copying.
     await verifyBackup(staged);
+    hold?.release();
     if (existsSync(dataDir)) {
       supersededDir = `${dataDir}.superseded-${Date.now()}`;
       await rename(dataDir, supersededDir);
     }
     await rename(staged, dataDir);
   } catch (err) {
+    hold?.release();
     // Put the original back before reporting, so a failed swap changes nothing.
     if (supersededDir && !existsSync(dataDir)) await rename(supersededDir, dataDir);
     await rm(staged, { recursive: true, force: true });
