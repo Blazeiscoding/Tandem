@@ -33,7 +33,7 @@ The server enforces every refusal. The client only explains it. A block never de
 
 **Today** ([notify.ts](../packages/client-core/src/notify.ts), [store.ts](../packages/server/src/store.ts) `autoFollowThread`, [ThreadFollow](../packages/protocol/src/entities.ts)):
 
-- **Unread** is a read cursor per conversation (`memberships[channelId]`), and per followed thread (`lastReadSeq`). Mark unread moves either cursor back.
+- **Unread** is a read cursor per conversation (`memberships[channelId]`), which reads what the channel shows, and one per thread (`lastReadSeq`), which reads its replies; a thread without one is read as far as the membership's `repliesReadSeq`. Mark unread moves either cursor back. The full rule is FIX-08's table in the [30 September update plan](UPDATE-PLAN-2026-09-30.md#fix-08--p1-contract--agree-on-channel-thread-activity-and-mention-read-semantics).
 - **Subscription** is two separate things. Channel membership has a notify level (`all`, `mentions`, `nothing`) and a mute. Thread following is on for whoever wrote the root or a reply, and anyone may turn it off or on.
 - **Follow-up** is Saved: a bookmark with no done state, no reminder and no note.
 - **Resolved** does not exist.

@@ -248,6 +248,10 @@ export interface ThreadFollow {
   rootId: ID;
   channelId: ID;
   following: boolean;
+  /**
+   * Replies up to here are read. For a thread this account has no cursor of
+   * its own in, the membership's `repliesReadSeq`.
+   */
   lastReadSeq: number;
   /**
    * Newest seq in the thread, root included. Carried here so a client can tell

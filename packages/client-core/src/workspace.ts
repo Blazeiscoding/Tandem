@@ -235,6 +235,12 @@ export interface WorkspaceState {
   channels: Record<ID, Channel>;
   /** channelId -> my lastReadSeq (only channels I'm a member of). */
   memberships: Record<ID, number>;
+  /**
+   * channelId -> how far replies count as read in a thread I have no cursor
+   * for (`repliesReadSeq`). Null for a server that reads replies with the
+   * channel's cursor, as servers did before replies were read by thread.
+   */
+  repliesRead: Record<ID, number> | null;
   /** channelId -> my notification settings for it, including choices still being saved. */
   prefs: Record<ID, ChannelPrefs>;
   /**
@@ -283,6 +289,7 @@ const initialState: WorkspaceState = {
   users: {},
   channels: {},
   memberships: {},
+  repliesRead: null,
   prefs: {},
   prefsWrites: {},
   channelLastSeq: {},
@@ -311,17 +318,23 @@ export function unreadThreadCount(threadFollows: Record<ID, ThreadFollow>): numb
 }
 
 /**
- * Whether this account has read a message. The channel's cursor reads
- * anything up to it; a reply is also read once its own thread's cursor passes
- * it, since a thread is read without moving the channel's.
+ * Whether this account has read a message; the server's count of unread
+ * messages is the same rule. The channel's cursor reads what the channel
+ * shows. A reply is read through its thread: by the thread's cursor, or, in a
+ * thread this account has no cursor for, as far as the membership's
+ * `repliesRead`. A reply also sent to the channel is read by either cursor.
  */
 export function isMessageRead(
-  message: Pick<Message, "channelId" | "seq" | "threadRootId">,
-  state: Pick<WorkspaceState, "memberships" | "threadFollows">,
+  message: Pick<Message, "channelId" | "seq" | "threadRootId" | "broadcast">,
+  state: Pick<WorkspaceState, "memberships" | "threadFollows" | "repliesRead">,
 ): boolean {
-  if (message.seq <= (state.memberships[message.channelId] ?? 0)) return true;
-  if (!message.threadRootId) return false;
-  return message.seq <= (state.threadFollows[message.threadRootId]?.lastReadSeq ?? 0);
+  const channelRead = state.memberships[message.channelId] ?? 0;
+  if (!message.threadRootId) return message.seq <= channelRead;
+  const threadRead = state.threadFollows[message.threadRootId]?.lastReadSeq;
+  // A server that reads replies with the channel's cursor too.
+  if (!state.repliesRead) return message.seq <= Math.max(channelRead, threadRead ?? 0);
+  if (message.broadcast && message.seq <= channelRead) return true;
+  return message.seq <= (threadRead ?? state.repliesRead[message.channelId] ?? 0);
 }
 
 function sortedInsert(items: Message[], msg: Message): Message[] {
@@ -573,10 +586,16 @@ export class WorkspaceClient {
     for (const c of snap.channels) channels[c.id] = c;
     const memberships: Record<ID, number> = {};
     const prefs: Record<ID, ChannelPrefs> = {};
+    const repliesRead: Record<ID, number> | null = snap.memberships.some(
+      (m) => m.repliesReadSeq !== undefined,
+    )
+      ? {}
+      : null;
     for (const m of snap.memberships) {
       const pending = this.pendingReads.get(m.channelId) ?? 0;
       if (pending <= m.lastReadSeq || pending > snap.seq) this.pendingReads.delete(m.channelId);
       memberships[m.channelId] = Math.max(m.lastReadSeq, this.pendingReads.get(m.channelId) ?? 0);
+      if (repliesRead) repliesRead[m.channelId] = m.repliesReadSeq ?? 0;
       prefs[m.channelId] = m.prefs;
     }
     const saved: Record<ID, true> = {};
@@ -594,6 +613,7 @@ export class WorkspaceClient {
       users,
       channels,
       memberships,
+      repliesRead,
       prefs,
       channelLastSeq: snap.channelLastSeq,
       presence: snap.presence,
@@ -698,6 +718,7 @@ export class WorkspaceClient {
     this.store.setState({
       channels: without(state.channels),
       memberships: without(state.memberships),
+      repliesRead: state.repliesRead && without(state.repliesRead),
       prefs: without(state.prefs),
       prefsWrites: without(state.prefsWrites),
       timelines: without(state.timelines),
@@ -900,6 +921,7 @@ export class WorkspaceClient {
           event.channel.memberIds?.includes(s.self?.id ?? "")
         ) {
           patch.memberships = { ...s.memberships, [event.channel.id]: 0 };
+          patch.repliesRead = joined(s.repliesRead, event.channel.id, seq);
         }
         break;
       }
@@ -909,6 +931,8 @@ export class WorkspaceClient {
             ...s.memberships,
             [event.channelId]: s.memberships[event.channelId] ?? 0,
           };
+          if (!(event.channelId in s.memberships))
+            patch.repliesRead = joined(s.repliesRead, event.channelId, seq);
         }
         const ch = s.channels[event.channelId];
         if (ch?.memberIds && !ch.memberIds.includes(event.userId)) {
@@ -923,6 +947,10 @@ export class WorkspaceClient {
         if (event.userId === s.self?.id) {
           const { [event.channelId]: _gone, ...rest } = s.memberships;
           patch.memberships = rest;
+          if (s.repliesRead) {
+            const { [event.channelId]: _floor, ...repliesRead } = s.repliesRead;
+            patch.repliesRead = repliesRead;
+          }
           // Notification settings belong to the membership, which a rejoin
           // starts afresh, and a choice still being saved has nowhere to go.
           const { [event.channelId]: _prefs, ...prefs } = s.prefs;
@@ -1025,13 +1053,18 @@ export class WorkspaceClient {
         return;
       }
       const memberships = { ...s.memberships };
+      const repliesRead = s.repliesRead && { ...s.repliesRead };
       const prefs = { ...s.prefs };
       const prefsWrites = { ...s.prefsWrites };
       if (event.membership) {
         memberships[event.channelId] = event.membership.lastReadSeq;
+        if (repliesRead)
+          repliesRead[event.channelId] =
+            event.membership.repliesReadSeq ?? repliesRead[event.channelId] ?? 0;
         prefs[event.channelId] = event.membership.prefs;
       } else {
         delete memberships[event.channelId];
+        if (repliesRead) delete repliesRead[event.channelId];
         delete prefs[event.channelId];
         delete prefsWrites[event.channelId];
         this.prefsWrites.delete(event.channelId);
@@ -1039,6 +1072,7 @@ export class WorkspaceClient {
       this.store.setState({
         channels: { ...s.channels, [event.channelId]: event.channel },
         memberships,
+        repliesRead,
         prefs,
         prefsWrites,
       });
@@ -2329,6 +2363,8 @@ export class WorkspaceClient {
     this.store.setState((s) => ({
       channels: { ...s.channels, [channel.id]: channel },
       memberships: { ...s.memberships, [channel.id]: s.memberships[channel.id] ?? 0 },
+      repliesRead:
+        channel.id in s.memberships ? s.repliesRead : joined(s.repliesRead, channel.id, s.lastSeq),
     }));
     return channel;
   }
@@ -2339,6 +2375,14 @@ export class WorkspaceClient {
     const read = s.memberships[channelId] ?? 0;
     return last > read;
   }
+}
+
+/**
+ * `repliesRead` after joining a channel at `seq`: its replies until then are
+ * not this account's to catch up on, as the server counts them on joining.
+ */
+function joined(repliesRead: Record<ID, number> | null, channelId: ID, seq: number) {
+  return repliesRead && { ...repliesRead, [channelId]: seq };
 }
 
 /** A copy of `values` without the given keys. */

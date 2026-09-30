@@ -610,12 +610,15 @@ export class Store {
   // ---------- membership ----------
 
   addMember(channelId: ID, userId: ID, notifyLevel: NotifyLevel = "mentions"): boolean {
+    // Replies written before joining are not this member's to catch up on,
+    // any more than they were theirs to be told about.
     const res = this.db
       .prepare(
-        `INSERT OR IGNORE INTO channel_members (channel_id, user_id, joined_at, notify_level)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT OR IGNORE INTO channel_members
+           (channel_id, user_id, joined_at, notify_level, replies_read_seq)
+         VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(channelId, userId, Date.now(), notifyLevel);
+      .run(channelId, userId, Date.now(), notifyLevel, this.currentSeq());
     if (res.changes > 0) this.wakeHeldScheduled({ channelId, userId });
     return res.changes > 0;
   }
@@ -651,21 +654,28 @@ export class Store {
     return rows.map((r) => r.user_id);
   }
 
-  memberships(userId: ID): { channelId: ID; lastReadSeq: number; prefs: ChannelPrefs }[] {
+  memberships(userId: ID): {
+    channelId: ID;
+    lastReadSeq: number;
+    repliesReadSeq: number;
+    prefs: ChannelPrefs;
+  }[] {
     const rows = this.db
       .prepare(
-        `SELECT channel_id, last_read_seq, notify_level, muted
+        `SELECT channel_id, last_read_seq, replies_read_seq, notify_level, muted
          FROM channel_members WHERE user_id = ?`,
       )
       .all(userId) as {
       channel_id: string;
       last_read_seq: number;
+      replies_read_seq: number;
       notify_level: string;
       muted: number;
     }[];
     return rows.map((r) => ({
       channelId: r.channel_id,
       lastReadSeq: r.last_read_seq,
+      repliesReadSeq: r.replies_read_seq,
       prefs: { notifyLevel: r.notify_level as NotifyLevel, muted: r.muted === 1 },
     }));
   }
@@ -705,14 +715,63 @@ export class Store {
     return this.getChannelPrefs(channelId, userId);
   }
 
-  markRead(channelId: ID, userId: ID, seq: number): number {
+  /**
+   * Advances the channel's read cursor, which reads what the channel shows.
+   * Replies are read through their threads, but one also sent to the channel
+   * was seen there, so each thread's cursor moves over the replies it now
+   * passes that were sent to the channel, as far as no reply shown only in
+   * the thread comes first. Gives the cursor and the threads whose cursor moved.
+   */
+  markRead(channelId: ID, userId: ID, seq: number): { seq: number; threads: ID[] } {
+    const before = this.db
+      .prepare("SELECT last_read_seq FROM channel_members WHERE channel_id = ? AND user_id = ?")
+      .get(channelId, userId) as { last_read_seq: number } | undefined;
     const row = this.db
       .prepare(
         "UPDATE channel_members SET last_read_seq = MAX(last_read_seq, ?) WHERE channel_id = ? AND user_id = ? RETURNING last_read_seq",
       )
       .get(Math.min(seq, this.currentSeq()), channelId, userId) as
       { last_read_seq: number } | undefined;
-    return row?.last_read_seq ?? 0;
+    const after = row?.last_read_seq ?? 0;
+    if (!before || after <= before.last_read_seq) return { seq: after, threads: [] };
+    const roots = this.db
+      .prepare(
+        `SELECT DISTINCT thread_root_id AS id FROM messages
+         WHERE channel_id = ? AND broadcast = 1 AND thread_root_id IS NOT NULL
+           AND deleted_at IS NULL AND seq > ? AND seq <= ?`,
+      )
+      .all(channelId, before.last_read_seq, after) as { id: string }[];
+    const threads = roots.filter(({ id }) => this.readChannelCopies(userId, id, after));
+    return { seq: after, threads: threads.map(({ id }) => id) };
+  }
+
+  /** Moves a thread's cursor over the channel copies up to `channelRead`; true if it moved. */
+  private readChannelCopies(userId: ID, rootId: ID, channelRead: number): boolean {
+    const current = this.threadFollow(userId, rootId);
+    if (!current) return false;
+    const replies = this.db
+      .prepare(
+        `SELECT seq, broadcast FROM messages
+         WHERE thread_root_id = ? AND deleted_at IS NULL AND seq > ? ORDER BY seq`,
+      )
+      .all(rootId, current.lastReadSeq) as { seq: number; broadcast: number }[];
+    let read = current.lastReadSeq;
+    for (const reply of replies) {
+      if (reply.broadcast !== 1 || reply.seq > channelRead) break;
+      read = reply.seq;
+    }
+    if (read === current.lastReadSeq) return false;
+    this.db
+      .prepare(
+        `INSERT INTO thread_follows (user_id, root_id, following, last_read_seq, revision)
+         VALUES (?, ?, 0, ?, ?)
+         ON CONFLICT(user_id, root_id) DO UPDATE SET
+           last_read_seq = excluded.last_read_seq,
+           revision = MAX(thread_follows.revision + 1, excluded.revision)
+         WHERE thread_follows.last_read_seq < excluded.last_read_seq`,
+      )
+      .run(userId, rootId, read, this.nextFollowRevision());
+    return true;
   }
 
   /**
@@ -1433,23 +1492,27 @@ export class Store {
   // ---------- thread following ----------
 
   /**
-   * A thread's follow state for one account. A thread nobody has touched has no
-   * row, which reads as "not following" with nothing unread.
+   * A thread's follow state for one account. A thread this account has not
+   * touched has no row: it reads as not followed, and read as far as the
+   * membership's `replies_read_seq`, which is where a reply counts as read
+   * without a cursor of its own thread (see migration v30).
    */
   threadFollow(userId: ID, rootId: ID): ThreadFollow | null {
     const row = this.db
       .prepare(
-        `SELECT m.channel_id, f.following, f.last_read_seq, f.revision
+        `SELECT m.channel_id, f.following, f.last_read_seq, f.revision, cm.replies_read_seq
          FROM messages m
          LEFT JOIN thread_follows f ON f.root_id = m.id AND f.user_id = ?
+         LEFT JOIN channel_members cm ON cm.channel_id = m.channel_id AND cm.user_id = ?
          WHERE m.id = ? AND m.deleted_at IS NULL AND m.thread_root_id IS NULL`,
       )
-      .get(userId, rootId) as
+      .get(userId, userId, rootId) as
       | {
           channel_id: string;
           following: number | null;
           last_read_seq: number | null;
           revision: number | null;
+          replies_read_seq: number | null;
         }
       | undefined;
     if (!row) return null;
@@ -1457,7 +1520,7 @@ export class Store {
       rootId,
       channelId: row.channel_id,
       following: row.following === 1,
-      lastReadSeq: row.last_read_seq ?? 0,
+      lastReadSeq: row.last_read_seq ?? row.replies_read_seq ?? 0,
       lastSeq: this.threadLastSeq(rootId),
       revision: row.revision ?? 0,
     };
@@ -1484,9 +1547,11 @@ export class Store {
   }
 
   setThreadFollow(userId: ID, rootId: ID, following: boolean): ThreadFollow | null {
-    if (!this.threadFollow(userId, rootId)) return null;
+    const current = this.threadFollow(userId, rootId);
+    if (!current) return null;
     // Following a thread mid-conversation should not present its whole history
-    // as unread, so a new row starts caught up.
+    // as unread, so a new row starts caught up. Unfollowing one leaves what was
+    // read as it was: following is not reading.
     this.db
       .prepare(
         `INSERT INTO thread_follows (user_id, root_id, following, last_read_seq, revision)
@@ -1499,7 +1564,7 @@ export class Store {
         userId,
         rootId,
         following ? 1 : 0,
-        following ? this.threadLastSeq(rootId) : 0,
+        following ? Math.max(this.threadLastSeq(rootId), current.lastReadSeq) : current.lastReadSeq,
         this.nextFollowRevision(),
       );
     return this.threadFollow(userId, rootId);
@@ -1515,7 +1580,8 @@ export class Store {
   markThreadRead(userId: ID, rootId: ID, seq: number): ThreadFollow | null {
     const current = this.threadFollow(userId, rootId);
     if (!current) return null;
-    const target = Math.min(seq, this.threadLastSeq(rootId));
+    // Never below what was already read, including without a row of its own.
+    const target = Math.max(Math.min(seq, this.threadLastSeq(rootId)), current.lastReadSeq);
     this.db
       .prepare(
         `INSERT INTO thread_follows (user_id, root_id, following, last_read_seq, revision)
@@ -1583,12 +1649,15 @@ export class Store {
       .run(replierId, rootId, replySeq, this.nextFollowRevision());
 
     if (root.user_id !== replierId) {
+      // From their own message, or from where their replies were already read
+      // in a thread older than the row, whichever is later.
+      const read = this.threadFollow(root.user_id, rootId)?.lastReadSeq ?? 0;
       this.db
         .prepare(
           `INSERT OR IGNORE INTO thread_follows (user_id, root_id, following, last_read_seq, revision)
            VALUES (?, ?, 1, ?, ?)`,
         )
-        .run(root.user_id, rootId, root.seq, this.nextFollowRevision());
+        .run(root.user_id, rootId, Math.max(root.seq, read), this.nextFollowRevision());
     }
   }
 
@@ -1653,7 +1722,7 @@ export class Store {
              ), 0)) AS last_seq,
              (SELECT COUNT(*) FROM messages r
               WHERE r.thread_root_id = m.id AND r.deleted_at IS NULL
-              AND r.seq > f.last_read_seq) AS unread_count
+              AND r.seq > f.last_read_seq AND NOT ${Store.READ_IN_CHANNEL}) AS unread_count
            FROM thread_follows f
            JOIN messages m ON m.id = f.root_id
            JOIN channels c ON c.id = m.channel_id
@@ -1710,7 +1779,7 @@ export class Store {
          )
          AND EXISTS (
            SELECT 1 FROM messages r WHERE r.thread_root_id = m.id AND r.deleted_at IS NULL
-           AND r.seq > f.last_read_seq
+           AND r.seq > f.last_read_seq AND NOT ${Store.READ_IN_CHANNEL}
          )`,
       )
       .get(userId, userId) as { n: number };
@@ -2976,8 +3045,17 @@ export class Store {
   ): Message[] {
     const conditions = ["cm.user_id = ?", "m.user_id != ?", "m.deleted_at IS NULL"];
     const params: (string | number)[] = [userId, userId];
-    if (opts.mode === "unread") conditions.push(Store.UNREAD);
-    else {
+    if (opts.mode === "unread") {
+      // What the channel shows, replies in threads followed, and anything
+      // naming this account; the rest of a thread is its own to open.
+      conditions.push(
+        Store.UNREAD,
+        `(m.thread_root_id IS NULL OR m.broadcast = 1 OR ${Store.MENTIONS_ME} OR EXISTS (
+          SELECT 1 FROM thread_follows tf
+          WHERE tf.user_id = cm.user_id AND tf.root_id = m.thread_root_id AND tf.following = 1))`,
+      );
+      params.push(`<@${userId}>`);
+    } else {
       conditions.push(Store.MENTIONS_ME);
       params.push(`<@${userId}>`);
     }
@@ -2997,13 +3075,21 @@ export class Store {
   }
 
   /**
-   * The condition for "this message is unread", beside `channel_members cm`.
-   * A message is read once the channel's cursor passes it, and a reply is
-   * read too once its thread's cursor does: reading a thread reads its
-   * replies and nothing else in the channel.
+   * The condition for "this message is unread", beside `channel_members cm`;
+   * the client's `isMessageRead` is the same rule. The channel's cursor reads
+   * what the channel shows. A reply is read through its thread: by the
+   * thread's cursor, or without one by the membership's `replies_read_seq`.
+   * A reply also sent to the channel is read by the channel's cursor as well.
    */
-  private static readonly UNREAD =
-    "(m.seq > cm.last_read_seq AND NOT (m.thread_root_id IS NOT NULL AND EXISTS (SELECT 1 FROM thread_follows tf WHERE tf.user_id = cm.user_id AND tf.root_id = m.thread_root_id AND tf.last_read_seq >= m.seq)))";
+  private static readonly UNREAD = `(CASE WHEN m.thread_root_id IS NULL THEN m.seq > cm.last_read_seq
+    ELSE m.seq > COALESCE((SELECT tf.last_read_seq FROM thread_follows tf
+        WHERE tf.user_id = cm.user_id AND tf.root_id = m.thread_root_id), cm.replies_read_seq)
+      AND NOT (m.broadcast = 1 AND m.seq <= cm.last_read_seq) END)`;
+
+  /** A reply `r` in thread follow `f`'s thread that its reader saw in the channel. */
+  private static readonly READ_IN_CHANNEL = `(r.broadcast = 1 AND r.seq <= COALESCE((
+    SELECT rcm.last_read_seq FROM channel_members rcm
+    WHERE rcm.channel_id = r.channel_id AND rcm.user_id = f.user_id), 0))`;
 
   /**
    * The condition for "this message mentions me", shared by the Activity list
@@ -3021,8 +3107,8 @@ export class Store {
         `SELECT m.channel_id, COUNT(*) AS n FROM messages m
          JOIN channels c ON c.id = m.channel_id
          JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ?
-         WHERE m.user_id != ? AND m.deleted_at IS NULL AND ${Store.UNREAD}
-         AND ${Store.MENTIONS_ME}
+         WHERE m.user_id != ? AND m.deleted_at IS NULL AND ${Store.MENTIONS_ME}
+         AND ${Store.UNREAD}
          AND (m.thread_root_id IS NULL OR EXISTS (
            SELECT 1 FROM messages root WHERE root.id = m.thread_root_id AND root.deleted_at IS NULL
          ))

@@ -1690,12 +1690,17 @@ async function startWorkspaceServer(
     requireChannelAccess(req.params.id, me);
     const { seq } = markReadBody.parse(req.body);
     if (!store.isMember(req.params.id, me.id)) throw new HttpError(404, "channel_not_found");
-    const acknowledged = store.markRead(req.params.id, me.id, seq);
+    const { seq: acknowledged, threads } = store.markRead(req.params.id, me.id, seq);
     gateway.sendToUser(me.id, {
       type: "channel.read",
       channelId: req.params.id,
       seq: acknowledged,
     });
+    // Replies also sent to the channel were read there, and so in their threads.
+    for (const rootId of threads) {
+      const state = store.threadFollow(me.id, rootId);
+      if (state) gateway.sendToUser(me.id, { type: "thread.follow", state });
+    }
     pushMentionCounts([me.id]);
     return { ok: true, seq: acknowledged };
   });
@@ -3715,6 +3720,8 @@ async function startWorkspaceServer(
       throw new HttpError(400, "invalid_unread_target");
     }
     gateway.sendToUser(me.id, { type: "thread.follow", state });
+    // A mention in what is unread again counts again.
+    pushMentionCounts([me.id]);
     return { state };
   });
 

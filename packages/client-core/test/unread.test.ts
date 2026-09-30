@@ -263,3 +263,106 @@ describe("reading a thread", () => {
     await expect.poll(() => client.state.channelLastSeq[channelId]).toBe(message.seq);
   });
 });
+
+describe("the read rule every surface uses", () => {
+  const reply = (seq: number, broadcast = false) => ({
+    channelId: "C1",
+    seq,
+    threadRootId: "R1",
+    broadcast,
+  });
+  const follow = (lastReadSeq: number) => ({
+    R1: { rootId: "R1", channelId: "C1", following: true, lastReadSeq, lastSeq: 99, revision: 1 },
+  });
+
+  it("reads what the channel shows with its cursor, and replies only through their thread", () => {
+    const state = { memberships: { C1: 50 }, repliesRead: { C1: 10 }, threadFollows: {} };
+    expect(
+      isMessageRead({ channelId: "C1", seq: 40, threadRootId: null, broadcast: false }, state),
+    ).toBe(true);
+    // Without a thread cursor, as far as the membership's floor.
+    expect(isMessageRead(reply(10), state)).toBe(true);
+    expect(isMessageRead(reply(40), state)).toBe(false);
+    // A thread cursor decides for its own thread, above or below the floor.
+    expect(isMessageRead(reply(40), { ...state, threadFollows: follow(45) })).toBe(true);
+    expect(isMessageRead(reply(8), { ...state, threadFollows: follow(5) })).toBe(false);
+    // A reply also sent to the channel is read by either cursor.
+    expect(isMessageRead(reply(40, true), state)).toBe(true);
+    expect(isMessageRead(reply(60, true), { ...state, threadFollows: follow(60) })).toBe(true);
+  });
+
+  it("keeps the older rule for a server that reads replies with the channel's cursor", () => {
+    const state = { memberships: { C1: 50 }, repliesRead: null, threadFollows: follow(5) };
+    expect(isMessageRead(reply(40), state)).toBe(true);
+    expect(isMessageRead(reply(60), state)).toBe(false);
+  });
+});
+
+describe("agreeing with the server about replies", () => {
+  it("leaves a reply unread when the channel is read past it, until its thread is read", async () => {
+    const root = await incoming("A thread");
+    await client.loadThread(root.id, channelId, "latest");
+    const reply = await incoming(`over to you <@${member.id}>`, root.id);
+    const later = await incoming("Later");
+    client.markRead(channelId, later.seq);
+    await expect.poll(lastRead).toBe(later.seq);
+    expect(client.state.repliesRead?.[channelId]).toBeLessThan(root.seq);
+    expect(isMessageRead(reply, client.state)).toBe(false);
+    await expect.poll(() => client.state.mentionCounts[channelId]).toBe(1);
+
+    client.focusThread(root.id);
+    client.markThreadRead(root.id);
+    expect(isMessageRead(reply, client.state)).toBe(true);
+    await expect.poll(() => client.state.mentionCounts[channelId] ?? 0).toBe(0);
+  });
+
+  it("hears that reading the channel read a reply also sent there, in its thread too", async () => {
+    const { message: root } = await client.api.sendMessage(channelId, {
+      text: "My question",
+      nonce: "mine",
+    });
+    await client.loadThread(root.id, channelId, "latest");
+    const { message: copied } = await owner.sendMessage(channelId, {
+      text: "answered for everyone",
+      nonce: "copied",
+      threadRootId: root.id,
+      alsoSendToChannel: true,
+    });
+    await expect.poll(() => unreadThreadCount(client.state.threadFollows)).toBe(1);
+    client.markRead(channelId, copied.seq);
+    await expect.poll(() => client.state.threadFollows[root.id]?.lastReadSeq).toBe(copied.seq);
+    expect(unreadThreadCount(client.state.threadFollows)).toBe(0);
+    expect(isMessageRead(copied, client.state)).toBe(true);
+  });
+
+  it("does not count replies written before joining a channel as this account's to read", async () => {
+    const { channel } = await owner.createChannel({ type: "public", name: "earlier" });
+    const { message: root } = await owner.sendMessage(channel.id, { text: "Old", nonce: "old" });
+    const { message: old } = await owner.sendMessage(channel.id, {
+      text: "<!here> old reply",
+      nonce: "old-reply",
+      threadRootId: root.id,
+    });
+    await client.api.joinChannel(channel.id);
+    await expect.poll(() => client.state.repliesRead?.[channel.id]).toBeGreaterThanOrEqual(old.seq);
+    expect(isMessageRead(old, client.state)).toBe(true);
+
+    const { message: fresh } = await owner.sendMessage(channel.id, {
+      text: "<!here> new reply",
+      nonce: "new-reply",
+      threadRootId: root.id,
+    });
+    await expect.poll(() => client.state.mentionCounts[channel.id]).toBe(1);
+    expect(isMessageRead(fresh, client.state)).toBe(false);
+    // A fresh connection is told the same floor by the server.
+    const again = new WorkspaceClient(`http://127.0.0.1:${server.port}`, member.token);
+    try {
+      again.connect();
+      await expect.poll(() => again.state.status).toBe("online");
+      expect(isMessageRead(old, again.state)).toBe(true);
+      expect(isMessageRead(fresh, again.state)).toBe(false);
+    } finally {
+      again.destroy();
+    }
+  });
+});

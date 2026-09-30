@@ -136,6 +136,41 @@ describe("the Activity panel", () => {
     expect(within(panel).queryByText("From a room it left")).toBeNull();
   });
 
+  it("keeps a reply the channel was read past, until its thread is read", async () => {
+    const reply = {
+      ...message("M5", "A reply only in its thread", 5),
+      threadRootId: "M0",
+      broadcast: false,
+    } as Message;
+    const { client, platform } = workspace();
+    // The channel is read past the reply; replies before seq 2 count as read.
+    client.store.setState({ memberships: { [design.id]: 9 }, repliesRead: { [design.id]: 2 } });
+    vi.spyOn(client.api, "activity").mockResolvedValue({ messages: [reply], nextCursor: null });
+    render(
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <ActivityPanel onClose={() => {}} onJump={() => {}} />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
+    );
+    const panel = screen.getByRole("complementary", { name: "Activity" });
+    expect(await within(panel).findByText("A reply only in its thread")).toBeVisible();
+
+    client.store.setState({
+      threadFollows: {
+        M0: {
+          rootId: "M0",
+          channelId: design.id,
+          following: false,
+          lastReadSeq: 5,
+          lastSeq: 5,
+          revision: 1,
+        },
+      },
+    });
+    await waitFor(() => expect(within(panel).queryByText("A reply only in its thread")).toBeNull());
+  });
+
   it("goes to the next page by its cursor and back again", async () => {
     const user = userEvent.setup();
     const { panel, spy } = renderActivity(async (_mode, { cursor }) =>

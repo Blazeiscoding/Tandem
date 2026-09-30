@@ -48,7 +48,12 @@ export type EphemeralEvent =
       type: "channel.access";
       channelId: ID;
       channel: Channel | null;
-      membership: { lastReadSeq: number; prefs: ChannelPrefs } | null;
+      membership: {
+        lastReadSeq: number;
+        /** See `ReadySnapshot.memberships`. Absent from older servers. */
+        repliesReadSeq?: number;
+        prefs: ChannelPrefs;
+      } | null;
     }
   | { type: "friends"; friends: Friendship[] }
   | { type: "typing"; channelId: ID; userId: ID }
@@ -102,7 +107,19 @@ export interface ReadySnapshot {
   self: User;
   users: User[];
   channels: Channel[];
-  memberships: { channelId: ID; lastReadSeq: number; prefs: ChannelPrefs }[];
+  memberships: {
+    channelId: ID;
+    /** Reads what the channel shows: its messages, and replies also sent to it. */
+    lastReadSeq: number;
+    /**
+     * Replies in a thread this account has no read cursor for count as read up
+     * to here: where the channel cursor stood when the server began reading
+     * replies through their threads, or where the workspace was on joining.
+     * Absent from older servers, whose channel cursor reads every reply too.
+     */
+    repliesReadSeq?: number;
+    prefs: ChannelPrefs;
+  }[];
   /** Latest message seq per channel the user belongs to, for unread badges. */
   channelLastSeq: Record<ID, number>;
   presence: Record<ID, Presence>;

@@ -25,6 +25,7 @@ export function ActivityPanel({
   const users = useWorkspace((s) => s.users);
   const memberships = useWorkspace((s) => s.memberships);
   const threadFollows = useWorkspace((s) => s.threadFollows);
+  const repliesRead = useWorkspace((s) => s.repliesRead);
   const { panel, heading } = usePanelFocus({ takeFocus: true });
   const [mode, setMode] = useState<ActivityMode>("unread");
   const [cursors, setCursors] = useState<(ID | undefined)[]>([undefined]);
@@ -69,7 +70,7 @@ export function ActivityPanel({
     (message) =>
       channels[message.channelId] &&
       message.channelId in memberships &&
-      (mode === "mentions" || !isMessageRead(message, { memberships, threadFollows })),
+      (mode === "mentions" || !isMessageRead(message, { memberships, threadFollows, repliesRead })),
   );
 
   return (
@@ -135,7 +136,7 @@ export function ActivityPanel({
         />
         <ul className="space-y-3">
           {messages.map((message) => {
-            const unread = !isMessageRead(message, { memberships, threadFollows });
+            const unread = !isMessageRead(message, { memberships, threadFollows, repliesRead });
             return (
               <li key={message.id} className="rounded-xl border border-edge bg-raised p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
