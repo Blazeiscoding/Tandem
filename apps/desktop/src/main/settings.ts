@@ -13,6 +13,12 @@ export interface SettingsStorage {
     options?: { strict?: boolean; distinguishMissing?: boolean },
   ): Promise<unknown | null>;
   set(key: string, value: unknown): Promise<void>;
+  /**
+   * Reads a setting and writes what `change` makes of it in one turn of the
+   * queue every read and write here takes, so no other write can come between
+   * the two. Gives back what was written. Not for saved sign-ins.
+   */
+  update(key: string, change: (current: unknown) => unknown): Promise<unknown>;
 }
 
 /** All callers share one queue so a legacy migration cannot race another settings write. */
@@ -111,6 +117,15 @@ export function createSettingsStorage(
         } else {
           await write({ ...protectExisting(settings), [key]: value });
         }
+      });
+    },
+    update(key, change) {
+      return serialized(async () => {
+        if (typeof key !== "string" || key === "servers") throw new Error("Invalid settings key.");
+        const settings = await read();
+        const value = change(Object.hasOwn(settings, key) ? settings[key] : null);
+        await write({ ...protectExisting(settings), [key]: value });
+        return value;
       });
     },
   };

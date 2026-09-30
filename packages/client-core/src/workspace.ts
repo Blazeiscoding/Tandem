@@ -1587,13 +1587,13 @@ export class WorkspaceClient {
       this.uploadedFiles.set(nonce, fileIds);
       for (const [i, file] of files.entries()) {
         if (i < fileIds.length) continue;
-        if (this.stopped || !this.state.pending.some((p) => p.nonce === nonce)) return;
+        if (!this.stillSending(nonce)) return;
         const { file: uploaded } = await this.api.uploadFile(channelId, file, file.name, {
           onProgress: (fraction) => setProgress((i + fraction) / files.length),
         });
         fileIds.push(uploaded.id);
       }
-      if (this.stopped || !this.state.pending.some((p) => p.nonce === nonce)) return;
+      if (!this.stillSending(nonce)) return;
       if (files.length > 0) setProgress(1);
 
       const body: SendMessageBody = {
@@ -1608,8 +1608,17 @@ export class WorkspaceClient {
         this.applyEvent({ seq: message.seq, event: { type: "message.created", message } }, true);
       }
     } catch (error) {
-      this.failPending(nonce, sendFailureReason(error), isRefusal(error));
+      const refused = isRefusal(error);
+      // A refusal taken on from another window stays until its author's Retry;
+      // not reaching the server from here says nothing new about it.
+      if (!refused && this.state.pending.some((p) => p.nonce === nonce && p.refused)) return;
+      this.failPending(nonce, sendFailureReason(error), refused);
     }
+  }
+
+  /** Whether a send is still wanted: not discarded, delivered or refused meanwhile. */
+  private stillSending(nonce: string): boolean {
+    return !this.stopped && this.state.pending.some((p) => p.nonce === nonce && !p.refused);
   }
 
   private failPending(nonce: string, failureReason: string, refused = false): void {
@@ -1699,6 +1708,17 @@ export class WorkspaceClient {
 
   discardSend(nonce: string): void {
     this.dropPending(nonce);
+  }
+
+  /**
+   * Takes on the refusal another window on this account was given for the
+   * same send, so this one stops sending it too and waits for its author's
+   * Retry instead of trying again on its own.
+   */
+  adoptRefusal(nonce: string, reason: string): void {
+    const p = this.state.pending.find((x) => x.nonce === nonce);
+    if (!p || p.refused) return;
+    this.failPending(nonce, reason, true);
   }
 
   private dropPending(nonce: string): void {

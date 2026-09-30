@@ -1,3 +1,4 @@
+import type { OutboxChanges, StoredOutbox } from "@slackoss/client-core";
 import type {
   AutoBackup,
   DiscoveredServer,
@@ -13,6 +14,12 @@ interface SlackossBridge {
   downloadFile: (url: string) => Promise<void>;
   storageGet: (key: string, options?: { strict?: boolean }) => Promise<unknown>;
   storageSet: (key: string, value: unknown) => Promise<void>;
+  storageMergeOutbox: (
+    key: string,
+    changes: OutboxChanges,
+    enveloped: boolean,
+  ) => Promise<StoredOutbox>;
+  onOutboxChanged: (cb: (key: string, stored: unknown) => void) => () => void;
   lanSnapshot: () => Promise<DiscoveredServer[]>;
   onLanServers: (cb: (servers: DiscoveredServer[]) => void) => () => void;
   hostingStatus: () => Promise<HostingStatus>;
@@ -78,6 +85,12 @@ export function electronPlatform(): Platform {
       get: async <T>(key: string, options?: { strict?: boolean }) =>
         (await bridge.storageGet(key, options)) as T | null,
       set: (key, value) => bridge.storageSet(key, value),
+      // Merged in the main process, where every window's writes wait their turn.
+      mergeOutbox: (key, changes, enveloped) => bridge.storageMergeOutbox(key, changes, enveloped),
+      watchOutbox: (key, cb) =>
+        bridge.onOutboxChanged((changed, stored) => {
+          if (changed === key) cb(stored);
+        }),
     },
     notify: (title, body, onClick) => {
       const note = new Notification(title, { body, silent: false });

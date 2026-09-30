@@ -156,7 +156,7 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 | p50                                   | 6.334 ms         | 0.066 ms                |
 | p95                                   | 7.777 ms         | 0.102 ms                |
 
-**Status:** implemented in schema v28. `(thread_root_id, id)` replaces the single-column `thread_root_id` index. [`scripts/measure-thread-index.mts`](../scripts/measure-thread-index.mts) seeds one channel with an old 50-reply thread, then top-level messages, then a busy 500-reply thread. It checks every response before timing, runs without `ANALYZE` as the server does, and compares the old index, the composite, and both, through real HTTP requests. Linux container, Xeon 2.8 GHz, 4 threads, Node 24.21.0; p50 / p95 ms over 30 warm requests:
+**Status:** merged in #160 (`2fd31c0`), schema v28. `(thread_root_id, id)` replaces the single-column `thread_root_id` index. [`scripts/measure-thread-index.mts`](../scripts/measure-thread-index.mts) seeds one channel with an old 50-reply thread, then top-level messages, then a busy 500-reply thread. It checks every response before timing, runs without `ANALYZE` as the server does, and compares the old index, the composite, and both, through real HTTP requests. Linux container, Xeon 2.8 GHz, 4 threads, Node 24.21.0; p50 / p95 ms over 30 warm requests:
 
 | 200,000 messages                  | `thread_root_id` (before) | `(thread_root_id, id)` (v28) | Both         |
 | --------------------------------- | ------------------------- | ---------------------------- | ------------ |

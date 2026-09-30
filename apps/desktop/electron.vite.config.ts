@@ -6,7 +6,9 @@ export default defineConfig({
   main: {
     plugins: [
       // Workspace packages are TS source — bundle them; real deps stay external.
-      externalizeDepsPlugin({ exclude: ["@slackoss/server", "@slackoss/protocol"] }),
+      externalizeDepsPlugin({
+        exclude: ["@slackoss/server", "@slackoss/protocol", "@slackoss/client-core"],
+      }),
     ],
   },
   preload: {
