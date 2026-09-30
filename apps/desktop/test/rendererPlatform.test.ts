@@ -147,3 +147,37 @@ describe("the outbox every window shares", () => {
     expect(heard).toEqual(["stored now"]);
   });
 });
+
+describe("the drafts every window shares", () => {
+  it("are merged in the main process and watched for the other windows' changes", async () => {
+    const merged = { C1: "stored now" };
+    const calls: unknown[][] = [];
+    let notify: (key: string, stored: unknown) => void = () => {};
+    (globalThis as { window?: unknown }).window = {
+      slackoss: {
+        storageMergeDrafts: async (...args: unknown[]) => {
+          calls.push(args);
+          return merged;
+        },
+        onDraftsChanged: (cb: typeof notify) => {
+          notify = cb;
+          return () => {
+            notify = () => {};
+          };
+        },
+      } as unknown as Bridge,
+    };
+    const platform = electronPlatform();
+    const changes = { put: { C1: "stored now" }, remove: ["C2"] };
+    expect(await platform.storage.mergeDrafts!("drafts-key", changes, true)).toBe(merged);
+    expect(calls).toEqual([["drafts-key", changes, true]]);
+
+    const heard: unknown[] = [];
+    const stop = platform.storage.watchDrafts!("drafts-key", (stored) => heard.push(stored));
+    notify("another-key", "not this one");
+    notify("drafts-key", "stored now");
+    stop();
+    notify("drafts-key", "after stopping");
+    expect(heard).toEqual(["stored now"]);
+  });
+});

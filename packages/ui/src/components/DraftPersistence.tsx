@@ -3,15 +3,19 @@ import {
   OUTBOX_TOMBSTONES_KEPT,
   outboxRevision,
   storedPending,
+  type DraftChanges,
   type StoredOutbox,
   type StoredOutboxEntry,
 } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import {
+  mergeWorkspaceDrafts,
   mergeWorkspaceOutbox,
+  readWorkspaceDrafts,
   readWorkspaceOutbox,
   readWorkspaceStorage,
+  watchWorkspaceDrafts,
   watchWorkspaceOutbox,
   workspaceStorageKey,
   writeWorkspaceStorage,
@@ -39,13 +43,11 @@ function validUnstored(value: unknown): value is Record<string, UnstoredSend> {
 const composerOf = (send: Pick<StoredOutboxEntry, "channelId" | "threadRootId">) =>
   send.threadRootId ? `${send.channelId}:${send.threadRootId}` : send.channelId;
 
-function validDrafts(value: unknown): value is Record<string, string> {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Object.values(value).every((text) => typeof text === "string")
-  );
+/** What makes `base` into `drafts`: each draft that differs, alone. */
+function draftChanges(drafts: Record<string, string>, base: Record<string, string>): DraftChanges {
+  const put: Record<string, string> = {};
+  for (const [key, text] of Object.entries(drafts)) if (base[key] !== text) put[key] = text;
+  return { put, remove: Object.keys(base).filter((key) => !(key in drafts)) };
 }
 
 /** How many times in a row a window writes its sends again after another's write left them out. */
@@ -60,6 +62,13 @@ const REPAIRS = 3;
  * by the platform (see `mergeWorkspaceOutbox`), and takes on what the others
  * wrote about the sends it holds: one taken out elsewhere goes here too, and a
  * refusal given elsewhere stops it here until its author chooses Retry.
+ *
+ * Drafts are shared the same way. A window writes only the drafts it changed
+ * (see `mergeWorkspaceDrafts`), so one typed in one conversation is not lost
+ * to another window's write about a different one, and a draft cleared or
+ * sent elsewhere is not put back by a window that still showed it. A window
+ * takes on the drafts the others change, except one it has its own change to
+ * not yet written: that is written next, and the later edit is the draft.
  *
  * A send is kept on this device once the outbox write carrying it resolves;
  * from then a restart brings it back. Until then a draft already saved with
@@ -101,6 +110,9 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let currentDrafts = client.state.drafts;
     const editedDrafts = new Set<string>();
+    // The drafts as this window last knew them stored. What differs from it
+    // in memory is this window's own, not yet written; nothing else is.
+    let baseDrafts: Record<string, string> = {};
     // This window's sends as it last wrote or took them on, and the ones it
     // saw leave. Every write carries all of them: the merge keeps the newest
     // of each, so writing one again changes nothing, and puts back one that
@@ -254,13 +266,53 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       return missing;
     };
 
-    const saveDrafts = (drafts: Record<string, string>) => {
+    // Takes on what other windows stored: a draft changed there replaces this
+    // window's, unless this window has its own change to it not yet written,
+    // which its next write puts over it. `written` is what this window just
+    // wrote, now known stored.
+    const takeOnDrafts = (stored: Record<string, string>, written?: DraftChanges) => {
+      const next = { ...currentDrafts };
+      let changed = false;
+      const mine = new Set<string>();
+      if (written) {
+        for (const key of written.remove) {
+          delete baseDrafts[key];
+          mine.add(key);
+        }
+        for (const [key, text] of Object.entries(written.put)) {
+          baseDrafts[key] = text;
+          mine.add(key);
+        }
+      }
+      for (const key of new Set([...Object.keys(stored), ...Object.keys(baseDrafts)])) {
+        if (mine.has(key) || stored[key] === baseDrafts[key]) continue;
+        if (currentDrafts[key] === baseDrafts[key]) {
+          if (stored[key] === undefined) delete next[key];
+          else next[key] = stored[key];
+          changed = true;
+        }
+        if (stored[key] === undefined) delete baseDrafts[key];
+        else baseDrafts[key] = stored[key];
+      }
+      if (changed) quietly(() => client.hydrateDrafts(next));
+    };
+
+    // Writes the drafts this window changed, and only those, once the outbox
+    // write before it has finished.
+    const saveDrafts = (drafts: () => Record<string, string> = () => currentDrafts) => {
       const bringing = carried;
       return save(
         "drafts",
         outboxWrite
-          .then(() => writeWorkspaceStorage(platform, draftKey, drafts))
-          .then(() => {
+          .then(() =>
+            mergeWorkspaceDrafts(platform, draftKey, () => draftChanges(drafts(), baseDrafts)),
+          )
+          .then((merged) => {
+            if (merged && !disposed && loaded) takeOnDrafts(merged.drafts, merged.changes);
+            else if (merged) {
+              for (const key of merged.changes.remove) delete baseDrafts[key];
+              Object.assign(baseDrafts, merged.changes.put);
+            }
             // The drafts now hold what came back; the unstored key need not.
             if (carried === bringing) carried = {};
           }),
@@ -275,7 +327,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         for (const nonce of stored) if (!held.has(nonce)) stored.delete(nonce);
         if (!disposed && loaded) takeOn(record);
         // Drafts held back by a failed outbox write can go now.
-        if (loaded && failing.has("drafts")) void saveDrafts(currentDrafts);
+        if (loaded && failing.has("drafts")) void saveDrafts();
       });
       outboxWrite = write;
       return save("outbox", write);
@@ -303,7 +355,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       clearTimeout(timer);
       if (!loaded) return;
       void saveOutbox();
-      void saveDrafts(currentDrafts);
+      void saveDrafts();
     };
     const unsubscribe = client.store.subscribe((state, previous) => {
       if (state.drafts !== previous.drafts) {
@@ -316,8 +368,12 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
           }
         }
         currentDrafts = state.drafts;
-        clearTimeout(timer);
-        if (loaded) timer = setTimeout(() => void saveDrafts(currentDrafts), 600);
+        // What this window took on from another is already stored; only its
+        // own changes wait for, and restart, the pause.
+        if (!quiet) {
+          clearTimeout(timer);
+          if (loaded) timer = setTimeout(() => void saveDrafts(), 600);
+        }
       }
       if (quiet || state.pending === previous.pending || !observe()) return;
       outboxChanged = true;
@@ -327,6 +383,10 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     });
     const unwatch = watchWorkspaceOutbox(platform, outboxKey, (record) => {
       if (loaded && !disposed) takeOn(record);
+    });
+    const unwatchDrafts = watchWorkspaceDrafts(platform, draftKey, (drafts) => {
+      // One that cannot be read is left to this window's next write to replace.
+      if (loaded && !disposed && drafts) takeOnDrafts(drafts);
     });
 
     // What was stored meets what this client already holds, which after a
@@ -361,13 +421,12 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       loading = true;
       setError(null);
       void Promise.all([
-        readWorkspaceStorage<unknown>(platform, draftKey),
+        readWorkspaceDrafts(platform, draftKey),
         readWorkspaceOutbox(platform, outboxKey),
         readWorkspaceStorage<unknown>(platform, unstoredKey),
       ])
         .then(([storedDrafts, record, unstored]) => {
-          if (storedDrafts !== null && !validDrafts(storedDrafts))
-            throw new Error("Invalid drafts");
+          baseDrafts = { ...storedDrafts };
           const drafts: Record<string, string> = { ...storedDrafts, ...currentDrafts };
           // Keep these edits across failed read retries as well as the first load.
           // An empty draft typed while storage was loading is an edit too.
@@ -393,7 +452,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
             // A quick switch may precede a desktop storage read. Finish saving
             // edits to the captured scope, without restoring or sending anything.
             if (outboxChanged) void saveOutbox();
-            if (editedDrafts.size) void saveDrafts(drafts);
+            if (editedDrafts.size) void saveDrafts(() => drafts);
             return;
           }
           client.hydrateDrafts(drafts);
@@ -430,6 +489,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       if (retry.current === retryPersistence) retry.current = null;
       unsubscribe();
       unwatch();
+      unwatchDrafts();
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onHide);
       disposed = true;

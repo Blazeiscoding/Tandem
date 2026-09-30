@@ -1,7 +1,11 @@
 import {
+  applyDraftChanges,
   applyOutboxChanges,
+  readStoredDrafts,
   readStoredOutbox,
+  unwrapStoredDrafts,
   unwrapStoredOutbox,
+  type DraftChanges,
   type OutboxChanges,
   type StoredOutbox,
 } from "@slackoss/client-core";
@@ -271,4 +275,92 @@ export function watchWorkspaceOutbox(
   const watch = platform.storage.watchOutbox;
   if (!watch) return () => {};
   return watch(key.key, (stored) => cb(unwrapStoredOutbox(stored, !!key.legacyKey)));
+}
+
+/** As `mergeOutboxNow`, for drafts. */
+async function mergeDraftsNow(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+  changes: DraftChanges,
+): Promise<Record<string, string>> {
+  const enveloped = !!key.legacyKey;
+  if (platform.storage.mergeDrafts)
+    return platform.storage.mergeDrafts(key.key, changes, enveloped);
+  let stored: unknown = null;
+  try {
+    stored = await platform.storage.get<unknown>(key.key, { strict: true });
+  } catch {
+    // Nothing unreadable can be kept; the merge takes its place.
+  }
+  const { value, drafts } = applyDraftChanges(stored, changes, enveloped);
+  await platform.storage.set(key.key, value);
+  return drafts;
+}
+
+/**
+ * Merges one window's draft changes into what is stored and gives back the
+ * drafts now stored, as `mergeWorkspaceOutbox` does for the outbox. The
+ * changes are worked out in this window's turn for the key, once every
+ * earlier merge from here has come back, so none is made from a view of the
+ * drafts older than the last one this window stored. Null, and nothing
+ * written, when there are none. Call only after `readWorkspaceDrafts`.
+ */
+export function mergeWorkspaceDrafts(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+  changes: () => DraftChanges,
+): Promise<{ changes: DraftChanges; drafts: Record<string, string> } | null> {
+  return serialized(platform, key.key, async () => {
+    const now = changes();
+    if (Object.keys(now.put).length === 0 && now.remove.length === 0) return null;
+    return { changes: now, drafts: await mergeDraftsNow(platform, key, now) };
+  });
+}
+
+/**
+ * Reads the drafts, as `readWorkspaceOutbox` reads the outbox: the first read
+ * of a key records it and brings across an address-scoped key's drafts by
+ * merging, filling only conversations without a draft, so nothing another
+ * window stored meanwhile is replaced. Rejects a stored value that is not
+ * drafts, leaving it where it is.
+ */
+export function readWorkspaceDrafts(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+): Promise<Record<string, string>> {
+  return serialized(platform, key.key, async () => {
+    const stored = await platform.storage.get<unknown>(key.key, { strict: true });
+    if (stored !== null) {
+      const drafts = unwrapStoredDrafts(stored, !!key.legacyKey);
+      if (!drafts) throw new Error("Could not read the saved drafts.");
+      return drafts;
+    }
+    for (const legacyKey of await legacyKeysOf(platform, key)) {
+      const legacy = await serialized(platform, legacyKey, () =>
+        platform.storage.get<unknown>(legacyKey, { strict: true }),
+      );
+      if (legacy === null) continue;
+      const earlier = readStoredDrafts(legacy);
+      if (!earlier) throw new Error("Could not read the saved drafts.");
+      const drafts = await mergeDraftsNow(platform, key, { put: {}, remove: [], fill: earlier });
+      try {
+        await serialized(platform, legacyKey, () => platform.storage.set(legacyKey, null));
+      } catch {
+        // What was merged is authoritative even if the old key stays.
+      }
+      return drafts;
+    }
+    return mergeDraftsNow(platform, key, { put: {}, remove: [] });
+  });
+}
+
+/** As `watchWorkspaceOutbox`, for drafts. */
+export function watchWorkspaceDrafts(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+  cb: (drafts: Record<string, string> | null) => void,
+): () => void {
+  const watch = platform.storage.watchDrafts;
+  if (!watch) return () => {};
+  return watch(key.key, (stored) => cb(unwrapStoredDrafts(stored, !!key.legacyKey)));
 }

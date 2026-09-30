@@ -1,0 +1,95 @@
+/**
+ * Drafts as every window open on one account keeps them on the device: one
+ * text per conversation, by the key `Composer` gives it.
+ *
+ * Each window writes only the drafts it changed, never a whole set read
+ * earlier, so a draft typed in one window cannot be lost to another window's
+ * write about a different conversation. Two windows changing the same
+ * conversation: the later write is the draft, as the later keystroke is.
+ *
+ * Kept free of anything but plain data so the desktop app's main process can
+ * run the same merge, in one step, for every window at once.
+ */
+export interface DraftChanges {
+  /** Texts to store, by draft key. */
+  put: Record<string, string>;
+  /** Draft keys to take out: cleared or sent. */
+  remove: string[];
+  /**
+   * Texts to store only where there is no draft: what an earlier version
+   * kept, brought across without replacing anything written since.
+   */
+  fill?: Record<string, string>;
+}
+
+/** Drafts in the shape they are stored: text by draft key. Null when not that. */
+export function readStoredDrafts(value: unknown): Record<string, string> | null {
+  if (value === null || value === undefined) return {};
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const drafts: Record<string, string> = {};
+  for (const [key, text] of Object.entries(value)) {
+    if (typeof text !== "string") return null;
+    drafts[key] = text;
+  }
+  return drafts;
+}
+
+/** The drafts inside a stored value, wrapped as `{ version: 1, value }` when `enveloped`. */
+export function unwrapStoredDrafts(
+  stored: unknown,
+  enveloped: boolean,
+): Record<string, string> | null {
+  if (!enveloped || stored === null || stored === undefined) return readStoredDrafts(stored);
+  const wrapper = stored as { version?: unknown; value?: unknown };
+  if (typeof wrapper !== "object" || Array.isArray(wrapper) || wrapper.version !== 1) return null;
+  return readStoredDrafts(wrapper.value);
+}
+
+/** Applies one window's changes: each put or removal replaces that draft alone. */
+export function mergeDrafts(
+  current: Record<string, string>,
+  changes: DraftChanges,
+): Record<string, string> {
+  const drafts = { ...current };
+  for (const key of changes.remove) if (typeof key === "string") delete drafts[key];
+  for (const [key, text] of Object.entries(changes.put)) {
+    if (typeof text === "string") drafts[key] = text;
+  }
+  for (const [key, text] of Object.entries(changes.fill ?? {})) {
+    if (typeof text === "string" && !(key in drafts)) drafts[key] = text;
+  }
+  return drafts;
+}
+
+/** Whether `changes` has the shape a window writes. */
+export function isDraftChanges(changes: unknown): changes is DraftChanges {
+  const c = changes as Partial<DraftChanges> | null;
+  const texts = (value: unknown) =>
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((text) => typeof text === "string");
+  return (
+    !!c &&
+    typeof c === "object" &&
+    texts(c.put) &&
+    (c.fill === undefined || texts(c.fill)) &&
+    Array.isArray(c.remove) &&
+    c.remove.every((key) => typeof key === "string")
+  );
+}
+
+/**
+ * The whole step one atomic storage update performs: take what is stored,
+ * merge the changes, and give back what to store and the drafts in it. A
+ * value that cannot be read as drafts is replaced rather than left to block
+ * every later save, as a whole-set write would have replaced it.
+ */
+export function applyDraftChanges(
+  stored: unknown,
+  changes: DraftChanges,
+  enveloped: boolean,
+): { value: unknown; drafts: Record<string, string> } {
+  const drafts = mergeDrafts(unwrapStoredDrafts(stored, enveloped) ?? {}, changes);
+  return { value: enveloped ? { version: 1, value: drafts } : drafts, drafts };
+}
