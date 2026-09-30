@@ -65,6 +65,45 @@ export function decideNotification(
   return { notify: true, reason: "all" };
 }
 
+/**
+ * What the person has on screen, as far as the app can tell. A conversation
+ * can be selected without being seen: the window can be in the background or
+ * minimised, a phone's drawer or side panel can cover the timeline, and a
+ * huddle's video can cover the chat.
+ */
+export interface OnScreen {
+  /** The window has focus and is visible. */
+  focused: boolean;
+  /** The conversation selected, if any. */
+  channelId: ID | null;
+  /** Whether its timeline can be seen, rather than being covered. */
+  channelVisible: boolean;
+  /** The thread open beside it, if any. */
+  threadRootId: ID | null;
+  /** Whether that thread can be seen, rather than being covered. */
+  threadVisible: boolean;
+}
+
+/**
+ * Whether a message arrives where the person is already looking, so that
+ * telling them about it would only interrupt. A message shows in its channel's
+ * timeline when it is top-level or a reply also sent to the channel, and in a
+ * thread only when that exact thread is open. So a reply in a thread that is
+ * not open, or in a different one, is not on screen just because its channel
+ * is selected.
+ *
+ * Scrolled back through the channel's history, its newest messages are not in
+ * view, but they are counted as on screen all the same: the timeline itself
+ * shows that new messages have arrived below, which is enough for the
+ * conversation someone is in the middle of.
+ */
+export function isMessageOnScreen(message: Message, screen: OnScreen): boolean {
+  if (!screen.focused || message.channelId !== screen.channelId) return false;
+  const inChannel = message.threadRootId === null || message.broadcast;
+  const inThread = message.threadRootId !== null && message.threadRootId === screen.threadRootId;
+  return (inChannel && screen.channelVisible) || (inThread && screen.threadVisible);
+}
+
 /** Text for a notification, with mention markup resolved to readable names. */
 export function notificationBody(state: WorkspaceState, message: Message): string {
   // Deliberately permissive: an id format change should not silently stop

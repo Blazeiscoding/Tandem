@@ -1,6 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
-import { WorkspaceClient, decideNotification, notificationBody } from "@slackoss/client-core";
+import {
+  WorkspaceClient,
+  decideNotification,
+  isMessageOnScreen,
+  notificationBody,
+} from "@slackoss/client-core";
 import { ClientContext, OpenMessageContext, useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import { channelTitle } from "../lib/format.js";
@@ -627,6 +632,16 @@ function WorkspaceInner({
   const announcer = useMessageAnnouncer();
   const { hear, forget } = announcer;
   const openThreadId = panel.kind === "thread" ? panel.rootId : null;
+  /**
+   * What covers the conversation now, read when a message arrives. On a phone
+   * the open drawer covers everything, and a side panel covers the timeline;
+   * an expanded huddle video covers the timeline too.
+   */
+  const covered = useRef({ channel: false, thread: false });
+  covered.current = {
+    channel: panelCovers || chatCovered || (sidebarOpen && drawerLayout()),
+    thread: sidebarOpen && drawerLayout(),
+  };
   // What the last conversation received is not news in the next one.
   useEffect(() => forget(), [activeChannelId, forget]);
 
@@ -646,8 +661,16 @@ function WorkspaceInner({
           inThread: !inChannel,
         });
       }
-      // A message you're already looking at needs no notification.
-      if (document.hasFocus() && msg.channelId === activeChannelId) return;
+      // A message you're already looking at needs no notification. One in a
+      // thread that is not open is not in view just because its channel is.
+      const onScreen = isMessageOnScreen(msg, {
+        focused: document.hasFocus() && document.visibilityState !== "hidden",
+        channelId: activeChannelId,
+        channelVisible: !covered.current.channel,
+        threadRootId: openThreadId,
+        threadVisible: !covered.current.thread,
+      });
+      if (onScreen) return;
       if (!decideNotification(state, msg, { live }).notify) return;
 
       const channel = state.channels[msg.channelId];
