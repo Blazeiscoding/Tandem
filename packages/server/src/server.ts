@@ -645,7 +645,15 @@ async function startWorkspaceServer(
         // reverse-engineer the mapping.
         slackoss: { type: envelope.event.type, seq: envelope.seq },
       });
-      if (!store.enqueueEventDelivery(subscription.id, channelId, envelope.seq, body)) {
+      const queued = store.enqueueEventDelivery(
+        subscription.id,
+        channelId,
+        envelope.seq,
+        body,
+        Date.now(),
+        Store.eventMessageId(envelope.event),
+      );
+      if (!queued) {
         app.log.warn(
           { subscriptionId: subscription.id, eventSeq: envelope.seq },
           "event subscription backlog full, event dropped",

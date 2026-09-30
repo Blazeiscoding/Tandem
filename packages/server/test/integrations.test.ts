@@ -893,6 +893,113 @@ describe("durable event delivery", () => {
     await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
   });
 
+  describe("what an edit or a deletion takes out of events still waiting", () => {
+    /** Every queued or given-up body for a subscription, as stored. */
+    function storedBodies(subscriptionId: string): string {
+      return JSON.stringify(
+        rawDb()
+          .prepare("SELECT body FROM event_deliveries WHERE subscription_id = ? ORDER BY event_seq")
+          .all(subscriptionId),
+      );
+    }
+
+    /** A bot told about new, edited and deleted messages, whose endpoint is down. */
+    async function waitingBot(name: string, path: string) {
+      const created = await newApp(name);
+      stub.handler = (req) => ({
+        body: JSON.stringify({
+          challenge: (JSON.parse(req.body) as { challenge: string }).challenge,
+        }),
+      });
+      const sub = await api<{ subscription: { id: string } }>(
+        `/api/apps/${created.id}/subscriptions`,
+        {
+          token: aliceToken,
+          body: {
+            url: stub.url(path),
+            eventTypes: ["message.created", "message.updated", "message.deleted"],
+          },
+        },
+      );
+      expect(sub.status).toBe(201);
+      server.store.addMember(channelId, created.botUser.id);
+      failOnly(path);
+      return { ...created, subscriptionId: sub.data.subscription.id };
+    }
+
+    async function posted(text: string) {
+      const { data } = await api<{ message: { id: string } }>(
+        `/api/channels/${channelId}/messages`,
+        { token: aliceToken, body: { text } },
+      );
+      return data.message.id;
+    }
+
+    it("takes the first draft out of the queue when a message is edited", async () => {
+      const bot = await waitingBot("Queue Editor", "/queue-edit");
+      const id = await posted("the-first-draft-i-regret");
+      await eventually(() => queued(bot.subscriptionId).length === 1);
+      expect(storedBodies(bot.subscriptionId)).toContain("the-first-draft-i-regret");
+
+      const edited = await api(`/api/messages/${id}`, {
+        token: aliceToken,
+        method: "PATCH",
+        body: { text: "what I meant to say" },
+      });
+      expect(edited.status).toBe(200);
+      await eventually(() => queued(bot.subscriptionId).length === 2);
+      // It used to stay here, in a body waiting to leave for an app, long after
+      // the event log had let go of it.
+      expect(storedBodies(bot.subscriptionId)).not.toContain("the-first-draft-i-regret");
+      expect(storedBodies(bot.subscriptionId)).toContain("what I meant to say");
+
+      // Once the app answers, it is told in order: the message, without the
+      // words it no longer has, then its edit. (Attempts refused before the
+      // edit had already left; those are the app's, and are not counted here.)
+      stub.handler = () => ({ body: "" });
+      stub.received.length = 0;
+      for (let i = 0; i < 4 && queued(bot.subscriptionId).length > 0; i++) {
+        makeDue(bot.subscriptionId);
+        await server.flushEventDeliveries();
+      }
+      const delivered = stub.received
+        .filter((r) => r.url === "/queue-edit")
+        .map((r) => JSON.parse(r.body) as { slackoss: { type: string }; event: any });
+      expect(delivered.map((b) => b.slackoss.type)).toEqual(["message.created", "message.updated"]);
+      expect(delivered[0]!.event.text).toBe("");
+      expect(delivered[1]!.event.message.text).toBe("what I meant to say");
+      await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+    });
+
+    it("takes a deleted message's words out of the queue, and keeps the deletion", async () => {
+      const bot = await waitingBot("Queue Deleter", "/queue-delete");
+      const id = await posted("a-number-nobody-should-keep");
+      await eventually(() => queued(bot.subscriptionId).length === 1);
+
+      expect(
+        (await api(`/api/messages/${id}`, { token: aliceToken, method: "DELETE" })).status,
+      ).toBe(200);
+      await eventually(() => queued(bot.subscriptionId).length === 2);
+      const bodies = storedBodies(bot.subscriptionId);
+      expect(bodies).not.toContain("a-number-nobody-should-keep");
+      expect(bodies).toContain("message_deleted");
+      await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+    });
+
+    it("takes it out of an event that has given up too", async () => {
+      const bot = await waitingBot("Queue Quitter", "/queue-quit");
+      const id = await posted("words-in-a-failed-delivery");
+      await eventually(() => queued(bot.subscriptionId).length === 1);
+      rawDb()
+        .prepare("UPDATE event_deliveries SET failed_at = 1 WHERE subscription_id = ?")
+        .run(bot.subscriptionId);
+
+      await api(`/api/messages/${id}`, { token: aliceToken, method: "DELETE" });
+      expect(storedBodies(bot.subscriptionId)).not.toContain("words-in-a-failed-delivery");
+      await api(`/api/apps/${bot.id}`, { token: aliceToken, method: "DELETE" });
+    });
+  });
+
   it("resumes an unfinished delivery after a restart", async () => {
     const restartDir = mkdtempSync(join(tmpdir(), "slackoss-delivery-restart-"));
     let current = await createWorkspaceServer({

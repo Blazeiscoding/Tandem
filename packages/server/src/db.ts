@@ -433,6 +433,21 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_messages_thread_page ON messages(thread_root_id, id);
   DROP INDEX idx_messages_thread;
   `,
+  // v29 — a queued app event says which message it carries, so editing or
+  // deleting that message can take the old words out of every copy still
+  // waiting to leave, as it already does in the event log. Rows queued before
+  // this carry the message in their body, which is where the id comes from.
+  `
+  ALTER TABLE event_deliveries ADD COLUMN message_id TEXT;
+  UPDATE event_deliveries SET message_id = CASE json_extract(body, '$.slackoss.type')
+      WHEN 'message.created' THEN json_extract(body, '$.event.ts')
+      WHEN 'message.updated' THEN json_extract(body, '$.event.ts')
+      WHEN 'message.deleted' THEN json_extract(body, '$.event.deleted_ts')
+    END
+    WHERE json_valid(body);
+  CREATE INDEX idx_event_deliveries_message ON event_deliveries(message_id)
+    WHERE message_id IS NOT NULL;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

@@ -310,6 +310,17 @@ How it is delivered:
   it. An administrator can retry the whole queue, in order, from Apps and
   integrations.
 
+What an edit or a deletion does to an event not yet delivered: a message's
+words are taken out of every event about it that is still waiting, or that
+gave up, in the same write that edits or deletes it, and the same happens when
+the retention window discards it. The events themselves stay, in order and with
+their `event_id`: an app that is behind receives the `message` with an empty
+`text` (or a `message_changed` whose `message.text` is empty), then the edit or
+deletion that supersedes it, as a client catching up on the event log does.
+Only the words are taken out; who wrote it, where and when stay. An event
+already delivered belongs to the app and cannot be called back, and one that was
+on its way out at that moment may still arrive as it was.
+
 The events — _checked_:
 
 | Native event       | Slack `event.type`      | Differences                                                        |

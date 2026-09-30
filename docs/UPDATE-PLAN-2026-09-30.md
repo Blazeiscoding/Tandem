@@ -39,7 +39,7 @@ Eight of the eleven FIX tickets were merged on 30 September, one PR per ticket, 
 | FIX-03 | #157 (`1bfc300`) | `isMessageOnScreen()` in client-core used by the workspace screen                                                            | Mention in an unopened thread of the selected channel: old screen silent, now notifies                                                         | Real phone overlays checked by unit cases only; cross-workspace tap routing is UX-09                                  |
 | FIX-10 | #158 (`a3bf98a`) | In-range lockfile updates of fast-uri, brace-expansion, undici                                                               | Production audit 6 high + 4 moderate → 0; full audit 13 high → 0 ([summary](research/2026-09-30/dependency-audit-after-fix-10.json))           | esbuild via tsup and vitest 3 need majors (build/test only); runtime Undici in Node/Electron; review policy and owner |
 
-Not started here: FIX-01 (outbox transactions), FIX-07 (pending delivery lifetime contract) and FIX-08 (read semantics contract), each of which begins with a contract decision.
+Not started here: FIX-01 (outbox transactions) and FIX-08 (read semantics contract), each of which begins with a contract decision. FIX-07 followed separately (below). OPT-10 merged in #160.
 
 Validation of the merged result, on the head of #158 (which held all eight), Linux container, Node 24.21.0: `pnpm build` 3/3 and `pnpm typecheck` 8/8; unit and integration 1,236 tests (server 467, client-core 94, UI 477, protocol 26, desktop 172); entry bundles 466.9 kB (web) and 468.3 kB (desktop renderer) of 500 kB. Chromium E2E 18/18 passed against that build, using the container's preinstalled Chromium (build 1194) because its Playwright 1.63 expects build 1243. The packaged Windows suite was not run: this container is Linux.
 
@@ -142,13 +142,13 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** delete/edit redacts old event-log text, but queued `event_deliveries.body` still holds it. Controlled authorized-bot probes found old text absent from `events` and present in pending deliveries after both operations. That persistent copy can leave the host later.
 
-**Status:** not started; begins with the lifetime contract.
+**Status:** implemented in schema v29 (see the PR that follows #160). Contract, as the plan recommended and now written in [INTEGRATIONS.md](INTEGRATIONS.md#events) and [DEPLOYMENT.md](DEPLOYMENT.md#what-deleting-a-message-does): a message's words are taken out of every app event about it that is still waiting or gave up, in the same write that edits, deletes or retires it; the events stay, in order and under their `event_id`. Queued rows carry an indexed `message_id`, backfilled from their bodies on upgrade. Reproduced first: edit and delete each left the old text in a waiting body (failed before, pass after), as did a given-up body; retention now scrubs too. Loss of bot access already discards the channel's queue (v20 trigger).
 
-- [ ] Specify the pending-delivery contract for edit, deletion, retention and loss of bot access; recommend minimizing superseded text that has not left the host.
-  - [ ] Associate queued rows with message/resource IDs using an indexed representation and compatible migration.
-  - [ ] Scrub/drop superseded pending content while preserving required ordering and current edit/delete events.
-  - [ ] Cover root deletion, failed/restarted queues, retention and an in-flight delivery racing revocation.
-  - [ ] Document that already delivered or in-flight external copies cannot be recalled and that operational backups have their own retention.
+- [x] Specify the pending-delivery contract for edit, deletion, retention and loss of bot access; recommend minimizing superseded text that has not left the host.
+  - [x] Associate queued rows with message/resource IDs using an indexed representation and compatible migration.
+  - [x] Scrub/drop superseded pending content while preserving required ordering and current edit/delete events.
+  - [ ] Cover root deletion, failed/restarted queues, retention and an in-flight delivery racing revocation. Failed and retained rows are tested; root deletion scrubs each reply through the same per-message path; a delivery racing the edit is documented as possibly arriving unscrubbed, not tested.
+  - [x] Document that already delivered or in-flight external copies cannot be recalled and that operational backups have their own retention.
 
 **Done:** implementation matches the published lifetime contract, pending copies respect it across restart, and the interface does not promise erasure from third-party systems.
 

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDb, openDbAtVersion, SCHEMA_VERSION } from "../src/db.js";
+import { openDb, openDbAtVersion } from "../src/db.js";
 
 /**
  * Which index SQLite reads a query through, checked on a database with the
@@ -90,7 +90,7 @@ describe("reading a thread's pages", () => {
     const dir = mkdtempSync(join(tmpdir(), "slackoss-query-plans-"));
     try {
       const file = join(dir, "workspace.db");
-      const older = openDbAtVersion(file, SCHEMA_VERSION - 1);
+      const older = openDbAtVersion(file, 27);
       seed(older);
       older.close();
 
@@ -108,6 +108,62 @@ describe("reading a thread's pages", () => {
         expect(upgraded.prepare("SELECT COUNT(*) AS n FROM messages").get()).toMatchObject({
           n: 2000,
         });
+      } finally {
+        upgraded.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("app events waiting to be delivered", () => {
+  it("are labelled with the message they carry when a workspace is upgraded, and found by it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "slackoss-query-plans-"));
+    try {
+      const file = join(dir, "workspace.db");
+      const older = openDbAtVersion(file, 28);
+      // The rows alone are what the upgrade reads; what they point at is not.
+      older.exec("PRAGMA foreign_keys = OFF");
+      const queue = older.prepare(
+        `INSERT INTO event_deliveries (id, subscription_id, event_seq, body, next_attempt_at, created_at)
+         VALUES (?, 'S1', ?, ?, 0, 0)`,
+      );
+      const body = (type: string, event: object) =>
+        JSON.stringify({ type: "event_callback", event, slackoss: { type, seq: 1 } });
+      queue.run("D1", 1, body("message.created", { type: "message", text: "hi", ts: "M1" }));
+      queue.run(
+        "D2",
+        2,
+        body("message.updated", { subtype: "message_changed", ts: "M1", message: { text: "hey" } }),
+      );
+      queue.run("D3", 3, body("message.deleted", { subtype: "message_deleted", deleted_ts: "M1" }));
+      queue.run("D4", 4, body("reaction.added", { item: { ts: "M1" } }));
+      queue.run("D5", 5, "not json at all");
+      older.close();
+
+      const upgraded = openDb(file, undefined, { backupBeforeUpgrade: false });
+      try {
+        expect(
+          upgraded.prepare("SELECT id, message_id FROM event_deliveries ORDER BY id").all(),
+        ).toEqual([
+          { id: "D1", message_id: "M1" },
+          { id: "D2", message_id: "M1" },
+          { id: "D3", message_id: "M1" },
+          // Nothing a message said is in a reaction, so it needs no finding.
+          { id: "D4", message_id: null },
+          { id: "D5", message_id: null },
+        ]);
+        const lookup = (
+          upgraded
+            .prepare(
+              "EXPLAIN QUERY PLAN SELECT id, body FROM event_deliveries WHERE message_id = ?",
+            )
+            .all("M1") as { detail: string }[]
+        )
+          .map((row) => row.detail)
+          .join("; ");
+        expect(lookup).toContain("idx_event_deliveries_message");
       } finally {
         upgraded.close();
       }
