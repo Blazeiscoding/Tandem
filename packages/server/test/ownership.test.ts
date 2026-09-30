@@ -54,6 +54,17 @@ describe("one workspace folder, one server", () => {
     expect((refused as Error).message).toContain(`port ${first.port}`);
   });
 
+  it("lets exactly one of several servers started at once have the folder", async () => {
+    const outcomes = await Promise.allSettled([start(), start(), start()]);
+    const started = outcomes.filter((o) => o.status === "fulfilled");
+    const refused = outcomes.filter((o) => o.status === "rejected");
+    expect(started).toHaveLength(1);
+    expect(refused).toHaveLength(2);
+    for (const outcome of refused) {
+      expect((outcome as PromiseRejectedResult).reason).toBeInstanceOf(WorkspaceInUseError);
+    }
+  });
+
   it("cannot be used to pass the storage cap twice over", async () => {
     // Each server counted the folder's attachments separately, so each let a
     // four-byte upload in under a four-byte cap: eight bytes on disk.
