@@ -1,7 +1,13 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ApiError, OUTBOX_LIMIT, WorkspaceClient, readStoredOutbox } from "@slackoss/client-core";
-import type { Channel, Message, User } from "@slackoss/protocol";
+import {
+  ApiError,
+  OUTBOX_LIMIT,
+  WorkspaceClient,
+  outboxRevision,
+  readStoredOutbox,
+} from "@slackoss/client-core";
+import { SEND_RETRY_WINDOW_MS, type Channel, type Message, type User } from "@slackoss/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DraftPersistence } from "../src/components/DraftPersistence.js";
 import { ClientContext, PlatformContext } from "../src/context.js";
@@ -474,6 +480,80 @@ describe("queued messages shared by every window open on the account", () => {
     });
     mount(next.client, device(values).platform);
     await waitFor(() => expect(delivered).toEqual(["unrelated"]));
+  });
+
+  describe("once tombstones have been let go", () => {
+    /** A floor as a merge long after the retry window leaves it. */
+    const oldFloor = () => outboxRevision(0, Date.now() - SEND_RETRY_WINDOW_MS - 24 * 3600_000);
+
+    it("let go of a send taken out elsewhere since, and never write it back", async () => {
+      const { client, sendMessage } = signedIn();
+      sendMessage.mockImplementation(never);
+      const name = `slackoss:outbox:${client.baseUrl}:${sam.id}`;
+      localStorage.setItem(name, JSON.stringify([queued("long-gone", "delivered by another tab")]));
+      mount(client, webPlatform());
+      await waitFor(() => expect(client.state.pending).toHaveLength(1));
+
+      // Unheard by this tab: another delivered it, and so long and so many
+      // sends later that its tombstone was let go, leaving the floor above it.
+      writtenByAnotherTab(name, {
+        outbox: 2,
+        entries: [],
+        removed: [],
+        compactedThrough: oldFloor(),
+      });
+      await waitFor(() => expect(client.state.pending).toHaveLength(0));
+      // Writing everything it holds does not bring it back.
+      client.send(design.id, "a new one");
+      await settle();
+      expect(browserTexts(name)).toEqual(["a new one"]);
+    });
+
+    it("put back a send another tab's write left out, even one waiting since before the floor", async () => {
+      const { client, sendMessage } = signedIn();
+      sendMessage.mockImplementation(never);
+      const name = `slackoss:outbox:${client.baseUrl}:${sam.id}`;
+      const floor = oldFloor();
+      localStorage.setItem(
+        name,
+        JSON.stringify({
+          outbox: 2,
+          entries: [{ ...queued("waiting", "waiting a long time"), rev: 5 }],
+          removed: [],
+          compactedThrough: floor,
+        }),
+      );
+      mount(client, webPlatform());
+      await waitFor(() => expect(client.state.pending).toHaveLength(1));
+
+      // A tab whose copy had not heard of it writes over it. The floor is as
+      // it was: nothing was let go, so this is no removal.
+      writtenByAnotherTab(name, { outbox: 2, entries: [], removed: [], compactedThrough: floor });
+      await waitFor(() => expect(browserTexts(name)).toEqual(["waiting a long time"]));
+      expect(client.state.pending.map((p) => p.nonce)).toEqual(["waiting"]);
+    });
+
+    it("write again, newer, a send of this tab's own that a floor refused before it was stored", async () => {
+      const { client, sendMessage } = signedIn();
+      sendMessage.mockImplementation(never);
+      mount(client, webPlatform());
+      const name = `slackoss:outbox:${client.baseUrl}:${sam.id}`;
+      await waitFor(() => expect(localStorage.getItem(name)).not.toBeNull());
+
+      // Unheard by this tab, another's write left a floor above the revision
+      // this tab's next send will get.
+      localStorage.setItem(
+        name,
+        JSON.stringify({
+          outbox: 2,
+          entries: [],
+          removed: [],
+          compactedThrough: outboxRevision(0, Date.now() + 60_000),
+        }),
+      );
+      client.send(design.id, "sent just now");
+      await waitFor(() => expect(browserTexts(name)).toEqual(["sent just now"]));
+    });
   });
 
   it("keep a refusal one window stored, however stale another window's copy of that send", async () => {

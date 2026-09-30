@@ -118,6 +118,8 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     const failing = new Set<keyof typeof versions>();
     // Sends this window has seen stored: the outbox holds their words.
     const stored = new Set<string>();
+    // For each send seen stored, the outbox's floor then (`compactedThrough`).
+    const floorWhenStored = new Map<string, number>();
     // Words brought back from the unstored key, kept there until a drafts
     // write has them; and that key's content as last written, as JSON.
     let carried: Record<string, UnstoredSend> = {};
@@ -167,6 +169,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
 
     const forget = (nonce: string, rev: number) => {
       held.delete(nonce);
+      floorWhenStored.delete(nonce);
       gone.delete(nonce);
       gone.set(nonce, rev);
       if (gone.size > OUTBOX_TOMBSTONES_KEPT) gone.delete(gone.keys().next().value!);
@@ -195,8 +198,11 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       return changed;
     };
 
+    // Revisions written from here on are newer than anything stored, the
+    // floor included, so a new send is never taken for one let go.
     const seen = (record: StoredOutbox) => {
       for (const r of [...record.entries, ...record.removed]) revision = Math.max(revision, r.rev);
+      revision = Math.max(revision, record.compactedThrough ?? 0);
     };
 
     // Takes on what other windows wrote about this window's sends. True when
@@ -204,15 +210,31 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     const reconcile = (record: StoredOutbox | null): boolean => {
       if (!record) return held.size > 0 || gone.size > 0;
       seen(record);
-      const stored = new Map(record.entries.map((entry) => [entry.nonce, entry]));
+      const inStore = new Map(record.entries.map((entry) => [entry.nonce, entry]));
       const removed = new Map(record.removed.map((r) => [r.nonce, r.rev]));
+      const floor = record.compactedThrough ?? -1;
       const dropped: string[] = [];
       const refused: StoredOutboxEntry[] = [];
       let missing = false;
       for (const [nonce, mine] of held) {
-        const theirs = stored.get(nonce);
+        const theirs = inStore.get(nonce);
+        if (theirs) floorWhenStored.set(nonce, floor);
         if (removed.has(nonce)) dropped.push(nonce);
-        else if (!theirs || theirs.rev < mine.entry.rev) missing = true;
+        else if (!theirs && mine.entry.rev <= floor) {
+          // The merge refuses it now. If the floor has risen since this window
+          // last saw it stored, it was taken out and its tombstone let go
+          // since. If not, whatever left it out was no removal (a tab writing
+          // over another, or a send never stored), so it goes back newer.
+          const was = floorWhenStored.get(nonce);
+          if (was !== undefined && floor > was) {
+            removed.set(nonce, floor);
+            dropped.push(nonce);
+          } else {
+            revision = outboxRevision(revision);
+            held.set(nonce, { entry: { ...mine.entry, rev: revision }, json: mine.json });
+            missing = true;
+          }
+        } else if (!theirs || theirs.rev < mine.entry.rev) missing = true;
         else if (
           theirs.rev > mine.entry.rev &&
           theirs.refusal !== undefined &&
@@ -220,7 +242,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         )
           refused.push(theirs);
       }
-      for (const nonce of gone.keys()) if (stored.has(nonce)) missing = true;
+      for (const nonce of gone.keys()) if (inStore.has(nonce)) missing = true;
       for (const nonce of dropped) {
         forget(nonce, removed.get(nonce)!);
         client.discardSend(nonce);
@@ -328,6 +350,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         // This client's own version differs and is newer: it gets a revision of its own.
         else if (JSON.stringify(mine) !== json) continue;
         held.set(entry.nonce, { entry, json });
+        floorWhenStored.set(entry.nonce, record.compactedThrough ?? -1);
       }
       for (const entry of refused) client.adoptRefusal(entry.nonce, entry.refusal!);
       client.restoreOutbox(restored.map(storedPending));

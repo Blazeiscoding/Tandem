@@ -6,6 +6,7 @@ export type { NotifyDecision, OnScreen } from "./notify.js";
 export { HuddleSession } from "./huddle.js";
 export {
   OUTBOX_TOMBSTONES_KEPT,
+  OUTBOX_TOMBSTONES_MAX,
   applyOutboxChanges,
   emptyOutbox,
   mergeOutbox,

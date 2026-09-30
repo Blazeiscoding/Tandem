@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   OUTBOX_TOMBSTONES_KEPT,
+  OUTBOX_TOMBSTONES_MAX,
   WorkspaceClient,
   applyOutboxChanges,
   emptyOutbox,
@@ -11,6 +12,7 @@ import {
   type StoredOutbox,
   type StoredOutboxEntry,
 } from "../src/index.js";
+import { SEND_RETRY_WINDOW_MS } from "@slackoss/protocol";
 
 /**
  * The outbox every window on one account writes. Each writes only its own
@@ -84,6 +86,113 @@ describe("merging one window's changes into the stored outbox", () => {
       remove: [],
     });
     expect(stored.entries[0]).toEqual(entry("A", 1));
+  });
+});
+
+describe("letting tombstones go", () => {
+  const DAY = 24 * 3600_000;
+  const now = Date.UTC(2026, 8, 30);
+  const at = (ms: number) => outboxRevision(0, ms);
+  /** `count` removals of other sends, one millisecond apart from `from`. */
+  const removals = (count: number, from: number) =>
+    Array.from({ length: count }, (_, i) => ({ nonce: `N${i}`, rev: at(from + i) }));
+
+  it("never puts back a send whose tombstone was let go, however many removals later", () => {
+    // A taken out long ago, then more than the minimum of newer removals.
+    const long = now - SEND_RETRY_WINDOW_MS - 10 * DAY;
+    let stored = mergeOutbox(emptyOutbox(), { put: [entry("A", at(long))], remove: [] }, long);
+    stored = mergeOutbox(stored, { put: [], remove: [{ nonce: "A", rev: at(long) + 1 }] }, long);
+    stored = mergeOutbox(
+      stored,
+      { put: [], remove: removals(OUTBOX_TOMBSTONES_KEPT, long + 1000) },
+      now,
+    );
+    expect(stored.removed.some((r) => r.nonce === "A")).toBe(false);
+
+    // A window that has not caught up since writes what it holds.
+    stored = mergeOutbox(
+      stored,
+      { put: [entry("A", at(long)), entry("B", at(now))], remove: [] },
+      now,
+    );
+    expect(nonces(stored)).toEqual(["B"]);
+    // A floor stands in for the tombstone let go.
+    expect(stored.compactedThrough).toBe(at(long) + 1);
+  });
+
+  it("keeps every tombstone written within the retry window, however many", () => {
+    const recent = removals(OUTBOX_TOMBSTONES_KEPT + 100, now - DAY);
+    const stored = mergeOutbox(emptyOutbox(), { put: [], remove: recent }, now);
+    expect(stored.removed).toHaveLength(OUTBOX_TOMBSTONES_KEPT + 100);
+    expect(stored.compactedThrough).toBeUndefined();
+    // Nor is one of them let go just for being past the minimum later on,
+    // until it is older than the window.
+    const later = mergeOutbox(
+      stored,
+      { put: [], remove: [] },
+      now + SEND_RETRY_WINDOW_MS - 2 * DAY,
+    );
+    expect(later.removed).toHaveLength(OUTBOX_TOMBSTONES_KEPT + 100);
+    const past = mergeOutbox(stored, { put: [], remove: [] }, now + SEND_RETRY_WINDOW_MS);
+    expect(past.removed).toHaveLength(OUTBOX_TOMBSTONES_KEPT);
+    expect(past.compactedThrough).toBe(recent[99]!.rev);
+  });
+
+  it("keeps no more than its most, the floor refusing what went past it", () => {
+    const many = removals(OUTBOX_TOMBSTONES_MAX + 3, now - DAY);
+    let stored = mergeOutbox(emptyOutbox(), { put: [], remove: many }, now);
+    expect(stored.removed).toHaveLength(OUTBOX_TOMBSTONES_MAX);
+    expect(stored.compactedThrough).toBe(many[2]!.rev);
+    // A window that has not caught up puts back the oldest as it held it.
+    stored = mergeOutbox(stored, { put: [entry("N0", many[0]!.rev - 1)], remove: [] }, now);
+    expect(nonces(stored)).toEqual([]);
+  });
+
+  it("leaves a new send, and one it still holds, as they were", () => {
+    const long = now - SEND_RETRY_WINDOW_MS - 10 * DAY;
+    // Waiting since long ago, so older than the floor that follows.
+    let stored = mergeOutbox(
+      emptyOutbox(),
+      { put: [entry("OLD", at(long) - 5)], remove: [] },
+      long,
+    );
+    stored = mergeOutbox(
+      stored,
+      { put: [], remove: removals(OUTBOX_TOMBSTONES_KEPT + 1, long) },
+      now,
+    );
+    expect(stored.compactedThrough).toBe(at(long));
+    stored = mergeOutbox(
+      stored,
+      { put: [entry("OLD", at(long) - 5), entry("NEW", at(now))], remove: [] },
+      now,
+    );
+    expect(nonces(stored)).toEqual(["OLD", "NEW"]);
+    // And it can still change: its author's Retry, say.
+    stored = mergeOutbox(
+      stored,
+      { put: [entry("OLD", at(now) + 1, { text: "edited" })], remove: [] },
+      now,
+    );
+    expect(stored.entries[0]!.text).toBe("edited");
+  });
+
+  it("never lowers the floor", () => {
+    const floor = at(now - SEND_RETRY_WINDOW_MS - DAY);
+    const stored = mergeOutbox(
+      { ...emptyOutbox(), compactedThrough: floor },
+      { put: [], remove: [{ nonce: "X", rev: 7 }] },
+      now,
+    );
+    // X is older than the floor already and falls under the minimum, so it stays.
+    expect(stored.compactedThrough).toBe(floor);
+    expect(readStoredOutbox(stored)).toEqual(stored);
+  });
+
+  it("is read back, and refused when it is not a revision", () => {
+    expect(readStoredOutbox({ ...emptyOutbox(), compactedThrough: 12 })?.compactedThrough).toBe(12);
+    expect(readStoredOutbox({ ...emptyOutbox(), compactedThrough: -1 })).toBeNull();
+    expect(readStoredOutbox({ ...emptyOutbox(), compactedThrough: "12" })).toBeNull();
   });
 });
 

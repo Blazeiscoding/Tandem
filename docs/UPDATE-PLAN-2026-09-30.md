@@ -699,10 +699,36 @@ Reproduced first, each failing before and passing after: words sent before their
 
 **Evidence:** production merge revives nonce A after 500 newer removals evict its guard. No frozen browser-process reproduction.
 
-- [ ] Define supported stale-context horizon and terminal nonce contract jointly with RECHECK-08.
-  - [ ] Use a durable epoch/checkpoint or equivalent refusal rule before pruning deletion guards.
-  - [ ] Resynchronize old contexts without reviving removed sends or clearing refusals.
-  - [ ] Exercise more than 500 removals, paused contexts, author Retry, restart and long-offline recovery on actual platforms.
+**Status:** implemented; see the PR after #173. The supported stale-context horizon is RECHECK-08's window, `SEND_RETRY_WINDOW_MS` (30 days): a send older than that is never sent on its own. The merge in `packages/client-core/src/outbox.ts`, run by the desktop main process and by the browser alike, now works like this:
+
+- **What is kept.** Every tombstone written within the window, and never fewer than the newest 500. A ceiling of 10,000 bounds what is stored. At the ceiling that is 666 KiB, and one merge, including parse and stringify, takes 8.3 ms at the median and 16 ms at p95. Measured with unique nonces on Node 24, 4 threads: 500 tombstones, 40 KiB, 0.5 ms; 3,000, 206 KiB, 2.2 ms; 15,000, 1 MiB, 14 ms.
+- **The floor.** When a tombstone is let go, the outbox records the newest such revision as `compactedThrough`, a durable floor that never goes down. A put for a send the outbox does not hold, at or below the floor, is refused. Revisions are wall-clock based, so only a copy from before the removal can be that old.
+- **Windows.** A window's revisions already start above everything it has read, and the floor now counts too. For a send it holds that is absent from the store, not tombstoned and below the floor:
+  - If the floor has risen since the window last saw that send stored, the send was taken out and compacted away since. The window lets it go.
+  - Otherwise nothing was compacted, so the gap was no removal: a browser tab writing over another, or a send never stored. The window writes the send again with a revision above the floor, so the existing repair still works.
+
+Reproduced first. The plan's evidence, A put back after its tombstone was let go, is `storedOutbox.test.ts` "never puts back a send whose tombstone was let go", which gets `['A', 'B']` on the old merge. Other cases there:
+
+- 600 tombstones inside the window are all kept until they age out.
+- The ceiling is kept, and the floor refuses what went past it.
+- A new send, and a long-waiting send the store still holds, are untouched, and the latter can still change.
+- The floor never goes down, and is read back and validated.
+
+In `draftPersistence.dom.test.tsx`, "once tombstones have been let go" runs real browser storage and storage events:
+
+- A tab holding a send taken out elsewhere, below a floor that has since risen, lets it go and does not write it back. On the old code it stays and is written back.
+- A send another tab's write left out, below an unchanged floor, is put back.
+- A tab's own send, refused because a floor it had not heard of sat above its revision, is written again newer.
+
+The last two fail with the new merge alone, so the window rule is needed.
+
+- [x] Define supported stale-context horizon and terminal nonce contract jointly with RECHECK-08.
+  - [x] Use a durable epoch/checkpoint or equivalent refusal rule before pruning deletion guards.
+  - [x] Resynchronize old contexts without reviving removed sends or clearing refusals. Refusals are unchanged: a refused entry is a stored entry, and newer revisions still win.
+  - [ ] Exercise more than 500 removals, paused contexts, author Retry, restart and long-offline recovery on actual platforms. Covered in the pure merge and in jsdom with the web platform's storage events. Not run: a frozen real browser process, or the packaged desktop app.
+    - Limit: a window stale past the whole window, or on an account taking out more than 10,000 sends within it, could still put a send back. That takes a window that changes the send before it next reads the outbox: its new revision is above the floor. Even then it is older than the window, so no window sends it on its own; it waits for its author.
+    - Limit: a browser tab that writes over another at the same moment that an unrelated compaction raises the floor can have a send left out that was waiting since before the window. That send is let go as removed.
+    - An app from before this change drops `compactedThrough` when it writes. Downgrading loses the floor, but not the tombstones still held.
 
 **Completion:** compaction cannot revive terminal intent within the declared support contract. Increasing the cap alone does not prove permanence.
 
