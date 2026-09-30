@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Channel, Message, User } from "@slackoss/protocol";
-import { decideNotification, notificationBody } from "../src/notify.js";
+import { decideNotification, isMessageOnScreen, notificationBody } from "../src/notify.js";
 import type { WorkspaceState } from "../src/index.js";
 
 const me: User = {
@@ -228,5 +228,47 @@ describe("notificationBody", () => {
     const s = state();
     expect(notificationBody(s, message({ text: "<!here> ship it" }))).toBe("@here ship it");
     expect(notificationBody(s, message({ text: "<!everyone> ship it" }))).toBe("@channel ship it");
+  });
+});
+
+describe("isMessageOnScreen", () => {
+  const looking = {
+    focused: true,
+    channelId: "C1",
+    channelVisible: true,
+    threadRootId: null,
+    threadVisible: false,
+  };
+  const reply = (over: Partial<Message> = {}) => message({ threadRootId: "ROOT", ...over });
+
+  it("counts a message in the conversation being looked at", () => {
+    expect(isMessageOnScreen(message(), looking)).toBe(true);
+    // A reply also sent to the channel shows in its timeline.
+    expect(isMessageOnScreen(reply({ broadcast: true }), looking)).toBe(true);
+  });
+
+  it("does not count a reply in a thread that is not open, though its channel is", () => {
+    expect(isMessageOnScreen(reply(), looking)).toBe(false);
+    const otherThread = { ...looking, threadRootId: "OTHER", threadVisible: true };
+    expect(isMessageOnScreen(reply(), otherThread)).toBe(false);
+    const thisThread = { ...looking, threadRootId: "ROOT", threadVisible: true };
+    expect(isMessageOnScreen(reply(), thisThread)).toBe(true);
+  });
+
+  it("does not count what is covered, in the background, or somewhere else", () => {
+    expect(isMessageOnScreen(message(), { ...looking, focused: false })).toBe(false);
+    // A phone's side panel over the timeline.
+    const panelOver = {
+      ...looking,
+      channelVisible: false,
+      threadRootId: "ROOT",
+      threadVisible: true,
+    };
+    expect(isMessageOnScreen(message(), panelOver)).toBe(false);
+    expect(isMessageOnScreen(reply(), panelOver)).toBe(true);
+    // A phone's drawer over everything.
+    const drawerOver = { ...panelOver, threadVisible: false };
+    expect(isMessageOnScreen(reply(), drawerOver)).toBe(false);
+    expect(isMessageOnScreen(message({ channelId: "C2" }), looking)).toBe(false);
   });
 });
