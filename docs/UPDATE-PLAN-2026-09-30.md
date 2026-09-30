@@ -8,6 +8,8 @@ The goal is dependable communication and approachable ownership of its history. 
 
 ## 1. Baseline and what is already finished
 
+The initial baseline table records the `7d91fd3` audit. Later merged-status sections and the Rocket.Chat follow-up at `7d70dac` supersede its then-remaining column; preserve the historical closure boundaries without treating subsequently repaired items as open.
+
 The audit covered protocol, server, client-core, UI, desktop, web, server CLI, deployment, packaging, workflows, and the older research/plans. `HEAD` matched fetched `origin/main`; no tracked product changes were present. Pre-existing `.claude/` work and `.audit-client-143/` were preserved. There were no open GitHub PRs or issues when queried. External repositories were inspected as source; their applications were not installed or benchmarked.
 
 | Merged work                                                                                                           | Current assessment                                                                                                | What remains separate                                                                                                                |
@@ -237,7 +239,7 @@ Limits: an explicit thread mark-unread made before the upgrade, under a channel 
 
 ## 4. Optimization work queue
 
-The [optimization plan](OPTIMIZATION-PLAN-2026-09-30.md) defines OPT-01–OPT-24 with implementation subitems and evidence gates. Start with measurement and the demonstrated thread-page index, then narrow row subscriptions. Process isolation, virtualization and new caches need comparison against current behavior before broad adoption.
+The [optimization plan](OPTIMIZATION-PLAN-2026-09-30.md) defines OPT-01–OPT-24 with implementation subitems and evidence gates. #160's thread-page index, #164's narrow row subscriptions and #165's mention index are merged; retain their recorded results and measure the remaining bottleneck. The [Rocket.Chat comparison](research/2026-09-30/rocket-chat-comparison.md), reconciled against `7d70dac`, adds nine source-supported patterns/cautions for rendering, reconnect, paging, maintenance, diagnostics and desktop media/recovery. Process isolation, virtualization and new caches need comparison against current behavior before broad adoption.
 
 Existing controls to preserve: 300 messages per timeline/thread window, 20 total history-cache entries per category with active views protected, 32 MiB idle attachment blobs, four concurrent file transfers, lazy image fetches, 2 MiB socket backpressure, 10-item scheduled batches, bounded admission, worker-thread desktop backup/verification/restore, lazy panels and 500 kB entry budgets. “Optimize everything” means inspect their costs and remaining boundaries, not remove correctness or rebuild them unnecessarily.
 
@@ -586,10 +588,10 @@ These are design/research packages, not implicit commitments. Native mobile, an 
 
 ## 11. Recommended next slices and parallel ownership
 
-1. **Integrity/recovery track:** FIX-01, FIX-05, FIX-06, FIX-07, FIX-11 and dependency FIX-10; handle each in a separate PR. FIX-07 begins with its lifetime contract.
-2. **Small user-visible track:** FIX-04, FIX-09, then FIX-02/03. Implement behavior and a focused regression; these can proceed while deeper integrity work is designed.
-3. **Performance track:** OPT-01 baseline, demonstrated OPT-10 thread index, OPT-05 row subscriptions, then the measured bottleneck. Keep CPU, memory, cold start, write cost and access correctness together.
-4. **Product contract track:** FIX-08 then a narrow UX-01; parallel OPS-02/06 and CALL-01. Promote real-phone/push, moderation/guests or migration according to the selected group.
+1. **Integrity/recovery track:** preserve the FIX implementations merged in #151–#163 and address their unticked empirical/lifecycle limits. Continue OPS-01–05/10 and the documented dependency-major upgrades; closed reproductions are not new implementation tickets.
+2. **Small user-visible track:** select a remaining CALL-01 or UX-04/06 slice with concrete failure/completion behavior. FIX-02/03/04/09 are merged; their actual device/platform limits remain separate checks. Coordinate OPS-02 with its current owner.
+3. **Performance track:** retain merged OPT-10/05 and OPT-12's mention work, run current OPT-01/browser/mixed-workload traces, then choose a remaining query/hydration/maintenance/render/media bottleneck. Keep CPU, memory, cold start, write cost and access correctness together.
+4. **Product contract track:** use #163's agreed read semantics for a narrow UX-01; parallel OPS-02/06 and CALL-01. Promote real-phone/push, moderation/guests or migration according to the selected group.
 5. **Release track:** OPS-03/05/08 and ENG-02 before claiming broad reliability; OPS-09 follows trusted releases and rollback.
 
 Codex and Claude can own separate domains, but one owner must hold each contract/migration and the final integration review. Reserve capacity for defect repair and empirical gates; do not publish calendar promises from this inventory.
