@@ -24,6 +24,25 @@ The audit covered protocol, server, client-core, UI, desktop, web, server CLI, d
 
 The post-fix verification recorded in #149 used product commit `d5acbac`, whose product code is identical to `7d91fd3`: forced typecheck 8/8, build 3/3, 1,192 unit/integration tests, Chromium E2E 18/18, packaged Windows E2E 3/3, and entry bundles below 500 kB. These are recorded prior runs, not new runs claimed by this document. Fresh focused reproductions below establish remaining failures. GitHub's #148 job annotations say jobs did **not start** because of account payment/spending restrictions; a failed check icon is neither an executed test failure nor a pass. See [validation history](VALIDATION.md).
 
+### Merged on 30 September: #151–#158
+
+Eight of the eleven FIX tickets were merged on 30 September, one PR per ticket, each rebased on the one before it. Each code fix carries a regression that fails on the code before it (checked by running the new test against the old source); FIX-10's evidence is the before and after audit. Their tickets below say so; sub-items left unticked are still open.
+
+| Ticket | PR               | What changed                                                                                                                 | Measured result                                                                                                                                | Still open                                                                                                            |
+| ------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| FIX-05 | #151 (`3c2c643`) | Temp-table purge, 5,000-message passes, 30 s yielding sweep, caught timer steps, `retentionStatus()`                         | 1 root + 33,000 replies: old code `too many SQL variables`; now purged in one pass                                                             | Status is on the server handle only (OPS-10 surfaces it); loop delay and WAL growth under load not measured           |
+| FIX-06 | #152 (`e71b24a`) | Current copy never pruned; ranked by schema then time; only restorable copies of this workspace count                        | Three 2040-named copies: old code deleted the reported copy; now it exists at the old schema                                                   | Restore drill with the older binary (OPS-05)                                                                          |
+| FIX-11 | #153 (`73b1a71`) | OS-level SQLite lock on `workspace.lock`, owner note, refusal error; restore, recovery and desktop rename hold it            | Second server refused (same path, symlink, `..` spelling); of three started at once, one runs; holder killed with SIGKILL, next start succeeds | Network filesystems; restore lets go just before its rename (Windows cannot rename an open folder), until OPS-03      |
+| FIX-04 | #154 (`f162235`) | Launch error names its part and workspace; shown while running with Try again and Dismiss; sign-in window and tray attention | Controller and dialog tests; an unrelated change no longer clears it                                                                           | Installed Windows sign-in not rehearsed; retry is fenced to the workspace folder, not to one run                      |
+| FIX-09 | #155 (`77c01e1`) | `hostWithPort()`, bare IPv6 in `normalizeServerUrl`, link-local skipped, instance id in mDNS and hosting status              | `2001:db8::7` listed as `[2001:db8::7]:8543` and opened; another computer on 8543 no longer "hosted here"                                      | No IPv6-only or dual-stack network exercised; IPv6 listening is not claimed                                           |
+| FIX-02 | #156 (`956b6d2`) | One prefs request per channel in flight, confirmed vs pending state, failure kept with Try again; latest-only DND, pin, save | Plan's `mentions → all / nothing` case, DND, and three quick pin/save toggles: old code reverted, now kept                                     | Server prefs have no revision; ordering relies on one in-flight request per channel per device                        |
+| FIX-03 | #157 (`1bfc300`) | `isMessageOnScreen()` in client-core used by the workspace screen                                                            | Mention in an unopened thread of the selected channel: old screen silent, now notifies                                                         | Real phone overlays checked by unit cases only; cross-workspace tap routing is UX-09                                  |
+| FIX-10 | #158 (`a3bf98a`) | In-range lockfile updates of fast-uri, brace-expansion, undici                                                               | Production audit 6 high + 4 moderate → 0; full audit 13 high → 0 ([summary](research/2026-09-30/dependency-audit-after-fix-10.json))           | esbuild via tsup and vitest 3 need majors (build/test only); runtime Undici in Node/Electron; review policy and owner |
+
+Not started here: FIX-01 (outbox transactions), FIX-07 (pending delivery lifetime contract) and FIX-08 (read semantics contract), each of which begins with a contract decision.
+
+Validation of the merged result, on the head of #158 (which held all eight), Linux container, Node 24.21.0: `pnpm build` 3/3 and `pnpm typecheck` 8/8; unit and integration 1,236 tests (server 467, client-core 94, UI 477, protocol 26, desktop 172); entry bundles 466.9 kB (web) and 468.3 kB (desktop renderer) of 500 kB. Chromium E2E 18/18 passed against that build, using the container's preinstalled Chromium (build 1194) because its Playwright 1.63 expects build 1243. The packaged Windows suite was not run: this container is Linux.
+
 ## 2. Priority and execution rules
 
 - **P1:** address next because of message integrity, recovery, privacy, missed communication, or a declared deployment requirement. An upstream advisory is a triage/patch priority; its presence alone does not prove an exploitable Gatherline path.
@@ -39,6 +58,8 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** `workspaceStorage.ts` serializes by a renderer-local `Platform` object. Two distinct adapters sharing storage can concurrently read the same value and lose the first accepted send. A second production-component probe restored send A in two windows; discarding A in one stored `[]`, then sending B in the other stored `[A,B]`. #147's immediate writes remain useful, but local serialization and whole-array merging do not supply a shared transaction or durable deletion. Details: [client evidence](research/2026-09-30/chat-client-comparison.md).
 
+**Status:** not started.
+
 - [ ] Provide one atomic storage-update boundary per account/workspace: main-process transactions for desktop; transactional browser storage or verified cross-context coordination for web.
   - [ ] Define behavior for plain LAN HTTP, where some coordination APIs require a secure context. Retain a supported fallback rather than silently losing sends.
   - [ ] Replace stale whole-array replacement with per-nonce state/revision changes and delivery/discard tombstones; propagate changes to other windows.
@@ -51,10 +72,12 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** `WorkspaceClient.setChannelPrefs` rolls back unconditionally. Controlled sequence: `mentions → all` pending, then `nothing` succeeds, then first request fails; UI returns to `mentions`. #148 guards thread operations only.
 
-- [ ] Give channel preference mutations an operation/revision boundary and reconcile server echoes.
-  - [ ] Preserve a later successful choice or authoritative event when an earlier request fails.
-  - [ ] Show pending/failure/retry state in Channel details and retain the chosen intent.
-  - [ ] Inspect and reproduce the same pattern in DND, appearance, pins and saved items; do not mark those all broken without a reproduction.
+**Status:** merged in #156 (`956b6d2`). Channel preferences keep one request per channel in flight, so the server applies them in the order they were made, with later choices merged and sent next. The server's last word (snapshot, echo, answer) is kept apart from choices still being saved; a refusal that no later choice replaced shows what the server has and keeps the choice for Try again in Channel details. Do Not Disturb, pins and saves reproduced the same failure and now undo a refusal only while it is the latest. Appearance is device-local and has no request to race.
+
+- [x] Give channel preference mutations an operation/revision boundary and reconcile server echoes.
+  - [x] Preserve a later successful choice or authoritative event when an earlier request fails.
+  - [x] Show pending/failure/retry state in Channel details and retain the chosen intent.
+  - [x] Inspect and reproduce the same pattern in DND, appearance, pins and saved items; do not mark those all broken without a reproduction.
   - [ ] Check reordered responses, cross-device updates, navigation and access revocation.
 
 **Done:** the reproduced later preference survives; each additional affected path has its own confirmed repair and visible failure behavior.
@@ -63,11 +86,13 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** `WorkspaceScreen.tsx` suppresses all active-channel messages while the document has focus, including a mention in an unopened or different thread. It computes thread visibility but the suppression condition ignores it.
 
-- [ ] Define a shared displayed-message predicate for channel messages, broadcast replies and the exact open thread.
-  - [ ] Include phone overlays, covered panels, background/minimized state and the distinction between focused and reading history.
-  - [ ] Preserve own-message, mute, notification level, DND and replay suppression rules.
+**Status:** merged in #157 (`1bfc300`). `isMessageOnScreen()` in client-core decides; the workspace screen passes focus and visibility, the selected channel, the open thread, and what covers them (phone side panel, phone drawer, expanded huddle video). Decision recorded for reading history: while the channel is focused and on screen, its channel-level messages count as seen even when scrolled up, because the timeline shows new messages below; thread-only replies count only when that exact thread is open.
+
+- [x] Define a shared displayed-message predicate for channel messages, broadcast replies and the exact open thread.
+  - [x] Include phone overlays, covered panels, background/minimized state and the distinction between focused and reading history.
+  - [x] Preserve own-message, mute, notification level, DND and replay suppression rules.
   - [ ] Route notification taps to the correct account/workspace/message and explain relevant decisions.
-  - [ ] Exercise unopened thread mentions, different open thread, ordinary visible message and mobile overlay.
+  - [x] Exercise unopened thread mentions, different open thread, ordinary visible message and mobile overlay.
 
 **Done:** an unseen eligible reply can notify even when its channel is selected; truly viewed eligible messages do not produce duplicate interruptions.
 
@@ -75,10 +100,12 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** a disposable DOM probe confirms `launchError` appears only when hosting is stopped. Stable-address resume can fail after hosting succeeds; sign-in startup then hides the window when a tray exists. The running host view and tray omit the failure.
 
-- [ ] Render startup errors independently of hosting phase and identify which part failed.
+**Status:** merged in #154 (`f162235`). The snapshot carries `launchErrorPart` (`hosting` or `public-address`) and `launchErrorFolder`. The host dialog shows the error in the running view with Try again (Open to all for that workspace) and Dismiss in both views. A start clears only a failed start; a failed reopen clears when Open to all succeeds for that workspace, when reopening is turned off, or on Dismiss. A sign-in launch opens the window when part of it failed, and the tray tooltip and menu say it needs attention.
+
+- [x] Render startup errors independently of hosting phase and identify which part failed.
   - [ ] Add retry/configure/dismiss actions fenced to the same workspace/run; keep working LAN hosting available.
-  - [ ] Give a sign-in partial failure visible window/tray attention.
-  - [ ] Clear the error on matching successful recovery or explicit dismissal, not an unrelated status update.
+  - [x] Give a sign-in partial failure visible window/tray attention.
+  - [x] Clear the error on matching successful recovery or explicit dismissal, not an unrelated status update.
   - [ ] Verify successful LAN start plus failed external probe/connector, changed settings, and a later successful retry.
 
 **Done:** the host sees and can resolve the failure in both ordinary and sign-in launches. This is a suitable small first implementation ticket.
@@ -87,10 +114,12 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** retention caps roots at 2,000 but expands every reply into one SQL parameter list. One root with 33,000 old replies exceeds SQLite's 32,766-variable limit, rolls back, and remains stored. The hourly timer invokes retention without a failure boundary. [Server reproduction](research/2026-09-30/server-comparison.md).
 
-- [ ] Replace unbounded placeholder lists with set-based SQL, a temporary ID set, or safe bounded chunks.
-  - [ ] Preserve whole-thread retention semantics and atomic metadata/event/file-deletion ownership.
-  - [ ] Budget work by actual affected rows/time and yield between safe maintenance units.
-  - [ ] Catch/report timer failures, retry safely, and expose stalled retention without crashing the process.
+**Status:** merged in #151 (`3c2c643`). Doomed ids go through a temporary table; each pass takes whole threads oldest first up to 5,000 messages (a larger thread goes whole and alone); blob deletions are queued in the same transaction; the hourly sweep runs passes back to back for up to 30 s, yielding between them; every hourly step is caught and logged, and `retentionStatus()` records the last failure. The reproduced 33,001-message thread is purged in one pass.
+
+- [x] Replace unbounded placeholder lists with set-based SQL, a temporary ID set, or safe bounded chunks.
+  - [x] Preserve whole-thread retention semantics and atomic metadata/event/file-deletion ownership.
+  - [x] Budget work by actual affected rows/time and yield between safe maintenance units.
+  - [x] Catch/report timer failures, retry safely, and expose stalled retention without crashing the process.
   - [ ] Exercise one oversized thread, many roots, active replies, attachment cleanup, interruption and repeated passes.
 
 **Done:** the oversized fixture is purged safely within a declared work budget; failure is observed and retried; no orphaned or partially visible thread is introduced.
@@ -99,10 +128,12 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** `db.ts` sorts pre-upgrade copies by filename timestamps and prunes them separately from desktop retention. With three future-named copies and a clock rollback, a real upgrade reports a new rollback-copy path that pruning has already deleted.
 
-- [ ] Always protect the copy made for the current upgrade.
-  - [ ] Count only acceptable recovery candidates; define schema/identity/integrity checks for this copy format.
-  - [ ] Handle future timestamps, malformed copies and clock rollback without losing the last valid rollback point.
-  - [ ] Avoid reporting a path that no longer exists; surface pruning failure separately from successful protected backup.
+**Status:** merged in #152 (`e71b24a`). The copy an upgrade has just taken is never a pruning candidate. Other copies rank by the schema they came from, then the time in their name, so a clock set wrong only decides between copies of one schema. Only copies that open at the schema their name records, as this workspace, count towards the three kept; others are left for a person. A copy that cannot be removed is logged instead of failing the upgrade, and a missing new copy refuses the upgrade.
+
+- [x] Always protect the copy made for the current upgrade.
+  - [x] Count only acceptable recovery candidates; define schema/identity/integrity checks for this copy format.
+  - [x] Handle future timestamps, malformed copies and clock rollback without losing the last valid rollback point.
+  - [x] Avoid reporting a path that no longer exists; surface pruning failure separately from successful protected backup.
   - [ ] Verify actual old-schema upgrade and recoverability with the reported copy.
 
 **Done:** every successful upgrade retains its verified pre-upgrade copy. #126's desktop fix remains closed; this repairs a different retention path.
@@ -110,6 +141,8 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 ### FIX-07 · P1 · Decide and enforce the lifetime of old text in pending integration deliveries
 
 **Evidence:** delete/edit redacts old event-log text, but queued `event_deliveries.body` still holds it. Controlled authorized-bot probes found old text absent from `events` and present in pending deliveries after both operations. That persistent copy can leave the host later.
+
+**Status:** not started; begins with the lifetime contract.
 
 - [ ] Specify the pending-delivery contract for edit, deletion, retention and loss of bot access; recommend minimizing superseded text that has not left the host.
   - [ ] Associate queued rows with message/resource IDs using an indexed representation and compatible migration.
@@ -123,6 +156,8 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** R143-C5 remains open after #148. Channel cursor passing a non-broadcast reply makes Activity/`isMessageRead` call it read while Threads still counts it unread. Reading the channel never displays that reply. A previous badge-only fix was deliberately removed.
 
+**Status:** not started; begins with the state table and migration decision.
+
 - [ ] Write the state table for root/channel messages, thread-only replies, channel-copied replies, follow/unfollow and explicit mark unread.
   - [ ] Recommended design: a thread-only reply is read through its thread; channel-copied replies may also be read in the channel. Keep unread, subscription, personal completion and shared resolution independent.
   - [ ] Plan a versioned upgrade that seeds historical thread read state from prior channel cursors where needed, so old mentions do not reappear unexpectedly.
@@ -135,10 +170,12 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** discovered IPv6 addresses are concatenated as `host:port` without brackets; the actual URL normalization rejects them. The Join screen identifies “hosted here” by port alone, so another host on the usual port can get the label.
 
-- [ ] Share a canonical host/port URL builder for IPv4, IPv6 literals, hostname and scheme handling.
-  - [ ] Match local hosting using verified workspace identity and local endpoint/interface evidence.
+**Status:** merged in #155 (`77c01e1`). `hostWithPort()` in the protocol brackets IPv6 literals wherever the Join screen builds an address, and `normalizeServerUrl()` reads a bare IPv6 address as one on the usual port. Desktop discovery prefers IPv4, then a linkable IPv6 address, and leaves out servers reachable only at link-local addresses, whose interface no URL can name. The server announces its instance id over mDNS and the hosting status carries it; "hosted here" requires a match.
+
+- [x] Share a canonical host/port URL builder for IPv4, IPv6 literals, hostname and scheme handling.
+  - [x] Match local hosting using verified workspace identity and local endpoint/interface evidence.
   - [ ] Check two computers both using port 8543, IPv6-only discovery, dual stack and changing interfaces.
-  - [ ] Preserve invite/deep-link compatibility and useful errors when an address cannot be reached.
+  - [x] Preserve invite/deep-link compatibility and useful errors when an address cannot be reached.
 
 **Done:** valid discovered endpoints connect and the label identifies this computer's workspace correctly.
 
@@ -146,9 +183,11 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** fresh `pnpm audit --prod --json` reports four high entries representing two `fast-uri` advisories affecting lockfile versions 3.1.6 and 4.1.3. All-dependency audit reports 20 entries: seven high, eight moderate, five low, representing 14 unique advisories. This includes build/test dependencies. No Gatherline exploit was demonstrated. [Audit summary and upstream sources](research/2026-09-30/research-and-code-evidence.md).
 
-- [ ] Trace each version to shipped server/desktop code, build/test-only tools, or a bundled Node/Electron runtime.
-  - [ ] Upgrade affected compatible dependencies, including both `fast-uri` major lines; use narrow overrides only when the upstream dependency cannot yet take a compatible patch.
-  - [ ] Review Vitest/esbuild/Undici advisories by their enabled feature and network exposure. Separate dependency-package findings from the Undici copy bundled in a runtime.
+**Status:** merged in #158 (`a3bf98a`). A fresh audit had grown since this plan: production also reported two more fast-uri advisories and brace-expansion 5.0.9 (through `@fastify/static`). fast-uri, brace-expansion and undici were updated within their declared ranges; the production audit is empty. esbuild (through tsup, build only) and vitest 3 (tests only) need major upgrades and are deferred with their reasoning in the [post-fix summary](research/2026-09-30/dependency-audit-after-fix-10.json).
+
+- [x] Trace each version to shipped server/desktop code, build/test-only tools, or a bundled Node/Electron runtime.
+  - [x] Upgrade affected compatible dependencies, including both `fast-uri` major lines; use narrow overrides only when the upstream dependency cannot yet take a compatible patch.
+  - [x] Review Vitest/esbuild/Undici advisories by their enabled feature and network exposure. Separate dependency-package findings from the Undici copy bundled in a runtime.
   - [ ] Run a frozen install, affected suites, builds and packaged smoke after changes; record any deliberately deferred major upgrade and its reachability rationale.
   - [ ] Add a scheduled dependency-review/update policy, runtime minimum/support policy and owner for security patches. Keep noisy/nonreachable tool findings from obscuring shipped exposure.
 
@@ -158,11 +197,13 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Evidence:** two real servers can start the same data folder on different ports. With a 4-byte cap, each separately inventoried storage and accepted a 4-byte upload; the folder held 8 bytes. Independent schedulers, realtime state and cleanup also lack a shared owner, although duplicate scheduled delivery was not reproduced.
 
-- [ ] Acquire exclusive ownership of the canonical workspace directory before migration, inventory, cleanup, discovery or serving.
-  - [ ] Refuse a second CLI/desktop server with a useful error and the owning endpoint/process where safe.
-  - [ ] Define crash/stale-lock recovery without treating an uncertain PID or different path spelling as proof the owner is gone.
-  - [ ] Coordinate backup, restore/recovery and admin CLI operations with the same ownership boundary.
-  - [ ] Verify simultaneous starts, symlink/path aliases, abnormal owner exit, restart and two-upload quota reproduction.
+**Status:** merged in #153 (`73b1a71`). A server takes `workspace.lock` inside the data folder with SQLite's own file lock, held by an uncommitted write transaction, before opening anything; the operating system releases it when the holder exits or crashes. A second server, restore, account recovery or desktop offline rename is refused with `WorkspaceInUseError`, naming the holder from `workspace.owner.json`. Backups only read and need no hold.
+
+- [x] Acquire exclusive ownership of the canonical workspace directory before migration, inventory, cleanup, discovery or serving.
+  - [x] Refuse a second CLI/desktop server with a useful error and the owning endpoint/process where safe.
+  - [x] Define crash/stale-lock recovery without treating an uncertain PID or different path spelling as proof the owner is gone.
+  - [x] Coordinate backup, restore/recovery and admin CLI operations with the same ownership boundary.
+  - [x] Verify simultaneous starts, symlink/path aliases, abnormal owner exit, restart and two-upload quota reproduction.
 
 **Done:** only one active workspace writer can serve that folder, and recovery cannot activate or mutate it behind an existing owner. Single-server storage reservation behavior remains intact.
 
