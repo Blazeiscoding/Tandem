@@ -3850,7 +3850,7 @@ async function startWorkspaceServer(
   // people looking for the real one.
   const announcing = opts.mdns !== false && !opts.isolated;
   if (announcing) {
-    mdnsHandle = advertise({ name: workspaceName(), port: actualPort });
+    mdnsHandle = advertise({ name: workspaceName(), port: actualPort, instanceId });
   }
   /** Replaces the announcement with one made now, under the current name. */
   const announce = () => {
@@ -3859,7 +3859,7 @@ async function startWorkspaceServer(
     // Losing the announcement is not worth failing what asked for it: the
     // workspace still answers at its address, and the next call tries again.
     try {
-      mdnsHandle = advertise({ name: workspaceName(), port: actualPort });
+      mdnsHandle = advertise({ name: workspaceName(), port: actualPort, instanceId });
     } catch {
       mdnsHandle = null;
     }

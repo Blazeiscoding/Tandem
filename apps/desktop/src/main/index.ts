@@ -16,7 +16,13 @@ import { join } from "node:path";
 import { networkInterfaces } from "node:os";
 import { pathToFileURL } from "node:url";
 import { Bonjour, type Service } from "bonjour-service";
-import { DEEP_LINK_PROTOCOLS, DEFAULT_PORT, MDNS_SERVICE_TYPE } from "@slackoss/protocol";
+import {
+  DEEP_LINK_PROTOCOLS,
+  DEFAULT_PORT,
+  MDNS_SERVICE_TYPE,
+  isLinkableAddress,
+  type DiscoveryTxt,
+} from "@slackoss/protocol";
 import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
@@ -162,20 +168,42 @@ ipcMain.handle("storage:set", (_e, key: string, value: unknown) => writeSetting(
 const bonjour = new Bonjour();
 const discovered = new Map<string, Service>();
 
+/** What the Join screen lists: each advertisement at an address a link can reach. */
+function discoveredServers() {
+  return [...discovered.values()].flatMap((s) => {
+    const host = pickAddress(s.addresses ?? []);
+    if (!host) return [];
+    const txt = (s.txt ?? {}) as Partial<DiscoveryTxt>;
+    return [
+      {
+        name: txt.name ?? s.name,
+        host,
+        port: s.port,
+        serverVersion: txt.ver ?? "?",
+        ...(txt.inst ? { instanceId: txt.inst } : {}),
+      },
+    ];
+  });
+}
+
 function publishDiscovered(): void {
-  const servers = [...discovered.values()].map((s) => ({
-    name: (s.txt as Record<string, string>)?.name ?? s.name,
-    host: pickAddress(s.addresses ?? []),
-    port: s.port,
-    serverVersion: (s.txt as Record<string, string>)?.ver ?? "?",
-  }));
+  const servers = discoveredServers();
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send("lan:servers", servers);
   }
 }
 
-function pickAddress(addresses: string[]): string {
-  return addresses.find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a)) ?? addresses[0] ?? "";
+/**
+ * IPv4 when there is one, which every network and browser handles; otherwise
+ * an IPv6 address a link can carry. Null when the only addresses are
+ * link-local IPv6, which work only with an interface no URL can name.
+ */
+function pickAddress(addresses: string[]): string | null {
+  return (
+    addresses.find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a)) ??
+    addresses.find((a) => a.includes(":") && isLinkableAddress(a)) ??
+    null
+  );
 }
 
 function startDiscovery(): void {
@@ -190,14 +218,7 @@ function startDiscovery(): void {
   });
 }
 
-ipcMain.handle("lan:snapshot", () => {
-  return [...discovered.values()].map((s) => ({
-    name: (s.txt as Record<string, string>)?.name ?? s.name,
-    host: pickAddress(s.addresses ?? []),
-    port: s.port,
-    serverVersion: (s.txt as Record<string, string>)?.ver ?? "?",
-  }));
-});
+ipcMain.handle("lan:snapshot", () => discoveredServers());
 
 // ---------- "Open to LAN" hosting (server runs in this process) ----------
 

@@ -101,6 +101,16 @@ describe("WorkspaceClient", () => {
     expect(normalizeServerUrl("https://chat.example.dev")).toBe("https://chat.example.dev");
   });
 
+  it("reads an IPv6 address with or without brackets", () => {
+    // Discovery used to hand over "2001:db8::1:8543", which no URL can read.
+    expect(normalizeServerUrl("[2001:db8::1]:8543")).toBe("http://[2001:db8::1]:8543");
+    expect(normalizeServerUrl("[2001:db8::1]:9000")).toBe("http://[2001:db8::1]:9000");
+    // Without brackets there can be no port: every group belongs to the address.
+    expect(normalizeServerUrl("2001:db8::1")).toBe("http://[2001:db8::1]:8543");
+    expect(normalizeServerUrl("::1")).toBe("http://[::1]:8543");
+    expect(normalizeServerUrl("http://[2001:db8::1]:8543")).toBe("http://[2001:db8::1]:8543");
+  });
+
   it("takes an address written out in full as written", () => {
     // Behind a plain proxy on port 80, the page's own origin has no port.
     expect(normalizeServerUrl("http://chat.local")).toBe("http://chat.local");

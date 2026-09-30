@@ -682,11 +682,15 @@ export class Api {
 
 /** Normalize whatever the user typed ("192.168.1.4:8543", "chat.foo.com", full URL) into a base URL. */
 export function normalizeServerUrl(input: string, defaultPort = 8543): string {
-  const s = input.trim();
+  let s = input.trim();
   // A bare host means a workspace server on its usual port. An address written
   // out in full is taken as written, so http://chat.local is port 80 there as
   // it is everywhere else, and a link built on it leads back to it.
   const bare = !/^https?:\/\//i.test(s);
+  // More than one colon and no brackets can only be an IPv6 address on its
+  // own: a port after one has to follow brackets, or it would be read as the
+  // address's last group. So it goes in brackets, on the usual port.
+  if (bare && !s.startsWith("[") && (s.match(/:/g)?.length ?? 0) > 1) s = `[${s}]`;
   const url = new URL(bare ? `http://${s}` : s);
   if (bare && !url.port) url.port = String(defaultPort);
   return url.origin;
