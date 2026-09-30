@@ -608,7 +608,11 @@ The server also copies the database itself before any upgrade that changes the
 schema, so there is something to roll back to even when nobody remembered. The copy
 goes in `pre-upgrade/` inside the data directory, is named for the schema versions
 it sits between, and the startup output says where it went. The three most recent
-are kept. If the copy cannot be written — most often a full disk — the server
+are kept, counting the one just taken, which is never removed. "Most recent" means
+from the latest schema first, and only then by the time in the name, so a clock set
+wrong cannot push out the copy an upgrade has just made. Only copies that open at
+the schema their name records, as this workspace, count towards the three; a copy
+that does not is left where it is for you to look at. If the copy cannot be written — most often a full disk — the server
 refuses to upgrade and changes nothing. The copy is the database only: attachments
 are not duplicated, since no migration touches them. To roll back with it, stop the
 server, put the copy in place of `workspace.db`, and start the previous release.

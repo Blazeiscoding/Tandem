@@ -340,9 +340,11 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   let iceServers = opts.iceServers ?? [];
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
   let upgradeBackup: string | null = null;
+  const unprunedCopies: { file: string; error: Error }[] = [];
   const db = openDb(dbPath, undefined, {
     backupBeforeUpgrade: opts.backupBeforeUpgrade,
     onUpgradeBackup: (file) => (upgradeBackup = file),
+    onUpgradeBackupPruneFailure: (file, error) => unprunedCopies.push({ file, error }),
   });
   const store = new Store(db);
 
@@ -1022,6 +1024,9 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    */
   if (upgradeBackup) {
     app.log.info({ file: upgradeBackup }, "backed up the workspace before upgrading it");
+  }
+  for (const { file, error } of unprunedCopies) {
+    app.log.warn({ file, err: error }, "could not remove an older pre-upgrade copy");
   }
 
   const runningHandlers = new Set<Promise<void>>();

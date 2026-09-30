@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   openDb,
@@ -43,6 +43,24 @@ function olderWorkspace(version = SCHEMA_VERSION - 2) {
   );
   db.close();
   return version;
+}
+
+function setWorkspaceId(path: string, id: string) {
+  const db = new DatabaseSync(path);
+  try {
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('workspace_id', ?)").run(id);
+  } finally {
+    db.close();
+  }
+}
+
+/** A real copy an earlier upgrade could have left, from schema `from`, stamped `taken`. */
+function earlierCopy(from: number, taken: string, workspaceId?: string): string {
+  mkdirSync(copiesDir(), { recursive: true });
+  const name = `workspace-v${from}-before-v${from + 1}-${taken}.db`;
+  openDbAtVersion(join(copiesDir(), name), from).close();
+  if (workspaceId) setWorkspaceId(join(copiesDir(), name), workspaceId);
+  return name;
 }
 
 beforeEach(() => {
@@ -82,12 +100,8 @@ describe("upgrading a workspace", () => {
   });
 
   it("keeps only the most recent copies", () => {
-    mkdirSync(copiesDir(), { recursive: true });
     for (let day = 1; day <= UPGRADE_BACKUPS_KEPT + 1; day++) {
-      writeFileSync(
-        join(copiesDir(), `workspace-v${day}-before-v${day + 1}-2020-01-0${day}T00-00-00-000Z.db`),
-        "",
-      );
+      earlierCopy(day, `2020-01-0${day}T00-00-00-000Z`);
     }
     // Something else a person put in there is theirs, not ours to delete.
     writeFileSync(join(copiesDir(), "my-own-backup.db"), "");
@@ -101,6 +115,72 @@ describe("upgrading a workspace", () => {
     expect(kept.some((name) => name.includes("2020-01-01"))).toBe(false);
     expect(kept.some((name) => name.includes("2020-01-02"))).toBe(false);
     expect(copies()).toContain("my-own-backup.db");
+  });
+
+  it("keeps the copy it has just taken when the clock was set back", () => {
+    const from = olderWorkspace();
+    // Taken from the same schema, by a clock that said 2040. By the time in
+    // their names each is newer than the copy about to be taken.
+    for (const month of ["01", "02", "03"]) {
+      earlierCopy(from, `2040-${month}-01T00-00-00-000Z`);
+    }
+    let reported = "";
+    openDb(file, undefined, { onUpgradeBackup: (path) => (reported = path) }).close();
+
+    expect(existsSync(reported)).toBe(true);
+    expect(versionOf(reported)).toBe(from);
+    const kept = copies().filter((name) => name.startsWith("workspace-"));
+    expect(kept).toHaveLength(UPGRADE_BACKUPS_KEPT);
+    expect(kept).toContain(basename(reported));
+    // Among the rest, the time in the name decides, since the schema cannot.
+    expect(kept.some((name) => name.includes("2040-01-01"))).toBe(false);
+  });
+
+  it("orders copies by the schema they hold before the time in their names", () => {
+    const from = olderWorkspace();
+    // The oldest schema carries the latest time: a clock that ran ahead.
+    earlierCopy(from - 3, "2040-01-01T00-00-00-000Z");
+    earlierCopy(from - 2, "2020-01-01T00-00-00-000Z");
+    earlierCopy(from - 1, "2020-01-02T00-00-00-000Z");
+    openDb(file).close();
+
+    const kept = copies();
+    expect(kept).toHaveLength(UPGRADE_BACKUPS_KEPT);
+    expect(kept.some((name) => name.startsWith(`workspace-v${from - 3}-`))).toBe(false);
+    expect(kept.some((name) => name.startsWith(`workspace-v${from - 1}-`))).toBe(true);
+    expect(kept.some((name) => name.startsWith(`workspace-v${from - 2}-`))).toBe(true);
+  });
+
+  it("does not let a copy that cannot be restored push out one that can", () => {
+    const from = olderWorkspace();
+    earlierCopy(from - 2, "2020-01-01T00-00-00-000Z");
+    earlierCopy(from - 1, "2020-01-02T00-00-00-000Z");
+    // Named as ours, but empty, and a copy whose schema is not the one its
+    // name says. Neither is a way back; both are left for a person to see.
+    const empty = `workspace-v${from}-before-v${from + 1}-2030-01-01T00-00-00-000Z.db`;
+    writeFileSync(join(copiesDir(), empty), "");
+    const mislabelled = `workspace-v${from}-before-v${from + 1}-2030-01-02T00-00-00-000Z.db`;
+    openDbAtVersion(join(copiesDir(), mislabelled), from - 3).close();
+    openDb(file).close();
+
+    const kept = copies();
+    expect(kept).toContain(empty);
+    expect(kept).toContain(mislabelled);
+    expect(kept.some((name) => name.startsWith(`workspace-v${from - 1}-`))).toBe(true);
+    expect(kept.some((name) => name.startsWith(`workspace-v${from - 2}-`))).toBe(true);
+  });
+
+  it("leaves another workspace's copies alone and does not count them", () => {
+    const from = olderWorkspace();
+    setWorkspaceId(file, "this-workspace");
+    earlierCopy(from - 1, "2020-01-01T00-00-00-000Z", "this-workspace");
+    earlierCopy(from - 1, "2020-01-02T00-00-00-000Z", "this-workspace");
+    const foreign = earlierCopy(from, "2020-01-03T00-00-00-000Z", "another-workspace");
+    openDb(file).close();
+
+    const kept = copies();
+    expect(kept).toContain(foreign);
+    expect(kept.filter((name) => name.includes("2020-01-0"))).toHaveLength(3);
   });
 
   it("refuses to upgrade when the copy cannot be made, and changes nothing", () => {

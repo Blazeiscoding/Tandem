@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const MIGRATIONS: string[] = [
   // v1 — initial schema
@@ -451,6 +452,12 @@ export interface OpenDbOptions {
   backupBeforeUpgrade?: boolean;
   /** Told where the copy went, once it has been written. */
   onUpgradeBackup?: (file: string) => void;
+  /**
+   * Told about an older copy that should have been removed and could not be.
+   * The upgrade still goes ahead: the copy it needs is safe, and one too many
+   * old ones costs only disk.
+   */
+  onUpgradeBackupPruneFailure?: (file: string, error: Error) => void;
 }
 
 /**
@@ -466,7 +473,13 @@ export interface OpenDbOptions {
  * `VACUUM INTO` writes a snapshot including anything still in the write-ahead
  * log. Attachments are not copied: no migration touches them.
  */
-function backupBeforeUpgrade(db: DatabaseSync, path: string, from: number, to: number): string {
+function backupBeforeUpgrade(
+  db: DatabaseSync,
+  path: string,
+  from: number,
+  to: number,
+  onPruneFailure?: (file: string, error: Error) => void,
+): string {
   const dir = join(dirname(path), UPGRADE_BACKUP_DIR);
   const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
   const file = join(dir, `workspace-v${from}-before-v${to}-${stamp}.db`);
@@ -497,17 +510,99 @@ function backupBeforeUpgrade(db: DatabaseSync, path: string, from: number, to: n
         `again, or take a backup yourself and start with --skip-upgrade-backup.`,
     );
   }
-  // Only the most recent few. One copy per upgrade is what rolling back the
-  // last few needs; keeping every one would fill the disk a database at a time.
-  // Ordered by when each was taken, which the name records.
-  const taken = (name: string) => /-before-v\d+-(.+)\.db$/.exec(name)?.[1] ?? "";
-  const copies = readdirSync(dir)
-    .filter((name) => /^workspace-v\d+-before-v\d+-.+\.db$/.test(name))
-    .sort((a, b) => taken(a).localeCompare(taken(b)));
-  for (const old of copies.slice(0, Math.max(0, copies.length - UPGRADE_BACKUPS_KEPT))) {
-    rmSync(join(dir, old), { force: true });
+  pruneUpgradeCopies(db, dir, basename(file), onPruneFailure);
+  // Nothing above removes the copy just made, but reporting a path that is not
+  // there would be worse than refusing: it is the one thing a rollback needs.
+  if (!existsSync(file)) {
+    throw new Error(
+      `The copy taken before upgrading this workspace is missing (${file}), so it has not ` +
+        `been upgraded and nothing has changed. Start again to take a new one.`,
+    );
   }
   return file;
+}
+
+const UPGRADE_COPY_NAME = /^workspace-v(\d+)-before-v(\d+)-(.+)\.db$/;
+
+/**
+ * Keeps the copy just taken and the most recent others, up to
+ * UPGRADE_BACKUPS_KEPT in all. One copy per upgrade is what rolling back the
+ * last few needs; keeping every one would fill the disk a database at a time.
+ *
+ * "Most recent" is by the schema each copy was taken from, then by the time in
+ * its name. Schemas only move forward, so a copy from before a later upgrade is
+ * newer whatever the clock said when either was taken; a clock that was set
+ * back, or ahead, only decides between copies of the same schema. The copy just
+ * taken is never a candidate, wherever its time sorts.
+ *
+ * Only copies that could be restored count towards the few kept: one that does
+ * not open, holds a different schema from the one its name says, or belongs to
+ * another workspace is left where it is for a person to look at, and does not
+ * push out a copy that works. Files outside the naming format are not ours.
+ */
+function pruneUpgradeCopies(
+  db: DatabaseSync,
+  dir: string,
+  current: string,
+  onPruneFailure?: (file: string, error: Error) => void,
+): void {
+  const workspaceId = metaValue(db, "workspace_id");
+  const others = readdirSync(dir)
+    .map((name) => ({ name, match: UPGRADE_COPY_NAME.exec(name) }))
+    .filter(
+      (entry): entry is { name: string; match: RegExpExecArray } =>
+        entry.match !== null && entry.name !== current,
+    )
+    .map(({ name, match }) => ({
+      name,
+      from: Number(match[1]),
+      to: Number(match[2]),
+      taken: match[3]!,
+    }))
+    .filter((copy) => isRestorableCopy(join(dir, copy.name), copy.from, workspaceId))
+    .sort((a, b) => b.from - a.from || b.to - a.to || b.taken.localeCompare(a.taken));
+  for (const old of others.slice(Math.max(0, UPGRADE_BACKUPS_KEPT - 1))) {
+    try {
+      rmSync(join(dir, old.name), { force: true });
+    } catch (err) {
+      // An extra copy left behind costs disk, not safety; the upgrade goes on.
+      onPruneFailure?.(join(dir, old.name), err as Error);
+    }
+  }
+}
+
+function metaValue(db: DatabaseSync, key: string): string | null {
+  try {
+    const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as
+      { value: string } | undefined;
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a managed copy opens, at the schema its name records, as this workspace. */
+function isRestorableCopy(path: string, from: number, workspaceId: string | null): boolean {
+  let copy: DatabaseSync | undefined;
+  try {
+    // Immutable: a read-only open of a database left in WAL mode would
+    // otherwise create -wal and -shm files beside a copy only being looked at.
+    const url = pathToFileURL(path);
+    url.searchParams.set("immutable", "1");
+    copy = new DatabaseSync(url, { readOnly: true });
+    const { user_version } = copy.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    if (user_version !== from) return false;
+    const copyId = metaValue(copy, "workspace_id");
+    // A copy from before the workspace had an id, or of one that still has
+    // none, cannot be told apart and is taken to be this one.
+    return workspaceId === null || copyId === null || copyId === workspaceId;
+  } catch {
+    return false;
+  } finally {
+    copy?.close();
+  }
 }
 
 export function openDb(
@@ -537,7 +632,7 @@ export function openDb(
   ) {
     let file: string;
     try {
-      file = backupBeforeUpgrade(db, path, user_version, upTo);
+      file = backupBeforeUpgrade(db, path, user_version, upTo, options.onUpgradeBackupPruneFailure);
     } catch (err) {
       db.close();
       throw err;
