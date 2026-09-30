@@ -954,18 +954,39 @@ async function startWorkspaceServer(
   /**
    * Discards conversation older than the configured retention window.
    *
-   * Nothing is emitted for what goes. These messages are old enough that no
-   * screen is showing them, and announcing a month of deletions would put
-   * thousands of events into the very log this is meant to keep small. A client
-   * scrolled back that far keeps what it has until it next asks the server,
-   * which will not have it.
+   * Each pass logs one `history.removed` per conversation it touched, naming
+   * the threads that went, rather than a deletion per message: a month of
+   * those would put thousands of events into the very log this is meant to
+   * keep small. Like any event, it reaches only those who can read the
+   * conversation, and a client that was away hears it when it catches up.
+   * Whoever is connected and belongs to one of those conversations is sent
+   * their mention counts afresh, since a removed mention no longer counts.
    */
   const applyRetention = (): number => {
     if (!retentionMs) return 0;
-    const { messages, fileIds } = store.transaction(() =>
-      store.purgeMessagesBefore(Date.now() - retentionMs),
-    );
+    const events: { envelope: EventEnvelope; channelId: ID }[] = [];
+    const { messages, fileIds } = store.transaction(() => {
+      const purged = store.purgeMessagesBefore(Date.now() - retentionMs);
+      const byChannel = new Map<ID, ID[]>();
+      for (const root of purged.roots) {
+        const ids = byChannel.get(root.channelId) ?? [];
+        ids.push(root.id);
+        byChannel.set(root.channelId, ids);
+      }
+      for (const [channelId, rootIds] of byChannel) {
+        events.push({
+          envelope: recordEvent({ type: "history.removed", channelId, rootIds }, channelId),
+          channelId,
+        });
+      }
+      return purged;
+    });
     if (messages === 0) return 0;
+    for (const { envelope, channelId } of events) publish(envelope, channelId);
+    const online = new Set(gateway.onlineUserIds());
+    pushMentionCounts(
+      events.flatMap(({ channelId }) => store.memberIds(channelId).filter((id) => online.has(id))),
+    );
     app.log.info(
       { messages, files: fileIds.length, retentionDays: opts.retentionDays },
       "discarded conversation past the retention window",

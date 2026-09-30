@@ -832,10 +832,36 @@ Three UI outbox fixtures dated their queued sends to 1970 (`createdAt: 1`) and n
 
 **Evidence:** real socket has mention count 1; purge produces authoritative count zero but no refresh frame.
 
-- [ ] Emit bounded maintenance invalidation or targeted count refresh.
-  - [ ] Reconcile timeline/thread/Activity caches and cursors with removed history.
-  - [ ] Preserve visibility/replay order; avoid one deletion event per purged message.
-  - [ ] Verify multiple readers, private/DM access, large sweeps, reconnect and repeated passes.
+**Status:** implemented; see the PR after #176. Each retention pass now:
+
+- logs one `history.removed` event per conversation it touched, naming the threads that went (each whole, root and replies);
+- sends fresh mention counts to whoever is connected and belongs to one of those conversations.
+
+As a logged event, `history.removed`:
+
+- reaches only those who can read the conversation;
+- is replayed, in order, to a client that was away;
+- is never sent to apps (`toSlackEvent` has no mapping for it);
+- doesn't make a conversation unread, since unread state is derived from messages.
+
+The client drops what it holds of those threads: timeline items, including replies shown in the channel, the thread and its page, the follow, and the save. It records the removal per conversation in `removedHistory`, and an open Activity panel loads its page again when the removal touches a conversation it shows. Clients older than the event ignore it, as before. #151's set-based purge and #161's queued-content redaction are unchanged, and the new event is recorded in the purge's own transaction.
+
+Reproduced first:
+
+- `packages/server/test/retentionRefresh.test.ts` uses real authenticated HTTP and real reader sockets on a workspace on disk. On the old server all four cases fail. Now:
+  - The reader's mention count goes from 1 to `{}`; the old count stayed at 1 until a reconnect, as the evidence says. One event names the removed thread.
+  - A private channel and a DM are heard only by their members; a third account hears nothing.
+  - Thirty messages in two channels give two events, and a pass with nothing to remove gives none.
+  - A reader away during the purge hears the event when it catches up from its last seq.
+- `packages/client-core/test/retention.test.ts`: a real client drops the removed root and its broadcast reply, and keeps a newer message. It lets go of the thread, its page, the follow and the save, and its mention count becomes `{}`. This fails with either the old client or the old server.
+- `activitySearch.dom.test.tsx`: the open Activity panel loads again when threads are removed from a conversation it shows, and not for another conversation. This fails on the old panel.
+
+Cost: `scripts/measure-stall.mts` at 50,000 messages, with no readers connected, gives a retention sweep of 32–34 ms against 32 ms before, within noise. With readers connected, each reader of a touched conversation costs one recount, about 1 ms with the v31 index at 200,000 messages (OPT-12).
+
+- [x] Emit bounded maintenance invalidation or targeted count refresh. Both, bounded: one event per conversation per pass, and one recount per connected member of those conversations.
+  - [x] Reconcile timeline/thread/Activity caches and cursors with removed history. Paging still works from the oldest message kept, since cursors are message ids.
+  - [x] Preserve visibility/replay order; avoid one deletion event per purged message.
+  - [ ] Verify multiple readers, private/DM access, large sweeps, reconnect and repeated passes. All covered here except a sweep at scale with readers connected: the stall measurement had none.
 
 **Completion:** connected views/counts converge within a declared work budget. Preserve #151's set-based retention and #161's queued-content redaction.
 

@@ -23,6 +23,7 @@ export type WorkspaceEvent =
   | { type: "reaction.removed"; channelId: ID; messageId: ID; emoji: string; userId: ID }
   | { type: "pin.added"; channelId: ID; messageId: ID; userId: ID }
   | { type: "pin.removed"; channelId: ID; messageId: ID }
+  | { type: "history.removed"; channelId: ID; rootIds: ID[] } // Whole threads retention took; see applyRetention.
   | { type: "channel.created"; channel: Channel }
   | { type: "channel.updated"; channel: Channel }
   | { type: "member.joined"; channelId: ID; userId: ID }
