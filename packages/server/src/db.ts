@@ -464,6 +464,37 @@ const MIGRATIONS: string[] = [
       WHERE root.id = thread_follows.root_id
     ), 0));
   `,
+  // v31 — who each message names, so counting someone's unread mentions reads
+  // their mentions rather than every message in their channels. It was a scan
+  // per member, and a message naming the whole room recounts every member: at
+  // 200,000 messages and 50 members an `<!here>` held the server for 3.7 s
+  // (scripts/measure-unread-counts.mts). user_id '!' is the whole room. The
+  // rows are the same rule as Store.MENTIONS_ME: a message names X when its
+  // text holds `<@X>`, which the walk below finds at every `<@` in turn.
+  `
+  CREATE TABLE message_mentions (
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    channel_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    PRIMARY KEY (message_id, user_id)
+  ) WITHOUT ROWID;
+  CREATE INDEX idx_message_mentions_user ON message_mentions(user_id, channel_id);
+  INSERT INTO message_mentions (message_id, channel_id, user_id)
+    SELECT id, channel_id, '!' FROM messages
+    WHERE deleted_at IS NULL AND (instr(text, '<!here>') > 0
+      OR instr(text, '<!channel>') > 0 OR instr(text, '<!everyone>') > 0);
+  WITH RECURSIVE after_mark(message_id, channel_id, rest) AS (
+    SELECT id, channel_id, substr(text, instr(text, '<@') + 2) FROM messages
+    WHERE deleted_at IS NULL AND instr(text, '<@') > 0
+    UNION ALL
+    SELECT message_id, channel_id, substr(rest, instr(rest, '<@') + 2) FROM after_mark
+    WHERE instr(rest, '<@') > 0
+  )
+  INSERT OR IGNORE INTO message_mentions (message_id, channel_id, user_id)
+    SELECT message_id, channel_id, substr(rest, 1, instr(rest, '>') - 1) FROM after_mark
+    WHERE instr(rest, '>') > 1
+      AND substr(rest, 1, instr(rest, '>') - 1) NOT GLOB '*[^A-Za-z0-9_-]*';
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

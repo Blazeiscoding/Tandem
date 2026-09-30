@@ -190,7 +190,7 @@ Reproduced first, each failing before and passing after: Activity and the mentio
   - [x] Use the same rule for server counts, client Activity, Threads, badges, notification decisions and resync. Notification decisions do not read the cursor; resync carries the floors and every thread row.
   - [ ] Verify mark-unread survives an advanced channel cursor, multi-device reads, old clients and reconnect. The first, multi-device thread updates and reconnect are covered; old clients were not run.
 
-Limits: an explicit thread mark-unread made before the upgrade, under a channel cursor that later passed it, reads as read afterwards, as Activity already showed it. Mention counts cost more where many replies sit unread past the floor, since the channel cursor no longer rules them out: 57 ms against 42 ms for one account over 200,000 messages in one channel, with 1,863 unread thread mentions under the new rule against 554 under the old; an index-backed bound belongs to the optimization queue.
+Limits: an explicit thread mark-unread made before the upgrade, under a channel cursor that later passed it, reads as read afterwards, as Activity already showed it. Mention counts cost more where many replies sit unread past the floor, since the channel cursor no longer rules them out: 57 ms against 42 ms for one account over 200,000 messages in one channel, with 1,863 unread thread mentions under the new rule against 554 under the old. OPT-12 then read counts from a mentions index (schema v31), which brought one account's count to about 1 ms at that size.
 
 **Done:** the contract and migration are agreed in the ticket and all surfaces implement it. No badge-only change that hides unseen replies.
 

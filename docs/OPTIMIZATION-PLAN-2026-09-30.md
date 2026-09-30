@@ -87,7 +87,7 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 
 **References:** Mattermost per-post selector factories; T3 stable row projection. **Gatherline:** `MessageItem.tsx`, `MessageTimeline.tsx`, `context.ts`, replica updates.
 
-**Status:** implemented; see the PR after #163. `MessageItem` subscribed to the whole `users` and `channels` maps and to `self`, so any profile edit, channel update (including someone joining another channel) or change to your own status rendered every row on screen, in the timeline and the thread panel alike. Each row now subscribes to what it shows: its author, the people it names or who reacted to it, the channels it names or links a message in (`useMessageReferences`, `src/lib/messageReferences.ts`), and your own ID and role as two primitives. Each of those selectors does nothing while its map is the same object, which is most updates, and hands back the same object until an entry it shows changes.
+**Status:** merged in #164 (`e02d2ac`). `MessageItem` subscribed to the whole `users` and `channels` maps and to `self`, so any profile edit, channel update (including someone joining another channel) or change to your own status rendered every row on screen, in the timeline and the thread panel alike. Each row now subscribes to what it shows: its author, the people it names or who reacted to it, the channels it names or links a message in (`useMessageReferences`, `src/lib/messageReferences.ts`), and your own ID and role as two primitives. Each of those selectors does nothing while its map is the same object, which is most updates, and hands back the same object until an entry it shows changes.
 
 Measured on `7d6272d` against the candidate with `packages/ui/test/measureRowRenders.dom.test.tsx`, which is skipped unless asked for (`MEASURE_ROWS=1 NODE_ENV=production pnpm --filter @slackoss/ui exec vitest run test/measureRowRenders.dom.test.tsx`): 300 rows (the timeline's cap) of `MessageItem`, React 19.2.8 production build under jsdom, Node 24.21.0, Linux container; `flushSync` wall time per replica change, 40 samples after 3 warm-ups, two runs each. jsdom does no layout or paint, so these compare React's work only, not what a person feels.
 
@@ -210,10 +210,26 @@ At 50,000 messages the old thread's newest page went from 25.73 / 38.64 to 2.30 
 
 **Gatherline:** `Store.hydrateMessages`, thread summaries, unread/mention/Activity counts and server snapshot.
 
+**Status:** mention counts done; see the PR after #164. Counting one account's unread mentions read every message in each of its channels, and a message naming the whole room, or a deletion, recounts every member of the channel, one scan each. Schema v31 adds `message_mentions` (message, channel, who it names; `'!'` for the whole room), filled by the migration from every message's text and kept by `Store` on send, edit and delete, with retention's purge cascading through the foreign key. Unread mention counts and the Activity mentions list start from it and apply FIX-08's read rule to each candidate, so they cost what this account's mentions cost. Nothing is cached: every count is still computed from the rows, under the same rule as `MENTIONS_ME`.
+
+Measured with [`scripts/measure-unread-counts.mts`](../scripts/measure-unread-counts.mts) on `e02d2ac` against the candidate: one channel of 200,000 messages (seven in ten top-level, the rest replies in threads of ten; one in a hundred names a member, one in a thousand is `<!here>`), 50 members read to the last 300 messages, replies read to 60%, 20 followed threads each. Linux container, Xeon 2.8 GHz, 4 threads, Node 24.21.0; answers checked against the text rule before timing. Candidate figures are from two runs.
+
+| Path                                                           | Before, p50 | After, p50     |
+| -------------------------------------------------------------- | ----------- | -------------- |
+| One member's unread mention counts (30 samples)                | 68 ms       | 1.2 ms         |
+| Activity, mentions, first page                                 | 20 ms       | 2.0–2.1 ms     |
+| Activity, unread, first page                                   | 0.7 ms      | 0.8 ms         |
+| `<!here>` post over HTTP, 51 members recounted (10)            | 3,659 ms    | 76–86 ms       |
+| Deletion over HTTP, 51 members recounted (10)                  | 3,724 ms    | 79–85 ms       |
+| 10,000 messages through `Store.createMessage`, rolled back (5) | 1,776 ms    | 1,891–1,917 ms |
+| Database after VACUUM                                          | 38.4 MiB    | 38.6 MiB       |
+
+Sending costs about 7% more, for the scan of each message's text and a row for each one that names someone; a new message has nothing to delete, and most name nobody. The upgrade to v31 took 63–77 ms over 200,000 messages. `test/mentionIndex.test.ts` holds the table to the text rule: 400 random sends, replies, edits, deletions, reads and purges, checking every count after each step and that nothing is left for a deleted or purged message (taking out either the edit or the delete upkeep fails it), the Activity list and its paging, the query plan, and the upgrade's reading of awkward text (`<@<@U1>`, code spans, repeats, `<@U1x>`, unfinished marks, `<!here>` in a DM, deleted messages).
+
 - [ ] Count actual SQL statements and repeated entity lookups per response/snapshot rather than assuming an N+1 problem.
   - [ ] Batch users/files/reactions/pins/follows where profiles show repeated work; reuse within a request only with valid access/revision scope.
-  - [ ] Use bounded indexed aggregation for thread/unread counts and avoid repeating equivalent calculations per socket.
-  - [ ] Coordinate count semantics with FIX-08 before caching them.
+  - [ ] Use bounded indexed aggregation for thread/unread counts and avoid repeating equivalent calculations per socket. Mention counts and the Activity mentions list are done; thread counts and the Activity unread walk are not.
+  - [x] Coordinate count semantics with FIX-08 before caching them. Nothing is cached; the counts apply FIX-08's rule.
   - [ ] Measure channel/thread page and snapshot hydration at varied files/reactions/follows, including membership changes.
 
 **Done:** fewer queries/allocations improve the measured path with authoritative consistent counts. A stale global unread cache is not an acceptable shortcut.
