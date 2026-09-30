@@ -926,6 +926,9 @@ export class Store {
            WHERE message_id IN ${doomed} AND type IN ('message.created', 'message.updated')`,
         )
         .all() as { seq: number; payload: string }[];
+      const queued = this.db
+        .prepare(`SELECT id, body FROM event_deliveries WHERE message_id IN ${doomed}`)
+        .all() as { id: string; body: string }[];
 
       // Everything that points at a message, before the messages themselves:
       // foreign keys are on, so a leftover reference would refuse the delete
@@ -948,8 +951,10 @@ export class Store {
       // leave bytes on disk that nothing remembers to delete.
       this.queueFileDeletions(fileIds);
 
-      // The rows are gone; the log still holds what they said.
+      // The rows are gone; the log, and any app event still waiting to leave,
+      // still hold what they said.
       this.redactEventRows(logged);
+      this.redactQueuedDeliveries(queued);
       return { messages, fileIds };
     } finally {
       this.db.exec("DELETE FROM temp.purge_messages");
@@ -2485,6 +2490,8 @@ export class Store {
     eventSeq: number,
     body: string,
     now = Date.now(),
+    /** The message whose words the body carries, so an edit or delete can find it. */
+    messageId: ID | null = null,
   ): boolean {
     // OFFSET stops the scan at the ceiling rather than counting a long backlog
     // on every event.
@@ -2502,10 +2509,10 @@ export class Store {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO event_deliveries
-           (id, subscription_id, channel_id, event_seq, body, next_attempt_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (id, subscription_id, channel_id, event_seq, body, next_attempt_at, created_at, message_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(ulid(), subscriptionId, channelId, eventSeq, body, now, now);
+      .run(ulid(), subscriptionId, channelId, eventSeq, body, now, now, messageId);
     return true;
   }
 
@@ -2825,7 +2832,7 @@ export class Store {
    * stored beside the payload so that deleting a message can find every copy of
    * its words without reading the whole log.
    */
-  private static eventMessageId(event: WorkspaceEvent): ID | null {
+  static eventMessageId(event: WorkspaceEvent): ID | null {
     if (event.type === "message.created" || event.type === "message.updated") {
       return event.message.id;
     }
@@ -2857,7 +2864,49 @@ export class Store {
       seq: number;
       payload: string;
     }[];
-    return this.redactEventRows(rows);
+    const changed = this.redactEventRows(rows);
+    this.redactQueuedDeliveries(
+      this.db
+        .prepare(
+          `SELECT id, body FROM event_deliveries WHERE message_id = ?
+           ${keepSeq === undefined ? "" : "AND event_seq != ?"}`,
+        )
+        .all(messageId, ...(keepSeq === undefined ? [] : [keepSeq])) as {
+        id: string;
+        body: string;
+      }[],
+    );
+    return changed;
+  }
+
+  /**
+   * Takes a message's words out of app events still waiting to be delivered,
+   * or that gave up. Those are copies Gatherline still holds, and an edit or a
+   * deletion is often someone taking back what they wrote. The events stay,
+   * in order and under the same id: a receiver gets a message with no words,
+   * then the edit or deletion that supersedes it, as a client replaying the
+   * log does. What has already been delivered is the app's, and cannot be
+   * called back.
+   */
+  private redactQueuedDeliveries(rows: { id: string; body: string }[]): void {
+    const update = this.db.prepare("UPDATE event_deliveries SET body = ? WHERE id = ?");
+    for (const row of rows) {
+      let body: {
+        slackoss?: { type?: string };
+        event?: { text?: string; message?: { text?: string } };
+      };
+      try {
+        body = JSON.parse(row.body);
+      } catch {
+        continue;
+      }
+      const type = body.slackoss?.type;
+      if (type === "message.created" && body.event) body.event.text = "";
+      else if (type === "message.updated" && body.event?.message) body.event.message.text = "";
+      else continue;
+      const after = JSON.stringify(body);
+      if (after !== row.body) update.run(after, row.id);
+    }
   }
 
   private redactEventRows(rows: { seq: number; payload: string }[]): number {

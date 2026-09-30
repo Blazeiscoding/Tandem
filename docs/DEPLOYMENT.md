@@ -680,6 +680,11 @@ list and saved list immediately, and releases its attachments. Specifically:
 - **Editing** a message does the same to every earlier version of it. Taking
   back a sentence by editing it away is the usual way people do it, and leaving
   the first draft in the log would make the correction cosmetic.
+- **App events still waiting to be delivered**, or that gave up, lose the words
+  too, on edit, deletion and retention alike; the events stay so each app still
+  receives them in order. An event already delivered belongs to that app and
+  cannot be recalled, and one on its way out at that moment may still arrive as
+  it was. See [Integration API contract](INTEGRATIONS.md#events).
 - **The request log** never held the text: the server logs methods, paths and
   status codes, not bodies.
 - **Backups** taken before the deletion still contain the original text, in full.

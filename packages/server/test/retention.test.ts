@@ -321,6 +321,49 @@ describe("a retention window", () => {
     expect(server!.store.getMessage(reply.body.message.id)).toBeNull();
   });
 
+  it("takes the words out of app events still waiting to be delivered", async () => {
+    await start({ retentionDays: 30 });
+    await signIn();
+    const secret = "an-old-secret-still-queued-for-an-app";
+    const message = await post(secret);
+    const store = server!.store;
+    const app = store.createApp({
+      name: "Waiting App",
+      botUserId: userId,
+      createdBy: userId,
+      signingSecret: "test-signing-secret-not-a-credential",
+    });
+    const subscription = store.createSubscription({
+      appId: app.id,
+      url: "https://example.invalid/events",
+      eventTypes: [],
+    });
+    // Due in an hour, so the delivery timer leaves it where it is.
+    store.enqueueEventDelivery(
+      subscription.id,
+      channelId,
+      1,
+      JSON.stringify({
+        type: "event_callback",
+        event: { type: "message", text: secret, ts: message.id },
+        slackoss: { type: "message.created", seq: 1 },
+      }),
+      Date.now() + 3600_000,
+      message.id,
+    );
+    backdate(60);
+
+    expect(server!.applyRetention()).toBe(1);
+    const db = new DatabaseSync(join(directory, "workspace.db"));
+    try {
+      const bodies = JSON.stringify(db.prepare("SELECT body FROM event_deliveries").all());
+      expect(bodies).toContain("message.created");
+      expect(bodies).not.toContain(secret);
+    } finally {
+      db.close();
+    }
+  });
+
   it("does not send everyone back for a new snapshot when it runs", async () => {
     await start({ retentionDays: 30 });
     await signIn();
