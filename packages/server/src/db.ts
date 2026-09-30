@@ -423,6 +423,16 @@ const MIGRATIONS: string[] = [
   ALTER TABLE scheduled_messages ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0;
   CREATE INDEX idx_scheduled_held ON scheduled_messages(status, next_attempt_at);
   `,
+  // v28 — a thread's replies in the order its pages read them. With only
+  // thread_root_id indexed, SQLite read an old thread's newest page through
+  // (channel_id, id) and walked past every newer message in the channel: 92 ms
+  // at 200,000 messages, against 3 ms with this (scripts/measure-thread-index.mts).
+  // It answers every lookup the single-column index did, so it replaces it
+  // rather than joining it, which would cost writes and space for nothing.
+  `
+  CREATE INDEX idx_messages_thread_page ON messages(thread_root_id, id);
+  DROP INDEX idx_messages_thread;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

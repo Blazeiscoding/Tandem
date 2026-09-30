@@ -156,11 +156,26 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 | p50                                   | 6.334 ms         | 0.066 ms                |
 | p95                                   | 7.777 ms         | 0.102 ms                |
 
-- [ ] Add a new compatible migration for the useful composite index, after verifying target query shapes.
-  - [ ] Capture before/after `EXPLAIN QUERY PLAN` and check oldest/newest/around/root/deleted reply queries.
-  - [ ] Compare 50k/200k sparse and dense histories with permission filters and actual HTTP response hydration.
-  - [ ] Measure insertion/migration time, database/WAL size and redundancy of older indexes before removing any.
-  - [ ] Keep cursor/result semantics identical and verify actual result count before timing.
+**Status:** implemented in schema v28. `(thread_root_id, id)` replaces the single-column `thread_root_id` index. [`scripts/measure-thread-index.mts`](../scripts/measure-thread-index.mts) seeds one channel with an old 50-reply thread, then top-level messages, then a busy 500-reply thread. It checks every response before timing, runs without `ANALYZE` as the server does, and compares the old index, the composite, and both, through real HTTP requests. Linux container, Xeon 2.8 GHz, 4 threads, Node 24.21.0; p50 / p95 ms over 30 warm requests:
+
+| 200,000 messages                  | `thread_root_id` (before) | `(thread_root_id, id)` (v28) | Both         |
+| --------------------------------- | ------------------------- | ---------------------------- | ------------ |
+| Old thread, newest page           | 92.01 / 111.60            | 3.02 / 5.24                  | 2.12 / 2.67  |
+| Busy thread, newest page          | 33.67 / 48.82             | 2.26 / 4.27                  | 2.46 / 3.42  |
+| Old thread, older page (cursor)   | 3.19 / 4.32               | 3.47 / 5.46                  | 2.26 / 4.28  |
+| Old thread, around a reply        | 3.90 / 6.80               | 2.78 / 3.99                  | 2.96 / 10.40 |
+| Channel, newest page              | 3.95 / 7.51               | 2.35 / 3.47                  | 2.13 / 2.60  |
+| Index build                       | 70 ms                     | 111 ms                       | 174 ms       |
+| Database after `VACUUM`           | 38.6 MB                   | 40.7 MB                      | 42.4 MB      |
+| 10,000 inserts in one transaction | 236 ms                    | 256 ms                       | 282 ms       |
+
+At 50,000 messages the old thread's newest page went from 25.73 / 38.64 to 2.30 / 3.20 and the busy thread's from 10.80 / 13.88 to 2.46 / 4.63; the database grew from 9.8 to 10.3 MB. The old plan read the old thread through `idx_messages_channel (channel_id=?)`; v28's reads it through `idx_messages_thread_page (thread_root_id=?)` with no sort. A page with a cursor was already fast, because the cursor bounded the channel scan; the pages without one, and the `hasMoreNewer` check after them, were not. Keeping both indexes gained no reads and cost the most writes and space, so v28 replaces the old one. `packages/server/test/queryPlans.test.ts` checks the plans (thread page, has-more check, reply counts, reply existence) and a real v27 → v28 upgrade.
+
+- [x] Add a new compatible migration for the useful composite index, after verifying target query shapes.
+  - [x] Capture before/after `EXPLAIN QUERY PLAN` and check oldest/newest/around/root/deleted reply queries.
+  - [ ] Compare 50k/200k sparse and dense histories with permission filters and actual HTTP response hydration. Done through HTTP with one member in a public channel; private-channel permission filters and many-member workspaces not varied.
+  - [x] Measure insertion/migration time, database/WAL size and redundancy of older indexes before removing any.
+  - [x] Keep cursor/result semantics identical and verify actual result count before timing.
 
 **Done:** the relevant query improves through the full path with an acceptable write/storage cost. These synthetic warm timings are not a promised hundredfold app-wide speedup.
 
