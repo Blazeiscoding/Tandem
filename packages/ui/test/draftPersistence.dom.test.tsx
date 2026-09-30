@@ -126,7 +126,8 @@ function queued(nonce: string, text: string) {
     threadRootId: null,
     text,
     userId: sam.id,
-    createdAt: 1,
+    // Queued just now: well inside the window a restored send goes out on its own.
+    createdAt: Date.now(),
     attachments: [],
   };
 }
@@ -309,7 +310,7 @@ describe("queued messages kept on this device", () => {
         threadRootId: null,
         text: "queued by the previous version",
         userId: sam.id,
-        createdAt: 1,
+        createdAt: Date.now(),
         attachments: [],
       },
     ]);

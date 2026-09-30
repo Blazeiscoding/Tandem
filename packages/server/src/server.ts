@@ -50,6 +50,7 @@ import {
   searchQuery,
   activityQuery,
   sendMessageBody,
+  SEND_RETRY_WINDOW_MS,
   updateChannelBody,
   updateMeBody,
   type EventEnvelope,
@@ -109,6 +110,12 @@ export const SCHEDULED_LIMITS = {
 
 /** Delivered queue rows are kept this long as proof of completion. */
 const SCHEDULED_RETENTION_MS = 7 * 24 * 3600_000;
+
+/**
+ * How long a removed message's send key is kept after it was posted: an app's
+ * whole retry window, and a week more for a clock that disagrees with this one.
+ */
+const PURGED_SEND_KEYS_MS = SEND_RETRY_WINDOW_MS + 7 * 24 * 3600_000;
 
 /** Delays after failures; the eighth failed attempt becomes terminal. */
 const EVENT_DELIVERY_RETRY_MS = [
@@ -814,6 +821,13 @@ async function startWorkspaceServer(
           }
           return existing;
         }
+        // Posted once, then removed with the workspace's older history.
+        if (store.messageRequestPurged(input.userId, input.nonce))
+          throw new HttpError(
+            409,
+            "message_deleted",
+            "This was already sent, and has since been removed with older messages.",
+          );
       }
       if (channel.archived) throw new HttpError(400, "channel_archived");
       if (input.threadRootId) {
@@ -3969,6 +3983,9 @@ async function startWorkspaceServer(
     maintain("events", () => store.pruneEvents());
     maintain("scheduled", () => store.pruneScheduled(Date.now() - SCHEDULED_RETENTION_MS));
     maintain("sessions", () => store.pruneSessions());
+    maintain("removed messages' send keys", () =>
+      store.pruneMessageRequestsPurged(Date.now() - PURGED_SEND_KEYS_MS),
+    );
     maintain("download tokens", () => store.pruneDownloadTokens());
     maintain("event deliveries", () =>
       store.pruneEventDeliveries(Date.now() - EVENT_DELIVERY_RETENTION_MS),

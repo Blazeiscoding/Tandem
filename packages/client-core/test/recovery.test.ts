@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
+import { SEND_RETRY_WINDOW_MS } from "@slackoss/protocol";
 import { Api, ApiError, OUTBOX_LIMIT, WorkspaceClient } from "../src/index.js";
 
 let server: WorkspaceServer;
@@ -256,6 +257,71 @@ describe("outbox durability", () => {
     const { messages } = await owner.listMessages(channelId, { limit: 100 });
     expect(messages.filter((m) => m.text.startsWith("queued "))).toHaveLength(OUTBOX_LIMIT);
     expect(messages.some((m) => m.text === "one too many")).toBe(false);
+  });
+
+  it("leaves a send older than the retry window for its author, and sends it when they retry", async () => {
+    const self = client.state.self!.id;
+    const now = Date.now();
+    const entry = (nonce: string, text: string, age: number) => ({
+      nonce,
+      channelId,
+      threadRootId: null,
+      text,
+      userId: self,
+      createdAt: now - age,
+      attachments: [],
+    });
+    const send = vi.spyOn(client.api, "sendMessage");
+    client.restoreOutbox([
+      entry("stale-1", "written long ago", SEND_RETRY_WINDOW_MS + 60_000),
+      entry("fresh-1", "written just inside the window", SEND_RETRY_WINDOW_MS - 60_000),
+    ]);
+    // The one inside the window goes on its own, as any restored send does.
+    await expect.poll(() => client.state.pending.map((p) => p.nonce)).toEqual(["stale-1"]);
+    expect(send.mock.calls.map(([, body]) => body.nonce)).toEqual(["fresh-1"]);
+    // The other waits, and says why.
+    const stale = client.state.pending[0]!;
+    expect(stale).toMatchObject({ failed: true, refused: false });
+    expect(stale.failureReason).toMatch(/more than 30 days ago.*Retry to send it anyway/);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    let { messages } = await owner.listMessages(channelId, { limit: 50 });
+    expect(messages.some((m) => m.text === "written long ago")).toBe(false);
+
+    // The author's own Retry sends it.
+    client.retrySend("stale-1");
+    await expect.poll(() => client.state.pending).toHaveLength(0);
+    ({ messages } = await owner.listMessages(channelId, { limit: 50 }));
+    expect(messages.filter((m) => m.text === "written long ago")).toHaveLength(1);
+  });
+
+  it("says a send was already posted when retention has removed it since", async () => {
+    // Posted, its answer lost, then removed with older history before the
+    // app came back to it: still inside the window, so the app tries again.
+    const self = client.state.self!.id;
+    const posted = await client.api.sendMessage(channelId, {
+      text: "removed with age",
+      nonce: "aged-1",
+    });
+    server.store.transaction(() => server.store.purgeMessagesBefore(Date.now() + 1));
+    expect(server.store.getMessage(posted.message.id)).toBeNull();
+
+    client.restoreOutbox([
+      {
+        nonce: "aged-1",
+        channelId,
+        threadRootId: null,
+        text: "removed with age",
+        userId: self,
+        createdAt: posted.message.createdAt,
+        attachments: [],
+      },
+    ]);
+    await expect
+      .poll(() => client.state.pending[0]?.failureReason)
+      .toBe("This was already sent once. Discard it to clear it.");
+    expect(client.state.pending[0]!.refused).toBe(true);
+    const { messages } = await owner.listMessages(channelId, { limit: 50 });
+    expect(messages.some((m) => m.text === "removed with age")).toBe(false);
   });
 
   it("drops nothing it restores, however much was waiting", async () => {
