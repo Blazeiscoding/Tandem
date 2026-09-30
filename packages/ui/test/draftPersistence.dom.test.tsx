@@ -656,3 +656,122 @@ describe("windows starting at the same moment", () => {
     await waitFor(() => expect(delivered).toEqual(["accepted by A"]));
   });
 });
+
+describe("words sent before their draft was ever saved", () => {
+  const outboxKey = (client: WorkspaceClient) => `outbox:${client.baseUrl}:${sam.id}`;
+  const draftsKey = (client: WorkspaceClient) => `drafts:${client.baseUrl}:${sam.id}`;
+  const unstoredKey = (client: WorkspaceClient) => `unstored-sends:${client.baseUrl}:${sam.id}`;
+
+  /** A device whose outbox cannot be written until `mend` is called. */
+  function brokenOutbox() {
+    const { platform, values } = device();
+    const write = platform.storage.set;
+    let broken = false;
+    platform.storage.set = async (name, value) => {
+      if (broken && name.startsWith("outbox:")) throw new Error("QuotaExceededError");
+      return write(name, value);
+    };
+    return {
+      platform,
+      values,
+      breakOutbox: () => void (broken = true),
+      mend: () => void (broken = false),
+    };
+  }
+
+  /** What Composer does on Enter: the words go to a send and the draft empties. */
+  function typeAndSend(client: WorkspaceClient, draftKey: string, text: string, rootId?: string) {
+    client.setDraft(draftKey, text);
+    expect(client.send(design.id, text, rootId ? { threadRootId: rootId } : {})).toBe(true);
+    client.setDraft(draftKey, "");
+  }
+
+  async function restart(values: Map<string, unknown>) {
+    const next = signedIn();
+    next.sendMessage.mockImplementation(networkDown);
+    mount(next.client, device(values).platform);
+    await waitFor(() => expect(values.get(unstoredKey(next.client))).toEqual({}));
+    return next;
+  }
+
+  it("come back in the composer after a restart when the outbox could not store them", async () => {
+    const { platform, values, breakOutbox } = brokenOutbox();
+    const { client, sendMessage } = signedIn();
+    sendMessage.mockImplementation(never);
+    mount(client, platform);
+    await waitFor(() => expect(values.has(outboxKey(client))).toBe(true));
+    breakOutbox();
+
+    // Sent well inside the pause before a draft is saved.
+    typeAndSend(client, design.id, "first words");
+    expect(
+      await screen.findByText(
+        "Could not save drafts and queued messages on this device. Keep it open and retry.",
+      ),
+    ).toBeVisible();
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 750)));
+    // Neither the draft nor the outbox holds them: only the key kept for this.
+    expect(values.get(draftsKey(client)) ?? {}).toEqual({});
+    expect(storedTexts(values, outboxKey(client))).toEqual([]);
+    expect(Object.values(values.get(unstoredKey(client)) as object)).toEqual([
+      { draftKey: design.id, text: "first words" },
+    ]);
+
+    // The process is gone. The next start has the words to act on, once.
+    const next = await restart(values);
+    expect(next.client.state.drafts[design.id]).toBe("first words");
+    expect(next.client.state.pending).toEqual([]);
+    expect(next.sendMessage).not.toHaveBeenCalled();
+    await waitFor(
+      () => expect(values.get(draftsKey(next.client))).toEqual({ [design.id]: "first words" }),
+      {
+        timeout: 3000,
+      },
+    );
+  });
+
+  it("are let go once a retry stores the send, so they come back as a send only", async () => {
+    const { platform, values, breakOutbox, mend } = brokenOutbox();
+    const { client, sendMessage } = signedIn();
+    sendMessage.mockImplementation(never);
+    mount(client, platform);
+    await waitFor(() => expect(values.has(outboxKey(client))).toBe(true));
+    breakOutbox();
+    typeAndSend(client, design.id, "sent once");
+    await waitFor(() => expect(Object.keys(values.get(unstoredKey(client)) ?? {})).toHaveLength(1));
+
+    mend();
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(storedTexts(values, outboxKey(client))).toEqual(["sent once"]));
+    await waitFor(() => expect(values.get(unstoredKey(client))).toEqual({}));
+
+    const next = signedIn();
+    const delivered: string[] = [];
+    next.sendMessage.mockImplementation(async (_channel, body) => {
+      delivered.push(body.text!);
+      throw new TypeError("Failed to fetch");
+    });
+    mount(next.client, device(values).platform);
+    await waitFor(() => expect(delivered).toEqual(["sent once"]));
+    expect(next.client.state.drafts[design.id]).toBeUndefined();
+  });
+
+  it("come back to the composer they were sent from, each of them", async () => {
+    const { platform, values, breakOutbox } = brokenOutbox();
+    const { client, sendMessage } = signedIn();
+    sendMessage.mockImplementation(never);
+    mount(client, platform);
+    await waitFor(() => expect(values.has(outboxKey(client))).toBe(true));
+    breakOutbox();
+    typeAndSend(client, design.id, "one");
+    typeAndSend(client, design.id, "two");
+    typeAndSend(client, `${design.id}:M_ROOT`, "in a thread", "M_ROOT");
+    await waitFor(() => expect(Object.keys(values.get(unstoredKey(client)) ?? {})).toHaveLength(3));
+
+    const next = await restart(values);
+    expect(next.client.state.drafts).toEqual({
+      [design.id]: "one\n\ntwo",
+      [`${design.id}:M_ROOT`]: "in a thread",
+    });
+  });
+});
