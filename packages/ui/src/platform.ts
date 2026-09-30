@@ -3,9 +3,12 @@ import { parseDeepLink } from "./lib/deeplink.js";
 /** A workspace server found on the local network via mDNS. */
 export interface DiscoveredServer {
   name: string;
+  /** An address a link can carry: IPv4, a hostname, or IPv6 without brackets. */
   host: string;
   port: number;
   serverVersion: string;
+  /** The announcing server's instance id; absent from servers that do not send it. */
+  instanceId?: string;
 }
 
 export interface SavedServer {
@@ -85,6 +88,8 @@ export interface HostingStatus {
   /** The running workspace's entry in the list of hosted workspaces. */
   folder?: string;
   port?: number;
+  /** The running server's instance id, which its network announcement also carries. */
+  instanceId?: string;
   dataDir?: string;
   lanUrls?: string[];
   warning?: string;

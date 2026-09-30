@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ServerInfo } from "@slackoss/protocol";
+import { hostWithPort, type ServerInfo } from "@slackoss/protocol";
 import { Api, ApiError, normalizeServerUrl } from "@slackoss/client-core";
 import type {
   DiscoveredServer,
@@ -391,7 +391,8 @@ function BrowseCard(props: {
   const lanNotSaved = useMemo(
     () =>
       props.lanServers.filter(
-        (l) => !props.savedServers.some((s) => s.url === normalizeSafe(`${l.host}:${l.port}`)),
+        (l) =>
+          !props.savedServers.some((s) => s.url === normalizeSafe(hostWithPort(l.host, l.port))),
       ),
     [props.lanServers, props.savedServers],
   );
@@ -463,23 +464,29 @@ function BrowseCard(props: {
         </SectionLabel>
         {lanNotSaved.length > 0 ? (
           <ul className="overflow-hidden rounded-xl border border-edge">
-            {lanNotSaved.map((l) => (
-              <ServerRow
-                key={`${l.host}:${l.port}`}
-                title={l.name}
-                subtitle={`${l.host}:${l.port}`}
-                // Our own advertisement comes back over mDNS like any other.
-                meta={
-                  !props.hostingStatusError &&
-                  props.hostingStatus?.running &&
-                  l.port === props.hostingStatus.port
-                    ? "hosted here"
-                    : `v${l.serverVersion}`
-                }
-                busy={props.probing?.includes(l.host) ?? false}
-                onClick={() => props.onSelect(`${l.host}:${l.port}`)}
-              />
-            ))}
+            {lanNotSaved.map((l) => {
+              const address = hostWithPort(l.host, l.port);
+              return (
+                <ServerRow
+                  key={address}
+                  title={l.name}
+                  subtitle={address}
+                  // Our own advertisement comes back over mDNS like any other.
+                  // Recognised by the running server's instance id: another
+                  // computer on the usual port shares the port, not the id.
+                  meta={
+                    !props.hostingStatusError &&
+                    props.hostingStatus?.running &&
+                    l.instanceId !== undefined &&
+                    l.instanceId === props.hostingStatus.instanceId
+                      ? "hosted here"
+                      : `v${l.serverVersion}`
+                  }
+                  busy={props.probing?.includes(l.host) ?? false}
+                  onClick={() => props.onSelect(address)}
+                />
+              );
+            })}
           </ul>
         ) : (
           <p className="rounded-xl border border-dashed border-edge px-4 py-5 text-center text-sm text-ink-faint">

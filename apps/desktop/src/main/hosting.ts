@@ -24,6 +24,12 @@ export interface HostingSnapshot {
   /** The running workspace's entry in the list of hosted workspaces. */
   folder?: string;
   port?: number;
+  /**
+   * The running server's instance id, new on every start and also in its
+   * network announcement, so a discovered workspace can be recognised as
+   * this one rather than as anything else on the same port.
+   */
+  instanceId?: string;
   dataDir?: string;
   lanUrls?: string[];
   warning?: string;
@@ -420,6 +426,7 @@ export function createHostingController(options: HostingOptions) {
       phase,
       ...(workspace ?? {}),
       ...(server ? { port: server.port, lanUrls: options.lanUrls(server.port) } : {}),
+      ...(server?.instanceId ? { instanceId: server.instanceId } : {}),
       ...(server?.inviteOnly ? { inviteOnly: server.inviteOnly() } : {}),
       ...(opening
         ? { openToAll: { phase: "opening" as const } }

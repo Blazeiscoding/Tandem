@@ -323,6 +323,9 @@ describe("hosting a workspace from the desktop app", () => {
       folder: entry!.folder,
       dataDir,
       port: 8543,
+      // What its network announcement carries, so the Join screen can tell it
+      // from another workspace on the same port.
+      instanceId: "workspace-run-1",
       lanUrls: ["192.168.1.20:8543"],
       connected: 0,
     });

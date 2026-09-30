@@ -1,5 +1,5 @@
 import { Bonjour } from "bonjour-service";
-import { MDNS_SERVICE_TYPE, PROTOCOL_VERSION } from "@slackoss/protocol";
+import { MDNS_SERVICE_TYPE, PROTOCOL_VERSION, type DiscoveryTxt } from "@slackoss/protocol";
 import { SERVER_VERSION } from "./server.js";
 
 export interface MdnsHandle {
@@ -7,7 +7,7 @@ export interface MdnsHandle {
 }
 
 /** Advertise this workspace on the local network so clients can list it on the Join screen. */
-export function advertise(opts: { name: string; port: number }): MdnsHandle {
+export function advertise(opts: { name: string; port: number; instanceId: string }): MdnsHandle {
   const bonjour = new Bonjour();
   const service = bonjour.publish({
     name: `${opts.name} (SlackOSS)`,
@@ -17,7 +17,8 @@ export function advertise(opts: { name: string; port: number }): MdnsHandle {
       name: opts.name,
       ver: SERVER_VERSION,
       proto: String(PROTOCOL_VERSION),
-    },
+      inst: opts.instanceId,
+    } satisfies DiscoveryTxt,
   });
   return {
     stop: () => {

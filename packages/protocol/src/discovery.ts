@@ -8,6 +8,33 @@ export interface DiscoveryTxt {
   name: string; // workspace name
   ver: string; // server version
   proto: string; // protocol version
+  /**
+   * The advertising server's instance id, new on every start and also served
+   * by /api/health. What tells "this computer's own workspace" apart from
+   * another one on the same port. Absent from servers before it was added.
+   */
+  inst?: string;
+}
+
+/**
+ * `host:port` for building an address, with an IPv6 literal in brackets: the
+ * only way a URL, or anything that reads one, can tell the port from the
+ * address. A host already in brackets is left as it is.
+ */
+export function hostWithPort(host: string, port: number): string {
+  const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  return bare.includes(":") ? `[${bare}]:${port}` : `${bare}:${port}`;
+}
+
+/**
+ * Whether an address can be put in a link. An IPv6 link-local address
+ * (fe80::/10) only works together with the network interface it belongs to,
+ * and a browser's URL has no way to say which one, so it cannot.
+ */
+export function isLinkableAddress(host: string): boolean {
+  if (!host) return false;
+  if (host.includes("%")) return false;
+  return !/^\[?fe[89ab][0-9a-f]:/i.test(host);
 }
 
 /** Deep-link format: gatherline://join?host=1.2.3.4:8543&code=INVITE */
