@@ -75,7 +75,15 @@ export class Gateway {
         socket.destroy();
         return;
       }
-      const url = new URL(req.url ?? "/", "http://localhost");
+      let url: URL;
+      try {
+        url = new URL(req.url ?? "/", "http://localhost");
+      } catch {
+        // Upgrade events bypass Fastify's request error handler. A malformed
+        // absolute target must end this connection rather than the process.
+        socket.destroy();
+        return;
+      }
       if (url.pathname !== path) {
         socket.destroy();
         return;

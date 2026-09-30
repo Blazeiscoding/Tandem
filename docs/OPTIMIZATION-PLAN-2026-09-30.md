@@ -6,6 +6,8 @@ Inspected references: T3 Code `ff1db030…`, Signal Desktop `abe80d32…`, Zulip
 
 ## 1. Preserve optimizations already present
 
+The [fresh full recheck at `6a95898`](research/2026-09-30/main-recheck.md) reran automated checks and found additional lifecycle/correctness boundaries. Preserve merged OPT-05/10/12 and their historical measurements; prioritize the [RECHECK tasks](UPDATE-PLAN-2026-09-30.md#13-confirmed-follow-ups-from-the-full-recheck) before an optimization changes storage, retention, read semantics or recovery. No comparative performance benchmark was repeated in that recheck.
+
 | Existing mechanism                                                                   | Current boundary                                                       | Further question                                                                                       |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Timeline and thread windows of 300 messages                                          | Loaded history is bounded; old/new windows remain pageable             | Does rendering all loaded rows waste work? How much do retained text/metadata and decoded pixels cost? |

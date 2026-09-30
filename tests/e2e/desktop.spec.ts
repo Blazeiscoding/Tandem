@@ -435,6 +435,7 @@ test("restarting offers to host the last workspace again instead of reconnecting
 
 test("a workspace chosen to start with Gatherline starts when it opens, and at sign-in waits in the tray", async () => {
   const data = mkdtempSync(join(tmpdir(), "slackoss-desktop-launch-"));
+  const scheduledBackups = mkdtempSync(join(tmpdir(), "slackoss-desktop-scheduled-"));
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
   const env = {
     ...inherited,
@@ -497,7 +498,6 @@ test("a workspace chosen to start with Gatherline starts when it opens, and at s
 
     // Backed up by itself into a folder the system asked for: the first
     // backup is made at once.
-    const scheduledBackups = mkdtempSync(join(tmpdir(), "slackoss-desktop-scheduled-"));
     await app.evaluate(({ dialog }, chosen) => {
       dialog.showOpenDialog = (async () => ({
         canceled: false,
@@ -517,10 +517,27 @@ test("a workspace chosen to start with Gatherline starts when it opens, and at s
           ).length,
       )
       .toBe(1);
+    // The manifest appears before verification finishes. Wait for the host to
+    // record the completed scheduled backup, not merely its staged files.
+    await expect
+      .poll(() =>
+        page.evaluate(async (folder) => {
+          const listed = await (window as any).slackoss.hostingList();
+          return listed.workspaces.find(
+            (workspace: { folder: string }) => workspace.folder === folder,
+          );
+        }, hosted.folder),
+      )
+      .toMatchObject({
+        lastBackupAt: expect.any(Number),
+        autoBackup: { lastAt: expect.any(Number) },
+        autoBackupError: null,
+      });
     await expect(automatic).toContainText(
       "Launch Test is backed up every day, keeping the newest 7",
     );
-    rmSync(scheduledBackups, { recursive: true, force: true });
+    // Keep an enabled backup destination present until the app has quit;
+    // verification, pruning and later launches may still need the folder.
 
     // Waking from sleep announces the workspace again, and it keeps answering
     // and can still be found on the network, here by this app's own browser.
@@ -561,10 +578,12 @@ test("a workspace chosen to start with Gatherline starts when it opens, and at s
     } catch {
       // Already quit: the directory removes below regardless.
     }
-    try {
-      rmSync(data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-    } catch {
-      // A profile still held open must not hide why the test failed.
+    for (const directory of [data, scheduledBackups]) {
+      try {
+        rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } catch {
+        // A fixture still held open must not hide why the test failed.
+      }
     }
   }
 });

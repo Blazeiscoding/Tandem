@@ -1,6 +1,6 @@
 # Gatherline: complete update and optimization plan
 
-**30 September 2026 · audited `origin/main` at `7d91fd3` · implementation status: proposed unless explicitly marked merged.**
+**30 September 2026 · latest full recheck: `origin/main` at `6a95898` · original research baseline: `7d91fd3` · implementation status: proposed unless explicitly marked implemented/merged.**
 
 This is the current work queue for Codex or Claude. It combines a new source inspection, controlled reproductions, dependency audits, and research into T3 Code and other chat repositories. It supersedes the execution order and open/closed labels in the older September plans. Keep their dated measurements and implementation history. The [optimization plan](OPTIMIZATION-PLAN-2026-09-30.md) contains the performance experiments; the [research record](research/2026-09-30/research-and-code-evidence.md) explains evidence and sources.
 
@@ -33,7 +33,7 @@ Eight of the eleven FIX tickets were merged on 30 September, one PR per ticket, 
 | Ticket | PR               | What changed                                                                                                                 | Measured result                                                                                                                                | Still open                                                                                                            |
 | ------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | FIX-05 | #151 (`3c2c643`) | Temp-table purge, 5,000-message passes, 30 s yielding sweep, caught timer steps, `retentionStatus()`                         | 1 root + 33,000 replies: old code `too many SQL variables`; now purged in one pass                                                             | Status is on the server handle only (OPS-10 surfaces it); loop delay and WAL growth under load not measured           |
-| FIX-06 | #152 (`e71b24a`) | Current copy never pruned; ranked by schema then time; only restorable copies of this workspace count                        | Three 2040-named copies: old code deleted the reported copy; now it exists at the old schema                                                   | Restore drill with the older binary (OPS-05)                                                                          |
+| FIX-06 | #152 (`e71b24a`) | Current copy never pruned; ranked by schema then time; schema/identity-screened copies count (RECHECK-07 adds integrity)     | Three 2040-named copies: old code deleted the reported copy; now it exists at the old schema                                                   | Restore drill with the older binary (OPS-05)                                                                          |
 | FIX-11 | #153 (`73b1a71`) | OS-level SQLite lock on `workspace.lock`, owner note, refusal error; restore, recovery and desktop rename hold it            | Second server refused (same path, symlink, `..` spelling); of three started at once, one runs; holder killed with SIGKILL, next start succeeds | Network filesystems; restore lets go just before its rename (Windows cannot rename an open folder), until OPS-03      |
 | FIX-04 | #154 (`f162235`) | Launch error names its part and workspace; shown while running with Try again and Dismiss; sign-in window and tray attention | Controller and dialog tests; an unrelated change no longer clears it                                                                           | Installed Windows sign-in not rehearsed; retry is fenced to the workspace folder, not to one run                      |
 | FIX-09 | #155 (`77c01e1`) | `hostWithPort()`, bare IPv6 in `normalizeServerUrl`, link-local skipped, instance id in mDNS and hosting status              | `2001:db8::7` listed as `[2001:db8::7]:8543` and opened; another computer on 8543 no longer "hosted here"                                      | No IPv6-only or dual-stack network exercised; IPv6 listening is not claimed                                           |
@@ -42,6 +42,10 @@ Eight of the eleven FIX tickets were merged on 30 September, one PR per ticket, 
 | FIX-10 | #158 (`a3bf98a`) | In-range lockfile updates of fast-uri, brace-expansion, undici                                                               | Production audit 6 high + 4 moderate → 0; full audit 13 high → 0 ([summary](research/2026-09-30/dependency-audit-after-fix-10.json))           | esbuild via tsup and vitest 3 need majors (build/test only); runtime Undici in Node/Electron; review policy and owner |
 
 Then OPT-10 merged in #160 (`2fd31c0`), FIX-07 in #161 (`4dc57c2`), FIX-01 in #162 (`a0e6c0b`) and FIX-08 in #163 (`7d6272d`), so every FIX ticket is merged; sub-items left unticked below are still open.
+
+### Fresh full recheck after #166
+
+The [current-main recheck](research/2026-09-30/main-recheck.md) records source coverage, fresh verification and twelve confirmed adjacent findings at `6a95898`. The original FIX closures remain historical facts. Their new initialization, long-staleness, recovery, ordering and broadcast-unread boundaries are separate RECHECK tasks in [section 13](#13-confirmed-follow-ups-from-the-full-recheck). The malformed unauthenticated WebSocket upgrade crash is implemented in this recheck with a separate-process regression; the other reproduced findings remain open. Follow [validation](VALIDATION.md) for final candidate results and platform limits.
 
 Validation of the merged result, on the head of #158 (which held all eight), Linux container, Node 24.21.0: `pnpm build` 3/3 and `pnpm typecheck` 8/8; unit and integration 1,236 tests (server 467, client-core 94, UI 477, protocol 26, desktop 172); entry bundles 466.9 kB (web) and 468.3 kB (desktop renderer) of 500 kB. Chromium E2E 18/18 passed against that build, using the container's preinstalled Chromium (build 1194) because its Playwright 1.63 expects build 1243. The packaged Windows suite was not run: this container is Linux.
 
@@ -62,10 +66,10 @@ For each unchecked parent ticket, create an implementation branch from fresh `or
 
 **Status:** merged in #162 (`a0e6c0b`). Contract:
 
-- **Stored shape.** `{ outbox: 2, entries, removed }` (`packages/client-core/src/outbox.ts`). Each entry carries a revision (wall-clock microseconds, always past the last one seen). A tombstone is final: a nonce delivered or discarded is never stored again, whoever writes it. Between two versions of one send the newer revision wins, so a refusal cannot be undone by a window that has not seen it; the author's Retry is a newer version. The newest 500 tombstones are kept. The list earlier versions wrote reads as entries at revision 0.
+- **Stored shape.** `{ outbox: 2, entries, removed }` (`packages/client-core/src/outbox.ts`). Each entry carries a revision (wall-clock microseconds, always past the last one seen). A retained tombstone refuses any later write of its delivered/discarded nonce. Between two versions of one send the newer revision wins, so a refusal cannot be undone by a window that has not seen it; the author's Retry is a newer version. Only the newest 500 tombstones are kept: permanence beyond their eviction is not established (RECHECK-06). The list earlier versions wrote reads as entries at revision 0.
 - **Writes.** A window writes only its own sends (at the revision it last wrote or took on) and the removals it saw, never a list read earlier. Desktop merges in the main process, in the settings queue every read and write takes, and tells the other windows (`storage:mergeOutbox`, `storage:outboxChanged`). The browser reads, merges and writes localStorage with nothing awaited in between; because each browser process keeps its own copy of localStorage, every tab also watches the `storage` event and writes its sends again when another tab's write left them out, at most three times in a row. No secure-context API is used, so plain-HTTP LAN addresses behave as HTTPS does; Web Locks would not order those copies anyway. A platform without the merge falls back to one read-and-write in its own queue.
 - **Taking on other windows' changes.** A send another window stored as gone is dropped here; a refusal another window stored stops the send here (`adoptRefusal`) until the author's Retry, and a network failure in this window afterwards does not clear it. Another window's new sends are not adopted: each window sends its own, and the next start sends them all.
-- **Durable acceptance.** A send is kept once the outbox write carrying it resolves. Until then its words stay in the saved draft: drafts are written only after the outbox write before them succeeded, so a process that dies in between comes back with the words in the composer, and a failed outbox write keeps them there, shows the saving banner, and writes both on Retry.
+- **Durable acceptance.** A send is kept once the outbox write carrying it resolves. An already persisted draft is protected until then: drafts are written only after the outbox write before them succeeded. A failed outbox write shows the saving banner and allows Retry. This does not establish a saved fallback for words typed and sent before the draft timer; RECHECK-03 covers that separate failure boundary.
 
 Reproduced first, each failing before and passing after: two tabs accepting a send at the same moment (the first was lost); another tab's stale write landing after this one's (the send was not put back); a refusal and a delivery written by another tab (this tab kept sending); discard in one window, then an unrelated send and a page-hide flush in the other (the discarded send came back and was sent after restart); a refusal stored by one window, then a write from a window restored before it (the refusal was cleared and restart sent it); the draft cleared on disk before the send was stored, and after the outbox write failed. Desktop: two windows reading and writing the settings file themselves lose one send; merged in the main process both stay. Client: an adopted refusal is not undone by this window's own network failure, and is not sent after uploads finish.
 
@@ -75,15 +79,17 @@ Reproduced first, each failing before and passing after: two tabs accepting a se
   - [x] Define the exact durable-acceptance point. Preserve composer input or show a recoverable pending save if durable storage fails or the process dies during a write.
   - [ ] Reproduce simultaneous accept, discard versus unrelated send/flush, refusal versus stale retry, quota failure, restart and logout. Preserve server nonce idempotency and account isolation. All but logout are covered; re-delivery keeps its nonce and restore still takes only this account's sends, but logout itself was not exercised.
 
-Limits: a browser tab killed in the moment between its write and another tab's overlapping stale write can lose that change, since the repair needs the tab alive to hear the event (desktop has no such gap). The cross-process localStorage race is simulated with a `storage` event in jsdom, not run in two real browser processes. A send discarded in one window while another is retrying it is taken out of storage; that window's request already on the wire can still post it. Entry bundles grew 4.1 kB (web 471.0 kB, desktop renderer 472.5 kB).
+Limits: a browser tab killed in the moment between its write and another tab's overlapping stale write can lose that change, since the repair needs the tab alive to hear the event. Desktop existing-key merges have a shared queue, but first-read initialization bypasses that merge and can overwrite an acknowledged send (RECHECK-02). The cross-process localStorage race is simulated with a `storage` event in jsdom, not run in two real browser processes. A send discarded in one window while another is retrying it is taken out of storage; that window's request already on the wire can still post it. A newly typed draft sent before its first save has no persisted fallback if the outbox save fails (RECHECK-03); other drafts still overwrite across windows (RECHECK-04). Entry bundles grew 4.1 kB (web 471.0 kB, desktop renderer 472.5 kB) in the original implementation run.
 
-**Done:** both concurrent sends survive restart; delivered/discarded entries cannot reappear; a stored refusal cannot be cleared or automatically retried by a stale window without explicit author Retry. Failure leaves recoverable input and an actionable state. This requires storage and client behavior, not only a new test.
+**Completion target:** both concurrent sends survive restart across initialization as well as ordinary merges; delivered/discarded entries cannot reappear within a declared supported staleness contract; a stored refusal cannot be cleared or automatically retried by a stale window without explicit author Retry. Failed saves preserve current input and an actionable state. #162 closed its original reproductions; RECHECK-02/03/06 cover the newly confirmed boundaries.
 
 ### FIX-02 · P1 · Guard older optimistic failures outside thread state
 
 **Evidence:** `WorkspaceClient.setChannelPrefs` rolls back unconditionally. Controlled sequence: `mentions → all` pending, then `nothing` succeeds, then first request fails; UI returns to `mentions`. #148 guards thread operations only.
 
 **Status:** merged in #156 (`956b6d2`). Channel preferences keep one request per channel in flight, so the server applies them in the order they were made, with later choices merged and sent next. The server's last word (snapshot, echo, answer) is kept apart from choices still being saved; a refusal that no later choice replaced shows what the server has and keeps the choice for Try again in Channel details. Do Not Disturb, pins and saves reproduced the same failure and now undo a refusal only while it is the latest. Appearance is device-local and has no request to race.
+
+The fresh real-server probe still reorders successful DND/pin/save requests, and two failed pin/save requests roll back to an optimistic intermediate value. These distinct cases are RECHECK-05; retain the merged older-failure protection and serialized channel preferences.
 
 - [x] Give channel preference mutations an operation/revision boundary and reconcile server echoes.
   - [x] Preserve a later successful choice or authoritative event when an earlier request fails.
@@ -141,13 +147,15 @@ Limits: a browser tab killed in the moment between its write and another tab's o
 
 **Status:** merged in #152 (`e71b24a`). The copy an upgrade has just taken is never a pruning candidate. Other copies rank by the schema they came from, then the time in their name, so a clock set wrong only decides between copies of one schema. Only copies that open at the schema their name records, as this workspace, count towards the three kept; others are left for a person. A copy that cannot be removed is logged instead of failing the upgrade, and a missing new copy refuses the upgrade.
 
+These are metadata checks, not full integrity verification. RECHECK-07 keeps the protected-copy repair closed and adds a reproduced case where corrupt history candidates displace a valid older rollback point.
+
 - [x] Always protect the copy made for the current upgrade.
-  - [x] Count only acceptable recovery candidates; define schema/identity/integrity checks for this copy format.
+  - [x] Check candidate schema/identity and preserve the current copy. Integrity qualification is not complete: RECHECK-07 reproduces corrupt history candidates displacing a valid older copy.
   - [x] Handle future timestamps, malformed copies and clock rollback without losing the last valid rollback point.
   - [x] Avoid reporting a path that no longer exists; surface pruning failure separately from successful protected backup.
   - [ ] Verify actual old-schema upgrade and recoverability with the reported copy.
 
-**Done:** every successful upgrade retains its verified pre-upgrade copy. #126's desktop fix remains closed; this repairs a different retention path.
+**Completion:** every successful upgrade retains its protected pre-upgrade copy; integrity qualification and older-binary recovery are RECHECK-07/OPS-05. #126's desktop fix remains closed; this repairs a different retention path.
 
 ### FIX-07 · P1 · Decide and enforce the lifetime of old text in pending integration deliveries
 
@@ -190,7 +198,7 @@ Reproduced first, each failing before and passing after: Activity and the mentio
   - [x] Recommended design: a thread-only reply is read through its thread; channel-copied replies may also be read in the channel. Keep unread, subscription, personal completion and shared resolution independent. Following an untouched thread still starts it caught up, which reads its replies; making follow leave read state alone changes a deliberate earlier choice and is left open.
   - [x] Plan a versioned upgrade that seeds historical thread read state from prior channel cursors where needed, so old mentions do not reappear unexpectedly.
   - [x] Use the same rule for server counts, client Activity, Threads, badges, notification decisions and resync. Notification decisions do not read the cursor; resync carries the floors and every thread row.
-  - [ ] Verify mark-unread survives an advanced channel cursor, multi-device reads, old clients and reconnect. The first, multi-device thread updates and reconnect are covered; old clients were not run.
+  - [ ] Verify mark-unread survives an advanced channel cursor, multi-device reads, old clients and reconnect. Quiet-reply cursor separation, multi-device thread updates and reconnect are covered; old clients were not run. Broadcast reply explicit-unread is still defeated by the advanced channel cursor: RECHECK-12.
 
 Limits: an explicit thread mark-unread made before the upgrade, under a channel cursor that later passed it, reads as read afterwards, as Activity already showed it. Mention counts cost more where many replies sit unread past the floor, since the channel cursor no longer rules them out: 57 ms against 42 ms for one account over 200,000 messages in one channel, with 1,863 unread thread mentions under the new rule against 554 under the old. OPT-12 then read counts from a mentions index (schema v31), which brought one account's count to about 1 ms at that size.
 
@@ -588,7 +596,7 @@ These are design/research packages, not implicit commitments. Native mobile, an 
 
 ## 11. Recommended next slices and parallel ownership
 
-1. **Integrity/recovery track:** preserve the FIX implementations merged in #151–#163 and address their unticked empirical/lifecycle limits. Continue OPS-01–05/10 and the documented dependency-major upgrades; closed reproductions are not new implementation tickets.
+1. **Integrity/recovery track:** finish/publish RECHECK-01's implemented upgrade guard; prioritize RECHECK-02/03/07/08/10/11, then the other section 13 findings. Preserve the original FIX closures and merged OPT work. Continue OPS-01–05/10 and dependency-major upgrades; newly reproduced boundaries have their own completion criteria.
 2. **Small user-visible track:** select a remaining CALL-01 or UX-04/06 slice with concrete failure/completion behavior. FIX-02/03/04/09 are merged; their actual device/platform limits remain separate checks. Coordinate OPS-02 with its current owner.
 3. **Performance track:** retain merged OPT-10/05 and OPT-12's mention work, run current OPT-01/browser/mixed-workload traces, then choose a remaining query/hydration/maintenance/render/media bottleneck. Keep CPU, memory, cold start, write cost and access correctness together.
 4. **Product contract track:** use #163's agreed read semantics for a narrow UX-01; parallel OPS-02/06 and CALL-01. Promote real-phone/push, moderation/guests or migration according to the selected group.
@@ -618,3 +626,140 @@ Codex and Claude can own separate domains, but one owner must hold each contract
 | Roadmap E1a/E1b/E2–5/E7–8, X01–07      | SEC-01/02, UX-06/11, CALL-03, conditional identity/federation/organization breadth                  |
 
 This coverage is an inspected inventory, not a proof that every possible defect or useful feature has been discovered. Keep findings, rejected optimization experiments and new participant evidence in the plan as work continues.
+
+## 13. Confirmed follow-ups from the full recheck
+
+Evidence, recipes, baseline and limits: [full recheck at `6a95898`](research/2026-09-30/main-recheck.md). These are newly reproduced boundaries, not reopened original FIX reproductions. Each item needs a small reviewable behavior change, a meaningful regression and its lifecycle checks. Suggested parallel ownership: one client/storage owner for RECHECK-02–06; one server/read/maintenance owner for RECHECK-07–09/12; one recovery owner for RECHECK-10/11. Codex or Claude can take a domain; coordinate nonce/staleness and read contracts before parallel migrations.
+
+### RECHECK-01 · P1 · Refuse malformed upgrades without ending the process
+
+**Status:** implemented in [PR #167](https://github.com/Blazeiscoding/SlackOSS/pull/167), tested product candidate `60b097d`. An unauthenticated malformed absolute-form target caused a real child server to exit 1 with `ERR_INVALID_URL`.
+
+- [x] Catch request-target parsing at the raw upgrade boundary; close only that connection.
+  - [x] Preserve path/query handling, limiter admission and authenticated hello behavior.
+  - [x] Add a separate-process regression for malformed targets, continued HTTP health and a subsequent valid authenticated WebSocket.
+  - [x] Verify original source fails and guarded source passes; run adjacent server/network-trust checks.
+
+**Completion:** malformed input cannot terminate the listener; subsequent HTTP/socket use remains healthy. Final validation/publication are recorded separately.
+
+### RECHECK-02 · P1 · Make outbox initialization part of the shared transaction
+
+**Evidence:** B reads an absent key; A initializes and durably merges a send; B resumes and replaces it with an empty envelope. Actual desktop storage/helpers reproduce it.
+
+- [ ] Add atomic read/migrate/create-if-absent under the same boundary as outbox writes.
+  - [ ] Recheck the target inside the transaction; merge legacy entries instead of replacing a newer target.
+  - [ ] Publish committed initialization changes; retain account/workspace/trusted-address isolation.
+  - [ ] Cover absent/legacy keys, simultaneous startup and an acknowledged writer closing normally.
+  - [ ] Verify desktop IPC and plain-HTTP browser storage, interrupted migration and refusal/deletion preservation.
+
+**Completion:** first-read initialization cannot remove another context's acknowledged send. Preserve #162's existing-key merge.
+
+### RECHECK-03 · P1 · Preserve first unsaved input while send persistence is pending
+
+**Evidence:** first input sent before 600 ms; rejected outbox write; saved draft/outbox empty. Only pending memory and a warning retain text. No process death was executed.
+
+- [ ] Keep current composer words or a recovery copy until the send is durably acknowledged.
+  - [ ] Define pending/failure UI without calling an unpersisted send saved.
+  - [ ] Cover first input, rapid type/send, uploads, save failure, retry, logout and navigation.
+  - [ ] Verify interruption at actual persistence boundaries; avoid duplicate restored draft/send.
+
+**Completion:** failed first save retains usable current input; handoff clears it only with a declared recoverable owner. Protect already saved drafts.
+
+### RECHECK-04 · P1/P2 · Merge drafts per conversation across windows
+
+**Evidence:** two actual persistence components edit different conversations; disk retains only the second while both remain in memory.
+
+- [ ] Replace whole-object writes with atomic per-conversation put/delete changes.
+  - [ ] Define revision/tombstone handling and a visible same-conversation conflict policy.
+  - [ ] Propagate confirmed changes; prevent stale pagehide/unmount restoring cleared text.
+  - [ ] Verify different/same conversations, clear/send, reload, quota failure and account isolation on actual platform storage.
+
+**Completion:** unrelated drafts survive concurrent windows and restart; conflicts are intentional and recoverable. Coordinate RECHECK-02/03.
+
+### RECHECK-05 · P2 · Order DND/pin/save intent and use confirmed rollback state
+
+**Evidence:** reordered successful requests end opposite to latest intent; two failed pin/save requests leave UI true while server stays false. Actual client and authenticated loopback server.
+
+- [ ] Keep confirmed, in-flight and queued intent per account/message mutation.
+  - [ ] Serialize/coalesce requests or use server revisions; reconcile echoes without masking cross-device changes.
+  - [ ] Roll back to confirmed state when all attempts fail; retain actionable retry where appropriate.
+  - [ ] Cover reversed success, both failures, success/failure, echoes, reconnect, navigation and revocation for each operation.
+
+**Completion:** latest successful intent survives reordering; failures converge to confirmed state. Preserve #156's older-failure guards and channel preference serialization.
+
+### RECHECK-06 · P1/P2 contract · Define safe tombstone compaction and stale-window expiry
+
+**Evidence:** production merge revives nonce A after 500 newer removals evict its guard. No frozen browser-process reproduction.
+
+- [ ] Define supported stale-context horizon and terminal nonce contract jointly with RECHECK-08.
+  - [ ] Use a durable epoch/checkpoint or equivalent refusal rule before pruning deletion guards.
+  - [ ] Resynchronize old contexts without reviving removed sends or clearing refusals.
+  - [ ] Exercise more than 500 removals, paused contexts, author Retry, restart and long-offline recovery on actual platforms.
+
+**Completion:** compaction cannot revive terminal intent within the declared support contract. Increasing the cap alone does not prove permanence.
+
+### RECHECK-07 · P1 · Validate rollback candidates before pruning another copy
+
+**Evidence:** corrupt v30 history candidates displace a valid v29 copy. The newly protected current copy survives.
+
+- [ ] Require appropriate integrity and foreign-key/schema checks before counting a candidate.
+  - [ ] Keep invalid/ambiguous copies for inspection without displacing a verified copy.
+  - [ ] Measure large-copy validation; choose bounded/off-thread inspection and old-schema compatibility.
+  - [ ] Cover corrupt pages/intact metadata, mismatched identity/schema, clock skew and an actual older-binary restore.
+
+**Completion:** malformed history cannot displace a known valid rollback point. Preserve #152's current-copy protection; coordinate OPS-05.
+
+### RECHECK-08 · P1 contract · Keep terminal send identity across retention
+
+**Evidence:** acknowledged post → hard purge → same nonce/text returns 201 with a new ID. Soft-delete control refuses with 409.
+
+- [ ] Define nonce retry lifetime relative to supported offline/outbox staleness.
+  - [ ] Retain bounded text-free terminal identity or visibly refuse expired retries; preserve account/channel scope.
+  - [ ] Do not retain deleted words/attachments just to remember terminal state.
+  - [ ] Cover lost response, acknowledged old send, hard purge, soft delete, restart and old outboxes past the chosen horizon.
+
+**Completion:** supported stale retry cannot silently recreate a retained-away message. This is not a concurrent duplicate-request reproduction.
+
+### RECHECK-09 · P2 · Refresh live state after retention without an event storm
+
+**Evidence:** real socket has mention count 1; purge produces authoritative count zero but no refresh frame.
+
+- [ ] Emit bounded maintenance invalidation or targeted count refresh.
+  - [ ] Reconcile timeline/thread/Activity caches and cursors with removed history.
+  - [ ] Preserve visibility/replay order; avoid one deletion event per purged message.
+  - [ ] Verify multiple readers, private/DM access, large sweeps, reconnect and repeated passes.
+
+**Completion:** connected views/counts converge within a declared work budget. Preserve #151's set-based retention and #161's queued-content redaction.
+
+### RECHECK-10 · P1 recovery · Release ownership on pre-staging restore failure
+
+**Evidence:** staging ENOSPC leaks exported API ownership. Actual desktop worker releases on exit, after the error reply.
+
+- [ ] Protect cleanup immediately after acquiring the hold, including failures before staging exists.
+  - [ ] Complete cleanup before reporting retryable failure or accepting the next restore.
+  - [ ] Inject ENOSPC/EACCES; verify original bytes, hold reacquisition and subsequent restore.
+  - [ ] Verify actual worker boundary; keep interrupted-swap journaling/cancellation under OPS-03 separate.
+
+**Completion:** pre-swap refusal preserves the workspace and releases operation ownership. Do not call the worker's short reply-before-exit window a permanent desktop lock.
+
+### RECHECK-11 · P1 recovery · Make production drain retry safe and truthful
+
+**Evidence:** injected gateway-close rejection; second stop returns the same rejected promise with workspace still held. Desktop presents Retry; its test uses a one-time-rejecting mock.
+
+- [ ] Track completed stages and safely resume unfinished work, or expose a truthful nonretryable state.
+  - [ ] Keep ownership while remaining handlers/database users can operate.
+  - [ ] Inject gateway, HTTP drain, delivery/deletion drain and database-close failures.
+  - [ ] Verify actual controller→production retry, then deadlines/cancellation and forced-exit recovery under OPS-04.
+
+**Completion:** advertised recovery makes progress without reopening a closed database or repeating unsafe stages. Clearing a cached promise alone is insufficient.
+
+### RECHECK-12 · P2 contract · Make explicit unread precedence consistent for broadcast replies
+
+**Evidence:** channel-read broadcast → thread/unread returns 200 with cursor behind newest, but counts, Activity and followed unread-only still report read.
+
+- [ ] Decide explicit thread-unread/channel precedence and document later read behavior.
+  - [ ] Implement chosen cursor/override rule in server predicates/counts and client `isMessageRead` together.
+  - [ ] Preserve quiet-reply separation; avoid badge-only repairs.
+  - [ ] Cover both channel↔thread unread directions, later reads, broadcast changes, reconnect, multiple devices and older clients.
+
+**Completion:** an accepted unread action has its documented effect on every surface. Preserve #163's ordinary quiet-reply/broadcast read rule.
