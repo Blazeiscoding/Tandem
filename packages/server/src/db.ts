@@ -608,9 +608,10 @@ const UPGRADE_COPY_NAME = /^workspace-v(\d+)-before-v(\d+)-(.+)\.db$/;
  * taken is never a candidate, wherever its time sorts.
  *
  * Only copies that could be restored count towards the few kept: one that does
- * not open, holds a different schema from the one its name says, or belongs to
- * another workspace is left where it is for a person to look at, and does not
- * push out a copy that works. Files outside the naming format are not ours.
+ * not open, holds a different schema from the one its name says, belongs to
+ * another workspace, or whose pages do not hold together is left where it is
+ * for a person to look at, and does not push out a copy that works. Files
+ * outside the naming format are not ours.
  */
 function pruneUpgradeCopies(
   db: DatabaseSync,
@@ -653,7 +654,10 @@ function metaValue(db: DatabaseSync, key: string): string | null {
   }
 }
 
-/** Whether a managed copy opens, at the schema its name records, as this workspace. */
+/**
+ * Whether a managed copy opens, at the schema its name records, as this
+ * workspace, with pages that pass SQLite's quick check.
+ */
 function isRestorableCopy(path: string, from: number, workspaceId: string | null): boolean {
   let copy: DatabaseSync | undefined;
   try {
@@ -669,7 +673,14 @@ function isRestorableCopy(path: string, from: number, workspaceId: string | null
     const copyId = metaValue(copy, "workspace_id");
     // A copy from before the workspace had an id, or of one that still has
     // none, cannot be told apart and is taken to be this one.
-    return workspaceId === null || copyId === null || copyId === workspaceId;
+    if (workspaceId !== null && copyId !== null && copyId !== workspaceId) return false;
+    // Its pages hold together. Header and schema can read perfectly well over
+    // history a failing disk has lost, and such a copy must not push out one
+    // that can still be restored. quick_check walks every page but not every
+    // index entry; foreign keys are not checked, since a workspace can hold
+    // rows from before they were enforced and its copies would all fail.
+    const check = copy.prepare("PRAGMA quick_check").all() as { quick_check: string }[];
+    return check.length === 1 && check[0]!.quick_check === "ok";
   } catch {
     return false;
   } finally {

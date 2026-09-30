@@ -710,10 +710,16 @@ Reproduced first, each failing before and passing after: words sent before their
 
 **Evidence:** corrupt v30 history candidates displace a valid v29 copy. The newly protected current copy survives.
 
-- [ ] Require appropriate integrity and foreign-key/schema checks before counting a candidate.
-  - [ ] Keep invalid/ambiguous copies for inspection without displacing a verified copy.
-  - [ ] Measure large-copy validation; choose bounded/off-thread inspection and old-schema compatibility.
-  - [ ] Cover corrupt pages/intact metadata, mismatched identity/schema, clock skew and an actual older-binary restore.
+**Status:** implemented; see the PR after #169. A managed copy counts towards the few kept only if, after its schema and workspace identity match, `PRAGMA quick_check` returns exactly `ok`; one that fails is left where it is for inspection and pushes nothing out. #152's protection of the copy just taken is unchanged. `quick_check` walks every page but not every index entry. Foreign keys are not checked: a workspace can hold rows from before they were enforced, and every copy of it would then fail.
+
+Reproduced first: two copies at the live schema, with this workspace's id and their `messages` root page zeroed (header and schema intact, reading history throws `malformed`), beside a whole copy one schema older; upgrade. Before: the whole copy was pruned, both corrupt ones kept. After: the whole copy and the new one are kept, the corrupt ones left for inspection.
+
+Cost, measured on a 38.8 MiB copy holding 200,000 messages (Linux container, Node 24.21.0, SQLite from Node; 5 runs): `quick_check` p50 211 ms, `integrity_check` 489 ms, `foreign_key_check` 22 ms. An upgrade beside three such candidate copies took 931 ms, against 314 ms without the check. It runs once per upgrade, at start, on the thread opening the database.
+
+- [x] Require appropriate integrity and foreign-key/schema checks before counting a candidate. Integrity by `quick_check`, schema and identity as before; foreign keys deliberately not, as above.
+  - [x] Keep invalid/ambiguous copies for inspection without displacing a verified copy.
+  - [ ] Measure large-copy validation; choose bounded/off-thread inspection and old-schema compatibility. Measured above; `quick_check` reads any schema. It runs on the opening thread, not off it: bounding it is open, and a corrupt copy left for inspection is checked again at every later upgrade.
+  - [ ] Cover corrupt pages/intact metadata, mismatched identity/schema, clock skew and an actual older-binary restore. Corrupt pages, identity, schema and clock order are covered; an older-binary restore is OPS-05.
 
 **Completion:** malformed history cannot displace a known valid rollback point. Preserve #152's current-copy protection; coordinate OPS-05.
 
