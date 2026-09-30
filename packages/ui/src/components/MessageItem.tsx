@@ -4,6 +4,7 @@ import { browserLink } from "../lib/deeplink.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { formatFull, formatTime } from "../lib/format.js";
+import { useMessageReferences } from "../lib/messageReferences.js";
 import { Avatar } from "./Avatar.js";
 import { MessageAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
@@ -42,9 +43,11 @@ export const MessageItem = memo(function MessageItem({
 }: Props) {
   const client = useClient();
   const confirm = useConfirm();
-  const users = useWorkspace((s) => s.users);
-  const channels = useWorkspace((s) => s.channels);
-  const self = useWorkspace((s) => s.self);
+  // Only what this row shows, so a change to anyone or anything else does not
+  // render it again; your own role decides what you may do to it.
+  const { users, channels } = useMessageReferences(message);
+  const selfId = useWorkspace((s) => s.self?.id);
+  const selfRole = useWorkspace((s) => s.self?.role);
   const [editing, setEditing] = useState(false);
   const [picking, setPicking] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -54,9 +57,9 @@ export const MessageItem = memo(function MessageItem({
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
   const profileLabel = author ? `View ${author.displayName}'s profile` : "View profile";
-  const mine = message.userId === self?.id;
-  const canDelete = mine || self?.role === "owner" || self?.role === "admin";
-  const mentionsMe = self ? message.text.includes(`<@${self.id}>`) : false;
+  const mine = message.userId === selfId;
+  const canDelete = mine || selfRole === "owner" || selfRole === "admin";
+  const mentionsMe = selfId ? message.text.includes(`<@${selfId}>`) : false;
   const toast = useToast();
 
   /**
@@ -248,7 +251,7 @@ export const MessageItem = memo(function MessageItem({
                     text={message.text}
                     users={users}
                     channels={channels}
-                    selfId={self?.id}
+                    selfId={selfId}
                     onChannelClick={onChannelClick}
                   />
                   {message.editedAt && (
@@ -270,10 +273,10 @@ export const MessageItem = memo(function MessageItem({
           {message.reactions.length > 0 && (
             <div role="group" aria-label="Reactions" className="mt-1 flex flex-wrap gap-1">
               {message.reactions.map((g) => {
-                const reacted = self ? g.userIds.includes(self.id) : false;
+                const reacted = selfId ? g.userIds.includes(selfId) : false;
                 // "you" last, as people say it, and never your own name.
                 const others = g.userIds
-                  .filter((id) => id !== self?.id)
+                  .filter((id) => id !== selfId)
                   .map((id) => users[id]?.displayName ?? "someone");
                 const names = new Intl.ListFormat(undefined, { type: "conjunction" }).format(
                   reacted ? [...others, "you"] : others,
