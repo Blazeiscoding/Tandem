@@ -623,9 +623,28 @@ function NotificationSettings({ channelId }: { channelId: ID }) {
   // would be a new reference every render and spin the store subscription.
   const stored = useWorkspace((s) => s.prefs[channelId]);
   const prefs = stored ?? DEFAULT_PREFS;
+  const write = useWorkspace((s) => s.prefsWrites[channelId]);
 
   return (
     <div className="space-y-4">
+      {write?.failed ? (
+        <div role="alert" className="rounded-lg border border-alert/40 bg-alert/10 p-3 text-sm">
+          <p>
+            Your notification choice was not saved, so this shows what the workspace has.{" "}
+            <button
+              type="button"
+              onClick={() => client.retryChannelPrefs(channelId)}
+              className="font-medium text-copper underline"
+            >
+              Try again
+            </button>
+          </p>
+        </div>
+      ) : (
+        <p role="status" aria-live="polite" className="sr-only">
+          {write?.saving ? "Saving…" : ""}
+        </p>
+      )}
       <fieldset className="space-y-1.5" disabled={prefs.muted}>
         <legend className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
           Notify me about

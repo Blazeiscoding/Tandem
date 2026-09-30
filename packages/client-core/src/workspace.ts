@@ -235,8 +235,14 @@ export interface WorkspaceState {
   channels: Record<ID, Channel>;
   /** channelId -> my lastReadSeq (only channels I'm a member of). */
   memberships: Record<ID, number>;
-  /** channelId -> my notification settings for it. */
+  /** channelId -> my notification settings for it, including choices still being saved. */
   prefs: Record<ID, ChannelPrefs>;
+  /**
+   * channelId -> a notification choice not yet saved, or one the server
+   * refused. `failed` is what was chosen and not saved, kept so it can be
+   * tried again; `prefs` meanwhile shows what the server has.
+   */
+  prefsWrites: Record<ID, { saving: boolean; failed: Partial<ChannelPrefs> | null }>;
   /** channelId -> seq of the newest message in it. */
   channelLastSeq: Record<ID, number>;
   presence: Record<ID, Presence>;
@@ -278,6 +284,7 @@ const initialState: WorkspaceState = {
   channels: {},
   memberships: {},
   prefs: {},
+  prefsWrites: {},
   channelLastSeq: {},
   presence: {},
   typing: {},
@@ -604,6 +611,15 @@ export class WorkspaceClient {
       huddle: prev.huddle,
       typing: {},
     }));
+    // The snapshot is the server's word; choices still being saved go on top.
+    for (const [channelId, write] of this.prefsWrites) {
+      if (!prefs[channelId]) {
+        this.prefsWrites.delete(channelId);
+        continue;
+      }
+      write.confirmed = prefs[channelId];
+      this.publishPrefs(channelId);
+    }
     for (const id of [...this.reloadChannels]) {
       this.reloadChannels.delete(id);
       if (channels[id]) void this.loadTimeline(id).catch(() => {});
@@ -658,6 +674,8 @@ export class WorkspaceClient {
     const roots = new Set(state.timelines[channelId]?.items.map((m) => m.id) ?? []);
     for (const [id, page] of Object.entries(state.threadPages))
       if (page.channelId === channelId) roots.add(id);
+    // A choice for a channel this account can no longer see has nowhere to go.
+    this.prefsWrites.delete(channelId);
     for (const id of roots) {
       this.threadLoads.delete(id);
       this.threadRecency.delete(id);
@@ -681,6 +699,7 @@ export class WorkspaceClient {
       channels: without(state.channels),
       memberships: without(state.memberships),
       prefs: without(state.prefs),
+      prefsWrites: without(state.prefsWrites),
       timelines: without(state.timelines),
       channelLastSeq: without(state.channelLastSeq),
       typing: without(state.typing),
@@ -904,6 +923,13 @@ export class WorkspaceClient {
         if (event.userId === s.self?.id) {
           const { [event.channelId]: _gone, ...rest } = s.memberships;
           patch.memberships = rest;
+          // Notification settings belong to the membership, which a rejoin
+          // starts afresh, and a choice still being saved has nowhere to go.
+          const { [event.channelId]: _prefs, ...prefs } = s.prefs;
+          const { [event.channelId]: _write, ...prefsWrites } = s.prefsWrites;
+          patch.prefs = prefs;
+          patch.prefsWrites = prefsWrites;
+          this.prefsWrites.delete(event.channelId);
         }
         const ch = s.channels[event.channelId];
         if (ch?.memberIds) {
@@ -1000,18 +1026,27 @@ export class WorkspaceClient {
       }
       const memberships = { ...s.memberships };
       const prefs = { ...s.prefs };
+      const prefsWrites = { ...s.prefsWrites };
       if (event.membership) {
         memberships[event.channelId] = event.membership.lastReadSeq;
         prefs[event.channelId] = event.membership.prefs;
       } else {
         delete memberships[event.channelId];
         delete prefs[event.channelId];
+        delete prefsWrites[event.channelId];
+        this.prefsWrites.delete(event.channelId);
       }
       this.store.setState({
         channels: { ...s.channels, [event.channelId]: event.channel },
         memberships,
         prefs,
+        prefsWrites,
       });
+      const write = this.prefsWrites.get(event.channelId);
+      if (write && event.membership) {
+        write.confirmed = event.membership.prefs;
+        this.publishPrefs(event.channelId);
+      }
     } else if (event.type === "presence") {
       this.store.setState({ presence: { ...s.presence, [event.userId]: event.presence } });
     } else if (event.type === "huddle.participants") {
@@ -1042,7 +1077,15 @@ export class WorkspaceClient {
         },
       });
     } else if (event.type === "prefs") {
-      this.store.setState({ prefs: { ...s.prefs, [event.channelId]: event.prefs } });
+      const write = this.prefsWrites.get(event.channelId);
+      if (write) {
+        // What this or another device saved; a choice still being saved from
+        // here stays on top until its own answer comes back.
+        write.confirmed = event.prefs;
+        this.publishPrefs(event.channelId);
+      } else {
+        this.store.setState({ prefs: { ...s.prefs, [event.channelId]: event.prefs } });
+      }
     } else if (event.type === "saved") {
       const saved = { ...s.saved };
       if (event.saved) saved[event.messageId] = true;
@@ -1687,9 +1730,31 @@ export class WorkspaceClient {
     }
   }
 
+  /**
+   * The latest pin or save toggle per message. A refused toggle is undone
+   * only while it is still the latest: a later one decides by its own answer.
+   */
+  private messageToggles = new Map<string, number>();
+  private toggleTurns = 0;
+
+  /**
+   * Starts a toggle; the result says, once it is answered, whether it is still
+   * the latest, and forgets it if so, so the map holds only unanswered ones.
+   */
+  private takeToggleTurn(key: string): () => boolean {
+    const turn = ++this.toggleTurns;
+    this.messageToggles.set(key, turn);
+    return () => {
+      if (this.messageToggles.get(key) !== turn) return false;
+      this.messageToggles.delete(key);
+      return true;
+    };
+  }
+
   /** Optimistic pin toggle — the channel-wide event confirms it. */
   async togglePin(message: Message): Promise<boolean> {
     const next = !message.pinned;
+    const latest = this.takeToggleTurn(`pin:${message.id}`);
     const apply = (m: Message): Message => ({ ...m, pinned: next });
     this.store.setState((s) => ({
       timelines: this.patchMessage(s, message.channelId, message.id, apply),
@@ -1697,8 +1762,10 @@ export class WorkspaceClient {
     }));
     try {
       await (next ? this.api.pinMessage(message.id) : this.api.unpinMessage(message.id));
+      latest();
       return true;
     } catch {
+      if (!latest()) return false;
       const revert = (m: Message): Message => ({ ...m, pinned: !next });
       this.store.setState((s) => ({
         timelines: this.patchMessage(s, message.channelId, message.id, revert),
@@ -1715,6 +1782,7 @@ export class WorkspaceClient {
    */
   async toggleSaved(messageId: ID, save = !this.state.saved[messageId]): Promise<boolean> {
     const wasSaved = !!this.state.saved[messageId];
+    const latest = this.takeToggleTurn(`save:${messageId}`);
     const show = (on: boolean) =>
       this.store.setState((s) => {
         const saved = { ...s.saved };
@@ -1725,9 +1793,10 @@ export class WorkspaceClient {
     show(save);
     try {
       await (save ? this.api.saveMessage(messageId) : this.api.unsaveMessage(messageId));
+      latest();
       return true;
     } catch {
-      show(wasSaved);
+      if (latest()) show(wasSaved);
       return false;
     }
   }
@@ -1839,13 +1908,92 @@ export class WorkspaceClient {
     return seq;
   }
 
-  /** Optimistic notification-preference change for one channel. */
+  /**
+   * Notification choices per channel that the server has not answered yet.
+   * One request per channel is in flight at a time, so the server applies
+   * them in the order they were made; what is chosen meanwhile waits in
+   * `queued`, merged. `confirmed` is the server's last word, from the
+   * snapshot, an echo or an answer, and what is shown is it with the
+   * in-flight and queued choices on top.
+   */
+  private prefsWrites = new Map<
+    ID,
+    {
+      confirmed: ChannelPrefs;
+      inFlight: Partial<ChannelPrefs> | null;
+      queued: Partial<ChannelPrefs> | null;
+      failed: Partial<ChannelPrefs> | null;
+    }
+  >();
+
+  /**
+   * Shows a notification choice for one channel at once, then saves it. If
+   * the server refuses, the channel shows what the server has, and the
+   * choice is kept in `prefsWrites` to try again, unless a later choice has
+   * already replaced it: an earlier request failing never undoes a later one.
+   */
   setChannelPrefs(channelId: ID, patch: Partial<ChannelPrefs>): void {
-    const before = this.state.prefs[channelId] ?? { notifyLevel: "mentions", muted: false };
-    const next = { ...before, ...patch };
-    this.store.setState((s) => ({ prefs: { ...s.prefs, [channelId]: next } }));
-    void this.api.setChannelPrefs(channelId, patch).catch(() => {
-      this.store.setState((s) => ({ prefs: { ...s.prefs, [channelId]: before } }));
+    let write = this.prefsWrites.get(channelId);
+    if (!write) {
+      write = {
+        confirmed: this.state.prefs[channelId] ?? { notifyLevel: "mentions", muted: false },
+        inFlight: null,
+        queued: null,
+        failed: null,
+      };
+      this.prefsWrites.set(channelId, write);
+    }
+    write.queued = { ...write.queued, ...patch };
+    // A new choice about the same setting replaces the one that failed.
+    if (write.failed) write.failed = omitKeys(write.failed, Object.keys(patch));
+    if (!write.inFlight) this.sendPrefs(channelId);
+    else this.publishPrefs(channelId);
+  }
+
+  /** Tries again to save the notification choice for a channel that failed. */
+  retryChannelPrefs(channelId: ID): void {
+    const failed = this.prefsWrites.get(channelId)?.failed;
+    if (failed && Object.keys(failed).length > 0) this.setChannelPrefs(channelId, failed);
+  }
+
+  private sendPrefs(channelId: ID): void {
+    const write = this.prefsWrites.get(channelId);
+    if (!write?.queued) return;
+    const patch = write.queued;
+    write.queued = null;
+    write.inFlight = patch;
+    this.publishPrefs(channelId);
+    const settle = (answer: ChannelPrefs | null) => {
+      // Gone, or started over, while this was out: nothing here to settle.
+      if (this.prefsWrites.get(channelId) !== write) return;
+      write.inFlight = null;
+      if (answer) write.confirmed = answer;
+      else {
+        // What a later choice has replaced is no loss to report.
+        const lost = omitKeys(patch, Object.keys(write.queued ?? {}));
+        if (Object.keys(lost).length > 0) write.failed = { ...write.failed, ...lost };
+      }
+      if (write.queued) this.sendPrefs(channelId);
+      else this.publishPrefs(channelId);
+    };
+    this.api.setChannelPrefs(channelId, patch).then(
+      ({ prefs }) => settle(prefs),
+      () => settle(null),
+    );
+  }
+
+  private publishPrefs(channelId: ID): void {
+    const write = this.prefsWrites.get(channelId);
+    if (!write) return;
+    const shown = { ...write.confirmed, ...write.inFlight, ...write.queued };
+    const saving = write.inFlight !== null || write.queued !== null;
+    const failed = write.failed && Object.keys(write.failed).length > 0 ? write.failed : null;
+    if (!saving && !failed) this.prefsWrites.delete(channelId);
+    this.store.setState((s) => {
+      const prefsWrites = { ...s.prefsWrites };
+      if (saving || failed) prefsWrites[channelId] = { saving, failed };
+      else delete prefsWrites[channelId];
+      return { prefs: { ...s.prefs, [channelId]: shown }, prefsWrites };
     });
   }
 
@@ -1854,13 +2002,38 @@ export class WorkspaceClient {
     this.snoozeNotificationsUntil(minutes === null ? null : Date.now() + minutes * 60_000);
   }
 
-  /** Pause notifications until an epoch ms time; null resumes them now. */
+  /**
+   * Do Not Disturb changes: how many were made, how many are unanswered, and
+   * the server's last answer, which is what a refused change goes back to.
+   */
+  private dnd = { writes: 0, pending: 0, confirmed: null as number | null };
+
+  /**
+   * Pause notifications until an epoch ms time; null resumes them now. If the
+   * server refuses, only the snooze goes back, to what the server last said,
+   * and only while no later change has replaced it; the rest of the profile
+   * is left as it now is.
+   */
   snoozeNotificationsUntil(dndUntil: number | null): void {
     const self = this.state.self;
-    if (self) this.store.setState({ self: { ...self, dndUntil } });
-    void this.api.updateMe({ dndUntil }).catch(() => {
-      if (self) this.store.setState({ self });
-    });
+    if (!self) return;
+    // With nothing unanswered, what is shown is what the server has.
+    if (this.dnd.pending === 0) this.dnd.confirmed = self.dndUntil;
+    const write = ++this.dnd.writes;
+    this.dnd.pending++;
+    this.store.setState({ self: { ...self, dndUntil } });
+    this.api.updateMe({ dndUntil }).then(
+      ({ user }) => {
+        this.dnd.pending--;
+        this.dnd.confirmed = user.dndUntil;
+      },
+      () => {
+        this.dnd.pending--;
+        const now = this.state.self;
+        if (write !== this.dnd.writes || !now || now.dndUntil !== dndUntil) return;
+        this.store.setState({ self: { ...now, dndUntil: this.dnd.confirmed } });
+      },
+    );
   }
 
   /** True while notifications are snoozed. */
@@ -2146,4 +2319,11 @@ export class WorkspaceClient {
     const read = s.memberships[channelId] ?? 0;
     return last > read;
   }
+}
+
+/** A copy of `values` without the given keys. */
+function omitKeys<T extends object>(values: T, keys: string[]): Partial<T> {
+  const out: Partial<T> = { ...values };
+  for (const key of keys) delete out[key as keyof T];
+  return out;
 }
