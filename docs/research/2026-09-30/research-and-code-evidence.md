@@ -4,6 +4,8 @@ This record supports the [current update plan](../../UPDATE-PLAN-2026-09-30.md) 
 
 ## Method and limits
 
+**Later full recheck:** [current main at `6a95898`](main-recheck.md) adds fresh executed suites, production-code probes and a malformed-upgrade fix. Its twelve RECHECK findings supplement this original `7d91fd3` research record; original FIX closures and historical comparative measurements remain separate.
+
 Three parallel source reviews covered client/UI/product, server/data/security and desktop/recovery/release. The root review checked plans, workflows, dependency/runtime versions, existing optimization bounds and pinned T3 Code source. Controlled probes used production helpers, in-memory test servers or isolated temporary fixtures; they did not touch a real workspace. Temporary probe code was not added to the production/test suite. No external application source was executed or installed. No participants were contacted.
 
 Code evidence can show a deterministic failure or missing mechanism. It cannot establish how often users experience it, comparative app performance, installed OS behavior, WAN/phone reliability or formal security/accessibility certification. Proposed features remain hypotheses until a complete user task demonstrates value. Existing dated research remains useful context: [product research](../../PRODUCT-RESEARCH-2026-09-25.md), [hosting models](../2026-09-26/hosting-models-and-positioning.md), and [state tables](../../STATE-TABLES-2026-09.md).
