@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./outbox": "./src/outbox.ts"
+    "./outbox": "./src/outbox.ts",
+    "./drafts": "./src/drafts.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

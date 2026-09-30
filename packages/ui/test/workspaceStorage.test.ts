@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { unwrapStoredOutbox, type StoredOutboxEntry } from "@slackoss/client-core";
+import {
+  unwrapStoredDrafts,
+  unwrapStoredOutbox,
+  type StoredOutboxEntry,
+} from "@slackoss/client-core";
 import type { Platform } from "../src/platform.js";
 import {
+  mergeWorkspaceDrafts,
   mergeWorkspaceOutbox,
+  readWorkspaceDrafts,
   readWorkspaceOutbox,
   readWorkspaceStorage,
   updateWorkspaceStorage,
@@ -252,5 +258,89 @@ describe("setting up the outbox while another window writes it", () => {
     );
     // Left where it was, for a later read to deal with.
     expect(values.get(key.key)).toEqual({ version: 1, value: "not an outbox" });
+  });
+});
+
+describe("setting up the drafts while another window writes them", () => {
+  const key = workspaceStorageKey(home, "W1", "U1", "drafts")!;
+  const stored = (values: Map<string, unknown>) =>
+    unwrapStoredDrafts(values.get(key.key) ?? null, true);
+
+  it("lost a draft another window stored after this one found the key empty, read as a whole value", async () => {
+    // How drafts were first read before: a whole value, recording absence by writing it.
+    const { values, window, pausedWindow } = sharedDevice();
+    const b = pausedWindow(key.key);
+    const reading = readWorkspaceStorage(b.platform, key);
+    await b.paused;
+    const a = window();
+    await readWorkspaceDrafts(a, key);
+    await mergeWorkspaceDrafts(a, key, () => ({ put: { C1: "typed in a" }, remove: [] }));
+    b.resume();
+    await reading;
+    expect(stored(values)).toEqual({});
+  });
+
+  it("keeps a draft another window stored after this one found the key empty", async () => {
+    const { values, window, pausedWindow } = sharedDevice();
+    const b = pausedWindow(key.key);
+    const reading = readWorkspaceDrafts(b.platform, key);
+    await b.paused;
+
+    const a = window();
+    await readWorkspaceDrafts(a, key);
+    await mergeWorkspaceDrafts(a, key, () => ({ put: { C1: "typed in a" }, remove: [] }));
+
+    b.resume();
+    expect(await reading).toEqual({ C1: "typed in a" });
+    expect(stored(values)).toEqual({ C1: "typed in a" });
+  });
+
+  it("brings an earlier version's drafts across without replacing one written since", async () => {
+    const legacyKey = `drafts:${home}:U1`;
+    const { values, window, pausedWindow } = sharedDevice({
+      [legacyKey]: { C1: "from before", C2: "only from before" },
+    });
+    const b = pausedWindow(key.key);
+    const reading = readWorkspaceDrafts(b.platform, key);
+    await b.paused;
+
+    // A brings them across, but cannot retire the old key, then edits one.
+    const a = window();
+    const set = a.storage.set;
+    a.storage.set = async (name, value) => {
+      if (name === legacyKey) throw new Error("storage refused");
+      return set(name, value);
+    };
+    await readWorkspaceDrafts(a, key);
+    await mergeWorkspaceDrafts(a, key, () => ({ put: { C1: "edited since" }, remove: [] }));
+
+    // B finds the old key still there, and brings across only what is missing.
+    b.resume();
+    expect(await reading).toEqual({ C1: "edited since", C2: "only from before" });
+    expect(stored(values)).toEqual({ C1: "edited since", C2: "only from before" });
+  });
+
+  it("records that there was nothing, and refuses a value that is not drafts", async () => {
+    const { values, window } = sharedDevice();
+    expect(await readWorkspaceDrafts(window(), key)).toEqual({});
+    expect(values.get(key.key)).toEqual({ version: 1, value: {} });
+    // A stale copy of the old key reappearing is not brought back.
+    values.set(`drafts:${home}:U1`, { C1: "cleared long ago" });
+    expect(await readWorkspaceDrafts(window(), key)).toEqual({});
+
+    values.set(key.key, { version: 1, value: ["not drafts"] });
+    await expect(readWorkspaceDrafts(window(), key)).rejects.toThrow(
+      "Could not read the saved drafts.",
+    );
+    expect(values.get(key.key)).toEqual({ version: 1, value: ["not drafts"] });
+  });
+
+  it("writes nothing when a window has changed nothing", async () => {
+    const { values, window } = sharedDevice();
+    const a = window();
+    await readWorkspaceDrafts(a, key);
+    values.delete(key.key);
+    expect(await mergeWorkspaceDrafts(a, key, () => ({ put: {}, remove: [] }))).toBeNull();
+    expect(values.has(key.key)).toBe(false);
   });
 });

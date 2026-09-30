@@ -1,4 +1,10 @@
-import { applyOutboxChanges, type OutboxChanges, type StoredOutbox } from "@slackoss/client-core";
+import {
+  applyDraftChanges,
+  applyOutboxChanges,
+  type DraftChanges,
+  type OutboxChanges,
+  type StoredOutbox,
+} from "@slackoss/client-core";
 import { parseDeepLink } from "./lib/deeplink.js";
 
 /** A workspace server found on the local network via mDNS. */
@@ -166,6 +172,14 @@ export interface Platform {
      * window changes it. Returns unsubscribe.
      */
     watchOutbox?: (key: string, cb: (stored: unknown) => void) => () => void;
+    /** As `mergeOutbox`, for the drafts under `key`: each changed draft alone. */
+    mergeDrafts?: (
+      key: string,
+      changes: DraftChanges,
+      enveloped: boolean,
+    ) => Promise<Record<string, string>>;
+    /** As `watchOutbox`, for a drafts key. */
+    watchDrafts?: (key: string, cb: (stored: unknown) => void) => () => void;
   };
   notify: (title: string, body: string, onClick?: () => void) => void;
   /** Hand a scoped download URL to the browser/OS; completion is managed there. */
@@ -268,6 +282,51 @@ export interface Platform {
 }
 
 /** Browser fallback platform — used by the web client and in dev. */
+/**
+ * Reads, changes and writes one key with nothing awaited in between, so no
+ * other script in this tab comes between. Another tab can, since each browser
+ * process keeps its own copy of localStorage and hears of writes a moment
+ * later; Web Locks would not order those copies, and plain-HTTP LAN addresses
+ * do not have them. What covers it: every window watches the key and writes
+ * its own changes again when another's write left them out.
+ */
+function mergeInLocalStorage<T>(
+  key: string,
+  apply: (stored: unknown) => { value: unknown; result: T },
+): T {
+  const name = `slackoss:${key}`;
+  const raw = localStorage.getItem(name);
+  let stored: unknown = null;
+  try {
+    stored = raw === null ? null : JSON.parse(raw);
+  } catch {
+    // Unreadable: replaced by the merge.
+  }
+  const { value, result } = apply(stored);
+  const next = JSON.stringify(value);
+  // Writing the same value again would only wake every other tab.
+  if (next !== raw) localStorage.setItem(name, next);
+  return result;
+}
+
+/** Calls back with what another tab stored under `key`, each time it does. */
+function watchLocalStorage(key: string, cb: (stored: unknown) => void): () => void {
+  const name = `slackoss:${key}`;
+  const onStorage = (event: StorageEvent) => {
+    if (event.storageArea !== localStorage || event.key !== name) return;
+    let stored: unknown = null;
+    try {
+      stored = event.newValue === null ? null : JSON.parse(event.newValue);
+    } catch {
+      // Left as text, which nothing reads as its value: the watcher writes its own again.
+      stored = event.newValue;
+    }
+    cb(stored);
+  };
+  window.addEventListener("storage", onStorage);
+  return () => window.removeEventListener("storage", onStorage);
+}
+
 export function webPlatform(): Platform {
   return {
     kind: "web",
@@ -295,43 +354,18 @@ export function webPlatform(): Platform {
       set: async (key, value) => {
         localStorage.setItem(`slackoss:${key}`, JSON.stringify(value));
       },
-      // Read, merged and written with nothing awaited in between, so no other
-      // script in this tab comes between. Another tab can, since each browser
-      // process keeps its own copy of localStorage and hears of writes a moment
-      // later; Web Locks would not order those copies, and plain-HTTP LAN
-      // addresses do not have them. What covers it: every window watches the
-      // key and writes its own changes again when another's write left them out.
-      mergeOutbox: async (key, changes, enveloped) => {
-        const name = `slackoss:${key}`;
-        const raw = localStorage.getItem(name);
-        let stored: unknown = null;
-        try {
-          stored = raw === null ? null : JSON.parse(raw);
-        } catch {
-          // Unreadable: replaced by the merge.
-        }
-        const { value, outbox } = applyOutboxChanges(stored, changes, enveloped);
-        const next = JSON.stringify(value);
-        // Writing the same value again would only wake every other tab.
-        if (next !== raw) localStorage.setItem(name, next);
-        return outbox;
-      },
-      watchOutbox: (key, cb) => {
-        const name = `slackoss:${key}`;
-        const onStorage = (event: StorageEvent) => {
-          if (event.storageArea !== localStorage || event.key !== name) return;
-          let stored: unknown = null;
-          try {
-            stored = event.newValue === null ? null : JSON.parse(event.newValue);
-          } catch {
-            // Left as text, which no outbox reads as: the watcher writes its own again.
-            stored = event.newValue;
-          }
-          cb(stored);
-        };
-        window.addEventListener("storage", onStorage);
-        return () => window.removeEventListener("storage", onStorage);
-      },
+      mergeOutbox: async (key, changes, enveloped) =>
+        mergeInLocalStorage(key, (stored) => {
+          const { value, outbox } = applyOutboxChanges(stored, changes, enveloped);
+          return { value, result: outbox };
+        }),
+      watchOutbox: watchLocalStorage,
+      mergeDrafts: async (key, changes, enveloped) =>
+        mergeInLocalStorage(key, (stored) => {
+          const { value, drafts } = applyDraftChanges(stored, changes, enveloped);
+          return { value, result: drafts };
+        }),
+      watchDrafts: watchLocalStorage,
     },
     notify: (title, body, onClick) => {
       if (typeof Notification === "undefined" || Notification.permission !== "granted") return;

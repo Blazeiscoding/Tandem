@@ -16,6 +16,14 @@ export {
   unwrapStoredOutbox,
 } from "./outbox.js";
 export type { OutboxChanges, StoredOutbox, StoredOutboxEntry } from "./outbox.js";
+export {
+  applyDraftChanges,
+  isDraftChanges,
+  mergeDrafts,
+  readStoredDrafts,
+  unwrapStoredDrafts,
+} from "./drafts.js";
+export type { DraftChanges } from "./drafts.js";
 export type { HuddlePeer, HuddleState } from "./huddle.js";
 export { OUTBOX_LIMIT, WorkspaceClient, isMessageRead, unreadThreadCount } from "./workspace.js";
 export type {

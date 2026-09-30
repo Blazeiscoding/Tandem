@@ -92,11 +92,14 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const dragDepth = useRef(0);
   /** True once the user has edited this conversation's draft in this session. */
   const edited = useRef(false);
+  /** The saved draft as this composer last wrote or took it; typing since is unsaved. */
+  const synced = useRef(savedDraft);
 
   // Switching conversations swaps in that conversation's draft and clears attachments.
   useEffect(() => {
     edited.current = false;
-    setText(client.state.drafts[draftKey] ?? "");
+    synced.current = client.state.drafts[draftKey] ?? "";
+    setText(synced.current);
     setAttached([]);
     setMentionQuery(null);
     setPreview(false);
@@ -162,10 +165,14 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     };
   }, [client, platform, scheduleStorageKey, draftKey, threadRootId, restoreAttempt]);
 
-  // Drafts load from disk asynchronously, so they can arrive after this mounts.
-  // Adopt them only while the composer is untouched, never over live typing.
+  // Drafts load from disk asynchronously, so they can arrive after this mounts,
+  // and another window can change or clear this conversation's draft. Either
+  // is taken on unless there is typing here not saved yet, never over it: that
+  // typing is saved in turn, and the later edit is the draft.
   useEffect(() => {
-    if (!edited.current && savedDraft) setText(savedDraft);
+    const untouched = !edited.current || typed.current.text === synced.current;
+    synced.current = savedDraft;
+    if (untouched) setText(savedDraft);
   }, [savedDraft]);
 
   // Persist as the user types. Guarded by `edited` so a freshly mounted empty

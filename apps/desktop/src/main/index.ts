@@ -24,11 +24,13 @@ import {
   type DiscoveryTxt,
 } from "@slackoss/protocol";
 import type { OutboxChanges } from "@slackoss/client-core/outbox";
+import type { DraftChanges } from "@slackoss/client-core/drafts";
 import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
 import { mergeOutboxSetting } from "./outboxStorage.js";
+import { mergeDraftsSetting } from "./draftsStorage.js";
 import { createHostingController } from "./hosting.js";
 import { loginItemOptions, loginItemProblem, openedAtLogin } from "./loginItem.js";
 import {
@@ -176,6 +178,19 @@ ipcMain.handle(
         win.webContents.send("storage:outboxChanged", key, value);
     }
     return outbox;
+  },
+);
+
+// Drafts likewise: each window's changed drafts, merged here one at a time.
+ipcMain.handle(
+  "storage:mergeDrafts",
+  async (event, key: string, changes: DraftChanges, enveloped: boolean) => {
+    const { value, drafts } = await mergeDraftsSetting(settings, key, changes, enveloped);
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
+        win.webContents.send("storage:draftsChanged", key, value);
+    }
+    return drafts;
   },
 );
 

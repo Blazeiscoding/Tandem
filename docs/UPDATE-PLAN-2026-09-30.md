@@ -677,10 +677,36 @@ Reproduced first, each failing before and passing after: words sent before their
 
 **Evidence:** two actual persistence components edit different conversations; disk retains only the second while both remain in memory.
 
-- [ ] Replace whole-object writes with atomic per-conversation put/delete changes.
-  - [ ] Define revision/tombstone handling and a visible same-conversation conflict policy.
-  - [ ] Propagate confirmed changes; prevent stale pagehide/unmount restoring cleared text.
-  - [ ] Verify different/same conversations, clear/send, reload, quota failure and account isolation on actual platform storage.
+**Status:** implemented; see the PR after #174. Drafts now merge the way the outbox does:
+
+- **The merge** (`packages/client-core/src/drafts.ts`). Each window writes only the drafts it changed, as puts and removals, merged in one step: in the desktop main process (`mergeDraftsSetting`, IPC `storage:mergeDrafts`, which tells every other window what is stored), and in the browser within one synchronous localStorage turn, heard through storage events. The stored shape is unchanged, so an older app still reads it.
+- **The first read** (`readWorkspaceDrafts`) records the key and brings an address-scoped key's drafts across by merging. It fills only conversations with no draft, so it can neither write an empty value over a draft another window just stored (RECHECK-02's race, for drafts) nor replace a newer draft.
+- **The conflict rule for one conversation:** the later write is the draft. A window takes on what another stored unless it has its own change to that draft not yet written; that change is then written, and wins as the later edit. So a cleared or sent draft is not put back by a window that still showed it: that window has no change of its own to write.
+- **The composer** takes on another window's change, clears included, unless it has typing not saved yet. It used to take on only while never edited, and never a clear. With per-draft merging, two windows editing one conversation would otherwise each write their own text back over the other's, forever.
+
+No revisions or tombstones: a draft has no identity beyond its conversation, and removals need no guard, since a window writes only what it changed.
+
+Reproduced first. `packages/ui/test/draftsAcrossWindows.dom.test.tsx` runs real `DraftPersistence` instances over a shared device, like the desktop main process, and over two browser tabs' localStorage. The old component fails seven of its eight persistence cases:
+
+- the plan's evidence: two windows, two conversations, one draft lost, on the desktop and in the browser;
+- a sent draft put back by a hidden window;
+- one conversation's later edit not reaching the other window;
+- an unsaved change not written after hearing another's;
+- a draft that failed to write is not written again on Retry (the old save never used the merge);
+- a tab not taking on another tab's change or clear.
+
+Account isolation passes either way. With two composers open on one conversation, the second shows what the first typed, and the first then shows the second's addition. After that neither writes again for two seconds, where the old composer rule keeps its own text. Other checks:
+
+- `workspaceStorage.test.ts`: the old whole-value first read loses a draft another window stored after this one found the key empty. The new one keeps it, brings earlier drafts across without replacing one written since, and writes nothing for no changes.
+- `apps/desktop/test/draftsStorage.test.ts`: two windows reading and writing all the drafts themselves lose one; merged in the main process, both are kept, and a clear holds against an unrelated write. Changes that are not drafts, and the saved sign-ins key, are refused.
+- The renderer bridge is covered too.
+
+- [x] Replace whole-object writes with atomic per-conversation put/delete changes.
+  - [x] Define revision/tombstone handling and a visible same-conversation conflict policy. The later write wins, and none is needed, as above. The policy is visible in each composer: it shows the other window's newer draft unless it has unsaved typing.
+  - [x] Propagate confirmed changes; prevent stale pagehide/unmount restoring cleared text.
+  - [ ] Verify different/same conversations, clear/send, reload, quota failure and account isolation on actual platform storage. Covered in jsdom, over the desktop's merge and the browser's localStorage. Not run: the packaged desktop app, or two real browser processes.
+    - Limit: two browser tabs saving in the same moment can still lose one tab's change, since each browser process keeps its own copy of localStorage; the desktop merges in one place. A tab that then hears the other's write takes it on for a draft it had already written.
+    - Limit: `MessageEditor` and the scheduled-message editor keep their rule of taking on a saved draft only while untouched. They write only on input, so they cannot write back and forth.
 
 **Completion:** unrelated drafts survive concurrent windows and restart; conflicts are intentional and recoverable. Coordinate RECHECK-02/03.
 
