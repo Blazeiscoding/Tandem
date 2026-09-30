@@ -860,61 +860,100 @@ export class Store {
    * hanging under nothing reads as a database that has gone wrong rather than
    * as a retention window doing its job.
    *
-   * `limit` is a ceiling on roots per call so the first sweep after someone
-   * turns this on does not hold the database for a minute. What it leaves
-   * behind is taken on the next round.
+   * One call removes at most `limits.messages` messages, counting replies as
+   * well as roots, so the first sweep after someone turns this on does not
+   * hold the database for a minute; what it leaves behind is taken on the next
+   * call. Counting roots alone was not a bound: one root can carry tens of
+   * thousands of replies. Roots are taken oldest first until the next thread
+   * would go over. A thread larger than the whole budget is still taken, whole
+   * and alone, because the alternatives are a root that never ages out or a
+   * thread that loses its middle while someone is reading it.
+   *
+   * The doomed ids go through a temporary table rather than bound parameters,
+   * so no thread is too large for SQLite's limit on those.
+   *
+   * Call inside a transaction: the rows, the files' rows, the queued blob
+   * deletions and the redacted log go together or not at all.
    */
-  purgeMessagesBefore(before: number, limit = 2000): { messageIds: ID[]; fileIds: ID[] } {
-    const roots = (
-      this.db
-        .prepare(
-          `SELECT id FROM messages m
-           WHERE m.thread_root_id IS NULL AND m.created_at < ?
-             AND NOT EXISTS (
-               SELECT 1 FROM messages r WHERE r.thread_root_id = m.id AND r.created_at >= ?
-             )
-           ORDER BY m.id LIMIT ?`,
-        )
-        .all(before, before, limit) as { id: string }[]
-    ).map((r) => r.id);
-    if (roots.length === 0) return { messageIds: [], fileIds: [] };
+  purgeMessagesBefore(
+    before: number,
+    limits: { roots?: number; messages?: number } = {},
+  ): { messages: number; fileIds: ID[] } {
+    const rootLimit = limits.roots ?? 2000;
+    const messageBudget = limits.messages ?? 5000;
+    const candidates = this.db
+      .prepare(
+        `SELECT m.id, (SELECT COUNT(*) FROM messages r WHERE r.thread_root_id = m.id) AS replies
+         FROM messages m
+         WHERE m.thread_root_id IS NULL AND m.created_at < ?
+           AND NOT EXISTS (
+             SELECT 1 FROM messages r WHERE r.thread_root_id = m.id AND r.created_at >= ?
+           )
+         ORDER BY m.id LIMIT ?`,
+      )
+      .all(before, before, rootLimit) as { id: string; replies: number }[];
+    if (candidates.length === 0) return { messages: 0, fileIds: [] };
 
-    const rootPlaceholders = roots.map(() => "?").join(",");
-    const replies = (
-      this.db
-        .prepare(`SELECT id FROM messages WHERE thread_root_id IN (${rootPlaceholders})`)
-        .all(...roots) as { id: string }[]
-    ).map((r) => r.id);
-    const messageIds = [...roots, ...replies];
-    const placeholders = messageIds.map(() => "?").join(",");
-
-    const fileIds = (
-      this.db
-        .prepare(`SELECT id FROM files WHERE message_id IN (${placeholders})`)
-        .all(...messageIds) as { id: string }[]
-    ).map((r) => r.id);
-
-    // Everything that points at a message, before the messages themselves:
-    // foreign keys are on, so a leftover reference would refuse the delete
-    // rather than quietly orphan.
-    for (const sql of [
-      `DELETE FROM reactions WHERE message_id IN (${placeholders})`,
-      `DELETE FROM pins WHERE message_id IN (${placeholders})`,
-      `DELETE FROM saved_items WHERE message_id IN (${placeholders})`,
-      `DELETE FROM message_requests WHERE message_id IN (${placeholders})`,
-      `DELETE FROM thread_follows WHERE root_id IN (${placeholders})`,
-      `DELETE FROM files WHERE message_id IN (${placeholders})`,
-      // Not a foreign key, but a scheduled row still naming a message that no
-      // longer exists would report a send that cannot be looked up.
-      `UPDATE scheduled_messages SET message_id = NULL WHERE message_id IN (${placeholders})`,
-      `DELETE FROM messages WHERE id IN (${placeholders})`,
-    ]) {
-      this.db.prepare(sql).run(...messageIds);
+    const roots: ID[] = [];
+    let messages = 0;
+    for (const candidate of candidates) {
+      const size = 1 + candidate.replies;
+      if (roots.length > 0 && messages + size > messageBudget) break;
+      roots.push(candidate.id);
+      messages += size;
     }
 
-    // The rows are gone; the log still holds what they said.
-    for (const id of messageIds) this.redactMessageEvents(id);
-    return { messageIds, fileIds };
+    this.db.exec("CREATE TEMP TABLE IF NOT EXISTS purge_messages (id TEXT PRIMARY KEY)");
+    this.db.exec("DELETE FROM temp.purge_messages");
+    try {
+      const addRoot = this.db.prepare("INSERT INTO temp.purge_messages (id) VALUES (?)");
+      for (const id of roots) addRoot.run(id);
+      this.db.exec(
+        `INSERT INTO temp.purge_messages (id)
+         SELECT id FROM messages WHERE thread_root_id IN (SELECT id FROM temp.purge_messages)`,
+      );
+      const doomed = "(SELECT id FROM temp.purge_messages)";
+
+      const fileIds = (
+        this.db.prepare(`SELECT id FROM files WHERE message_id IN ${doomed}`).all() as {
+          id: string;
+        }[]
+      ).map((r) => r.id);
+      // The log's copies, read before the rows go; redacted once they have.
+      const logged = this.db
+        .prepare(
+          `SELECT seq, payload FROM events
+           WHERE message_id IN ${doomed} AND type IN ('message.created', 'message.updated')`,
+        )
+        .all() as { seq: number; payload: string }[];
+
+      // Everything that points at a message, before the messages themselves:
+      // foreign keys are on, so a leftover reference would refuse the delete
+      // rather than quietly orphan.
+      for (const sql of [
+        `DELETE FROM reactions WHERE message_id IN ${doomed}`,
+        `DELETE FROM pins WHERE message_id IN ${doomed}`,
+        `DELETE FROM saved_items WHERE message_id IN ${doomed}`,
+        `DELETE FROM message_requests WHERE message_id IN ${doomed}`,
+        `DELETE FROM thread_follows WHERE root_id IN ${doomed}`,
+        `DELETE FROM files WHERE message_id IN ${doomed}`,
+        // Not a foreign key, but a scheduled row still naming a message that no
+        // longer exists would report a send that cannot be looked up.
+        `UPDATE scheduled_messages SET message_id = NULL WHERE message_id IN ${doomed}`,
+        `DELETE FROM messages WHERE id IN ${doomed}`,
+      ]) {
+        this.db.exec(sql);
+      }
+      // In the same transaction as the rows, so a crash between the two cannot
+      // leave bytes on disk that nothing remembers to delete.
+      this.queueFileDeletions(fileIds);
+
+      // The rows are gone; the log still holds what they said.
+      this.redactEventRows(logged);
+      return { messages, fileIds };
+    } finally {
+      this.db.exec("DELETE FROM temp.purge_messages");
+    }
   }
 
   /** Newest-first page of top-level channel messages (or thread replies). */
@@ -2818,6 +2857,10 @@ export class Store {
       seq: number;
       payload: string;
     }[];
+    return this.redactEventRows(rows);
+  }
+
+  private redactEventRows(rows: { seq: number; payload: string }[]): number {
     const update = this.db.prepare("UPDATE events SET payload = ? WHERE seq = ?");
     let changed = 0;
     for (const row of rows) {

@@ -122,6 +122,14 @@ const EVENT_DELIVERY_RETRY_MS = [
 const EVENT_DELIVERY_ATTEMPTS = EVENT_DELIVERY_RETRY_MS.length + 1;
 const EVENT_DELIVERY_RETENTION_MS = 7 * 24 * 3600_000;
 
+/**
+ * One hourly retention round runs passes of at most a few thousand messages
+ * each, yielding between them, until nothing is left or it has spent this
+ * long; a larger backlog is finished on later rounds.
+ */
+const RETENTION_PASSES = 200;
+const RETENTION_SWEEP_MS = 30_000;
+
 export interface ServerOptions {
   /** Directory holding workspace.db and uploads. Use ":memory:" for tests. */
   dataDir: string;
@@ -238,6 +246,14 @@ export interface WorkspaceServer {
    * messages went. Runs on a timer; exposed so tests need not wait.
    */
   applyRetention: () => number;
+  /**
+   * What the hourly timer runs: retention passes until the backlog is gone or
+   * the round's budget is spent, yielding between them. Never rejects; a
+   * failure is logged and recorded in `retentionStatus`.
+   */
+  sweepRetention: () => Promise<number>;
+  /** Whether the last retention sweep succeeded, and if not, why. */
+  retentionStatus: () => RetentionStatus;
   /** Delivers a bounded batch of committed integration events. */
   flushEventDeliveries: () => Promise<void>;
   /**
@@ -272,6 +288,15 @@ export interface WorkspaceServer {
   /** Calls `listener` whenever that count may have changed. Returns how to stop. */
   onConnectedChange: (listener: () => void) => () => void;
   stop: () => Promise<void>;
+}
+
+export interface RetentionStatus {
+  /** When a sweep last finished without an error; null before the first. */
+  lastSuccessAt: number | null;
+  /** Why the last sweep failed, or null when it did not. */
+  lastError: string | null;
+  /** Sweeps that have failed in a row. */
+  failures: number;
 }
 
 class HttpError extends Error {
@@ -894,17 +919,54 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
    */
   const applyRetention = (): number => {
     if (!retentionMs) return 0;
-    const { messageIds, fileIds } = store.transaction(() =>
+    const { messages, fileIds } = store.transaction(() =>
       store.purgeMessagesBefore(Date.now() - retentionMs),
     );
-    if (messageIds.length === 0) return 0;
-    store.transaction(() => store.queueFileDeletions(fileIds));
+    if (messages === 0) return 0;
     app.log.info(
-      { messages: messageIds.length, files: fileIds.length, retentionDays: opts.retentionDays },
+      { messages, files: fileIds.length, retentionDays: opts.retentionDays },
       "discarded conversation past the retention window",
     );
     if (fileIds.length > 0) void flushFileDeletions();
-    return messageIds.length;
+    return messages;
+  };
+
+  /**
+   * What the last retention sweep came to. A sweep that throws is caught, so
+   * it cannot take the server down from a timer, and is tried again on the
+   * next round; until one succeeds, this is how its failure stays visible.
+   */
+  const retention: RetentionStatus = { lastSuccessAt: null, lastError: null, failures: 0 };
+
+  /**
+   * Runs retention passes until one finds nothing left or the round's budget
+   * is spent, giving the event loop back between passes so posts and reads
+   * are served while a large backlog drains. Each pass is its own transaction:
+   * stopping between two of them leaves nothing half removed.
+   */
+  const sweepRetention = async (): Promise<number> => {
+    if (!retentionMs) return 0;
+    const started = Date.now();
+    let removed = 0;
+    try {
+      for (let pass = 0; pass < RETENTION_PASSES && !closing; pass++) {
+        const went = applyRetention();
+        removed += went;
+        if (went === 0 || Date.now() - started > RETENTION_SWEEP_MS) break;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      retention.lastSuccessAt = Date.now();
+      retention.lastError = null;
+      retention.failures = 0;
+    } catch (err) {
+      retention.failures++;
+      retention.lastError = err instanceof Error ? err.message : String(err);
+      app.log.error(
+        { err, failures: retention.failures, retentionDays: opts.retentionDays },
+        "retention sweep failed; it will be tried again",
+      );
+    }
+    return removed;
   };
 
   /**
@@ -3851,16 +3913,32 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
   }, 15_000);
   const eventDeliveryTimer = setInterval(() => void flushEventDeliveries(), 5_000);
 
+  /**
+   * An exception thrown from a timer is an uncaught exception, which ends the
+   * process. Housekeeping that fails is reported and tried again next round,
+   * and one step failing does not skip the rest.
+   */
+  const maintain = (step: string, work: () => void) => {
+    try {
+      work();
+    } catch (err) {
+      app.log.error({ err, step }, "maintenance step failed; it will be tried again");
+    }
+  };
   const pruneTimer = setInterval(() => {
-    store.pruneEvents();
-    store.pruneScheduled(Date.now() - SCHEDULED_RETENTION_MS);
-    store.pruneSessions();
-    store.pruneDownloadTokens();
-    store.pruneEventDeliveries(Date.now() - EVENT_DELIVERY_RETENTION_MS);
+    maintain("events", () => store.pruneEvents());
+    maintain("scheduled", () => store.pruneScheduled(Date.now() - SCHEDULED_RETENTION_MS));
+    maintain("sessions", () => store.pruneSessions());
+    maintain("download tokens", () => store.pruneDownloadTokens());
+    maintain("event deliveries", () =>
+      store.pruneEventDeliveries(Date.now() - EVENT_DELIVERY_RETENTION_MS),
+    );
     // After pruning the queue, so a scheduled message that has just gone stops
     // holding its attachments in the same round rather than an hour later.
-    if (expireAbandonedUploads() > 0) void flushFileDeletions();
-    applyRetention();
+    maintain("abandoned uploads", () => {
+      if (expireAbandonedUploads() > 0) void flushFileDeletions();
+    });
+    void sweepRetention();
   }, 3600_000);
   let stopping: Promise<void> | null = null;
 
@@ -3876,6 +3954,8 @@ export async function createWorkspaceServer(opts: ServerOptions): Promise<Worksp
     flushFileDeletions,
     expireAbandonedUploads,
     applyRetention,
+    sweepRetention,
+    retentionStatus: () => ({ ...retention }),
     flushEventDeliveries,
     setPublicUrl: (url) => {
       // Checked before anything changes, so a refused address leaves the old one.

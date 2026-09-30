@@ -352,3 +352,113 @@ describe("a retention window", () => {
     expect(listed.body.messages.map((m: { text: string }) => m.text)).toContain("carrying on");
   });
 });
+
+/**
+ * Writes an old thread straight into the database: a root and `replies`
+ * replies under it, all created at time 1. Posting tens of thousands of
+ * messages through the API would test the rate limits rather than retention.
+ */
+function seedOldThread(rootId: string, replies: number): void {
+  const db = new DatabaseSync(join(directory, "workspace.db"));
+  try {
+    db.exec("BEGIN");
+    const insert = db.prepare(
+      `INSERT INTO messages (id, channel_id, user_id, text, thread_root_id, created_at)
+       VALUES (?, ?, ?, ?, ?, 1)`,
+    );
+    insert.run(rootId, channelId, userId, "an old question", null);
+    for (let i = 0; i < replies; i++) {
+      insert.run(`${rootId}-${String(i).padStart(6, "0")}`, channelId, userId, "a reply", rootId);
+    }
+    db.exec("COMMIT");
+  } finally {
+    db.close();
+  }
+}
+
+function countMessages(): number {
+  const db = new DatabaseSync(join(directory, "workspace.db"));
+  try {
+    return (db.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n;
+  } finally {
+    db.close();
+  }
+}
+
+describe("a retention window over a large backlog", () => {
+  it("takes a thread with more replies than SQLite accepts parameters", async () => {
+    await start({ retentionDays: 30 });
+    await signIn();
+    // SQLite refuses a statement with more than 32,766 bound values, which is
+    // what one parameter per message used to need here.
+    seedOldThread("0000000000ROOT", 33_000);
+
+    expect(server!.applyRetention()).toBe(33_001);
+    expect(countMessages()).toBe(0);
+  });
+
+  it("budgets each pass by messages, and finishes the backlog over several", async () => {
+    await start({ retentionDays: 30 });
+    await signIn();
+    for (const root of ["0000000001A", "0000000001B", "0000000001C"]) seedOldThread(root, 4);
+
+    // Five messages per pass: each thread is five, so one thread per pass.
+    const pass = () =>
+      server!.store.transaction(() => server!.store.purgeMessagesBefore(2, { messages: 5 }));
+    expect(pass().messages).toBe(5);
+    expect(countMessages()).toBe(10);
+    // A thread bigger than the budget is still taken whole rather than never.
+    expect(
+      server!.store.transaction(() => server!.store.purgeMessagesBefore(2, { messages: 1 }))
+        .messages,
+    ).toBe(5);
+    expect(countMessages()).toBe(5);
+
+    // The timer's round keeps going until nothing is left.
+    expect(await server!.sweepRetention()).toBe(5);
+    expect(countMessages()).toBe(0);
+    expect(server!.retentionStatus()).toMatchObject({ lastError: null, failures: 0 });
+  });
+
+  it("records a failed sweep instead of throwing, and clears it once one succeeds", async () => {
+    await start({ retentionDays: 30 });
+    await signIn();
+    seedOldThread("0000000002A", 2);
+    const store = server!.store;
+    const purge = store.purgeMessagesBefore;
+    store.purgeMessagesBefore = () => {
+      throw new Error("disk I/O error");
+    };
+    try {
+      // From a timer, a throw here would have ended the process.
+      await expect(server!.sweepRetention()).resolves.toBe(0);
+      expect(server!.retentionStatus()).toMatchObject({
+        lastError: "disk I/O error",
+        failures: 1,
+        lastSuccessAt: null,
+      });
+      // The failed pass rolled back whole; nothing is half removed.
+      expect(countMessages()).toBe(3);
+    } finally {
+      store.purgeMessagesBefore = purge;
+    }
+
+    expect(await server!.sweepRetention()).toBe(3);
+    expect(server!.retentionStatus()).toMatchObject({ lastError: null, failures: 0 });
+    expect(server!.retentionStatus().lastSuccessAt).not.toBeNull();
+  });
+
+  it("still keeps a large thread whose newest reply is inside the window", async () => {
+    await start({ retentionDays: 30 });
+    await signIn();
+    seedOldThread("0000000003A", 40);
+    const reply = await api(`/api/channels/${channelId}/messages`, "POST", {
+      text: "one more thing",
+      threadRootId: "0000000003A",
+    });
+    expect(reply.status).toBe(201);
+
+    expect(await server!.sweepRetention()).toBe(0);
+    expect(countMessages()).toBe(42);
+  });
+});
