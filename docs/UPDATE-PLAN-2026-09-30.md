@@ -39,7 +39,7 @@ Eight of the eleven FIX tickets were merged on 30 September, one PR per ticket, 
 | FIX-03 | #157 (`1bfc300`) | `isMessageOnScreen()` in client-core used by the workspace screen                                                            | Mention in an unopened thread of the selected channel: old screen silent, now notifies                                                         | Real phone overlays checked by unit cases only; cross-workspace tap routing is UX-09                                  |
 | FIX-10 | #158 (`a3bf98a`) | In-range lockfile updates of fast-uri, brace-expansion, undici                                                               | Production audit 6 high + 4 moderate → 0; full audit 13 high → 0 ([summary](research/2026-09-30/dependency-audit-after-fix-10.json))           | esbuild via tsup and vitest 3 need majors (build/test only); runtime Undici in Node/Electron; review policy and owner |
 
-Then OPT-10 merged in #160 (`2fd31c0`), FIX-07 in #161 (`4dc57c2`), FIX-01 in #162 (`a0e6c0b`), and FIX-08 followed (below).
+Then OPT-10 merged in #160 (`2fd31c0`), FIX-07 in #161 (`4dc57c2`), FIX-01 in #162 (`a0e6c0b`) and FIX-08 in #163 (`7d6272d`), so every FIX ticket is merged; sub-items left unticked below are still open.
 
 Validation of the merged result, on the head of #158 (which held all eight), Linux container, Node 24.21.0: `pnpm build` 3/3 and `pnpm typecheck` 8/8; unit and integration 1,236 tests (server 467, client-core 94, UI 477, protocol 26, desktop 172); entry bundles 466.9 kB (web) and 468.3 kB (desktop renderer) of 500 kB. Chromium E2E 18/18 passed against that build, using the container's preinstalled Chromium (build 1194) because its Playwright 1.63 expects build 1243. The packaged Windows suite was not run: this container is Linux.
 
@@ -165,7 +165,7 @@ Limits: a browser tab killed in the moment between its write and another tab's o
 
 **Evidence:** R143-C5 remains open after #148. Channel cursor passing a non-broadcast reply makes Activity/`isMessageRead` call it read while Threads still counts it unread. Reading the channel never displays that reply. A previous badge-only fix was deliberately removed.
 
-**Status:** implemented in schema v30; see the PR after #162. Contract agreed with the owner on 30 September: the recommended design, and Activity's Unread lists replies only from threads followed or that name you. One rule, in `Store.UNREAD` on the server and `isMessageRead` in the client:
+**Status:** merged in #163 (`7d6272d`), schema v30. Contract agreed with the owner on 30 September: the recommended design, and Activity's Unread lists replies only from threads followed or that name you. One rule, in `Store.UNREAD` on the server and `isMessageRead` in the client:
 
 | Message or action              | Read when                                                                                                      | Listed in Activity › Unread                | Counts in                                                                                                                                                |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |

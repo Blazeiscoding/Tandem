@@ -87,10 +87,25 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 
 **References:** Mattermost per-post selector factories; T3 stable row projection. **Gatherline:** `MessageItem.tsx`, `MessageTimeline.tsx`, `context.ts`, replica updates.
 
-- [ ] Replace broad subscriptions to entire users/channels/self maps with the author, current role/ID and entities the row actually renders.
-  - [ ] Use stable derived selectors/references for mentions, reactions, pins, saved and grouped row props; avoid allocating selector arrays on every unrelated event.
-  - [ ] Preserve live author/channel rename, permission and mention rendering; do not memoize stale authorization.
-  - [ ] Measure row render/commit counts and input delay under unrelated presence/profile/channel events and busy Saved changes.
+**Status:** implemented; see the PR after #163. `MessageItem` subscribed to the whole `users` and `channels` maps and to `self`, so any profile edit, channel update (including someone joining another channel) or change to your own status rendered every row on screen, in the timeline and the thread panel alike. Each row now subscribes to what it shows: its author, the people it names or who reacted to it, the channels it names or links a message in (`useMessageReferences`, `src/lib/messageReferences.ts`), and your own ID and role as two primitives. Each of those selectors does nothing while its map is the same object, which is most updates, and hands back the same object until an entry it shows changes.
+
+Measured on `7d6272d` against the candidate with `packages/ui/test/measureRowRenders.dom.test.tsx`, which is skipped unless asked for (`MEASURE_ROWS=1 NODE_ENV=production pnpm --filter @slackoss/ui exec vitest run test/measureRowRenders.dom.test.tsx`): 300 rows (the timeline's cap) of `MessageItem`, React 19.2.8 production build under jsdom, Node 24.21.0, Linux container; `flushSync` wall time per replica change, 40 samples after 3 warm-ups, two runs each. jsdom does no layout or paint, so these compare React's work only, not what a person feels.
+
+| Change                          | Rows rendered before → after | p50 ms before | p50 ms after |
+| ------------------------------- | ---------------------------- | ------------- | ------------ |
+| Profile of someone no row shows | 300 → 0                      | 106–117       | 0.41–0.42    |
+| Someone joins another channel   | 300 → 0                      | 96–107        | 0.33–0.34    |
+| Your own status                 | 300 → 0                      | 96–109        | 0.22–0.23    |
+| Someone typing                  | 0 → 0                        | 0.09          | 0.22–0.23    |
+| Save one message                | 1 → 1                        | 0.99–1.27     | 1.22–2.05    |
+| Rename the author of 60 rows    | 300 → 60                     | 98–102        | 22–25        |
+
+The cost is the selectors: every replica change now runs two per row, about 0.1 ms per change over 300 rows, and a row that does render runs them again. The web entry grew 1.0 kB, to 472.8 kB. `test/rowCommits.dom.test.tsx` holds the row counts (each row in its own `Profiler`) and checks that a renamed author, a renamed person named in a message, a renamed reactor and a renamed linked channel still show, on exactly the rows that show them, and that a change of role still offers Delete on every row.
+
+- [x] Replace broad subscriptions to entire users/channels/self maps with the author, current role/ID and entities the row actually renders.
+  - [x] Use stable derived selectors/references for mentions, reactions, pins, saved and grouped row props; avoid allocating selector arrays on every unrelated event. Saved was already one boolean per row, pins and grouping are props of the message, and the timeline's callbacks are already stable.
+  - [x] Preserve live author/channel rename, permission and mention rendering; do not memoize stale authorization.
+  - [ ] Measure row render/commit counts and input delay under unrelated presence/profile/channel events and busy Saved changes. Row counts and React time are measured; input delay in a real browser is not.
 
 **Done:** unrelated changes cause materially fewer row commits with the same visible result. Prefer this low-risk change before adding a list library.
 
