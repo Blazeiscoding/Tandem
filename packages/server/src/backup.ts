@@ -385,10 +385,14 @@ export async function restoreWorkspace(opts: {
   // let go just before the swap, since on Windows a folder with an open file
   // in it cannot be renamed.
   const hold = existsSync(dataDir) ? holdWorkspace(dataDir, "a restore") : null;
-  const staged = await mkdtemp(`${dataDir}.restoring-`);
-
+  // Everything from here on is inside the try, the staging folder's creation
+  // too: whatever fails once the workspace is held must let go of it before
+  // the failure is reported, or this process could not restore or serve it
+  // again until it exits.
+  let staged: string | null = null;
   let supersededDir: string | null = null;
   try {
+    staged = await mkdtemp(`${dataDir}.restoring-`);
     await mkdir(join(staged, FILES));
     await copyFile(join(source, DATABASE), join(staged, DATABASE));
     for (const entry of manifest.files) {
@@ -407,7 +411,14 @@ export async function restoreWorkspace(opts: {
     hold?.release();
     // Put the original back before reporting, so a failed swap changes nothing.
     if (supersededDir && !existsSync(dataDir)) await rename(supersededDir, dataDir);
-    await rm(staged, { recursive: true, force: true });
+    if (staged) {
+      try {
+        await rm(staged, { recursive: true, force: true });
+      } catch {
+        // A staging folder left behind costs disk; the error worth reporting
+        // is the one that stopped the restore.
+      }
+    }
     throw err;
   }
   return { manifest, supersededDir };

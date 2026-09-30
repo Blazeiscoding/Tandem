@@ -749,10 +749,14 @@ Cost, measured on a 38.8 MiB copy holding 200,000 messages (Linux container, Nod
 
 **Evidence:** staging ENOSPC leaks exported API ownership. Actual desktop worker releases on exit, after the error reply.
 
-- [ ] Protect cleanup immediately after acquiring the hold, including failures before staging exists.
-  - [ ] Complete cleanup before reporting retryable failure or accepting the next restore.
-  - [ ] Inject ENOSPC/EACCES; verify original bytes, hold reacquisition and subsequent restore.
-  - [ ] Verify actual worker boundary; keep interrupted-swap journaling/cancellation under OPS-03 separate.
+**Status:** implemented; see the PR after #170. `restoreWorkspace` now creates its staging folder inside the protected block, so every failure after the hold is taken releases it, then puts back the original if it had moved, before the error is reported. Removing a half-made staging folder became best effort, so its own failure cannot hide the error that stopped the restore. The desktop worker awaits `restoreWorkspace` and posts its reply only after it settles, so its error reply now follows the release; the worker is unchanged.
+
+Reproduced first (`test/restoreFailure.test.ts`, `mkdtemp` failing once with ENOSPC in the same process): before, taking the workspace again refused with "already open in another process (a restore …)". After, it is free at once, the database's SHA-256 is unchanged, no staging folder is left, and the next restore succeeds.
+
+- [x] Protect cleanup immediately after acquiring the hold, including failures before staging exists.
+  - [x] Complete cleanup before reporting retryable failure or accepting the next restore.
+  - [ ] Inject ENOSPC/EACCES; verify original bytes, hold reacquisition and subsequent restore. ENOSPC at staging is covered; EACCES and failures at later steps take the same catch but were not injected.
+  - [ ] Verify actual worker boundary; keep interrupted-swap journaling/cancellation under OPS-03 separate. The worker's order follows from awaiting the call, read from its source; it was not run in a worker thread here.
 
 **Completion:** pre-swap refusal preserves the workspace and releases operation ownership. Do not call the worker's short reply-before-exit window a permanent desktop lock.
 
