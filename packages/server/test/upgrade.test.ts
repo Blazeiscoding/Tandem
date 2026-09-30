@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -61,6 +64,33 @@ function earlierCopy(from: number, taken: string, workspaceId?: string): string 
   openDbAtVersion(join(copiesDir(), name), from).close();
   if (workspaceId) setWorkspaceId(join(copiesDir(), name), workspaceId);
   return name;
+}
+
+/**
+ * Zeroes the page holding the messages table's root, as a failing disk might,
+ * leaving the header and schema pages whole: the copy still reads as the right
+ * schema of the right workspace, but its history is gone.
+ */
+function corruptHistory(path: string) {
+  const db = new DatabaseSync(path);
+  const { rootpage } = db
+    .prepare("SELECT rootpage FROM sqlite_schema WHERE type = 'table' AND name = 'messages'")
+    .get() as { rootpage: number };
+  const { page_size } = db.prepare("PRAGMA page_size").get() as { page_size: number };
+  db.close();
+  const fd = openSync(path, "r+");
+  try {
+    writeSync(fd, Buffer.alloc(page_size), 0, page_size, (rootpage - 1) * page_size);
+  } finally {
+    closeSync(fd);
+  }
+  const check = new DatabaseSync(path, { readOnly: true });
+  try {
+    expect(versionOf(path)).toBeGreaterThan(0);
+    expect(() => check.prepare("SELECT * FROM messages NOT INDEXED").all()).toThrow(/malformed/);
+  } finally {
+    check.close();
+  }
 }
 
 beforeEach(() => {
@@ -168,6 +198,29 @@ describe("upgrading a workspace", () => {
     expect(kept).toContain(mislabelled);
     expect(kept.some((name) => name.startsWith(`workspace-v${from - 1}-`))).toBe(true);
     expect(kept.some((name) => name.startsWith(`workspace-v${from - 2}-`))).toBe(true);
+  });
+
+  it("does not let copies whose history is corrupt push out one that is whole", () => {
+    const from = olderWorkspace();
+    setWorkspaceId(file, "this-workspace");
+    const whole = earlierCopy(from - 1, "2020-01-01T00-00-00-000Z", "this-workspace");
+    // Newer by schema, and this workspace by their metadata, so they would
+    // have been the ones kept.
+    const brokenA = earlierCopy(from, "2020-01-02T00-00-00-000Z", "this-workspace");
+    const brokenB = earlierCopy(from, "2020-01-03T00-00-00-000Z", "this-workspace");
+    corruptHistory(join(copiesDir(), brokenA));
+    corruptHistory(join(copiesDir(), brokenB));
+    openDb(file).close();
+
+    const kept = copies();
+    expect(kept).toContain(whole);
+    // Left where they are for a person to look at, not counted.
+    expect(kept).toContain(brokenA);
+    expect(kept).toContain(brokenB);
+    // And the copy this upgrade took.
+    expect(
+      kept.filter((name) => !name.startsWith("workspace-v") || !name.includes("2020-")),
+    ).toHaveLength(1);
   });
 
   it("leaves another workspace's copies alone and does not count them", () => {
