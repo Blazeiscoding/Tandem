@@ -448,6 +448,22 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_event_deliveries_message ON event_deliveries(message_id)
     WHERE message_id IS NOT NULL;
   `,
+  // v30 — a reply is read through its thread, never by the channel's cursor,
+  // which reads only what the channel shows. A thread this account has no
+  // cursor for is read up to its membership's replies_read_seq: where the
+  // channel cursor stood at this upgrade, or where the workspace was when it
+  // joined. Existing thread cursors are raised to the channel cursor too, so
+  // nothing read before this upgrade, and no mention in it, comes back.
+  `
+  ALTER TABLE channel_members ADD COLUMN replies_read_seq INTEGER NOT NULL DEFAULT 0;
+  UPDATE channel_members SET replies_read_seq = last_read_seq;
+  UPDATE thread_follows SET last_read_seq = MAX(last_read_seq, COALESCE((
+      SELECT cm.last_read_seq FROM messages root
+      JOIN channel_members cm ON cm.channel_id = root.channel_id
+        AND cm.user_id = thread_follows.user_id
+      WHERE root.id = thread_follows.root_id
+    ), 0));
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

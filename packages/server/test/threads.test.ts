@@ -752,12 +752,145 @@ describe("reading a thread", () => {
     expect((await ready()).channelLastSeq[channelId]).toBe(copied.seq);
   });
 
-  it("still reads earlier replies when the channel itself is read past them", async () => {
-    const { mention, reply } = await rootMentionReply();
+  it("leaves a reply unread when the channel is read past it, until its thread is read", async () => {
+    const { root, mention, reply } = await rootMentionReply();
     const later = await post("Later in the channel", peer.token);
     await request(`/api/channels/${channelId}/read`, { seq: later.seq });
+    // The channel never showed the reply, so reading it read the mention above only.
+    expect(server.store.unreadMentionCounts(owner.id)[channelId]).toBe(1);
+    expect(await unreadActivity()).toEqual([reply.id]);
+    expect([mention.seq, reply.seq].every((seq) => seq < later.seq)).toBe(true);
+
+    await request(`/api/messages/${root.id}/thread/read`, { seq: reply.seq });
     expect(server.store.unreadMentionCounts(owner.id)[channelId] ?? 0).toBe(0);
     expect(await unreadActivity()).toEqual([]);
-    expect([mention.seq, reply.seq].every((seq) => seq < later.seq)).toBe(true);
+  });
+});
+
+describe("one read rule for a channel and its threads", () => {
+  const unread = async (auth = owner.token) =>
+    ((await request("/api/activity?mode=unread", undefined, "GET", auth)).body.messages as any[])
+      .map((m) => m.text)
+      .sort();
+  const followed = async () =>
+    ((await request("/api/threads/followed", undefined, "GET")).body.threads as any[]).map((t) => ({
+      root: t.root.text,
+      unread: t.unreadCount,
+    }));
+  const readChannel = (seq: number, auth = owner.token) =>
+    request(`/api/channels/${channelId}/read`, { seq }, "POST", auth);
+  const copy = async (text: string, rootId: string) =>
+    (
+      await request(
+        `/api/channels/${channelId}/messages`,
+        { text, nonce: text, threadRootId: rootId, alsoSendToChannel: true },
+        "POST",
+        peer.token,
+      )
+    ).body.message;
+
+  it("counts a reply the same in Activity, mentions and Threads when the channel is read past it", async () => {
+    // The reproduction: the owner's own thread, a reply naming them, then the
+    // channel read past it. Activity and the mention badge used to call the
+    // reply read while Threads still counted it.
+    const root = await post("Owner's question", owner.token);
+    await post(`over to you <@${owner.id}>`, peer.token, root.id);
+    const later = await post("Meanwhile in the channel", peer.token);
+    await readChannel(later.seq);
+
+    expect(await unread()).toEqual([`over to you <@${owner.id}>`]);
+    expect(server.store.unreadMentionCounts(owner.id)[channelId]).toBe(1);
+    expect(await followed()).toEqual([{ root: "Owner's question", unread: 1 }]);
+    expect(server.store.unreadThreadCount(owner.id)).toBe(1);
+  });
+
+  it("reads a reply also sent to the channel there, and in its thread as far as nothing comes first", async () => {
+    const root = await post("Release notes", owner.token);
+    const first = await copy("shipped", root.id);
+    const socket = await connect(owner.token);
+    await readChannel(first.seq);
+    expect(await unread()).toEqual([]);
+    expect(await followed()).toEqual([{ root: "Release notes", unread: 0 }]);
+    // The owner's other devices hear that the thread moved on.
+    await expect
+      .poll(() => followFrames(socket.frames).at(-1))
+      .toMatchObject({ rootId: root.id, lastReadSeq: first.seq });
+
+    // A reply only in the thread, then another sent to the channel.
+    await post("only here", peer.token, root.id);
+    const third = await copy("and everywhere", root.id);
+    await readChannel(third.seq);
+    // The one shown in the channel is read; the one before it is not.
+    expect(await unread()).toEqual(["only here"]);
+    expect(await followed()).toEqual([{ root: "Release notes", unread: 1 }]);
+    expect(server.store.threadFollow(owner.id, root.id)!.lastReadSeq).toBe(first.seq);
+  });
+
+  it("lists replies in Activity only from threads followed, and any that name you", async () => {
+    const root = await post("Someone else's thread", peer.token);
+    await readChannel(root.seq);
+    await post("chatter", peer.token, root.id);
+    await post(`a question for <@${owner.id}>`, peer.token, root.id);
+    expect(await unread()).toEqual([`a question for <@${owner.id}>`]);
+    expect(server.store.unreadMentionCounts(owner.id)[channelId]).toBe(1);
+
+    // Opening the thread reads both.
+    const last = server.store.threadFollow(owner.id, root.id)!;
+    await request(`/api/messages/${root.id}/thread/read`, { seq: 1e9 });
+    expect(await unread()).toEqual([]);
+    expect(server.store.unreadMentionCounts(owner.id)[channelId] ?? 0).toBe(0);
+    expect(last.following).toBe(false);
+  });
+
+  it("keeps a thread marked unread unread when the channel is read past it", async () => {
+    const root = await post("Come back to this", owner.token);
+    const reply = await post("the details", peer.token, root.id);
+    await request(`/api/messages/${root.id}/thread/read`, { seq: reply.seq });
+    await request(`/api/messages/${root.id}/thread/unread`, { seq: reply.seq });
+    const later = await post("unrelated", peer.token);
+    await readChannel(later.seq);
+    expect(await unread()).toEqual(["the details"]);
+    expect(await followed()).toEqual([{ root: "Come back to this", unread: 1 }]);
+  });
+
+  it("leaves what was read as it was when an untouched thread is unfollowed", async () => {
+    const root = await post("Noisy", peer.token);
+    await post("<!here> from before", peer.token, root.id);
+    const newcomer = await register("newcomer");
+    await readChannel(server.store.currentSeq(), newcomer.token);
+    const off = await request(
+      `/api/messages/${root.id}/follow`,
+      { following: false },
+      "PUT",
+      newcomer.token,
+    );
+    expect(off.body.state).toMatchObject({ following: false });
+    // What came before joining stays read,
+    expect(server.store.unreadMentionCounts(newcomer.id)[channelId] ?? 0).toBe(0);
+    // and unfollowing is not reading: a later mention still waits.
+    await post("<!here> after", peer.token, root.id);
+    expect(server.store.unreadMentionCounts(newcomer.id)[channelId]).toBe(1);
+    expect(await unread(newcomer.token)).toEqual(["<!here> after"]);
+  });
+
+  it("does not hand a new member the replies written before they joined", async () => {
+    const root = await post("Before your time", peer.token);
+    await post("<!here> old news", peer.token, root.id);
+    const newcomer = await register("newcomer");
+    // Registration joins #general; reading the channel reads what it shows.
+    await readChannel(server.store.currentSeq(), newcomer.token);
+    expect(server.store.unreadMentionCounts(newcomer.id)[channelId] ?? 0).toBe(0);
+    expect(await unread(newcomer.token)).toEqual([]);
+
+    await post("<!here> new news", peer.token, root.id);
+    expect(server.store.unreadMentionCounts(newcomer.id)[channelId]).toBe(1);
+    expect(await unread(newcomer.token)).toEqual(["<!here> new news"]);
+  });
+
+  it("gives each membership's replies floor in the handshake and access events", async () => {
+    const snapshot = (await connect(owner.token)).frames.find((f) => f.type === "ready") as any;
+    const general = snapshot.memberships.find((m: any) => m.channelId === channelId);
+    expect(general.repliesReadSeq).toEqual(expect.any(Number));
+    expect(general.repliesReadSeq).toBeLessThanOrEqual(snapshot.seq);
   });
 });
