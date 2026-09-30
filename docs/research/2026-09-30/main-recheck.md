@@ -4,6 +4,8 @@
 
 An isolated worktree was created from fetched main. The existing `.claude/`, `.audit-client-143/` and other worktrees were preserved. No competitor application was installed or benchmarked during this recheck. Source review and passing tests cannot establish that every defect has been found.
 
+Implementation and evidence are delivered in [PR #167](https://github.com/Blazeiscoding/SlackOSS/pull/167), product candidate `60b097d38760cffd30acf02340cb8d4097670aa0`. Later documentation-only edits do not change that tested product code.
+
 ## Verification and its boundaries
 
 Host: Windows 11 Pro `10.0.26300`, x64; Node `24.16.0`, pnpm `10.23.0`, TypeScript `5.9.3`, Electron `44.1.0`, Playwright `1.63.0`. Node reports SQLite `3.53.0` and bundled Undici `7.25.0`; these are runtime inventory, not assurances supplied by the npm audit.
@@ -28,6 +30,8 @@ Host: Windows 11 Pro `10.0.26300`, x64; Node `24.16.0`, pnpm `10.23.0`, TypeScri
 The WebSocket guard added by this recheck passed 59 focused cases and server typechecking. After it, the complete server suite passed 487 tests with one Windows skip, and forced typecheck/build again passed all ten tasks without cache. Chromium E2E again passed 18/18 against the rebuilt CLI/web. After a fresh package build including the guard and the cleanup correction, all three Windows smoke scenarios passed. Both entry budgets remained 472.8/474.3 kB. See [validation](../../VALIDATION.md). Baseline unit counts above must not be confused with the candidate's added regression; unchanged product packages were not retested unnecessarily. The exact handle causing the first cleanup EPERM was not identified.
 
 Prettier is checked against source using both `.prettierignore` and `.gitignore`; generated desktop `out/` files are not source formatting failures. Existing Zod pure-annotation warnings appeared in successful builds. CI runs and local runs are separate evidence; account/job-start restrictions must not be reported as executed test failures.
+
+Final source formatting, `git diff --check`, and all 72 local file/heading links in the five updated documents passed. For the product candidate, GitGuardian passed; [Checks](https://github.com/Blazeiscoding/SlackOSS/actions/runs/36752178270), [Desktop](https://github.com/Blazeiscoding/SlackOSS/actions/runs/36752178305) and [Container](https://github.com/Blazeiscoding/SlackOSS/actions/runs/36752178117) were marked failed because their job annotations say account payments/spending restrictions prevented them from starting. No CI test execution or container pass is claimed. Restore independent CI execution under ENG-02 when account capacity is available; local validation does not remove the unexecuted platform gates.
 
 ## Coverage and repairs preserved
 

@@ -633,7 +633,7 @@ Evidence, recipes, baseline and limits: [full recheck at `6a95898`](research/202
 
 ### RECHECK-01 · P1 · Refuse malformed upgrades without ending the process
 
-**Status:** implemented in this recheck. An unauthenticated malformed absolute-form target caused a real child server to exit 1 with `ERR_INVALID_URL`.
+**Status:** implemented in [PR #167](https://github.com/Blazeiscoding/SlackOSS/pull/167), tested product candidate `60b097d`. An unauthenticated malformed absolute-form target caused a real child server to exit 1 with `ERR_INVALID_URL`.
 
 - [x] Catch request-target parsing at the raw upgrade boundary; close only that connection.
   - [x] Preserve path/query handling, limiter admission and authenticated hello behavior.
