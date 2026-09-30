@@ -229,3 +229,150 @@ describe("toggles on a message", () => {
     expect(shownMessage(message.id).pinned).toBe(true);
   });
 });
+
+/**
+ * Requests for one thing reaching the server out of order, or all failing
+ * (RECHECK-05). The server ends with the latest choice, and so does the
+ * screen; when every attempt fails, the screen goes back to what the server
+ * has, not to the opposite of the last choice.
+ */
+describe("choices that reach the server out of order, or not at all", () => {
+  type Held = "pinMessage" | "unpinMessage" | "saveMessage" | "unsaveMessage" | "updateMe";
+  /** Holds the next call to `method` until the test forwards it to the server, or fails it. */
+  function holdNext(method: Held) {
+    let forward = () => {};
+    let fail = () => {};
+    const real = (client.api[method] as (...args: unknown[]) => Promise<unknown>).bind(client.api);
+    vi.spyOn(client.api, method).mockImplementationOnce(
+      ((...args: unknown[]) =>
+        new Promise((resolve, reject) => {
+          forward = () => void real(...args).then(resolve, reject);
+          fail = () => reject(new Error("offline"));
+        })) as never,
+    );
+    return { forward: () => forward(), fail: () => fail() };
+  }
+
+  async function postedMessage() {
+    await client.loadTimeline(channelId);
+    const { message } = await owner.sendMessage(channelId, { text: "choose", nonce: "choose" });
+    await expect
+      .poll(() => client.state.timelines[channelId]?.items.some((m) => m.id === message.id))
+      .toBe(true);
+    return message;
+  }
+  const shownPinned = (id: string) =>
+    client.state.timelines[channelId]!.items.find((m) => m.id === id)!.pinned;
+  const serverPinned = async (id: string) =>
+    (await owner.listPins(channelId)).messages.some((m) => m.id === id);
+  const serverSaved = async (id: string) =>
+    (await elsewhere.listSaved()).messages.some((m) => m.id === id);
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+  it("ends unpinned when pin, then unpin, reach the server the other way round", async () => {
+    const message = await postedMessage();
+    const pin = holdNext("pinMessage");
+    void client.togglePin(message);
+    await client.togglePin({ ...message, pinned: true });
+    expect(await serverPinned(message.id)).toBe(false);
+    // The pin arrives last, and on its own would leave it pinned.
+    pin.forward();
+    await expect.poll(() => serverPinned(message.id)).toBe(false);
+    await settle();
+    expect(await serverPinned(message.id)).toBe(false);
+    expect(shownPinned(message.id)).toBe(false);
+  });
+
+  it("ends not saved when save, then unsave, reach the server the other way round", async () => {
+    const message = await postedMessage();
+    const save = holdNext("saveMessage");
+    void client.toggleSaved(message.id, true);
+    await client.toggleSaved(message.id, false);
+    save.forward();
+    await settle();
+    await expect.poll(() => serverSaved(message.id)).toBe(false);
+    expect(client.state.saved[message.id]).toBeUndefined();
+  });
+
+  it("ends on the later snooze when an earlier one reaches the server after it", async () => {
+    const soon = Date.now() + 60_000;
+    const later = Date.now() + 3_600_000;
+    const first = holdNext("updateMe");
+    client.snoozeNotificationsUntil(soon);
+    client.snoozeNotificationsUntil(later);
+    await expect.poll(async () => (await elsewhere.me()).user.dndUntil).toBe(later);
+    first.forward();
+    await settle();
+    await expect.poll(async () => (await elsewhere.me()).user.dndUntil).toBe(later);
+    expect(client.state.self?.dndUntil).toBe(later);
+  });
+
+  it("goes back to not pinned when both a pin and the unpin after it fail", async () => {
+    const message = await postedMessage();
+    vi.spyOn(client.api, "pinMessage").mockRejectedValueOnce(new Error("offline"));
+    vi.spyOn(client.api, "unpinMessage").mockRejectedValueOnce(new Error("offline"));
+    const pinning = client.togglePin(message);
+    const unpinning = client.togglePin({ ...message, pinned: true });
+    expect(await Promise.all([pinning, unpinning])).toEqual([false, false]);
+    // It used to show pinned: the opposite of the unpin that failed.
+    expect(shownPinned(message.id)).toBe(false);
+    expect(await serverPinned(message.id)).toBe(false);
+  });
+
+  it("goes back to not saved when both a save and the unsave after it fail", async () => {
+    const message = await postedMessage();
+    vi.spyOn(client.api, "saveMessage").mockRejectedValueOnce(new Error("offline"));
+    vi.spyOn(client.api, "unsaveMessage").mockRejectedValueOnce(new Error("offline"));
+    const saving = client.toggleSaved(message.id, true);
+    const unsaving = client.toggleSaved(message.id, false);
+    expect(await Promise.all([saving, unsaving])).toEqual([false, false]);
+    expect(client.state.saved[message.id]).toBeUndefined();
+    expect(await serverSaved(message.id)).toBe(false);
+  });
+
+  it("shows what the server kept when the pin lands and the unpin after it fails", async () => {
+    const message = await postedMessage();
+    vi.spyOn(client.api, "unpinMessage").mockRejectedValueOnce(new Error("offline"));
+    expect(await client.togglePin(message)).toBe(true);
+    expect(await client.togglePin({ ...message, pinned: true })).toBe(false);
+    expect(shownPinned(message.id)).toBe(true);
+    expect(await serverPinned(message.id)).toBe(true);
+  });
+
+  it("does not let the echo of an earlier choice flip the screen while a later one is unanswered", async () => {
+    const message = await postedMessage();
+    const unpin = holdNext("unpinMessage");
+    await client.togglePin(message);
+    const unpinning = client.togglePin({ ...message, pinned: true });
+    // The pin's own echo arrives now; the unpin is still unanswered.
+    await settle();
+    expect(shownPinned(message.id)).toBe(false);
+    unpin.forward();
+    expect(await unpinning).toBe(true);
+    await settle();
+    expect(shownPinned(message.id)).toBe(false);
+    expect(await serverPinned(message.id)).toBe(false);
+  });
+
+  it("still shows another member's pin made while nothing here is unanswered", async () => {
+    const message = await postedMessage();
+    await owner.pinMessage(message.id);
+    await expect.poll(() => shownPinned(message.id)).toBe(true);
+    await owner.unpinMessage(message.id);
+    await expect.poll(() => shownPinned(message.id)).toBe(false);
+  });
+
+  it("ends on the latest choice after reconnecting while it was unanswered", async () => {
+    const message = await postedMessage();
+    const pin = holdNext("pinMessage");
+    const pinning = client.togglePin(message);
+    const connection = client as unknown as { ws: WebSocket };
+    connection.ws.close();
+    await expect.poll(() => client.state.status).toBe("online");
+    pin.forward();
+    expect(await pinning).toBe(true);
+    await settle();
+    expect(await serverPinned(message.id)).toBe(true);
+    expect(shownPinned(message.id)).toBe(true);
+  });
+});
