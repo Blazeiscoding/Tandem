@@ -662,10 +662,14 @@ Reproduced first: two `DraftPersistence` windows over one queue-ordered store (e
 
 **Evidence:** first input sent before 600 ms; rejected outbox write; saved draft/outbox empty. Only pending memory and a warning retain text. No process death was executed.
 
-- [ ] Keep current composer words or a recovery copy until the send is durably acknowledged.
-  - [ ] Define pending/failure UI without calling an unpersisted send saved.
-  - [ ] Cover first input, rapid type/send, uploads, save failure, retry, logout and navigation.
-  - [ ] Verify interruption at actual persistence boundaries; avoid duplicate restored draft/send.
+**Status:** implemented; see the PR after #168. While outbox writes fail, `DraftPersistence` keeps the words of every send the outbox has not stored under a per-account `unstored-sends` key, by nonce and with the composer each came from; a later outbox write that stores them takes them out, and an ordinary send writes nothing there. On restart, words whose nonce the stored outbox neither holds nor took out go back to their composer (joined by a blank line when several share one), once; the rest come back as sends. So the handoff clears a send's words only when the outbox holds it. The saving banner still says the work could not be saved and asks for Retry; nothing calls an unstored send saved. The component's own comment no longer claims the words are always in a saved draft.
+
+Reproduced first, each failing before and passing after: words sent before their draft was saved, outbox write rejected, restart (before: draft and outbox empty, words gone; after: in the composer, not sent); a Retry that stores the send before the restart (words come back as the send only, never also as a draft); two quick sends and a thread reply (each back in its own composer).
+
+- [x] Keep current composer words or a recovery copy until the send is durably acknowledged. The recovery copy covers a failed outbox write; the moment between accepting a send and its first write completing has nothing on disk under any design, and is unchanged.
+  - [x] Define pending/failure UI without calling an unpersisted send saved. The existing banner and Retry already do not.
+  - [ ] Cover first input, rapid type/send, uploads, save failure, retry, logout and navigation. First input, rapid sends, threads, save failure and Retry are covered. An upload keeps its words, not its files, which no restart keeps; logout and navigation run the same final write and recovery path but were not exercised.
+  - [ ] Verify interruption at actual persistence boundaries; avoid duplicate restored draft/send. A restored draft never duplicates a stored send. No process death was executed; the recovery key is per account, so a second window whose outbox writes fail at the same time can write over the first's list.
 
 **Completion:** failed first save retains usable current input; handoff clears it only with a declared recoverable owner. Protect already saved drafts.
 
