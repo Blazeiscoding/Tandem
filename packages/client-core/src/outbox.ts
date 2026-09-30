@@ -1,3 +1,4 @@
+import { SEND_RETRY_WINDOW_MS } from "@slackoss/protocol";
 import type { StoredPending } from "./workspace.js";
 
 /**
@@ -7,9 +8,11 @@ import type { StoredPending } from "./workspace.js";
  * earlier, so the stored outbox is a merge of changes rather than whichever
  * window wrote last. A send taken out, because it was delivered or its author
  * discarded it, leaves a tombstone: no window can put it back, however stale
- * its copy. Between two versions of the same send, the newer revision wins, so
- * a refusal written by one window cannot be undone by another that has not
- * seen it; only a newer change, such as its author choosing Retry, replaces it.
+ * its copy. A tombstone is let go only once its send is too old to be sent on
+ * its own (see `OUTBOX_TOMBSTONES_KEPT`), and a floor then refuses it instead.
+ * Between two versions of the same send, the newer revision wins, so a
+ * refusal written by one window cannot be undone by another that has not seen
+ * it; only a newer change, such as its author choosing Retry, replaces it.
  *
  * Kept free of anything but plain data so the desktop app's main process can
  * run the same merge, in one step, for every window at once.
@@ -25,6 +28,12 @@ export interface StoredOutbox {
   entries: StoredOutboxEntry[];
   /** Sends taken out, by nonce, newest first. */
   removed: { nonce: string; rev: number }[];
+  /**
+   * The newest revision among the tombstones let go. A send the outbox does
+   * not hold, at or below it, can only be one of those, put back by a window
+   * that has not caught up, and is refused. Absent until one is let go.
+   */
+  compactedThrough?: number;
 }
 
 export interface OutboxChanges {
@@ -33,10 +42,21 @@ export interface OutboxChanges {
 }
 
 /**
- * How many tombstones are kept. A window stale enough to hold a send removed
- * more than this many removals ago is not one this has to outlast.
+ * The fewest tombstones kept. Every one written within `SEND_RETRY_WINDOW_MS`
+ * is kept as well, up to `OUTBOX_TOMBSTONES_MAX`: a send that old or newer
+ * could still be sent on its own by a window that has not caught up. An older
+ * one is let go only past this many, and `compactedThrough` then stands in
+ * for it.
  */
 export const OUTBOX_TOMBSTONES_KEPT = 500;
+
+/**
+ * The most tombstones kept, however recent: about 660 KiB, and a merge of a
+ * few milliseconds (330 sends a day for the whole window). Past this, the
+ * oldest go even inside the window, and the floor still refuses a stale
+ * window's unchanged copy of one of them.
+ */
+export const OUTBOX_TOMBSTONES_MAX = 10_000;
 
 /**
  * A revision later than `previous` and, across windows, later than anything
@@ -113,7 +133,8 @@ export function readStoredOutbox(value: unknown): StoredOutbox | null {
     !Array.isArray(record.entries) ||
     !Array.isArray(record.removed) ||
     !record.entries.every((entry) => isStoredPending(entry) && isRevision(entry.rev)) ||
-    !record.removed.every((r) => !!r && typeof r.nonce === "string" && isRevision(r.rev))
+    !record.removed.every((r) => !!r && typeof r.nonce === "string" && isRevision(r.rev)) ||
+    (record.compactedThrough !== undefined && !isRevision(record.compactedThrough))
   ) {
     return null;
   }
@@ -121,12 +142,18 @@ export function readStoredOutbox(value: unknown): StoredOutbox | null {
 }
 
 /**
- * Applies one window's changes. A tombstone is final. Otherwise the newest
- * revision of a send is kept, and at the same revision the one already stored.
+ * Applies one window's changes. A tombstone is final, and so is the floor
+ * standing in for those let go. Otherwise the newest revision of a send is
+ * kept, and at the same revision the one already stored.
  */
-export function mergeOutbox(current: StoredOutbox, changes: OutboxChanges): StoredOutbox {
+export function mergeOutbox(
+  current: StoredOutbox,
+  changes: OutboxChanges,
+  now = Date.now(),
+): StoredOutbox {
   const entries = new Map(current.entries.map((entry) => [entry.nonce, entry]));
   const removed = new Map(current.removed.map((r) => [r.nonce, r.rev]));
+  const floor = current.compactedThrough ?? -1;
   for (const removal of changes.remove) {
     if (!removal || typeof removal.nonce !== "string" || !isRevision(removal.rev)) continue;
     entries.delete(removal.nonce);
@@ -135,14 +162,28 @@ export function mergeOutbox(current: StoredOutbox, changes: OutboxChanges): Stor
   for (const entry of changes.put) {
     if (!isStoredPending(entry) || !isRevision(entry.rev) || removed.has(entry.nonce)) continue;
     const held = entries.get(entry.nonce);
-    if (held && held.rev >= entry.rev) continue;
+    if (held ? held.rev >= entry.rev : entry.rev <= floor) continue;
     entries.set(entry.nonce, { ...storedPending(entry), rev: entry.rev });
   }
-  const tombstones = [...removed]
+  const newestFirst = [...removed]
     .map(([nonce, rev]) => ({ nonce, rev }))
-    .sort((a, b) => b.rev - a.rev)
-    .slice(0, OUTBOX_TOMBSTONES_KEPT);
-  return { outbox: 2, entries: [...entries.values()], removed: tombstones };
+    .sort((a, b) => b.rev - a.rev);
+  // Newest first, so what is kept is a prefix: every tombstone inside the
+  // window, never fewer than the minimum and never more than the most.
+  const recent = outboxRevision(0, now - SEND_RETRY_WINDOW_MS);
+  const older = newestFirst.findIndex((r) => r.rev < recent);
+  const kept = Math.min(
+    OUTBOX_TOMBSTONES_MAX,
+    Math.max(OUTBOX_TOMBSTONES_KEPT, older === -1 ? newestFirst.length : older),
+  );
+  const letGo = newestFirst[kept];
+  const compacted = letGo ? Math.max(floor, letGo.rev) : floor;
+  return {
+    outbox: 2,
+    entries: [...entries.values()],
+    removed: newestFirst.slice(0, kept),
+    ...(compacted >= 0 ? { compactedThrough: compacted } : {}),
+  };
 }
 
 /**
