@@ -972,12 +972,13 @@ export class Store {
   purgeMessagesBefore(
     before: number,
     limits: { roots?: number; messages?: number } = {},
-  ): { messages: number; fileIds: ID[] } {
+  ): { messages: number; fileIds: ID[]; roots: { id: ID; channelId: ID }[] } {
     const rootLimit = limits.roots ?? 2000;
     const messageBudget = limits.messages ?? 5000;
     const candidates = this.db
       .prepare(
-        `SELECT m.id, (SELECT COUNT(*) FROM messages r WHERE r.thread_root_id = m.id) AS replies
+        `SELECT m.id, m.channel_id AS channelId,
+           (SELECT COUNT(*) FROM messages r WHERE r.thread_root_id = m.id) AS replies
          FROM messages m
          WHERE m.thread_root_id IS NULL AND m.created_at < ?
            AND NOT EXISTS (
@@ -985,15 +986,17 @@ export class Store {
            )
          ORDER BY m.id LIMIT ?`,
       )
-      .all(before, before, rootLimit) as { id: string; replies: number }[];
-    if (candidates.length === 0) return { messages: 0, fileIds: [] };
+      .all(before, before, rootLimit) as { id: string; channelId: string; replies: number }[];
+    if (candidates.length === 0) return { messages: 0, fileIds: [], roots: [] };
 
     const roots: ID[] = [];
+    const removed: { id: ID; channelId: ID }[] = [];
     let messages = 0;
     for (const candidate of candidates) {
       const size = 1 + candidate.replies;
       if (roots.length > 0 && messages + size > messageBudget) break;
       roots.push(candidate.id);
+      removed.push({ id: candidate.id, channelId: candidate.channelId });
       messages += size;
     }
 
@@ -1057,7 +1060,7 @@ export class Store {
       // still hold what they said.
       this.redactEventRows(logged);
       this.redactQueuedDeliveries(queued);
-      return { messages, fileIds };
+      return { messages, fileIds, roots: removed };
     } finally {
       this.db.exec("DELETE FROM temp.purge_messages");
     }

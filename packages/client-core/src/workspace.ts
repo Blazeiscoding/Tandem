@@ -292,6 +292,12 @@ export interface WorkspaceState {
   pending: PendingMessage[];
   /** Message ids this user saved for later. */
   saved: Record<ID, true>;
+  /**
+   * Per conversation, the seq of the latest `history.removed`: retention took
+   * threads away. Held views of that conversation drop them from here; one
+   * the client does not hold, such as a page of Activity, can load again.
+   */
+  removedHistory: Record<ID, number>;
   /** channelId -> unread messages there that name this user. */
   mentionCounts: Record<ID, number>;
   /** threadRootId -> this account's follow state and read cursor for it. */
@@ -331,6 +337,7 @@ const initialState: WorkspaceState = {
   threadPages: {},
   pending: [],
   saved: {},
+  removedHistory: {},
   threadFollows: {},
   mentionCounts: {},
   drafts: {},
@@ -882,6 +889,35 @@ export class WorkspaceClient {
           ...event.message,
         }));
         patch.threads = this.patchThreadMessage(s, event.message.id, () => ({ ...event.message }));
+        break;
+      }
+      case "history.removed": {
+        // Whole threads went, first message and replies: what is held of them goes too.
+        const gone = new Set(event.rootIds);
+        const kept = (m: Message) =>
+          !gone.has(m.id) && !(m.threadRootId && gone.has(m.threadRootId));
+        const hold = this.timelineHolds.get(event.channelId);
+        if (hold) hold.messages = hold.messages.filter(kept);
+        const tl = s.timelines[event.channelId];
+        if (tl)
+          patch.timelines = {
+            ...s.timelines,
+            [event.channelId]: { ...tl, items: tl.items.filter(kept) },
+          };
+        const threads = { ...s.threads };
+        const threadPages = { ...s.threadPages };
+        const threadFollows = { ...s.threadFollows };
+        const saved = { ...s.saved };
+        for (const rootId of gone) {
+          delete threads[rootId];
+          delete threadPages[rootId];
+          delete threadFollows[rootId];
+          delete saved[rootId];
+          this.threadLoads.delete(rootId);
+          this.reloadThreads.delete(rootId);
+        }
+        Object.assign(patch, { threads, threadPages, threadFollows, saved });
+        patch.removedHistory = { ...s.removedHistory, [event.channelId]: seq };
         break;
       }
       case "message.deleted": {

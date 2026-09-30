@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isMessageRead } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
@@ -26,6 +26,7 @@ export function ActivityPanel({
   const memberships = useWorkspace((s) => s.memberships);
   const threadFollows = useWorkspace((s) => s.threadFollows);
   const repliesRead = useWorkspace((s) => s.repliesRead);
+  const removedHistory = useWorkspace((s) => s.removedHistory);
   const { panel, heading } = usePanelFocus({ takeFocus: true });
   const [mode, setMode] = useState<ActivityMode>("unread");
   const [cursors, setCursors] = useState<(ID | undefined)[]>([undefined]);
@@ -65,6 +66,16 @@ export function ActivityPanel({
       });
     return () => controller.abort();
   }, [client, mode, cursor, revision]);
+
+  // Retention took threads from a conversation this page shows: load it again,
+  // rather than go on listing what the server no longer has.
+  const heardRemoved = useRef(removedHistory);
+  useEffect(() => {
+    const before = heardRemoved.current;
+    heardRemoved.current = removedHistory;
+    if (result?.messages.some((m) => removedHistory[m.channelId] !== before[m.channelId]))
+      setRevision((v) => v + 1);
+  }, [removedHistory, result]);
 
   const messages = (result?.messages ?? []).filter(
     (message) =>

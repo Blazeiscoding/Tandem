@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiError, WorkspaceClient } from "@slackoss/client-core";
 import type { Channel, Message, User } from "@slackoss/protocol";
@@ -96,6 +96,35 @@ describe("the Activity panel", () => {
     );
     return { spy, panel: screen.getByRole("complementary", { name: "Activity" }) };
   }
+
+  it("loads its page again when retention takes threads from a conversation it shows", async () => {
+    const { client, platform } = workspace();
+    let answer = [message("M_OLD", "an old mention", 5), message("M_NEW", "a newer one", 6)];
+    const spy = vi
+      .spyOn(client.api, "activity")
+      .mockImplementation(async () => ({ messages: answer, nextCursor: null }));
+    render(
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <ActivityPanel onClose={() => {}} onJump={() => {}} />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
+    );
+    const panel = screen.getByRole("complementary", { name: "Activity" });
+    await within(panel).findByText("an old mention");
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // Another conversation's removal is nothing to this page.
+    act(() => client.store.setState({ removedHistory: { [hidden.id]: 20 } }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    answer = [message("M_NEW", "a newer one", 6)];
+    act(() => client.store.setState({ removedHistory: { [hidden.id]: 20, [design.id]: 21 } }));
+    await waitFor(() => expect(within(panel).queryByText("an old mention")).toBeNull());
+    expect(within(panel).getByText("a newer one")).toBeTruthy();
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
 
   it("says a load failed, and Retry loads it", async () => {
     const user = userEvent.setup();
