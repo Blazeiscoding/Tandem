@@ -23,10 +23,12 @@ import {
   isLinkableAddress,
   type DiscoveryTxt,
 } from "@slackoss/protocol";
+import type { OutboxChanges } from "@slackoss/client-core/outbox";
 import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
+import { mergeOutboxSetting } from "./outboxStorage.js";
 import { createHostingController } from "./hosting.js";
 import { loginItemOptions, loginItemProblem, openedAtLogin } from "./loginItem.js";
 import {
@@ -162,6 +164,20 @@ ipcMain.handle("storage:get", (_e, key: string, options?: { strict?: boolean }) 
 
 const writeSetting = (key: string, value: unknown) => settings.set(key, value);
 ipcMain.handle("storage:set", (_e, key: string, value: unknown) => writeSetting(key, value));
+
+// Outbox changes from every window are merged here, one at a time; the other
+// windows hear what is stored now, so each can take on what it did not see.
+ipcMain.handle(
+  "storage:mergeOutbox",
+  async (event, key: string, changes: OutboxChanges, enveloped: boolean) => {
+    const { value, outbox } = await mergeOutboxSetting(settings, key, changes, enveloped);
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
+        win.webContents.send("storage:outboxChanged", key, value);
+    }
+    return outbox;
+  },
+);
 
 // ---------- LAN discovery (mDNS browse) ----------
 

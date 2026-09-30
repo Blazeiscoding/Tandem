@@ -113,3 +113,37 @@ describe("what the renderer shows when the main process refuses", () => {
     );
   });
 });
+
+describe("the outbox every window shares", () => {
+  it("is merged in the main process and watched for the other windows' changes", async () => {
+    const merged = { outbox: 2, entries: [], removed: [] };
+    const calls: unknown[][] = [];
+    let notify: (key: string, stored: unknown) => void = () => {};
+    (globalThis as { window?: unknown }).window = {
+      slackoss: {
+        storageMergeOutbox: async (...args: unknown[]) => {
+          calls.push(args);
+          return merged;
+        },
+        onOutboxChanged: (cb: typeof notify) => {
+          notify = cb;
+          return () => {
+            notify = () => {};
+          };
+        },
+      } as unknown as Bridge,
+    };
+    const platform = electronPlatform();
+    const changes = { put: [], remove: [{ nonce: "A", rev: 1 }] };
+    expect(await platform.storage.mergeOutbox!("outbox-key", changes, true)).toBe(merged);
+    expect(calls).toEqual([["outbox-key", changes, true]]);
+
+    const heard: unknown[] = [];
+    const stop = platform.storage.watchOutbox!("outbox-key", (stored) => heard.push(stored));
+    notify("another-key", "not this one");
+    notify("outbox-key", "stored now");
+    stop();
+    notify("outbox-key", "after stopping");
+    expect(heard).toEqual(["stored now"]);
+  });
+});

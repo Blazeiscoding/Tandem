@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { StoredPending } from "@slackoss/client-core";
+import {
+  OUTBOX_TOMBSTONES_KEPT,
+  outboxRevision,
+  readStoredOutbox,
+  storedPending,
+  type StoredOutbox,
+  type StoredOutboxEntry,
+} from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import {
+  mergeWorkspaceOutbox,
   readWorkspaceStorage,
-  updateWorkspaceStorage,
+  watchWorkspaceOutbox,
   workspaceStorageKey,
   writeWorkspaceStorage,
 } from "../lib/workspaceStorage.js";
@@ -18,35 +26,26 @@ function validDrafts(value: unknown): value is Record<string, string> {
   );
 }
 
-function validOutbox(value: unknown): value is StoredPending[] {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (entry) =>
-        entry &&
-        typeof entry.nonce === "string" &&
-        typeof entry.channelId === "string" &&
-        (entry.threadRootId === null || typeof entry.threadRootId === "string") &&
-        (entry.broadcast === undefined || typeof entry.broadcast === "boolean") &&
-        typeof entry.text === "string" &&
-        typeof entry.userId === "string" &&
-        Number.isFinite(entry.createdAt) &&
-        (entry.refusal === undefined || typeof entry.refusal === "string") &&
-        Array.isArray(entry.attachments) &&
-        entry.attachments.every(
-          (file: { name?: unknown; size?: unknown; mime?: unknown } | null) =>
-            file &&
-            typeof file.name === "string" &&
-            typeof file.size === "number" &&
-            Number.isFinite(file.size) &&
-            file.size >= 0 &&
-            typeof file.mime === "string",
-        ),
-    )
-  );
-}
+/** How many times in a row a window writes its sends again after another's write left them out. */
+const REPAIRS = 3;
 
-/** Keeps unsent work on this device, scoped to the authenticated workspace and account. */
+/**
+ * Keeps unsent work on this device, scoped to the authenticated workspace and
+ * account.
+ *
+ * Every window open on the account shares one stored outbox. Each writes only
+ * its own sends and the ones it saw delivered or discarded, merged in one step
+ * by the platform (see `mergeWorkspaceOutbox`), and takes on what the others
+ * wrote about the sends it holds: one taken out elsewhere goes here too, and a
+ * refusal given elsewhere stops it here until its author chooses Retry.
+ *
+ * A send is kept on this device once the outbox write carrying it resolves;
+ * from then a restart brings it back. Until then its words are still in the
+ * saved draft: a draft is written only after the outbox write before it has
+ * succeeded, so a process that dies in between comes back with the words in
+ * the composer rather than losing both. A write that fails says so, keeps the
+ * draft as it was on disk, and is made again on Retry.
+ */
 export function DraftPersistence({ platform }: { platform: Platform }) {
   const client = useClient();
   const selfId = useWorkspace((s) => s.self?.id);
@@ -64,25 +63,33 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
   useEffect(() => {
     const draftKey = keys.drafts;
     const outboxKey = keys.outbox;
-    if (!draftKey || !outboxKey) return;
+    const self = selfId;
+    if (!draftKey || !outboxKey || !self) return;
     let disposed = false;
     let loaded = false;
     let loading = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let currentDrafts = client.state.drafts;
-    let currentOutbox = client.outboxSnapshot();
-    let outboxJson = JSON.stringify(currentOutbox);
     const editedDrafts = new Set<string>();
-    // Every window open on this account writes the same stored outbox, so each
-    // takes out only what it saw delivered or discarded and keeps the rest.
-    const removedPending = new Set<string>();
+    // This window's sends as it last wrote or took them on, and the ones it
+    // saw leave. Every write carries all of them: the merge keeps the newest
+    // of each, so writing one again changes nothing, and puts back one that
+    // another window's write left out.
+    const held = new Map<string, { entry: StoredOutboxEntry; json: string }>();
+    const gone = new Map<string, number>();
+    let revision = 0;
     let outboxChanged = false;
+    let outboxWrite: Promise<unknown> = Promise.resolve();
+    let repairs = 0;
+    // Set while this window takes on what is stored, so the client's changes
+    // along the way are not mistaken for its own new ones.
+    let quiet = false;
     const versions = { drafts: 0, outbox: 0 };
     const failing = new Set<keyof typeof versions>();
     setError(null);
 
     // The latest write of each part decides whether saving has failed.
-    const save = (part: keyof typeof versions, write: Promise<void>) => {
+    const save = (part: keyof typeof versions, write: Promise<unknown>) => {
       const version = ++versions[part];
       const settle = (saved: boolean) => {
         if (version !== versions[part]) return;
@@ -100,30 +107,115 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         () => settle(false),
       );
     };
-    const mergeOutbox = (stored: StoredPending[]) => {
-      const outbox = new Map(stored.map((entry) => [entry.nonce, entry]));
-      // Once a removed send is no longer stored, there is nothing left to take out.
-      for (const nonce of removedPending) if (!outbox.delete(nonce)) removedPending.delete(nonce);
-      for (const entry of currentOutbox) outbox.set(entry.nonce, entry);
-      return [...outbox.values()];
+
+    const forget = (nonce: string, rev: number) => {
+      held.delete(nonce);
+      gone.delete(nonce);
+      gone.set(nonce, rev);
+      if (gone.size > OUTBOX_TOMBSTONES_KEPT) gone.delete(gone.keys().next().value!);
     };
+
+    // Gives each send whose stored form changed here a new revision, and each
+    // one that left a tombstone. True when there is something to write.
+    const observe = () => {
+      const now = new Set<string>();
+      let changed = false;
+      for (const pending of client.outboxSnapshot()) {
+        const entry = storedPending(pending);
+        now.add(entry.nonce);
+        const json = JSON.stringify(entry);
+        if (held.get(entry.nonce)?.json === json) continue;
+        revision = outboxRevision(revision);
+        held.set(entry.nonce, { entry: { ...entry, rev: revision }, json });
+        changed = true;
+      }
+      for (const nonce of [...held.keys()]) {
+        if (now.has(nonce)) continue;
+        revision = outboxRevision(revision);
+        forget(nonce, revision);
+        changed = true;
+      }
+      return changed;
+    };
+
+    const seen = (record: StoredOutbox) => {
+      for (const r of [...record.entries, ...record.removed]) revision = Math.max(revision, r.rev);
+    };
+
+    // Takes on what other windows wrote about this window's sends. True when
+    // something of this window's is missing from what is stored.
+    const reconcile = (record: StoredOutbox | null): boolean => {
+      if (!record) return held.size > 0 || gone.size > 0;
+      seen(record);
+      const stored = new Map(record.entries.map((entry) => [entry.nonce, entry]));
+      const removed = new Map(record.removed.map((r) => [r.nonce, r.rev]));
+      const dropped: string[] = [];
+      const refused: StoredOutboxEntry[] = [];
+      let missing = false;
+      for (const [nonce, mine] of held) {
+        const theirs = stored.get(nonce);
+        if (removed.has(nonce)) dropped.push(nonce);
+        else if (!theirs || theirs.rev < mine.entry.rev) missing = true;
+        else if (
+          theirs.rev > mine.entry.rev &&
+          theirs.refusal !== undefined &&
+          mine.entry.refusal === undefined
+        )
+          refused.push(theirs);
+      }
+      for (const nonce of gone.keys()) if (stored.has(nonce)) missing = true;
+      for (const nonce of dropped) {
+        forget(nonce, removed.get(nonce)!);
+        client.discardSend(nonce);
+      }
+      for (const theirs of refused) {
+        held.set(theirs.nonce, { entry: theirs, json: JSON.stringify(storedPending(theirs)) });
+        client.adoptRefusal(theirs.nonce, theirs.refusal!);
+      }
+      return missing;
+    };
+
     const saveDrafts = (drafts: Record<string, string>) =>
-      save("drafts", writeWorkspaceStorage(platform, draftKey, drafts));
-    const saveOutbox = () =>
       save(
-        "outbox",
-        updateWorkspaceStorage(platform, outboxKey, (stored) =>
-          mergeOutbox(validOutbox(stored) ? stored : []),
-        ),
+        "drafts",
+        outboxWrite.then(() => writeWorkspaceStorage(platform, draftKey, drafts)),
       );
+    const saveOutbox = () => {
+      const write = mergeWorkspaceOutbox(platform, outboxKey, {
+        put: [...held.values()].map((h) => h.entry),
+        remove: [...gone].map(([nonce, rev]) => ({ nonce, rev })),
+      }).then((record) => {
+        if (!disposed && loaded) takeOn(record);
+        // Drafts held back by a failed outbox write can go now.
+        if (loaded && failing.has("drafts")) void saveDrafts(currentDrafts);
+      });
+      outboxWrite = write;
+      return save("outbox", write);
+    };
+    const quietly = <T,>(step: () => T): T => {
+      quiet = true;
+      try {
+        return step();
+      } finally {
+        quiet = false;
+      }
+    };
+    // Writing again when something is missing is bounded, so two windows that
+    // disagree about what is stored cannot keep each other writing.
+    const takeOn = (record: StoredOutbox | null) => {
+      const missing = quietly(() => reconcile(record));
+      if (observe()) void saveOutbox();
+      else if (!missing) repairs = 0;
+      else if (repairs++ < REPAIRS) void saveOutbox();
+    };
 
     // The client and keys belong to this effect, including its final flush.
     // A new connection must never write its drafts into the previous scope.
     const flush = () => {
       clearTimeout(timer);
       if (!loaded) return;
-      void saveDrafts(currentDrafts);
       void saveOutbox();
+      void saveDrafts(currentDrafts);
     };
     const unsubscribe = client.store.subscribe((state, previous) => {
       if (state.drafts !== previous.drafts) {
@@ -139,21 +231,41 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         clearTimeout(timer);
         if (loaded) timer = setTimeout(() => void saveDrafts(currentDrafts), 600);
       }
-      if (state.pending === previous.pending) return;
-      for (const entry of previous.pending) {
-        if (!state.pending.some((pending) => pending.nonce === entry.nonce))
-          removedPending.add(entry.nonce);
-      }
-      const outbox = client.outboxSnapshot();
-      const json = JSON.stringify(outbox);
-      if (json === outboxJson) return;
-      currentOutbox = outbox;
-      outboxJson = json;
+      if (quiet || state.pending === previous.pending || !observe()) return;
       outboxChanged = true;
       // A send accepted, delivered or refused is written now, not after the
       // pause drafts wait for: a restart in between would lose it or resend it.
       if (loaded) void saveOutbox();
     });
+    const unwatch = watchWorkspaceOutbox(platform, outboxKey, (record) => {
+      if (loaded && !disposed) takeOn(record);
+    });
+
+    // What was stored meets what this client already holds, which after a
+    // change of address is more than nothing.
+    const load = (record: StoredOutbox) => {
+      seen(record);
+      const pending = new Map(client.outboxSnapshot().map((p) => [p.nonce, storedPending(p)]));
+      const refused: StoredOutboxEntry[] = [];
+      for (const r of record.removed) {
+        if (!pending.has(r.nonce)) continue;
+        forget(r.nonce, r.rev);
+        client.discardSend(r.nonce);
+      }
+      const restored: StoredOutboxEntry[] = [];
+      for (const entry of record.entries) {
+        if (entry.userId !== self || held.has(entry.nonce) || gone.has(entry.nonce)) continue;
+        const json = JSON.stringify(storedPending(entry));
+        const mine = pending.get(entry.nonce);
+        if (!mine) restored.push(entry);
+        else if (entry.refusal !== undefined && mine.refusal === undefined) refused.push(entry);
+        // This client's own version differs and is newer: it gets a revision of its own.
+        else if (JSON.stringify(mine) !== json) continue;
+        held.set(entry.nonce, { entry, json });
+      }
+      for (const entry of refused) client.adoptRefusal(entry.nonce, entry.refusal!);
+      client.restoreOutbox(restored.map(storedPending));
+    };
 
     const restore = () => {
       if (loading) return;
@@ -166,24 +278,24 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         .then(([storedDrafts, storedOutbox]) => {
           if (storedDrafts !== null && !validDrafts(storedDrafts))
             throw new Error("Invalid drafts");
-          if (storedOutbox !== null && !validOutbox(storedOutbox))
-            throw new Error("Invalid outbox");
+          const record = readStoredOutbox(storedOutbox);
+          if (!record) throw new Error("Invalid outbox");
           const drafts = { ...storedDrafts, ...currentDrafts };
           // Keep these edits across failed read retries as well as the first load.
           // An empty draft typed while storage was loading is an edit too.
           for (const key of editedDrafts) {
             if (!(key in currentDrafts)) delete drafts[key];
           }
-          const outbox = mergeOutbox(storedOutbox ?? []);
           if (disposed) {
             // A quick switch may precede a desktop storage read. Finish saving
             // edits to the captured scope, without restoring or sending anything.
-            if (editedDrafts.size) void saveDrafts(drafts);
             if (outboxChanged) void saveOutbox();
+            if (editedDrafts.size) void saveDrafts(drafts);
             return;
           }
           client.hydrateDrafts(drafts);
-          client.restoreOutbox(outbox);
+          quietly(() => load(record));
+          observe();
           loaded = true;
           flush();
         })
@@ -211,12 +323,13 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     return () => {
       if (retry.current === retryPersistence) retry.current = null;
       unsubscribe();
+      unwatch();
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onHide);
       disposed = true;
       flush();
     };
-  }, [client, platform, keys]);
+  }, [client, platform, keys, selfId]);
 
   return error ? (
     <div

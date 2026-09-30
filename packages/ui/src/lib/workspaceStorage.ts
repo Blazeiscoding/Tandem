@@ -1,3 +1,11 @@
+import {
+  emptyOutbox,
+  mergeOutbox,
+  readStoredOutbox,
+  unwrapStoredOutbox,
+  type OutboxChanges,
+  type StoredOutbox,
+} from "@slackoss/client-core";
 import type { Platform } from "../platform.js";
 import { checkWorkspaceAddress } from "./workspaceAddressTrust.js";
 
@@ -158,4 +166,38 @@ export function updateWorkspaceStorage(
     const value = update(current);
     await platform.storage.set(key.key, key.legacyKey ? envelope(value) : value);
   });
+}
+
+/**
+ * Merges one window's outbox changes into what is stored and gives back the
+ * outbox now stored. Where the platform can, this is one step across every
+ * window; otherwise it is one turn of this window's queue for the key, like
+ * `updateWorkspaceStorage`. Call only after the value has been read once.
+ */
+export function mergeWorkspaceOutbox(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+  changes: OutboxChanges,
+): Promise<StoredOutbox> {
+  const merge = platform.storage.mergeOutbox;
+  if (merge) return serialized(platform, key.key, () => merge(key.key, changes, !!key.legacyKey));
+  let merged = emptyOutbox();
+  return updateWorkspaceStorage(platform, key, (current) => {
+    merged = mergeOutbox(readStoredOutbox(current) ?? emptyOutbox(), changes);
+    return merged;
+  }).then(() => merged);
+}
+
+/**
+ * Calls back with the stored outbox, or null when it cannot be read, each
+ * time another window changes it. Does nothing where the platform cannot tell.
+ */
+export function watchWorkspaceOutbox(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+  cb: (outbox: StoredOutbox | null) => void,
+): () => void {
+  const watch = platform.storage.watchOutbox;
+  if (!watch) return () => {};
+  return watch(key.key, (stored) => cb(unwrapStoredOutbox(stored, !!key.legacyKey)));
 }

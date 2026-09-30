@@ -1,11 +1,11 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ApiError, OUTBOX_LIMIT, WorkspaceClient } from "@slackoss/client-core";
+import { ApiError, OUTBOX_LIMIT, WorkspaceClient, readStoredOutbox } from "@slackoss/client-core";
 import type { Channel, Message, User } from "@slackoss/protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DraftPersistence } from "../src/components/DraftPersistence.js";
 import { ClientContext, PlatformContext } from "../src/context.js";
-import type { Platform } from "../src/platform.js";
+import { webPlatform, type Platform } from "../src/platform.js";
 
 /**
  * Unsent work on this device, through the storage it is written to: a restart
@@ -76,9 +76,14 @@ function mount(client: WorkspaceClient, platform: Platform) {
   );
 }
 
+/** The sends in the stored outbox, in order. */
+function storedEntries(values: Map<string, unknown>, key: string) {
+  return readStoredOutbox(values.get(key) ?? null)?.entries ?? [];
+}
+
 /** The texts in the stored outbox, in order. */
 function storedTexts(values: Map<string, unknown>, key: string) {
-  return ((values.get(key) ?? []) as Pick<Message, "text">[]).map((e) => e.text);
+  return storedEntries(values, key).map((e) => e.text);
 }
 
 /**
@@ -109,6 +114,24 @@ function sent(client: WorkspaceClient, nonce: string, text: string): Message {
 }
 
 afterEach(() => vi.restoreAllMocks());
+// Not after each: unmounting a test's windows writes their outbox one last time.
+beforeEach(() => localStorage.clear());
+
+/** A send as an earlier version stored it: a plain list entry, with no revision. */
+function queued(nonce: string, text: string) {
+  return {
+    nonce,
+    channelId: design.id,
+    threadRootId: null,
+    text,
+    userId: sam.id,
+    createdAt: 1,
+    attachments: [],
+  };
+}
+
+const networkDown = () => Promise.reject(new TypeError("Failed to fetch"));
+const never = () => new Promise<never>(() => {});
 
 describe("queued messages kept on this device", () => {
   it("come back after a restart, every one, with a refusal still waiting for Retry", async () => {
@@ -171,11 +194,7 @@ describe("queued messages kept on this device", () => {
 
     broken = false;
     await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
-    await waitFor(() =>
-      expect((values.get(key) as { text: string }[]).map((e) => e.text)).toEqual([
-        "kept in memory for now",
-      ]),
-    );
+    await waitFor(() => expect(storedTexts(values, key)).toEqual(["kept in memory for now"]));
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -189,11 +208,7 @@ describe("queued messages kept on this device", () => {
 
     client.send(design.id, "tab closing");
     act(() => void window.dispatchEvent(new Event("pagehide")));
-    await waitFor(() =>
-      expect((values.get(key) as Pick<Message, "text">[]).map((e) => e.text)).toEqual([
-        "tab closing",
-      ]),
-    );
+    await waitFor(() => expect(storedTexts(values, key)).toEqual(["tab closing"]));
   });
 
   it("are written as soon as a send is accepted, and as soon as it is delivered", async () => {
@@ -243,9 +258,7 @@ describe("queued messages kept on this device", () => {
     await act(async () => refuse());
     expect(client.state.pending[0]).toMatchObject({ failed: true, refused: true });
     await settle();
-    expect((values.get(key) as { refusal?: string }[])[0]?.refusal).toBe(
-      "This conversation is archived.",
-    );
+    expect(storedEntries(values, key)[0]?.refusal).toBe("This conversation is archived.");
   });
 
   it("keep the sends of every window open on the account, not only the last to write", async () => {
@@ -315,5 +328,275 @@ describe("queued messages kept on this device", () => {
         "queued by this one",
       ]),
     );
+  });
+});
+
+describe("queued messages shared by every window open on the account", () => {
+  /** The texts in a browser's stored outbox, in order. */
+  function browserTexts(name: string) {
+    const raw = localStorage.getItem(name);
+    return readStoredOutbox(raw === null ? null : JSON.parse(raw))!.entries.map((e) => e.text);
+  }
+
+  /** Another tab's write, as this one hears of it. */
+  function writtenByAnotherTab(name: string, value: unknown) {
+    const newValue = JSON.stringify(value);
+    localStorage.setItem(name, newValue);
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: name, newValue, storageArea: localStorage }),
+      );
+    });
+  }
+
+  it("keep both of two sends accepted at the same moment in two tabs", async () => {
+    // Two tabs of the same browser: two platforms over one localStorage.
+    const first = signedIn();
+    const second = signedIn();
+    first.sendMessage.mockImplementation(networkDown);
+    second.sendMessage.mockImplementation(networkDown);
+    mount(first.client, webPlatform());
+    mount(second.client, webPlatform());
+    const name = `slackoss:outbox:${first.client.baseUrl}:${sam.id}`;
+    await waitFor(() => expect(localStorage.getItem(name)).not.toBeNull());
+
+    first.client.send(design.id, "from the first tab");
+    second.client.send(design.id, "from the second tab");
+    await settle();
+    expect(browserTexts(name)).toEqual(["from the first tab", "from the second tab"]);
+
+    const next = signedIn();
+    const delivered: string[] = [];
+    next.sendMessage.mockImplementation(async (_channel, body) => {
+      delivered.push(body.text!);
+      throw new TypeError("Failed to fetch");
+    });
+    mount(next.client, webPlatform());
+    await waitFor(() =>
+      expect(delivered.sort()).toEqual(["from the first tab", "from the second tab"]),
+    );
+  });
+
+  it("put back a send when another tab's write, made without it, lands after it", async () => {
+    const { client, sendMessage } = signedIn();
+    sendMessage.mockImplementation(networkDown);
+    mount(client, webPlatform());
+    const name = `slackoss:outbox:${client.baseUrl}:${sam.id}`;
+    await waitFor(() => expect(localStorage.getItem(name)).not.toBeNull());
+    client.send(design.id, "from this tab");
+    await settle();
+    expect(browserTexts(name)).toEqual(["from this tab"]);
+
+    // Each browser process keeps its own copy of localStorage. A tab whose copy
+    // had not heard of that write yet stores its own send over it.
+    writtenByAnotherTab(name, {
+      outbox: 2,
+      entries: [{ ...queued("from-elsewhere", "from another tab"), rev: 5 }],
+      removed: [],
+    });
+    await waitFor(() => expect(browserTexts(name)).toEqual(["from another tab", "from this tab"]));
+  });
+
+  it("take on a refusal and a removal another tab wrote, and send neither again", async () => {
+    const { client, sendMessage } = signedIn();
+    sendMessage.mockImplementation(never);
+    const name = `slackoss:outbox:${client.baseUrl}:${sam.id}`;
+    localStorage.setItem(
+      name,
+      JSON.stringify([queued("refused", "to be refused"), queued("sent", "to be sent")]),
+    );
+    mount(client, webPlatform());
+    await waitFor(() => expect(client.state.pending).toHaveLength(2));
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+
+    // The other tab heard the server refuse one and deliver the other.
+    writtenByAnotherTab(name, {
+      outbox: 2,
+      entries: [
+        {
+          ...queued("refused", "to be refused"),
+          refusal: "This conversation is archived.",
+          rev: 10,
+        },
+      ],
+      removed: [{ nonce: "sent", rev: 11 }],
+    });
+    await waitFor(() =>
+      expect(client.state.pending).toMatchObject([
+        {
+          nonce: "refused",
+          failed: true,
+          refused: true,
+          failureReason: "This conversation is archived.",
+        },
+      ]),
+    );
+    await settle();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(readStoredOutbox(JSON.parse(localStorage.getItem(name)!))!.entries).toMatchObject([
+      { nonce: "refused", refusal: "This conversation is archived." },
+    ]);
+  });
+
+  it("never bring back a send one window discarded when another writes what it holds", async () => {
+    const { platform, values } = device();
+    const other = device(values);
+    const first = signedIn();
+    const second = signedIn();
+    first.sendMessage.mockImplementation(networkDown);
+    second.sendMessage.mockImplementation(networkDown);
+    const key = `outbox:${first.client.baseUrl}:${sam.id}`;
+    values.set(key, [queued("restored-twice", "restored in both windows")]);
+    // Both windows restore it.
+    mount(first.client, platform);
+    mount(second.client, other.platform);
+    await waitFor(() => expect(first.client.state.pending[0]?.failed).toBe(true));
+    await waitFor(() => expect(second.client.state.pending[0]?.failed).toBe(true));
+
+    first.client.discardSend("restored-twice");
+    await waitFor(() => expect(storedTexts(values, key)).toEqual([]));
+    second.client.send(design.id, "unrelated");
+    await waitFor(() => expect(storedTexts(values, key)).toEqual(["unrelated"]));
+    // Nor does flushing everything when the page is hidden.
+    act(() => void window.dispatchEvent(new Event("pagehide")));
+    await settle();
+    expect(storedTexts(values, key)).toEqual(["unrelated"]);
+    // The second window, seeing it stored as gone, lets go of it as well.
+    expect(second.client.state.pending.map((p) => p.text)).toEqual(["unrelated"]);
+
+    const next = signedIn();
+    const delivered: string[] = [];
+    next.sendMessage.mockImplementation(async (_channel, body) => {
+      delivered.push(body.text!);
+      throw new TypeError("Failed to fetch");
+    });
+    mount(next.client, device(values).platform);
+    await waitFor(() => expect(delivered).toEqual(["unrelated"]));
+  });
+
+  it("keep a refusal one window stored, however stale another window's copy of that send", async () => {
+    const { platform, values } = device();
+    const other = device(values);
+    const stale = signedIn();
+    const current = signedIn();
+    // The stale window's attempt is still waiting when the other hears the refusal.
+    stale.sendMessage.mockImplementation(never);
+    current.sendMessage.mockRejectedValue(new ApiError(400, "channel_archived"));
+    const key = `outbox:${stale.client.baseUrl}:${sam.id}`;
+    values.set(key, [queued("refused-once", "into an archived channel")]);
+    mount(stale.client, platform);
+    await waitFor(() => expect(stale.client.state.pending).toHaveLength(1));
+    mount(current.client, other.platform);
+    await waitFor(() =>
+      expect(storedEntries(values, key)[0]?.refusal).toBe("This conversation is archived."),
+    );
+
+    // The stale window writes when it queues something else.
+    stale.client.send(design.id, "something else");
+    await waitFor(() => expect(storedTexts(values, key)).toContain("something else"));
+    expect(storedEntries(values, key)[0]).toMatchObject({
+      nonce: "refused-once",
+      refusal: "This conversation is archived.",
+    });
+    // And stops sending it too, until its author chooses Retry.
+    expect(stale.client.state.pending[0]).toMatchObject({ failed: true, refused: true });
+
+    const next = signedIn();
+    const delivered: string[] = [];
+    next.sendMessage.mockImplementation(async (_channel, body) => {
+      delivered.push(body.text!);
+      throw new TypeError("Failed to fetch");
+    });
+    mount(next.client, device(values).platform);
+    await waitFor(() => expect(delivered).toEqual(["something else"]));
+    expect(next.client.state.pending.find((p) => p.nonce === "refused-once")).toMatchObject({
+      failed: true,
+      failureReason: "This conversation is archived.",
+    });
+  });
+});
+
+describe("the moment a send is kept", () => {
+  /** Outbox writes wait until the test lets them finish, or fail. */
+  function gatedOutbox(platform: Platform, key: string) {
+    const write = platform.storage.set;
+    const gate = { closed: false, held: false, open: () => {}, fail: () => {} };
+    platform.storage.set = async (name, value) => {
+      if (name === key && gate.closed) {
+        gate.held = true;
+        await new Promise<void>((resolve, reject) => {
+          gate.open = resolve;
+          gate.fail = () => reject(new Error("QuotaExceededError"));
+        });
+      }
+      return write(name, value);
+    };
+    return gate;
+  }
+
+  const pause = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  it("is when its outbox write finishes; until then the saved draft keeps its words", async () => {
+    const { platform, values } = device();
+    const { client, sendMessage } = signedIn();
+    sendMessage.mockImplementation(never);
+    const key = `outbox:${client.baseUrl}:${sam.id}`;
+    const draftKey = `drafts:${client.baseUrl}:${sam.id}`;
+    const gate = gatedOutbox(platform, key);
+    mount(client, platform);
+    await waitFor(() => expect(values.has(key)).toBe(true));
+    client.setDraft(design.id, "typed, then sent");
+    await waitFor(() => expect(values.get(draftKey)).toEqual({ [design.id]: "typed, then sent" }), {
+      timeout: 3000,
+    });
+
+    gate.closed = true;
+    // What the composer does on Enter.
+    client.send(design.id, "typed, then sent");
+    client.setDraft(design.id, "");
+    // Well past the pause drafts wait for: a process that died now would come
+    // back with the words in the composer, since the send is not stored yet.
+    await pause(900);
+    expect(storedTexts(values, key)).toEqual([]);
+    expect(values.get(draftKey)).toEqual({ [design.id]: "typed, then sent" });
+
+    gate.closed = false;
+    act(() => gate.open());
+    await waitFor(() => expect(storedTexts(values, key)).toEqual(["typed, then sent"]));
+    await waitFor(() => expect(values.get(draftKey)).toEqual({}));
+  });
+
+  it("keeps the words in the saved draft when the outbox write fails, and saves both on Retry", async () => {
+    const { platform, values } = device();
+    const { client, sendMessage } = signedIn();
+    sendMessage.mockImplementation(never);
+    const key = `outbox:${client.baseUrl}:${sam.id}`;
+    const draftKey = `drafts:${client.baseUrl}:${sam.id}`;
+    const gate = gatedOutbox(platform, key);
+    mount(client, platform);
+    await waitFor(() => expect(values.has(key)).toBe(true));
+    client.setDraft(design.id, "not lost");
+    await waitFor(() => expect(values.get(draftKey)).toEqual({ [design.id]: "not lost" }), {
+      timeout: 3000,
+    });
+
+    gate.closed = true;
+    client.send(design.id, "not lost");
+    client.setDraft(design.id, "");
+    await waitFor(() => expect(gate.held).toBe(true));
+    act(() => gate.fail());
+    expect(
+      await screen.findByText(
+        "Could not save drafts and queued messages on this device. Keep it open and retry.",
+      ),
+    ).toBeVisible();
+    await pause(900);
+    expect(values.get(draftKey)).toEqual({ [design.id]: "not lost" });
+
+    gate.closed = false;
+    await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(storedTexts(values, key)).toEqual(["not lost"]));
+    await waitFor(() => expect(values.get(draftKey)).toEqual({}));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
