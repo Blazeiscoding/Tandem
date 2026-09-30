@@ -1,6 +1,5 @@
 import {
-  emptyOutbox,
-  mergeOutbox,
+  applyOutboxChanges,
   readStoredOutbox,
   unwrapStoredOutbox,
   type OutboxChanges,
@@ -86,6 +85,35 @@ function unwrap<T>(stored: unknown): T | null {
   return stored.value as T | null;
 }
 
+/**
+ * The address-scoped keys a value may still sit under from before workspace
+ * IDs, in the order to try them. Only addresses this device has linked to the
+ * workspace, so a server that copies a workspace's ID cannot read its work.
+ */
+async function legacyKeysOf(platform: Platform, key: WorkspaceStorageKey): Promise<string[]> {
+  if (!key.legacyKey) return [];
+  const legacyKeys = [key.legacyKey];
+  if (key.legacyScope) {
+    const scope = key.legacyScope;
+    const access = await checkWorkspaceAddress(
+      platform,
+      scope.workspaceId,
+      scope.selfId,
+      scope.baseUrl,
+    );
+    if (!access.allowed)
+      throw new Error("Approve this workspace address before restoring local work.");
+    // A thread composer/search dialog may never have opened at the old
+    // address after upgrade. Its legacy slot is still recoverable once both
+    // addresses have been explicitly linked on this device.
+    for (const address of access.addresses) {
+      const candidate = `${scope.kind}:${address}:${scope.selfId}${scope.suffix === undefined ? "" : `:${scope.suffix}`}`;
+      if (!legacyKeys.includes(candidate)) legacyKeys.push(candidate);
+    }
+  }
+  return legacyKeys;
+}
+
 export function readWorkspaceStorage<T>(
   platform: Platform,
   key: WorkspaceStorageKey,
@@ -94,26 +122,7 @@ export function readWorkspaceStorage<T>(
     const stored = await platform.storage.get<unknown>(key.key, { strict: true });
     if (!key.legacyKey) return stored as T | null;
     if (stored !== null) return unwrap<T>(stored);
-    const legacyKeys = [key.legacyKey];
-    if (key.legacyScope) {
-      const scope = key.legacyScope;
-      const access = await checkWorkspaceAddress(
-        platform,
-        scope.workspaceId,
-        scope.selfId,
-        scope.baseUrl,
-      );
-      if (!access.allowed)
-        throw new Error("Approve this workspace address before restoring local work.");
-      // A thread composer/search dialog may never have opened at the old
-      // address after upgrade. Its legacy slot is still recoverable once both
-      // addresses have been explicitly linked on this device.
-      for (const address of access.addresses) {
-        const candidate = `${scope.kind}:${address}:${scope.selfId}${scope.suffix === undefined ? "" : `:${scope.suffix}`}`;
-        if (!legacyKeys.includes(candidate)) legacyKeys.push(candidate);
-      }
-    }
-    for (const legacyKey of legacyKeys) {
+    for (const legacyKey of await legacyKeysOf(platform, key)) {
       const value = await serialized(platform, legacyKey, async () => {
         const legacy = await platform.storage.get<T>(legacyKey, { strict: true });
         if (legacy === null) return null;
@@ -169,23 +178,85 @@ export function updateWorkspaceStorage(
 }
 
 /**
+ * One merge of outbox changes, in whatever turn of this window's queue the
+ * caller holds. Where the platform can, the read, merge and write are one step
+ * across every window; otherwise they are one step within this window.
+ */
+async function mergeOutboxNow(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+  changes: OutboxChanges,
+): Promise<StoredOutbox> {
+  const enveloped = !!key.legacyKey;
+  if (platform.storage.mergeOutbox)
+    return platform.storage.mergeOutbox(key.key, changes, enveloped);
+  let stored: unknown = null;
+  try {
+    stored = await platform.storage.get<unknown>(key.key, { strict: true });
+  } catch {
+    // Nothing unreadable can be kept; the merge takes its place.
+  }
+  const { value, outbox } = applyOutboxChanges(stored, changes, enveloped);
+  await platform.storage.set(key.key, value);
+  return outbox;
+}
+
+/**
  * Merges one window's outbox changes into what is stored and gives back the
  * outbox now stored. Where the platform can, this is one step across every
- * window; otherwise it is one turn of this window's queue for the key, like
- * `updateWorkspaceStorage`. Call only after the value has been read once.
+ * window; otherwise it is one turn of this window's queue for the key. Call
+ * only after `readWorkspaceOutbox`.
  */
 export function mergeWorkspaceOutbox(
   platform: Platform,
   key: WorkspaceStorageKey,
   changes: OutboxChanges,
 ): Promise<StoredOutbox> {
-  const merge = platform.storage.mergeOutbox;
-  if (merge) return serialized(platform, key.key, () => merge(key.key, changes, !!key.legacyKey));
-  let merged = emptyOutbox();
-  return updateWorkspaceStorage(platform, key, (current) => {
-    merged = mergeOutbox(readStoredOutbox(current) ?? emptyOutbox(), changes);
-    return merged;
-  }).then(() => merged);
+  return serialized(platform, key.key, () => mergeOutboxNow(platform, key, changes));
+}
+
+/**
+ * Reads the outbox. The first read of a key also records that it exists and
+ * brings across what an address-scoped key from before workspace IDs held,
+ * as `readWorkspaceStorage` does for other work, but by merging, never by
+ * writing a whole value: another window may be setting up the same key, or
+ * have stored a send in it, between this read and that write, and a send it
+ * stored must not be replaced. Rejects a stored value that is not an outbox,
+ * leaving it where it is.
+ */
+export function readWorkspaceOutbox(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+): Promise<StoredOutbox> {
+  return serialized(platform, key.key, async () => {
+    const stored = await platform.storage.get<unknown>(key.key, { strict: true });
+    if (stored !== null) {
+      const outbox = unwrapStoredOutbox(stored, !!key.legacyKey);
+      if (!outbox) throw new Error("Could not read the saved outbox.");
+      return outbox;
+    }
+    for (const legacyKey of await legacyKeysOf(platform, key)) {
+      const legacy = await serialized(platform, legacyKey, () =>
+        platform.storage.get<unknown>(legacyKey, { strict: true }),
+      );
+      if (legacy === null) continue;
+      const earlier = readStoredOutbox(legacy);
+      if (!earlier) throw new Error("Could not read the saved outbox.");
+      const outbox = await mergeOutboxNow(platform, key, {
+        put: earlier.entries,
+        remove: earlier.removed,
+      });
+      try {
+        await serialized(platform, legacyKey, () => platform.storage.set(legacyKey, null));
+      } catch {
+        // What was merged is authoritative even if the old key stays.
+      }
+      return outbox;
+    }
+    // Nothing anywhere: record that, by merging nothing, so a stale address
+    // key cannot bring back cleared work on a later read.
+    return mergeOutboxNow(platform, key, { put: [], remove: [] });
+  });
 }
 
 /**

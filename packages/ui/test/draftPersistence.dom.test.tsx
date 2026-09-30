@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DraftPersistence } from "../src/components/DraftPersistence.js";
 import { ClientContext, PlatformContext } from "../src/context.js";
 import { webPlatform, type Platform } from "../src/platform.js";
+import { sharedDevice } from "./sharedDevice.js";
 
 /**
  * Unsent work on this device, through the storage it is written to: a restart
@@ -598,5 +599,60 @@ describe("the moment a send is kept", () => {
     await waitFor(() => expect(storedTexts(values, key)).toEqual(["not lost"]));
     await waitFor(() => expect(values.get(draftKey)).toEqual({}));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("windows starting at the same moment", () => {
+  it("keep a send one stored while the other was still reading an empty outbox", async () => {
+    // The workspace's own key, which a first read sets up: an address key never did.
+    const inWorkspace = () => {
+      const window = signedIn();
+      window.client.store.setState({ workspaceId: "W1" });
+      window.sendMessage.mockImplementation(networkDown);
+      return window;
+    };
+    const key = "local:v1:W1:U_SAM:outbox";
+    const { values, window, pausedWindow } = sharedDevice();
+    const stored = () =>
+      readStoredOutbox(
+        (values.get(key) as { value?: unknown } | undefined)?.value ?? null,
+      )?.entries.map((e) => e.text);
+
+    // B starts first, and is caught right after finding nothing stored.
+    const b = inWorkspace();
+    const paused = pausedWindow(key);
+    mount(b.client, paused.platform);
+    await act(() => paused.paused);
+
+    // A starts, and a send it accepted is stored.
+    const a = inWorkspace();
+    const aView = mount(a.client, window());
+    await waitFor(() => expect(values.has(key)).toBe(true));
+    a.client.send(design.id, "accepted by A");
+    await waitFor(() => expect(stored()).toEqual(["accepted by A"]));
+    // A closes normally, its send acknowledged.
+    aView.unmount();
+    a.client.destroy();
+    await settle();
+
+    // B carries on with its startup and writes what it holds; it finds A's
+    // send stored, as a window starting later would.
+    await act(async () => paused.resume());
+    await settle();
+    await settle();
+    expect(stored()).toEqual(["accepted by A"]);
+    await waitFor(() =>
+      expect(b.client.state.pending.map((p) => p.text)).toEqual(["accepted by A"]),
+    );
+
+    // And the next start sends it.
+    const next = inWorkspace();
+    const delivered: string[] = [];
+    next.sendMessage.mockImplementation(async (_channel, body) => {
+      delivered.push(body.text!);
+      throw new TypeError("Failed to fetch");
+    });
+    mount(next.client, window());
+    await waitFor(() => expect(delivered).toEqual(["accepted by A"]));
   });
 });
