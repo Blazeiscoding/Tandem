@@ -857,7 +857,26 @@ export class Store {
         Date.now(),
         JSON.stringify(input.actions ?? []),
       );
+    this.indexMentions(id, input.channelId, input.text, true);
     return this.getMessage(id)!;
+  }
+
+  /**
+   * Keeps `message_mentions` to whom this text names: `<@X>` names X, and
+   * `<!here>`, `<!channel>` or `<!everyone>` the whole room as '!'. The same
+   * rule as `MENTIONS_ME` and migration v31, so counts read from the table
+   * agree with the text. A new message has no rows yet, and most name nobody,
+   * so sending one costs nothing more here.
+   */
+  private indexMentions(messageId: ID, channelId: ID, text: string, isNew = false): void {
+    if (!isNew) this.db.prepare("DELETE FROM message_mentions WHERE message_id = ?").run(messageId);
+    const named = new Set([...text.matchAll(/<@([A-Za-z0-9_-]+)>/g)].map((m) => m[1]!));
+    if (/<!(?:here|channel|everyone)>/.test(text)) named.add("!");
+    if (named.size === 0) return;
+    const insert = this.db.prepare(
+      "INSERT INTO message_mentions (message_id, channel_id, user_id) VALUES (?, ?, ?)",
+    );
+    for (const userId of named) insert.run(messageId, channelId, userId);
   }
 
   /** Drops a message's buttons, for an app that has answered and moved on. */
@@ -887,9 +906,10 @@ export class Store {
   }
 
   editMessage(id: ID, text: string): Message {
-    this.db
-      .prepare("UPDATE messages SET text = ?, edited_at = ? WHERE id = ?")
-      .run(text, Date.now(), id);
+    const row = this.db
+      .prepare("UPDATE messages SET text = ?, edited_at = ? WHERE id = ? RETURNING channel_id")
+      .get(text, Date.now(), id) as { channel_id: string } | undefined;
+    if (row) this.indexMentions(id, row.channel_id, text);
     // Every earlier version of the words, wherever the log still holds it. An
     // edit is often how someone takes back what they wrote, and leaving the
     // first draft on disk would make the correction cosmetic. The caller emits
@@ -907,6 +927,7 @@ export class Store {
     this.db.prepare("DELETE FROM reactions WHERE message_id = ?").run(id);
     this.db.prepare("DELETE FROM pins WHERE message_id = ?").run(id);
     this.db.prepare("DELETE FROM saved_items WHERE message_id = ?").run(id);
+    this.db.prepare("DELETE FROM message_mentions WHERE message_id = ?").run(id);
     this.redactMessageEvents(id);
   }
 
@@ -3056,8 +3077,9 @@ export class Store {
       );
       params.push(`<@${userId}>`);
     } else {
-      conditions.push(Store.MENTIONS_ME);
-      params.push(`<@${userId}>`);
+      // Read from who each message names, not by walking every message.
+      conditions.push(Store.NAMES_ME);
+      params.push(userId);
     }
     if (opts.cursor) {
       conditions.push("m.id < ?");
@@ -3066,11 +3088,19 @@ export class Store {
     conditions.push(
       "(m.thread_root_id IS NULL OR EXISTS (SELECT 1 FROM messages root WHERE root.id = m.thread_root_id AND root.deleted_at IS NULL))",
     );
-    const rows = this.db
-      .prepare(
-        `SELECT m.* FROM messages m JOIN channels c ON c.id = m.channel_id JOIN channel_members cm ON cm.channel_id = c.id WHERE ${conditions.join(" AND ")} ORDER BY m.id DESC LIMIT ?`,
-      )
-      .all(...params, opts.limit) as unknown as MessageRow[];
+    // Unread walks messages newest first and stops at the page's end. Mentions
+    // start from who each message names, where one message can appear twice
+    // (named, and the whole room), so they are grouped by message.
+    const query =
+      opts.mode === "unread"
+        ? `SELECT m.* FROM messages m JOIN channels c ON c.id = m.channel_id
+           JOIN channel_members cm ON cm.channel_id = c.id
+           WHERE ${conditions.join(" AND ")} ORDER BY m.id DESC LIMIT ?`
+        : `SELECT m.* FROM message_mentions mm
+           JOIN channel_members cm ON cm.channel_id = mm.channel_id
+           JOIN channels c ON c.id = mm.channel_id JOIN messages m ON m.id = mm.message_id
+           WHERE ${conditions.join(" AND ")} GROUP BY m.id ORDER BY m.id DESC LIMIT ?`;
+    const rows = this.db.prepare(query).all(...params, opts.limit) as unknown as MessageRow[];
     return this.hydrateMessages(rows);
   }
 
@@ -3100,21 +3130,33 @@ export class Store {
   private static readonly MENTIONS_ME =
     "(instr(m.text, ?) > 0 OR (c.type IN ('public', 'private') AND (instr(m.text, '<!channel>') > 0 OR instr(m.text, '<!here>') > 0 OR instr(m.text, '<!everyone>') > 0)))";
 
-  /** Unread mentions per conversation, for the badge beside its name. */
+  /**
+   * `MENTIONS_ME` read from `message_mentions` beside `mm` and `channels c`:
+   * the rows naming this account, and the whole room in a room.
+   */
+  private static readonly NAMES_ME =
+    "(mm.user_id = ? OR (mm.user_id = '!' AND c.type IN ('public', 'private')))";
+
+  /**
+   * Unread mentions per conversation, for the badge beside its name. Read
+   * from who each message names, so it costs what this account's mentions
+   * cost, not what its channels' histories do.
+   */
   unreadMentionCounts(userId: ID): Record<ID, number> {
     const rows = this.db
       .prepare(
-        `SELECT m.channel_id, COUNT(*) AS n FROM messages m
-         JOIN channels c ON c.id = m.channel_id
-         JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ?
-         WHERE m.user_id != ? AND m.deleted_at IS NULL AND ${Store.MENTIONS_ME}
+        `SELECT m.channel_id, COUNT(DISTINCT m.id) AS n FROM message_mentions mm
+         JOIN channel_members cm ON cm.channel_id = mm.channel_id AND cm.user_id = ?
+         JOIN channels c ON c.id = mm.channel_id
+         JOIN messages m ON m.id = mm.message_id
+         WHERE ${Store.NAMES_ME} AND m.user_id != ? AND m.deleted_at IS NULL
          AND ${Store.UNREAD}
          AND (m.thread_root_id IS NULL OR EXISTS (
            SELECT 1 FROM messages root WHERE root.id = m.thread_root_id AND root.deleted_at IS NULL
          ))
          GROUP BY m.channel_id`,
       )
-      .all(userId, userId, `<@${userId}>`) as { channel_id: string; n: number }[];
+      .all(userId, userId, userId) as { channel_id: string; n: number }[];
     return Object.fromEntries(rows.map((row) => [row.channel_id, row.n]));
   }
 
