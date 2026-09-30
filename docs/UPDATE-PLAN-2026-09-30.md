@@ -714,10 +714,32 @@ Account isolation passes either way. With two composers open on one conversation
 
 **Evidence:** reordered successful requests end opposite to latest intent; two failed pin/save requests leave UI true while server stays false. Actual client and authenticated loopback server.
 
-- [ ] Keep confirmed, in-flight and queued intent per account/message mutation.
-  - [ ] Serialize/coalesce requests or use server revisions; reconcile echoes without masking cross-device changes.
-  - [ ] Roll back to confirmed state when all attempts fail; retain actionable retry where appropriate.
-  - [ ] Cover reversed success, both failures, success/failure, echoes, reconnect, navigation and revocation for each operation.
+**Status:** implemented; see the PR after #175. A message's pin, its save and the snooze now go through one mechanism in `WorkspaceClient` (`choose`), which keeps per thing the latest choice, what the server last said, and how many requests are unanswered:
+
+- **No queue.** Every request still goes out at once, so a stuck one cannot hold up the next (#156's guards stand), and the screen shows the latest choice while any is unanswered.
+- **The latest choice was accepted.** When the last answer is in, it is shown. If other requests for the same thing overlapped it, or the server said otherwise meanwhile, it is sent once more, on its own, so the server ends with it whatever order the requests reached it in. Answers alone cannot tell the order the server applied them in, so this does not rely on them. The resend is a no-op on the server when it already agrees, and at most one follows each choice.
+- **It was refused.** What the server last said is shown, by an answer or an echo, whichever was heard last. It used to show the opposite of the refused choice.
+- **Echoes.** The server's echo of a pin, a save or the snooze is kept as the server's word, not shown, while a choice about that thing is unanswered here. Once nothing is unanswered, echoes are shown as before, so another member's pin or another device's change still appears.
+
+Reproduced first. In `packages/client-core/test/preferences.test.ts`, "choices that reach the server out of order, or not at all", the real client runs against the real loopback server, holding one request in flight and forwarding it later:
+
+- Pin then unpin, save then unsave, and a soon then a later snooze each reach the server the other way round. On the old code each ends on the earlier choice, on both server and screen, as the evidence says. Now each ends on the latest.
+- A pin and the unpin after it both fail, and the same for save/unsave. The old code shows pinned or saved while the server has neither. Now each goes back to what the server has.
+
+Guards that pass either way:
+
+- A pin that lands with the unpin after it failing shows pinned.
+- A pin echo arriving while the unpin is unanswered does not flip the screen. The echo arrived before the unpin here, so this does not reproduce the flip.
+- Another member's pin and unpin still show.
+- A pin unanswered across a reconnect ends on the server and screen as chosen.
+
+#156's tests are unchanged and pass.
+
+- [x] Keep confirmed, in-flight and queued intent per account/message mutation. Latest choice, confirmed value and unanswered count, per message and account (pin, save) and per account (snooze). No queue: see above.
+  - [x] Serialize/coalesce requests or use server revisions; reconcile echoes without masking cross-device changes. The overlapping requests are coalesced into one final solo resend of the latest choice. Echoes are held only while a choice here is unanswered.
+    - Limit: a change from another device or member that lands while a choice here is unanswered makes this device send its latest choice again. Screen and server then agree on this device's choice, the later action here.
+  - [x] Roll back to confirmed state when all attempts fail; retain actionable retry where appropriate. A failed toggle resolves false, as before, for the caller to report.
+  - [ ] Cover reversed success, both failures, success/failure, echoes, reconnect, navigation and revocation for each operation. Reversed success covers all three; both failures, pin and save; success then failure, pin; echoes and reconnect, pin. Not covered separately: navigation and revocation. A request refused because access was revoked settles like any other refusal, to what the server last said.
 
 **Completion:** latest successful intent survives reordering; failures converge to confirmed state. Preserve #156's older-failure guards and channel preference serialization.
 

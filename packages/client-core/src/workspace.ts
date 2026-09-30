@@ -93,6 +93,31 @@ export const OUTBOX_LIMIT = 50;
 const MISSING_ATTACHMENTS =
   "The attached files were not kept when the app closed. Attach them again to send this.";
 
+/** How one choice (a pin, a save, the snooze) is read, shown and sent; see `choose`. */
+interface ChoiceIo<V> {
+  current: () => V;
+  show: (value: V) => void;
+  /** Resolves with what the server now has, when it says; otherwise it has `value`. */
+  send: (value: V) => Promise<V | void>;
+}
+
+interface Choice<V> {
+  io: ChoiceIo<V>;
+  /** The latest choice, shown while any request is unanswered. */
+  latest: V;
+  /** What the server last said, by an answer or an echo, in the order heard. */
+  confirmed: V;
+  unanswered: number;
+  /** Requests sent since this began, or since the last one was sent again. */
+  sent: number;
+  /** Which of those carried the latest choice, and whether it was accepted. */
+  latestSent: number;
+  latestAccepted: boolean;
+  /** The server said something other than the latest choice meanwhile. */
+  contested: boolean;
+  resent: boolean;
+}
+
 const STALE_SEND =
   `Not sent again on its own: this was written more than ${SEND_RETRY_WINDOW_MS / 86_400_000} days ago ` +
   "and may have been posted already. Retry to send it anyway, or discard it.";
@@ -913,6 +938,8 @@ export class WorkspaceClient {
       case "pin.added":
       case "pin.removed": {
         const pinned = event.type === "pin.added";
+        // A pin chosen here and not yet answered stays as chosen; see `choose`.
+        if (this.heardChoice(`pin:${event.messageId}`, pinned)) break;
         const setPinned = (m: Message): Message => ({ ...m, pinned });
         patch.timelines = this.patchMessage(s, event.channelId, event.messageId, setPinned);
         patch.threads = this.patchThreadMessage(s, event.messageId, setPinned);
@@ -975,8 +1002,12 @@ export class WorkspaceClient {
       }
       case "user.joined":
       case "user.updated": {
-        patch.users = { ...s.users, [event.user.id]: event.user };
-        if (event.user.id === s.self?.id) patch.self = event.user;
+        let user = event.user;
+        // A snooze chosen here and not yet answered stays as chosen; see `choose`.
+        if (user.id === s.self?.id && this.heardChoice("dnd", user.dndUntil))
+          user = { ...user, dndUntil: s.self.dndUntil };
+        patch.users = { ...s.users, [user.id]: user };
+        if (user.id === s.self?.id) patch.self = user;
         break;
       }
     }
@@ -1126,6 +1157,7 @@ export class WorkspaceClient {
         this.store.setState({ prefs: { ...s.prefs, [event.channelId]: event.prefs } });
       }
     } else if (event.type === "saved") {
+      if (this.heardChoice(`save:${event.messageId}`, event.saved)) return;
       const saved = { ...s.saved };
       if (event.saved) saved[event.messageId] = true;
       else delete saved[event.messageId];
@@ -1804,74 +1836,126 @@ export class WorkspaceClient {
   }
 
   /**
-   * The latest pin or save toggle per message. A refused toggle is undone
-   * only while it is still the latest: a later one decides by its own answer.
+   * The choices being made about one thing each (a message's pin, its save,
+   * the snooze) while any request for it is unanswered.
    */
-  private messageToggles = new Map<string, number>();
-  private toggleTurns = 0;
+  private choices = new Map<string, Choice<unknown>>();
 
   /**
-   * Starts a toggle; the result says, once it is answered, whether it is still
-   * the latest, and forgets it if so, so the map holds only unanswered ones.
+   * Makes one choice about one thing. Every request goes out at once, so one
+   * that is stuck cannot hold up the next, and what is shown is the latest
+   * choice while any is unanswered. When the last answer is in:
+   *
+   * - The latest choice was accepted: it is shown. If other requests for the
+   *   same thing overlapped it, or the server said otherwise meanwhile, it is
+   *   sent once more, on its own, so the server ends with it whatever order
+   *   the requests reached it in.
+   * - It was refused: what the server last said is shown, by an answer or an
+   *   echo, whichever was heard last; not the opposite of the refused choice.
+   *
+   * Resolves with whether this request was accepted.
    */
-  private takeToggleTurn(key: string): () => boolean {
-    const turn = ++this.toggleTurns;
-    this.messageToggles.set(key, turn);
-    return () => {
-      if (this.messageToggles.get(key) !== turn) return false;
-      this.messageToggles.delete(key);
-      return true;
-    };
-  }
-
-  /** Optimistic pin toggle — the channel-wide event confirms it. */
-  async togglePin(message: Message): Promise<boolean> {
-    const next = !message.pinned;
-    const latest = this.takeToggleTurn(`pin:${message.id}`);
-    const apply = (m: Message): Message => ({ ...m, pinned: next });
-    this.store.setState((s) => ({
-      timelines: this.patchMessage(s, message.channelId, message.id, apply),
-      threads: this.patchThreadMessage(s, message.id, apply),
-    }));
-    try {
-      await (next ? this.api.pinMessage(message.id) : this.api.unpinMessage(message.id));
-      latest();
-      return true;
-    } catch {
-      if (!latest()) return false;
-      const revert = (m: Message): Message => ({ ...m, pinned: !next });
-      this.store.setState((s) => ({
-        timelines: this.patchMessage(s, message.channelId, message.id, revert),
-        threads: this.patchThreadMessage(s, message.id, revert),
-      }));
-      return false;
+  private choose<V>(key: string, value: V, io: ChoiceIo<V>): Promise<boolean> {
+    let choice = this.choices.get(key) as Choice<V> | undefined;
+    if (!choice) {
+      choice = {
+        io,
+        latest: value,
+        confirmed: io.current(),
+        unanswered: 0,
+        sent: 0,
+        latestSent: 0,
+        latestAccepted: false,
+        contested: false,
+        resent: false,
+      };
+      this.choices.set(key, choice as Choice<unknown>);
     }
+    choice.latest = value;
+    choice.resent = false;
+    io.show(value);
+    return this.sendChoice(key, choice);
+  }
+
+  private async sendChoice<V>(key: string, choice: Choice<V>): Promise<boolean> {
+    const value = choice.latest;
+    const sent = ++choice.sent;
+    choice.latestSent = sent;
+    choice.unanswered++;
+    let accepted = false;
+    try {
+      const answer = await choice.io.send(value);
+      accepted = true;
+      choice.confirmed = answer === undefined ? value : answer;
+    } catch {
+      // Refused or lost: what the server has is whatever it last said.
+    }
+    if (sent === choice.latestSent) choice.latestAccepted = accepted;
+    choice.unanswered--;
+    if (choice.unanswered > 0 || this.choices.get(key) !== choice) return accepted;
+    if (choice.latestAccepted && (choice.sent > 1 || choice.contested) && !choice.resent) {
+      choice.resent = true;
+      choice.sent = 0;
+      choice.contested = false;
+      void this.sendChoice(key, choice);
+      return accepted;
+    }
+    this.choices.delete(key);
+    choice.io.show(choice.latestAccepted ? choice.latest : choice.confirmed);
+    return accepted;
   }
 
   /**
-   * Optimistic save-for-later toggle; other devices get the ephemeral echo.
+   * What the server now has, heard from it rather than answered. True while
+   * a choice about it here is unanswered: it is then kept, not shown, since
+   * it may be the server's word on an earlier request of this device's.
+   */
+  private heardChoice(key: string, value: unknown): boolean {
+    const choice = this.choices.get(key);
+    if (!choice) return false;
+    choice.confirmed = value;
+    if (value !== choice.latest) choice.contested = true;
+    return true;
+  }
+
+  /** Optimistic pin toggle; the channel-wide event confirms it. */
+  togglePin(message: Message): Promise<boolean> {
+    const show = (pinned: boolean) => {
+      const apply = (m: Message): Message => (m.pinned === pinned ? m : { ...m, pinned });
+      this.store.setState((s) => ({
+        timelines: this.patchMessage(s, message.channelId, message.id, apply),
+        threads: this.patchThreadMessage(s, message.id, apply),
+      }));
+    };
+    return this.choose(`pin:${message.id}`, !message.pinned, {
+      current: () => message.pinned,
+      show,
+      send: async (pinned) => {
+        await (pinned ? this.api.pinMessage(message.id) : this.api.unpinMessage(message.id));
+      },
+    });
+  }
+
+  /**
+   * Optimistic save-for-later toggle; this account's devices get the echo.
    * Pass `save` to repeat an earlier intent, so trying a refused save again
    * saves even if the state has changed elsewhere since, rather than flipping.
    */
-  async toggleSaved(messageId: ID, save = !this.state.saved[messageId]): Promise<boolean> {
-    const wasSaved = !!this.state.saved[messageId];
-    const latest = this.takeToggleTurn(`save:${messageId}`);
-    const show = (on: boolean) =>
-      this.store.setState((s) => {
-        const saved = { ...s.saved };
-        if (on) saved[messageId] = true;
-        else delete saved[messageId];
-        return { saved };
-      });
-    show(save);
-    try {
-      await (save ? this.api.saveMessage(messageId) : this.api.unsaveMessage(messageId));
-      latest();
-      return true;
-    } catch {
-      if (latest()) show(wasSaved);
-      return false;
-    }
+  toggleSaved(messageId: ID, save = !this.state.saved[messageId]): Promise<boolean> {
+    return this.choose(`save:${messageId}`, save, {
+      current: () => !!this.state.saved[messageId],
+      show: (on) =>
+        this.store.setState((s) => {
+          if (!!s.saved[messageId] === on) return {};
+          const saved = { ...s.saved };
+          if (on) saved[messageId] = true;
+          else delete saved[messageId];
+          return { saved };
+        }),
+      send: async (on) => {
+        await (on ? this.api.saveMessage(messageId) : this.api.unsaveMessage(messageId));
+      },
+    });
   }
 
   /**
@@ -2076,37 +2160,23 @@ export class WorkspaceClient {
   }
 
   /**
-   * Do Not Disturb changes: how many were made, how many are unanswered, and
-   * the server's last answer, which is what a refused change goes back to.
-   */
-  private dnd = { writes: 0, pending: 0, confirmed: null as number | null };
-
-  /**
-   * Pause notifications until an epoch ms time; null resumes them now. If the
-   * server refuses, only the snooze goes back, to what the server last said,
-   * and only while no later change has replaced it; the rest of the profile
-   * is left as it now is.
+   * Pause notifications until an epoch ms time; null resumes them now. The
+   * server ends with the latest snooze chosen here, whatever order the
+   * requests reach it in; if that one is refused, only the snooze goes back,
+   * to what the server last said, and the rest of the profile is left as it
+   * now is. See `choose`.
    */
   snoozeNotificationsUntil(dndUntil: number | null): void {
-    const self = this.state.self;
-    if (!self) return;
-    // With nothing unanswered, what is shown is what the server has.
-    if (this.dnd.pending === 0) this.dnd.confirmed = self.dndUntil;
-    const write = ++this.dnd.writes;
-    this.dnd.pending++;
-    this.store.setState({ self: { ...self, dndUntil } });
-    this.api.updateMe({ dndUntil }).then(
-      ({ user }) => {
-        this.dnd.pending--;
-        this.dnd.confirmed = user.dndUntil;
+    if (!this.state.self) return;
+    void this.choose("dnd", dndUntil, {
+      current: () => this.state.self?.dndUntil ?? null,
+      show: (until) => {
+        const self = this.state.self;
+        if (self && self.dndUntil !== until)
+          this.store.setState({ self: { ...self, dndUntil: until } });
       },
-      () => {
-        this.dnd.pending--;
-        const now = this.state.self;
-        if (write !== this.dnd.writes || !now || now.dndUntil !== dndUntil) return;
-        this.store.setState({ self: { ...now, dndUntil: this.dnd.confirmed } });
-      },
-    );
+      send: async (until) => (await this.api.updateMe({ dndUntil: until })).user.dndUntil,
+    });
   }
 
   /** True while notifications are snoozed. */
