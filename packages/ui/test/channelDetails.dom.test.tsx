@@ -77,7 +77,7 @@ function details(channel: Channel = design) {
     </ClientContext.Provider>,
   );
   const dialog = within(screen.getByRole("dialog"));
-  return { api, dialog, onLeft, user: userEvent.setup() };
+  return { api, client, dialog, onLeft, user: userEvent.setup() };
 }
 
 describe("channel details", () => {
@@ -199,5 +199,29 @@ describe("channel details", () => {
     await user.click(dialog.getByRole("button", { name: "Confirm leave" }));
     expect(api.leave).toHaveBeenCalledWith("G1");
     expect(onLeft).toHaveBeenCalledOnce();
+  });
+});
+
+describe("notification settings", () => {
+  it("says when a choice was not saved, shows what the workspace has, and tries again", async () => {
+    const { client, dialog, user } = details();
+    const save = vi
+      .spyOn(client.api, "setChannelPrefs")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockImplementation(async (_id, body) => ({
+        prefs: { notifyLevel: "mentions", muted: false, ...body },
+      }));
+    await user.click(dialog.getByRole("tab", { name: "Notifications" }));
+    const mute = dialog.getByRole("checkbox", { name: /Mute this channel/ });
+    await user.click(mute);
+
+    const alert = await dialog.findByRole("alert");
+    expect(alert).toHaveTextContent(/not saved/);
+    expect(mute).not.toBeChecked();
+
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(save).toHaveBeenLastCalledWith("C_DESIGN", { muted: true });
+    await vi.waitFor(() => expect(dialog.queryByRole("alert")).toBeNull());
+    expect(mute).toBeChecked();
   });
 });

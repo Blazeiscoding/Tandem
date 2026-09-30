@@ -59,6 +59,7 @@ function state(over: Partial<WorkspaceState> = {}): WorkspaceState {
     channels: { C1: channel("public") },
     memberships: { C1: 0 },
     prefs: { C1: { notifyLevel: "mentions", muted: false } },
+    prefsWrites: {},
     channelLastSeq: {},
     presence: {},
     typing: {},
