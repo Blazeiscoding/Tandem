@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   OUTBOX_TOMBSTONES_KEPT,
   outboxRevision,
-  readStoredOutbox,
   storedPending,
   type StoredOutbox,
   type StoredOutboxEntry,
@@ -11,6 +10,7 @@ import { useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import {
   mergeWorkspaceOutbox,
+  readWorkspaceOutbox,
   readWorkspaceStorage,
   watchWorkspaceOutbox,
   workspaceStorageKey,
@@ -273,13 +273,11 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       setError(null);
       void Promise.all([
         readWorkspaceStorage<unknown>(platform, draftKey),
-        readWorkspaceStorage<unknown>(platform, outboxKey),
+        readWorkspaceOutbox(platform, outboxKey),
       ])
-        .then(([storedDrafts, storedOutbox]) => {
+        .then(([storedDrafts, record]) => {
           if (storedDrafts !== null && !validDrafts(storedDrafts))
             throw new Error("Invalid drafts");
-          const record = readStoredOutbox(storedOutbox);
-          if (!record) throw new Error("Invalid outbox");
           const drafts = { ...storedDrafts, ...currentDrafts };
           // Keep these edits across failed read retries as well as the first load.
           // An empty draft typed while storage was loading is an edit too.

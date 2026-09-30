@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { unwrapStoredOutbox, type StoredOutboxEntry } from "@slackoss/client-core";
 import type { Platform } from "../src/platform.js";
 import {
+  mergeWorkspaceOutbox,
+  readWorkspaceOutbox,
   readWorkspaceStorage,
   updateWorkspaceStorage,
   workspaceStorageKey,
   writeWorkspaceStorage,
 } from "../src/lib/workspaceStorage.js";
 import { trustWorkspaceAddress } from "../src/lib/workspaceAddressTrust.js";
+import { sharedDevice } from "./sharedDevice.js";
 
 /**
  * Work kept on the device, keyed by the workspace's ID since clients learned
@@ -172,5 +176,81 @@ describe("writing work kept on the device", () => {
     failing.clear();
     await writeWorkspaceStorage(platform, key, "saved");
     expect(await readWorkspaceStorage(platform, key)).toBe("saved");
+  });
+});
+
+const send = (nonce: string, rev: number): StoredOutboxEntry => ({
+  nonce,
+  channelId: "C1",
+  threadRootId: null,
+  text: nonce,
+  userId: "U1",
+  createdAt: 1,
+  attachments: [],
+  rev,
+});
+
+describe("setting up the outbox while another window writes it", () => {
+  const key = workspaceStorageKey(home, "W1", "U1", "outbox")!;
+  const stored = (values: Map<string, unknown>) =>
+    unwrapStoredOutbox(values.get(key.key) ?? null, true)?.entries.map((e) => e.nonce);
+
+  it("keeps a send another window stored after this one found the key empty", async () => {
+    const { values, window, pausedWindow } = sharedDevice();
+    const b = pausedWindow(key.key);
+    const reading = readWorkspaceOutbox(b.platform, key);
+    await b.paused;
+
+    const a = window();
+    await readWorkspaceOutbox(a, key);
+    await mergeWorkspaceOutbox(a, key, { put: [send("accepted-by-a", 10)], remove: [] });
+    expect(stored(values)).toEqual(["accepted-by-a"]);
+
+    b.resume();
+    expect((await reading).entries.map((e) => e.nonce)).toEqual(["accepted-by-a"]);
+    // B writes what it holds, which is nothing of its own.
+    await mergeWorkspaceOutbox(b.platform, key, { put: [], remove: [] });
+    expect(stored(values)).toEqual(["accepted-by-a"]);
+  });
+
+  it("merges an earlier version's outbox into what another window already stored", async () => {
+    const legacyKey = `outbox:${home}:U1`;
+    const { rev: _rev, ...earlier } = send("queued-before-upgrade", 0);
+    const { values, window, pausedWindow } = sharedDevice({ [legacyKey]: [earlier] });
+    const b = pausedWindow(key.key);
+    const reading = readWorkspaceOutbox(b.platform, key);
+    await b.paused;
+
+    const a = window();
+    expect((await readWorkspaceOutbox(a, key)).entries.map((e) => e.nonce)).toEqual([
+      "queued-before-upgrade",
+    ]);
+    await mergeWorkspaceOutbox(a, key, { put: [send("accepted-by-a", 10)], remove: [] });
+
+    b.resume();
+    await reading;
+    await mergeWorkspaceOutbox(b.platform, key, { put: [], remove: [] });
+    expect(stored(values)).toEqual(["queued-before-upgrade", "accepted-by-a"]);
+    expect(values.has(legacyKey)).toBe(false);
+  });
+
+  it("records that there was nothing, and refuses a value that is not an outbox", async () => {
+    const { values, window } = sharedDevice();
+    expect(await readWorkspaceOutbox(window(), key)).toEqual({
+      outbox: 2,
+      entries: [],
+      removed: [],
+    });
+    expect(values.get(key.key)).toEqual({
+      version: 1,
+      value: { outbox: 2, entries: [], removed: [] },
+    });
+
+    values.set(key.key, { version: 1, value: "not an outbox" });
+    await expect(readWorkspaceOutbox(window(), key)).rejects.toThrow(
+      "Could not read the saved outbox.",
+    );
+    // Left where it was, for a later read to deal with.
+    expect(values.get(key.key)).toEqual({ version: 1, value: "not an outbox" });
   });
 });

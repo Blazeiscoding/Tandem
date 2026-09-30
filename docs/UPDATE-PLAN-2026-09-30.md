@@ -646,11 +646,15 @@ Evidence, recipes, baseline and limits: [full recheck at `6a95898`](research/202
 
 **Evidence:** B reads an absent key; A initializes and durably merges a send; B resumes and replaces it with an empty envelope. Actual desktop storage/helpers reproduce it.
 
-- [ ] Add atomic read/migrate/create-if-absent under the same boundary as outbox writes.
-  - [ ] Recheck the target inside the transaction; merge legacy entries instead of replacing a newer target.
-  - [ ] Publish committed initialization changes; retain account/workspace/trusted-address isolation.
-  - [ ] Cover absent/legacy keys, simultaneous startup and an acknowledged writer closing normally.
-  - [ ] Verify desktop IPC and plain-HTTP browser storage, interrupted migration and refusal/deletion preservation.
+**Status:** implemented; see the PR after #167. The outbox has its own first read, `readWorkspaceOutbox`. A stored outbox is only read. An absent key is set up, and an address-scoped key from before workspace IDs is brought across, by the same merge every outbox write uses (`mergeOutbox`: one step in the desktop main process, one synchronous step in the browser), never by writing a whole value; the old key is retired only after its entries are merged. So a send another window stored in between is kept, and the set-up is published to other windows as any merge is. A stored value that is not an outbox is refused and left in place, as before. Drafts keep `readWorkspaceStorage` until RECHECK-04.
+
+Reproduced first: two `DraftPersistence` windows over one queue-ordered store (every get, set and merge takes a turn, as the desktop settings queue does; merges run `applyOutboxChanges`, as `mergeOutboxSetting` does). B pauses right after reading the empty key; A starts, stores an accepted send and closes normally; B resumes. Before: `[accepted by A]` → `[]`. After: kept, B restores it, and the next start sends it. Helper cases cover the absent key and a legacy key with a concurrent writer, and a value that is not an outbox.
+
+- [x] Add atomic read/migrate/create-if-absent under the same boundary as outbox writes.
+  - [x] Recheck the target inside the transaction; merge legacy entries instead of replacing a newer target.
+  - [x] Publish committed initialization changes; retain account/workspace/trusted-address isolation. Legacy keys still come only from addresses this device linked to the workspace.
+  - [x] Cover absent/legacy keys, simultaneous startup and an acknowledged writer closing normally.
+  - [ ] Verify desktop IPC and plain-HTTP browser storage, interrupted migration and refusal/deletion preservation. The desktop queue is modelled, not driven through Electron IPC; the browser path uses the same merge, but two real browser processes were not run. A migration interrupted after its merge leaves the old key, which is never read again once the new key exists.
 
 **Completion:** first-read initialization cannot remove another context's acknowledged send. Preserve #162's existing-key merge.
 
