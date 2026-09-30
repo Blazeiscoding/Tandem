@@ -2,6 +2,8 @@
 
 For the current baseline and evidence boundaries, see the [30 September update plan](UPDATE-PLAN-2026-09-30.md#1-baseline-and-what-is-already-finished) and [fresh research/probe record](research/2026-09-30/research-and-code-evidence.md). The tables and dated entries below are measurement history. The new source audit and focused reproductions did not rerun the full automated suites.
 
+**30 September, #151–#158 (FIX-02–06, 09–11).** On the head of #158, which held all eight. Run in a Linux cloud container, Node 24.21.0, pnpm 10.23.0, not on the Windows machine below: `pnpm build` 3/3 and `pnpm typecheck` 8/8 passed; 1,236 unit and integration tests passed (server 467, client-core 94, UI 477, protocol 26, desktop 172); entry bundles 466.9 kB (web) and 468.3 kB (desktop renderer) of 500 kB. Chromium end to end: all 18 scenarios passed against that build, in 1.8 minutes, using the container's preinstalled Chromium (build 1194) because Playwright 1.63 expects build 1243. The packaged Windows suite and the container smoke test were not run. `pnpm audit --prod` reports nothing after FIX-10; see the [update plan](UPDATE-PLAN-2026-09-30.md#merged-on-30-september-151158).
+
 What has actually been run, on what, and with what result. Everything below is a
 measurement from one developer machine, not a capacity claim: nothing here has
 been run against a real team, a real network, or a VPS under sustained load.
