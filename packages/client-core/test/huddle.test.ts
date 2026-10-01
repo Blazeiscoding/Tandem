@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HuddleSignal, ID } from "@slackoss/protocol";
-import { HuddleSession } from "../src/huddle.js";
+import { HuddleSession, testMicrophone } from "../src/huddle.js";
 
 /**
  * Just enough WebRTC to exercise the session's own logic. The parts that
@@ -450,5 +450,71 @@ describe("HuddleSession", () => {
     void session.handleSignal("B", { kind: "media", camera: false, screen: false });
     expect(session.state().peers[0]!.micMuted).toBe(false);
     session.destroy();
+  });
+});
+
+describe("testing a microphone before a call (CALL-01)", () => {
+  const mic = () => ({ kind: "audio", label: "USB Headset", stop: vi.fn() });
+
+  /** Just enough Web Audio to measure: the samples the analyser hands back. */
+  function fakeAudio(samples: number) {
+    const close = vi.fn(() => Promise.resolve());
+    class FakeAudioContext {
+      resume = () => Promise.resolve();
+      close = close;
+      createAnalyser() {
+        return {
+          fftSize: 0,
+          getByteTimeDomainData: (into: Uint8Array) => into.fill(samples),
+        };
+      }
+      createMediaStreamSource() {
+        return { connect() {} };
+      }
+    }
+    g.AudioContext = FakeAudioContext;
+    return { close };
+  }
+
+  it("says which microphone it opened and how loud it is, until stopped", async () => {
+    vi.useFakeTimers();
+    try {
+      const { close } = fakeAudio(128 + 64);
+      const track = mic();
+      vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(
+        new FakeMediaStream([track]) as unknown as MediaStream,
+      );
+      const levels: number[] = [];
+      const test = await testMicrophone((level) => levels.push(level));
+      expect(test).toMatchObject({ label: "USB Headset", metered: true });
+      vi.advanceTimersByTime(250);
+      expect(levels).toEqual([0.5, 0.5]);
+
+      test.stop();
+      test.stop();
+      expect(track.stop).toHaveBeenCalled();
+      expect(close).toHaveBeenCalledOnce();
+      vi.advanceTimersByTime(500);
+      expect(levels).toHaveLength(2);
+    } finally {
+      delete g.AudioContext;
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens the microphone without a meter where nothing can measure it", async () => {
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(
+      new FakeMediaStream([mic()]) as unknown as MediaStream,
+    );
+    const test = await testMicrophone(() => {});
+    expect(test.metered).toBe(false);
+    test.stop();
+  });
+
+  it("rejects as the browser does, for captureFailure to word", async () => {
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockRejectedValue(
+      new DOMException("Permission denied", "NotAllowedError"),
+    );
+    await expect(testMicrophone(() => {})).rejects.toMatchObject({ name: "NotAllowedError" });
   });
 });
