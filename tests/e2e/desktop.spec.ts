@@ -310,12 +310,16 @@ test("restarting offers to host the last workspace again instead of reconnecting
     // versions put both in one folder and renamed the first.
     const named = async (port: number) =>
       (await (await fetch(`http://127.0.0.1:${port}/api/server-info`)).json()).workspaceName;
+    // On a port of its own: on the one Resume Test just left, the window,
+    // still reconnecting to Resume Test, could reach it, be refused, and sign
+    // out, depending only on when its next try fell.
     const other = await page.evaluate(async () => {
       const bridge = (window as any).slackoss;
       await bridge.hostingStop();
-      return bridge.hostingStart({ workspaceName: "Resume-Test" });
+      return bridge.hostingStart({ workspaceName: "Resume-Test", port: 0 });
     });
     expect(other.folder).not.toBe(resumed.folder);
+    expect(other.port).not.toBe(resumed.port);
     expect(await named(other.port)).toBe("Resume-Test");
 
     // Back the new one up while it runs, through the system's folder dialog.
