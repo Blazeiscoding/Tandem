@@ -449,6 +449,15 @@ Data lives in a named volume at `/data`; the server runs as a non-root user.
 `GET /api/health` checks the process and database. Docker's health status reports
 failures; the restart policy restarts exited processes, not merely unhealthy ones.
 
+`GET /api/admin/status`, signed in as the owner or an admin, says whether the
+server is keeping up: schema version, uptime, the database and its log on disk,
+attachment storage against its limit, free disk space, waiting and failed app
+deliveries (with the oldest waiting), queued, held and failed scheduled
+messages, how retention's last sweeps went, open connections, and how late the
+event loop ran over the last full minute. It is counts, sizes and times only:
+no message, file name, address, token or delivery error, so it can be pasted
+into a request for help.
+
 Create the owner account before allowing public traffic, using an SSH tunnel if
 necessary. The supplied Compose configuration then requires invitations for new
 accounts. Place an HTTPS reverse proxy in front and set `--public-url` in the
