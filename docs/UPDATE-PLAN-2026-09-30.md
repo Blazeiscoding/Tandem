@@ -902,9 +902,33 @@ Reproduced first. In `packages/server/test/stopRetry.test.ts`, with the gateway 
 
 **Evidence:** channel-read broadcast → thread/unread returns 200 with cursor behind newest, but counts, Activity and followed unread-only still report read.
 
-- [ ] Decide explicit thread-unread/channel precedence and document later read behavior.
-  - [ ] Implement chosen cursor/override rule in server predicates/counts and client `isMessageRead` together.
-  - [ ] Preserve quiet-reply separation; avoid badge-only repairs.
-  - [ ] Cover both channel↔thread unread directions, later reads, broadcast changes, reconnect, multiple devices and older clients.
+**Status:** implemented; see the PR after #177. **Decision:** an explicit thread-unread holds against the channel's cursor.
+
+- **Setting a hold.** Marking a thread unread records where this account's channel cursor stood (`thread_follows.unread_hold`, schema v33). It comes back as `ThreadFollow.unreadHold`.
+- **While it holds.** Until the channel is read past that point, the channel's cursor no longer reads that thread's broadcast replies, so they are read only through the thread.
+- **Later reads.** Reading the thread ends the hold. So does reading the channel past where it stood: that read moves the thread's cursor over the held copies and clears the hold. Reading the channel again with nothing new in it changes nothing.
+- **The other direction.** Marking the channel unread before a broadcast reply that was already read in its thread leaves that reply read, on every surface: the thread reads replies, as #163 decided.
+
+The rule is in the server's `UNREAD` and `READ_IN_CHANNEL` predicates, which feed mention counts, Activity, the followed-threads list and its badge. The channel-read fold follows it, and so do the client's `isMessageRead` and optimistic thread-unread. The handshake's follow list carries the hold, so a reconnecting device has it, and other devices hear it in `thread.follow`. #163's quiet-reply separation is unchanged; there is no badge-only repair.
+
+Reproduced first. `packages/server/test/threadUnreadHold.test.ts` uses real authenticated HTTP. The evidence case reads a broadcast mention through its channel, then marks the thread unread at it. The old server reports mention count 0, nothing in Activity, no unread followed thread and a badge of 0. Now it reports 1, the reply, 1 and 1, and still does after another channel read with nothing new. Other cases:
+
+- Reading the thread reads it everywhere and clears the hold.
+- Reading the channel past the hold reads it everywhere and clears the hold. Before the fold covered holds, this case left the thread's cursor behind, which the client's Threads badge would count as unread.
+- A quiet reply stays the thread's.
+- The channel→thread direction agrees on every surface.
+
+`packages/client-core/test/unread.test.ts`:
+
+- The rule held and lifted, with a quiet reply unaffected.
+- With the real server, the device that marks unread shows it at once with count 1. A second device of the account hears the hold and agrees. A device connecting afresh gets the hold in its snapshot. Reading the thread then reads it.
+- These fail with the old client, and with the old server.
+
+`scripts/measure-unread-counts.mts` carries the same rule, and its brute-force check still agrees.
+
+- [x] Decide explicit thread-unread/channel precedence and document later read behavior.
+  - [x] Implement chosen cursor/override rule in server predicates/counts and client `isMessageRead` together.
+  - [x] Preserve quiet-reply separation; avoid badge-only repairs.
+  - [ ] Cover both channel↔thread unread directions, later reads, broadcast changes, reconnect, multiple devices and older clients. All covered except older clients: they ignore `unreadHold` and still show such a reply as read in their own views, while the server's counts, which they display, show it unread.
 
 **Completion:** an accepted unread action has its documented effect on every surface. Preserve #163's ordinary quiet-reply/broadcast read rule.

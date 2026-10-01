@@ -291,6 +291,19 @@ describe("the read rule every surface uses", () => {
     expect(isMessageRead(reply(60, true), { ...state, threadFollows: follow(60) })).toBe(true);
   });
 
+  it("leaves a reply also sent to the channel unread while its thread is held unread", () => {
+    const state = { memberships: { C1: 50 }, repliesRead: { C1: 10 } };
+    const held = (unreadHold: number) => ({
+      R1: { ...follow(39).R1, unreadHold },
+    });
+    // Marked unread when the channel stood at 50: the channel no longer reads it.
+    expect(isMessageRead(reply(40, true), { ...state, threadFollows: held(50) })).toBe(false);
+    // Read past that since, it does again.
+    expect(isMessageRead(reply(40, true), { ...state, threadFollows: held(45) })).toBe(true);
+    // A quiet reply is the thread's either way.
+    expect(isMessageRead(reply(40), { ...state, threadFollows: held(45) })).toBe(false);
+  });
+
   it("keeps the older rule for a server that reads replies with the channel's cursor", () => {
     const state = { memberships: { C1: 50 }, repliesRead: null, threadFollows: follow(5) };
     expect(isMessageRead(reply(40), state)).toBe(true);
@@ -299,6 +312,58 @@ describe("the read rule every surface uses", () => {
 });
 
 describe("agreeing with the server about replies", () => {
+  it("holds a reply read in the channel unread once its thread is marked unread, on every device", async () => {
+    const root = await incoming("A thread");
+    await client.loadThread(root.id, channelId, "latest");
+    const { message: reply } = await owner.sendMessage(channelId, {
+      text: `for everyone, <@${member.id}>`,
+      nonce: "for-everyone",
+      threadRootId: root.id,
+      alsoSendToChannel: true,
+    });
+    await expect
+      .poll(() => client.state.threads[root.id]?.some((m) => m.id === reply.id))
+      .toBe(true);
+    client.markRead(channelId, reply.seq, { explicit: true });
+    await expect.poll(lastRead).toBe(reply.seq);
+    await expect.poll(() => client.state.mentionCounts[channelId] ?? 0).toBe(0);
+    expect(isMessageRead(reply, client.state)).toBe(true);
+
+    // The same account on a second device.
+    const other = new WorkspaceClient(client.baseUrl, member.token);
+    other.connect();
+    try {
+      await expect.poll(() => other.state.status).toBe("online");
+      client.markThreadUnread(root.id, reply.seq);
+      // At once here, as the server will have it.
+      expect(isMessageRead(reply, client.state)).toBe(false);
+      await expect.poll(() => client.state.mentionCounts[channelId]).toBe(1);
+      expect(client.state.threadFollows[root.id]?.unreadHold).toBe(reply.seq);
+      // The other device hears it, and agrees.
+      await expect.poll(() => other.state.threadFollows[root.id]?.unreadHold).toBe(reply.seq);
+      expect(isMessageRead(reply, other.state)).toBe(false);
+    } finally {
+      other.destroy();
+    }
+
+    // A device connecting afresh is told of the hold in its snapshot.
+    const fresh = new WorkspaceClient(client.baseUrl, member.token);
+    fresh.connect();
+    try {
+      await expect.poll(() => fresh.state.status).toBe("online");
+      expect(fresh.state.threadFollows[root.id]?.unreadHold).toBe(reply.seq);
+      expect(isMessageRead(reply, fresh.state)).toBe(false);
+    } finally {
+      fresh.destroy();
+    }
+
+    // Reading the thread reads it everywhere.
+    client.focusThread(root.id);
+    client.markThreadRead(root.id, { explicit: true });
+    expect(isMessageRead(reply, client.state)).toBe(true);
+    await expect.poll(() => client.state.mentionCounts[channelId] ?? 0).toBe(0);
+  });
+
   it("leaves a reply unread when the channel is read past it, until its thread is read", async () => {
     const root = await incoming("A thread");
     await client.loadThread(root.id, channelId, "latest");
