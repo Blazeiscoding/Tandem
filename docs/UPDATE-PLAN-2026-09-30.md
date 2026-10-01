@@ -486,7 +486,7 @@ Existing controls to preserve: 300 messages per timeline/thread window, 20 total
 
 - [ ] Add microphone/camera selection and audio-output selection where supported; remember safe per-device preferences.
   - [ ] Offer mic test and join-muted choice; handle unplug, default-device change and replacement tracks.
-  - [ ] Separate cancelled screen chooser from permission/device/HTTPS failure; camera/share controls currently catch all errors silently.
+  - [x] Separate cancelled screen chooser from permission/device/HTTPS failure; camera/share controls currently catch all errors silently. **Status:** implemented; see the PR after #184. `captureFailure()` in client-core words a failed microphone, camera or screen share by the browser's error name. A closed screen picker, and a closed camera prompt, say nothing. Chromium marks an operating system's refusal "by system", and that gets where to allow screen recording. A blocked permission, a missing device, one another app holds, and a page that cannot ask at all (plain HTTP, now a `NotSupportedError` from the session) each say what to do. The camera and screen buttons show it under the controls, in the bar and in full screen, until dismissed or the next try. Joining says it for the microphone instead of the browser's "Permission denied". Electron's own picker reports Cancel as a closed picker too; one with no screens to offer cannot yet be told from that.
   - [ ] Surface blocked audio autoplay with an explicit enable-audio action; distinguish playback failure from a connected peer with no incoming media.
   - [ ] Show actionable failure/retry while leaving text chat available.
 

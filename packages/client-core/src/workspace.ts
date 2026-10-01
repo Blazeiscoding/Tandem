@@ -19,6 +19,7 @@ import {
 } from "@slackoss/protocol";
 import { Api, ApiError, type CommandHint } from "./api.js";
 import { FileCache } from "./fileCache.js";
+import { captureFailure } from "./capture.js";
 import { HuddleSession, type HuddleState } from "./huddle.js";
 
 export type ConnectionStatus =
@@ -2262,7 +2263,10 @@ export class WorkspaceClient {
     } catch (err) {
       session.destroy();
       if (this.session === session) this.session = null;
-      throw err;
+      // Said as what to do about it, not as the browser's "Permission denied".
+      throw new Error(captureFailure("microphone", err) ?? "Your microphone could not start.", {
+        cause: err,
+      });
     }
     if (attempt !== this.huddleAttempt) {
       session.destroy();

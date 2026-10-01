@@ -175,6 +175,25 @@ describe("HuddleSession", () => {
     },
   );
 
+  it.each(["audio", "camera", "screen"])(
+    "says %s cannot be reached at all where the page has no way to ask",
+    async (kind) => {
+      // As on a page served over plain HTTP: no mediaDevices to ask.
+      Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
+      const { session } = makeSession("A");
+      const task =
+        kind === "audio"
+          ? session.startLocalAudio()
+          : kind === "camera"
+            ? session.toggleCamera()
+            : session.toggleScreenShare();
+      await expect(task).rejects.toMatchObject({ name: "NotSupportedError" });
+      expect(session.cameraOn).toBe(false);
+      expect(session.sharingScreen).toBe(false);
+      session.destroy();
+    },
+  );
+
   it("shares a screen as detail, keeping text sharp, and at no more than 1080p", async () => {
     const { session } = makeSession("A");
     const track: { kind: string; stop(): void; contentHint?: string } = {
