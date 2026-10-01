@@ -9,6 +9,8 @@ import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Icon } from "./Icon.js";
 import { Tooltip } from "./Tooltip.js";
 import { ListStatus } from "./ListStatus.js";
+import type { ReadingPosition } from "../lib/route.js";
+import { rememberThreadPosition, rememberedThreadPosition } from "../lib/threadPosition.js";
 
 interface Props {
   channelId: ID;
@@ -48,6 +50,8 @@ export function ThreadPanel({
   const follow = useRef(!targetId);
   const anchor = useRef<{ id: string; top: number } | null>(null);
   const targetPositioned = useRef(false);
+  /** Where this thread was left, waiting for its reply to render to go back there. */
+  const restoring = useRef<ReadingPosition | null>(null);
   const readContext = useRef<string | null>(null);
   const contextKey = `${channelId}:${rootId}:${targetId ?? ""}`;
 
@@ -94,13 +98,40 @@ export function ThreadPanel({
     void client.loadThread(rootId, channelId, direction);
   }
 
+  /**
+   * Notes where this thread is being read, so opening it again goes back
+   * there (IMP-02): the reply at the top of the panel, or nothing at the
+   * newest reply. Not while the panel is still finding its place.
+   */
+  function notePosition(container: HTMLElement) {
+    if (restoring.current || !page?.loaded || page.loading) return;
+    const top = container.getBoundingClientRect().top;
+    const reply =
+      follow.current && !page.hasMoreNewer
+        ? undefined
+        : [...container.querySelectorAll<HTMLElement>("[data-reply]")].find(
+            (el) => el.getBoundingClientRect().bottom > top,
+          );
+    rememberThreadPosition(
+      client.baseUrl,
+      rootId,
+      reply
+        ? { messageId: reply.dataset.reply!, offset: reply.getBoundingClientRect().top - top }
+        : null,
+    );
+  }
+
   useEffect(() => {
-    follow.current = !targetId;
+    // At the reply asked for; else back where it was left, its replies below
+    // unread until they are scrolled to; else at its newest.
+    const position = targetId ? null : rememberedThreadPosition(client.baseUrl, rootId);
+    restoring.current = position;
+    follow.current = !targetId && !position;
     client.focusThread(rootId);
     readContext.current = contextKey;
     targetPositioned.current = false;
     anchor.current = null;
-    void client.loadThread(rootId, channelId, "latest", targetId);
+    void client.loadThread(rootId, channelId, "latest", targetId ?? position?.messageId);
     return () => client.focusThread(null);
   }, [client, rootId, channelId, targetId]);
 
@@ -121,6 +152,20 @@ export function ThreadPanel({
         follow.current = false;
         return;
       }
+    }
+    if (restoring.current && page?.loaded && !page.loading) {
+      const saved = restoring.current;
+      restoring.current = null;
+      const reply = [...container.querySelectorAll<HTMLElement>("[data-reply]")].find(
+        (el) => el.dataset.reply === saved.messageId,
+      );
+      if (reply) {
+        container.scrollTop +=
+          reply.getBoundingClientRect().top - container.getBoundingClientRect().top - saved.offset;
+        return;
+      }
+      // Deleted since: the newest replies, as the thread opens otherwise.
+      follow.current = true;
     }
     if (anchor.current && !page?.loading) {
       const saved = anchor.current;
@@ -176,7 +221,10 @@ export function ThreadPanel({
         onKeyDown={roving.onKeyDown}
         onScroll={() => {
           const el = scroller.current;
-          if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          if (el) {
+            follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            notePosition(el);
+          }
           readVisibleReplies();
         }}
         className="min-h-0 flex-1 overflow-y-auto py-2"

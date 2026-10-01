@@ -1819,6 +1819,9 @@ export class WorkspaceClient {
       }));
     } catch (error) {
       if (!current()) return;
+      // The reply to open at is gone, not the thread: its newest replies instead.
+      if (around && error instanceof ApiError && error.code === "message_not_found")
+        return this.loadThread(threadRootId, channelId, "latest");
       this.store.setState((s) => ({
         threadPages: {
           ...s.threadPages,
