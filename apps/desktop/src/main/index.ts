@@ -4,6 +4,7 @@ import {
   desktopCapturer,
   dialog,
   ipcMain,
+  type IpcMainInvokeEvent,
   Menu,
   nativeImage,
   powerMonitor,
@@ -29,6 +30,7 @@ import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
+import { guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
 import { pickScreen } from "./screenPicker.js";
 import { mergeOutboxSetting } from "./outboxStorage.js";
 import { mergeDraftsSetting } from "./draftsStorage.js";
@@ -57,14 +59,31 @@ app.setName("Gatherline");
 app.setPath("userData", appEnv("USER_DATA_DIR") ?? legacyUserData);
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+/** The app's own page, as the main window loads it. */
+const rendererUrl = isDev
+  ? process.env.ELECTRON_RENDERER_URL!
+  : pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href;
+const trustedRenderer = rendererUrlTrust(rendererUrl);
+/**
+ * Every request the main process answers comes from the app's own window,
+ * its top frame, showing the app's page; anything else is refused before
+ * its work starts (REV-14).
+ */
+const handle = (
+  channel: string,
+  listener: (event: IpcMainInvokeEvent, ...args: any[]) => unknown,
+): void =>
+  ipcMain.handle(
+    channel,
+    guarded(() => mainWindow, trustedRenderer, listener),
+  );
 let rendererReady = false;
 let quitting = false;
 let quitReady = false;
 let quitTask: Promise<void> | null = null;
 
-ipcMain.handle("file:download", (event, value: unknown) => {
-  if (!mainWindow || event.sender.id !== mainWindow.webContents.id || typeof value !== "string")
-    throw new Error("Invalid download request");
+handle("file:download", (_event, value: unknown) => {
+  if (!mainWindow || typeof value !== "string") throw new Error("Invalid download request");
   const url = new URL(value);
   if (
     !/^https?:$/.test(url.protocol) ||
@@ -138,13 +157,11 @@ if (!isTest && isDev && process.platform === "win32") {
 
 // A notification clicked while the window is minimized, or closed to the tray
 // while hosting, brings the window back as well as opening its message.
-ipcMain.handle("window:reveal", (event) => {
-  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+handle("window:reveal", () => {
   showMainWindow();
 });
 
-ipcMain.handle("deeplink:consume", (event) => {
-  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return null;
+handle("deeplink:consume", () => {
   rendererReady = true;
   const url = pendingDeepLink;
   pendingDeepLink = null;
@@ -162,19 +179,24 @@ const settings = createSettingsStorage(join(app.getPath("userData"), "settings.j
   decryptString: (value) => safeStorage.decryptString(value),
 });
 
-ipcMain.handle("storage:get", (_e, key: string, options?: { strict?: boolean }) =>
-  settings.get(key, options),
+handle("storage:get", (_e, key: unknown, options?: { strict?: boolean }) =>
+  settings.get(settingKey(key), { strict: options?.strict === true }),
 );
 
 const writeSetting = (key: string, value: unknown) => settings.set(key, value);
-ipcMain.handle("storage:set", (_e, key: string, value: unknown) => writeSetting(key, value));
+handle("storage:set", (_e, key: unknown, value: unknown) => writeSetting(settingKey(key), value));
 
 // Outbox changes from every window are merged here, one at a time; the other
 // windows hear what is stored now, so each can take on what it did not see.
-ipcMain.handle(
+handle(
   "storage:mergeOutbox",
-  async (event, key: string, changes: OutboxChanges, enveloped: boolean) => {
-    const { value, outbox } = await mergeOutboxSetting(settings, key, changes, enveloped);
+  async (event, key: unknown, changes: OutboxChanges, enveloped: boolean) => {
+    const { value, outbox } = await mergeOutboxSetting(
+      settings,
+      settingKey(key),
+      changes,
+      enveloped,
+    );
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
         win.webContents.send("storage:outboxChanged", key, value);
@@ -184,10 +206,15 @@ ipcMain.handle(
 );
 
 // Drafts likewise: each window's changed drafts, merged here one at a time.
-ipcMain.handle(
+handle(
   "storage:mergeDrafts",
-  async (event, key: string, changes: DraftChanges, enveloped: boolean) => {
-    const { value, drafts } = await mergeDraftsSetting(settings, key, changes, enveloped);
+  async (event, key: unknown, changes: DraftChanges, enveloped: boolean) => {
+    const { value, drafts } = await mergeDraftsSetting(
+      settings,
+      settingKey(key),
+      changes,
+      enveloped,
+    );
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
         win.webContents.send("storage:draftsChanged", key, value);
@@ -251,7 +278,7 @@ function startDiscovery(): void {
   });
 }
 
-ipcMain.handle("lan:snapshot", () => discoveredServers());
+handle("lan:snapshot", () => discoveredServers());
 
 // ---------- "Open to LAN" hosting (server runs in this process) ----------
 
@@ -447,22 +474,22 @@ const hosting = createHostingController({
   },
 });
 
-ipcMain.handle("hosting:status", () => hostingStatus());
+handle("hosting:status", () => hostingStatus());
 // Unreadable settings mean no remembered workspace, not a failed call: the
 // join screen simply shows no resume offer.
-ipcMain.handle("hosting:lastHosted", () => hosting.lastHosted());
-ipcMain.handle("hosting:list", () => hosting.list());
-ipcMain.handle("hosting:forget", (_e, folder: unknown) => hosting.forget(folder));
-ipcMain.handle("hosting:rename", (_e, request: unknown) => hosting.rename(request));
+handle("hosting:lastHosted", () => hosting.lastHosted());
+handle("hosting:list", () => hosting.list());
+handle("hosting:forget", (_e, folder: unknown) => hosting.forget(folder));
+handle("hosting:rename", (_e, request: unknown) => hosting.rename(request));
 // The window names a listed workspace; the controller finds its folder.
-ipcMain.handle("hosting:openFolder", (_e, folder: unknown) => hosting.openFolder(folder));
-ipcMain.handle("hosting:setPort", (_e, request: unknown) => hosting.setPort(request));
+handle("hosting:openFolder", (_e, folder: unknown) => hosting.openFolder(folder));
+handle("hosting:setPort", (_e, request: unknown) => hosting.setPort(request));
 /**
  * Turns a workspace's scheduled backups on, changes them, or turns them off.
  * Only the system's folder dialog chooses where they go: the window can ask
  * for one, but never names a path itself.
  */
-ipcMain.handle(
+handle(
   "hosting:setAutoBackup",
   async (event, folder: unknown, schedule: unknown, chooseFolder: unknown) => {
     if (quitting) throw new Error("Gatherline is shutting down.");
@@ -493,14 +520,12 @@ ipcMain.handle(
     return saved;
   },
 );
-ipcMain.handle("hosting:runDueBackups", () => hosting.runDueBackups(true));
-ipcMain.handle("hosting:setReopenPublicOnLaunch", (_e, reopen: unknown) =>
+handle("hosting:runDueBackups", () => hosting.runDueBackups(true));
+handle("hosting:setReopenPublicOnLaunch", (_e, reopen: unknown) =>
   hosting.setReopenPublicOnLaunch(reopen),
 );
-ipcMain.handle("hosting:setStartOnLaunch", (_e, folder: unknown) =>
-  hosting.setStartOnLaunch(folder),
-);
-ipcMain.handle("hosting:dismissLaunchError", () => {
+handle("hosting:setStartOnLaunch", (_e, folder: unknown) => hosting.setStartOnLaunch(folder));
+handle("hosting:dismissLaunchError", () => {
   hosting.dismissLaunchError();
   return hostingStatus();
 });
@@ -523,8 +548,8 @@ function openAtLogin(): boolean | null {
   return app.getLoginItemSettings(loginItemOptions(process.platform)).openAtLogin;
 }
 
-ipcMain.handle("hosting:openAtLogin", () => openAtLogin());
-ipcMain.handle("hosting:setOpenAtLogin", (_e, open: unknown) => {
+handle("hosting:openAtLogin", () => openAtLogin());
+handle("hosting:setOpenAtLogin", (_e, open: unknown) => {
   if (typeof open !== "boolean")
     throw new Error("Say whether to open at sign-in with true or false.");
   if (!loginItemAvailable)
@@ -564,7 +589,7 @@ function followNetworkChanges(): void {
     hosting.networkChanged();
   }, 10_000).unref();
 }
-ipcMain.handle("hosting:restore", async (event) => {
+handle("hosting:restore", async (event) => {
   if (quitting) throw new Error("Gatherline is shutting down.");
   const owner = BrowserWindow.fromWebContents(event.sender);
   const options = {
@@ -578,7 +603,7 @@ ipcMain.handle("hosting:restore", async (event) => {
   if (choice.canceled || !choice.filePaths[0]) return null;
   return hosting.restore({ backupDir: choice.filePaths[0] });
 });
-ipcMain.handle("hosting:backup", async (event, folder: unknown) => {
+handle("hosting:backup", async (event, folder: unknown) => {
   if (quitting) throw new Error("Gatherline is shutting down.");
   const owner = BrowserWindow.fromWebContents(event.sender);
   const options = {
@@ -593,28 +618,28 @@ ipcMain.handle("hosting:backup", async (event, folder: unknown) => {
   if (choice.canceled || !choice.filePaths[0]) return null;
   return hosting.backup({ folder, destination: choice.filePaths[0] });
 });
-ipcMain.handle("hosting:start", async (_e, opts: unknown) => {
+handle("hosting:start", async (_e, opts: unknown) => {
   if (quitting) throw new Error("Gatherline is shutting down. Try again after reopening it.");
   if (trayStopPending)
     throw new Error("Finish the stop-hosting confirmation before starting a workspace.");
   await hosting.start(opts);
   return hostingStatus();
 });
-ipcMain.handle("hosting:stop", () => hosting.stop());
-ipcMain.handle("hosting:openToAll", async (_e, opts: unknown) => {
+handle("hosting:stop", () => hosting.stop());
+handle("hosting:openToAll", async (_e, opts: unknown) => {
   if (quitting) throw new Error("Gatherline is shutting down.");
   await hosting.openToAll(opts);
   return hostingStatus();
 });
-ipcMain.handle("hosting:endOpenToAll", async () => {
+handle("hosting:endOpenToAll", async () => {
   await hosting.endOpenToAll();
   return hostingStatus();
 });
-ipcMain.handle("hosting:setInviteOnly", async (_e, value: unknown) => {
+handle("hosting:setInviteOnly", async (_e, value: unknown) => {
   await hosting.setInviteOnly(value);
   return hostingStatus();
 });
-ipcMain.handle("hosting:setPublicAddress", async (_e, value: unknown) => {
+handle("hosting:setPublicAddress", async (_e, value: unknown) => {
   if (typeof value !== "string") throw new Error("Enter the address as text.");
   const address = value.trim();
   // Refuse here rather than saving something Open to all would only reject
@@ -823,18 +848,6 @@ function createWindow(): void {
   // Notification reports "denied" and never shows. Grant those to our own
   // renderer; refuse everything else.
   const allowed = new Set(["media", "display-capture", "notifications"]);
-  const rendererUrl = isDev
-    ? process.env.ELECTRON_RENDERER_URL!
-    : pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href;
-  const trustedRenderer = (url: string) => {
-    try {
-      const parsed = new URL(url);
-      const expected = new URL(rendererUrl);
-      return parsed.origin === expected.origin && parsed.pathname === expected.pathname;
-    } catch {
-      return false;
-    }
-  };
   mainWindow.webContents.session.setPermissionRequestHandler(
     (wc, permission, callback, details) => {
       callback(
