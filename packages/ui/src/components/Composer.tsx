@@ -197,15 +197,18 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     };
   }, [client, draftKey]);
 
-  function addFiles(files: FileList | File[] | null) {
+  /** Attaches files, up to ten; `note` is said beside any word about the limit. */
+  function addFiles(files: FileList | File[] | null, note?: string) {
     if (!files || scheduleLock.current || recoveryBlocksSend) return;
     const incoming = [...files];
     if (incoming.length > 0) {
-      setAttachmentNote(
+      const notes = [
+        note,
         attached.length + incoming.length > 10
           ? "A message can have up to 10 files. The extra files were not attached."
-          : null,
-      );
+          : undefined,
+      ].filter(Boolean);
+      setAttachmentNote(notes.length ? notes.join(" ") : null);
       setAttached((prev) => [...prev, ...incoming].slice(0, 10));
     }
   }
@@ -817,11 +820,27 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           aria-label={placeholder}
           {...(mentionQuery && candidates.length ? mentionList : commandList).ownerProps}
           onPaste={(e) => {
-            const files = [...e.clipboardData.files];
-            if (files.length > 0) {
-              e.preventDefault();
-              addFiles(files);
-            }
+            const data = e.clipboardData;
+            // Some browsers offer a pasted image only as an item, not among the files.
+            const files =
+              data.files.length > 0
+                ? [...data.files]
+                : [...data.items]
+                    .filter((item) => item.kind === "file")
+                    .map((item) => item.getAsFile())
+                    .filter((file): file is File => file !== null);
+            if (files.length === 0) return;
+            // A clipboard holding a file is pasted as the file, even when it
+            // holds text as well, as a copy from an office app does (a
+            // picture of the selection beside its text). Saying so keeps the
+            // text from going missing unremarked.
+            e.preventDefault();
+            addFiles(
+              files,
+              data.getData("text/plain").trim()
+                ? "The clipboard's file was attached; the text copied with it was not pasted."
+                : undefined,
+            );
           }}
           onChange={(e) => {
             edited.current = true;
