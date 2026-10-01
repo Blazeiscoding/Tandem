@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
-import type { ChannelPrefs } from "@slackoss/protocol";
+import type { ChannelPrefs, Message } from "@slackoss/protocol";
 import { Api, WorkspaceClient } from "../src/index.js";
 
 let server: WorkspaceServer;
@@ -9,6 +9,7 @@ let client: WorkspaceClient;
 let elsewhere: Api;
 let owner: Api;
 let base: string;
+let memberToken: string;
 let channelId: string;
 
 beforeEach(async () => {
@@ -28,6 +29,7 @@ beforeEach(async () => {
   });
   owner = new Api(base, a.token);
   elsewhere = new Api(base, b.token);
+  memberToken = b.token;
   client = new WorkspaceClient(base, b.token);
   client.connect();
   await expect.poll(() => client.state.status).toBe("online");
@@ -126,6 +128,28 @@ describe("a notification choice for a channel", () => {
     await expect.poll(() => shown()).toEqual({ notifyLevel: "nothing", muted: true });
   });
 
+  it("sends nothing more from a closed client, so its replacement's choice stands (REV-11)", async () => {
+    const first = holdNextPrefsRequest();
+    const sent = vi.spyOn(client.api, "setChannelPrefs");
+    client.setChannelPrefs(channelId, { notifyLevel: "all" });
+    client.setChannelPrefs(channelId, { muted: true });
+    client.destroy();
+    const replacement = new WorkspaceClient(base, memberToken);
+    replacement.connect();
+    try {
+      await expect.poll(() => replacement.state.status).toBe("online");
+      replacement.setChannelPrefs(channelId, { muted: false, notifyLevel: "nothing" });
+      await expect.poll(() => stored()).toEqual({ notifyLevel: "nothing", muted: false });
+      first.pass();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      // The held request went; the closed client's waiting "muted" did not.
+      expect(sent).toHaveBeenCalledOnce();
+      expect(stored()?.muted).toBe(false);
+    } finally {
+      replacement.destroy();
+    }
+  });
+
   it("does not bring back a channel this account has left while a choice was out", async () => {
     const { channel } = await owner.createChannel({ name: "side-project", type: "public" });
     await elsewhere.joinChannel(channel.id);
@@ -162,10 +186,11 @@ describe("Do Not Disturb", () => {
     const later = Date.now() + 3_600_000;
     client.snoozeNotificationsUntil(soon);
     client.snoozeNotificationsUntil(later);
-    await expect.poll(async () => (await elsewhere.me()).user.dndUntil).toBe(later);
+    expect(client.state.self?.dndUntil).toBe(later);
 
+    // The later one waits for the first, and goes once it has failed.
     fail();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await expect.poll(async () => (await elsewhere.me()).user.dndUntil).toBe(later);
     // It used to put the whole profile back as it was before the first.
     expect(client.state.self?.dndUntil).toBe(later);
   });
@@ -199,12 +224,13 @@ describe("toggles on a message", () => {
         }),
     );
     void client.toggleSaved(message.id, true);
-    await client.toggleSaved(message.id, false);
-    await client.toggleSaved(message.id, true);
+    void client.toggleSaved(message.id, false);
+    const last = client.toggleSaved(message.id, true);
     expect(client.state.saved[message.id]).toBe(true);
 
+    // The first fails; the latest, which waited for it, goes and is kept.
     fail();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await last).toBe(true);
     // It used to put back what was there before the first: not saved.
     expect(client.state.saved[message.id]).toBe(true);
     expect((await elsewhere.listSaved()).messages.map((m) => m.id)).toContain(message.id);
@@ -220,12 +246,12 @@ describe("toggles on a message", () => {
         }),
     );
     void client.togglePin(message);
-    await client.togglePin({ ...message, pinned: true });
-    await client.togglePin({ ...message, pinned: false });
+    void client.togglePin({ ...message, pinned: true });
+    const last = client.togglePin({ ...message, pinned: false });
     await expect.poll(() => shownMessage(message.id).pinned).toBe(true);
 
     fail();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await last).toBe(true);
     expect(shownMessage(message.id).pinned).toBe(true);
   });
 });
@@ -269,40 +295,46 @@ describe("choices that reach the server out of order, or not at all", () => {
     (await elsewhere.listSaved()).messages.some((m) => m.id === id);
   const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
 
-  it("ends unpinned when pin, then unpin, reach the server the other way round", async () => {
+  it("sends an unpin only once the pin before it is answered, and ends unpinned (GL-13)", async () => {
     const message = await postedMessage();
     const pin = holdNext("pinMessage");
+    const unpin = vi.spyOn(client.api, "unpinMessage");
     void client.togglePin(message);
-    await client.togglePin({ ...message, pinned: true });
-    expect(await serverPinned(message.id)).toBe(false);
-    // The pin arrives last, and on its own would leave it pinned.
-    pin.forward();
-    await expect.poll(() => serverPinned(message.id)).toBe(false);
+    const unpinning = client.togglePin({ ...message, pinned: true });
     await settle();
+    // Nothing else goes out while the pin is unanswered.
+    expect(unpin).not.toHaveBeenCalled();
+    expect(shownPinned(message.id)).toBe(false);
+    pin.forward();
+    expect(await unpinning).toBe(true);
+    expect(unpin).toHaveBeenCalledOnce();
     expect(await serverPinned(message.id)).toBe(false);
     expect(shownPinned(message.id)).toBe(false);
   });
 
-  it("ends not saved when save, then unsave, reach the server the other way round", async () => {
+  it("sends an unsave only once the save before it is answered, and ends not saved", async () => {
     const message = await postedMessage();
     const save = holdNext("saveMessage");
+    const unsave = vi.spyOn(client.api, "unsaveMessage");
     void client.toggleSaved(message.id, true);
-    await client.toggleSaved(message.id, false);
-    save.forward();
+    const unsaving = client.toggleSaved(message.id, false);
     await settle();
-    await expect.poll(() => serverSaved(message.id)).toBe(false);
+    expect(unsave).not.toHaveBeenCalled();
+    save.forward();
+    expect(await unsaving).toBe(true);
+    expect(await serverSaved(message.id)).toBe(false);
     expect(client.state.saved[message.id]).toBeUndefined();
   });
 
-  it("ends on the later snooze when an earlier one reaches the server after it", async () => {
+  it("sends a later snooze only once the earlier one is answered, and ends on it", async () => {
     const soon = Date.now() + 60_000;
     const later = Date.now() + 3_600_000;
     const first = holdNext("updateMe");
     client.snoozeNotificationsUntil(soon);
     client.snoozeNotificationsUntil(later);
-    await expect.poll(async () => (await elsewhere.me()).user.dndUntil).toBe(later);
-    first.forward();
     await settle();
+    expect((await elsewhere.me()).user.dndUntil).toBeNull();
+    first.forward();
     await expect.poll(async () => (await elsewhere.me()).user.dndUntil).toBe(later);
     expect(client.state.self?.dndUntil).toBe(later);
   });
@@ -360,6 +392,79 @@ describe("choices that reach the server out of order, or not at all", () => {
     await expect.poll(() => shownPinned(message.id)).toBe(true);
     await owner.unpinMessage(message.id);
     await expect.poll(() => shownPinned(message.id)).toBe(false);
+  });
+
+  /**
+   * A client closed with a choice out and another waiting, then replaced by
+   * one on the same saved session that chooses afresh (REV-11). When the old
+   * request is answered, the closed client sends nothing more, so nothing it
+   * meant can undo what its replacement chose.
+   */
+  it.each([
+    {
+      kind: "pin",
+      held: "pinMessage" as const,
+      queued: "unpinMessage" as const,
+      choose: (c: WorkspaceClient, message: Message) => {
+        void c.togglePin(message);
+        void c.togglePin({ ...message, pinned: true });
+      },
+      replace: (c: WorkspaceClient, message: Message) => c.togglePin(message),
+      ends: (message: Message) => serverPinned(message.id),
+    },
+    {
+      kind: "save",
+      held: "saveMessage" as const,
+      queued: "unsaveMessage" as const,
+      choose: (c: WorkspaceClient, message: Message) => {
+        void c.toggleSaved(message.id, true);
+        void c.toggleSaved(message.id, false);
+      },
+      replace: (c: WorkspaceClient, message: Message) => c.toggleSaved(message.id, true),
+      ends: (message: Message) => serverSaved(message.id),
+    },
+  ])("does not let a closed client undo its replacement's $kind (REV-11)", async (scene) => {
+    const message = await postedMessage();
+    const old = holdNext(scene.held);
+    const queued = vi.spyOn(client.api, scene.queued);
+    scene.choose(client, message);
+    client.destroy();
+
+    const replacement = new WorkspaceClient(base, memberToken);
+    replacement.connect();
+    try {
+      await expect.poll(() => replacement.state.status).toBe("online");
+      expect(await scene.replace(replacement, message)).toBe(true);
+      old.forward();
+      await settle();
+      expect(queued).not.toHaveBeenCalled();
+      expect(await scene.ends(message)).toBe(true);
+    } finally {
+      replacement.destroy();
+    }
+  });
+
+  it("does not let a closed client undo its replacement's snooze (REV-11)", async () => {
+    const old = holdNext("updateMe");
+    const sent = vi.spyOn(client.api, "updateMe");
+    client.snoozeNotificationsUntil(Date.now() + 60_000);
+    client.snoozeNotificationsUntil(null);
+    client.destroy();
+    const until = Date.now() + 3_600_000;
+    const replacement = new WorkspaceClient(base, memberToken);
+    replacement.connect();
+    try {
+      await expect.poll(() => replacement.state.status).toBe("online");
+      replacement.snoozeNotificationsUntil(until);
+      await expect.poll(async () => (await elsewhere.me()).user.dndUntil).toBe(until);
+      old.forward();
+      await settle();
+      // The held snooze went; the closed client's waiting "off" did not.
+      expect(sent).toHaveBeenCalledOnce();
+      expect((await elsewhere.me()).user.dndUntil).not.toBeNull();
+    } finally {
+      replacement.destroy();
+    }
   });
 
   it("ends on the latest choice after reconnecting while it was unanswered", async () => {

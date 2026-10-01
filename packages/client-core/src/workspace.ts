@@ -106,18 +106,15 @@ interface ChoiceIo<V> {
 
 interface Choice<V> {
   io: ChoiceIo<V>;
-  /** The latest choice, shown while any request is unanswered. */
+  /** The latest choice, shown while a request is out or one waits. */
   latest: V;
   /** What the server last said, by an answer or an echo, in the order heard. */
   confirmed: V;
-  unanswered: number;
-  /** Requests sent since this began, or since the last one was sent again. */
-  sent: number;
-  /** Which of those carried the latest choice, and whether it was accepted. */
-  latestSent: number;
-  latestAccepted: boolean;
-  /** The server said something other than the latest choice meanwhile. */
+  /** Choices made while a request was out, answered by the one that goes next. */
+  waiting: ((accepted: boolean) => void)[];
+  /** The server said something other than what is out, while it was out. */
   contested: boolean;
+  /** The latest choice was sent once more after a contest; not again for it. */
   resent: boolean;
 }
 
@@ -593,6 +590,10 @@ export class WorkspaceClient {
 
   destroy(): void {
     this.stopped = true;
+    // Choices still out answer to nobody now; none may correct the server,
+    // and none waiting behind them may go (REV-11).
+    this.choices.clear();
+    this.prefsWrites.clear();
     this.historyEpoch++;
     this.timelineRequests.clear();
     this.timelineHolds.clear();
@@ -2110,46 +2111,50 @@ export class WorkspaceClient {
   private choices = new Map<string, Choice<unknown>>();
 
   /**
-   * Makes one choice about one thing. Every request goes out at once, so one
-   * that is stuck cannot hold up the next, and what is shown is the latest
-   * choice while any is unanswered. When the last answer is in:
+   * Makes one choice about one thing (GL-13). One request is out at a time,
+   * so the server takes them in the order they were made; what is shown is
+   * the latest choice. Choices made while one is out wait, and when it is
+   * answered the latest of them goes, as one request, unless the server
+   * already has it. When nothing more waits:
    *
-   * - The latest choice was accepted: it is shown. If other requests for the
-   *   same thing overlapped it, or the server said otherwise meanwhile, it is
-   *   sent once more, on its own, so the server ends with it whatever order
-   *   the requests reached it in.
+   * - The choice out was accepted: it is shown. If the server said otherwise
+   *   while it was out, it is sent once more, so the server ends with it.
    * - It was refused: what the server last said is shown, by an answer or an
    *   echo, whichever was heard last; not the opposite of the refused choice.
    *
-   * Resolves with whether this request was accepted.
+   * A destroyed client sends and shows nothing more (REV-11): its replacement
+   * may have chosen since, and a correction from it would undo that.
+   *
+   * Resolves with whether the request carrying this choice was accepted.
    */
   private choose<V>(key: string, value: V, io: ChoiceIo<V>): Promise<boolean> {
+    if (this.stopped) return Promise.resolve(false);
     let choice = this.choices.get(key) as Choice<V> | undefined;
-    if (!choice) {
-      choice = {
-        io,
-        latest: value,
-        confirmed: io.current(),
-        unanswered: 0,
-        sent: 0,
-        latestSent: 0,
-        latestAccepted: false,
-        contested: false,
-        resent: false,
-      };
-      this.choices.set(key, choice as Choice<unknown>);
+    if (choice) {
+      choice.latest = value;
+      choice.resent = false;
+      io.show(value);
+      // One is out: this waits for it, and the latest goes next.
+      return new Promise((resolve) => choice!.waiting.push(resolve));
     }
-    choice.latest = value;
-    choice.resent = false;
+    choice = {
+      io,
+      latest: value,
+      confirmed: io.current(),
+      waiting: [],
+      contested: false,
+      resent: false,
+    };
+    this.choices.set(key, choice as Choice<unknown>);
     io.show(value);
     return this.sendChoice(key, choice);
   }
 
   private async sendChoice<V>(key: string, choice: Choice<V>): Promise<boolean> {
     const value = choice.latest;
-    const sent = ++choice.sent;
-    choice.latestSent = sent;
-    choice.unanswered++;
+    // Whoever chose while the last request was out is answered by this one.
+    const answering = choice.waiting.splice(0);
+    choice.contested = false;
     let accepted = false;
     try {
       const answer = await choice.io.send(value);
@@ -2158,18 +2163,28 @@ export class WorkspaceClient {
     } catch {
       // Refused or lost: what the server has is whatever it last said.
     }
-    if (sent === choice.latestSent) choice.latestAccepted = accepted;
-    choice.unanswered--;
-    if (choice.unanswered > 0 || this.choices.get(key) !== choice) return accepted;
-    if (choice.latestAccepted && (choice.sent > 1 || choice.contested) && !choice.resent) {
-      choice.resent = true;
-      choice.sent = 0;
-      choice.contested = false;
-      void this.sendChoice(key, choice);
+    const answer = (ok: boolean) => {
+      for (const resolve of answering) resolve(ok);
+    };
+    if (this.stopped || this.choices.get(key) !== choice) {
+      // Closed, or this account lost what it was choosing about: nothing
+      // more goes, and nobody waits on it.
+      answer(accepted);
+      for (const resolve of choice.waiting.splice(0)) resolve(false);
       return accepted;
     }
-    this.choices.delete(key);
-    choice.io.show(choice.latestAccepted ? choice.latest : choice.confirmed);
+    const kept = accepted && choice.latest === value;
+    const next = choice.waiting.length > 0 ? !kept : kept && choice.contested && !choice.resent;
+    if (next) {
+      if (kept) choice.resent = true;
+      void this.sendChoice(key, choice);
+    } else {
+      this.choices.delete(key);
+      choice.io.show(accepted ? value : choice.confirmed);
+      // Chosen while this was out, and already what the server has.
+      for (const resolve of choice.waiting.splice(0)) resolve(accepted);
+    }
+    answer(accepted);
     return accepted;
   }
 
@@ -2358,6 +2373,7 @@ export class WorkspaceClient {
    * already replaced it: an earlier request failing never undoes a later one.
    */
   setChannelPrefs(channelId: ID, patch: Partial<ChannelPrefs>): void {
+    if (this.stopped) return;
     let write = this.prefsWrites.get(channelId);
     if (!write) {
       write = {
