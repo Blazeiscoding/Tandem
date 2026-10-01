@@ -234,6 +234,17 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
 - [ ] Count actual SQL statements and repeated entity lookups per response/snapshot rather than assuming an N+1 problem.
   - [ ] Batch users/files/reactions/pins/follows where profiles show repeated work; reuse within a request only with valid access/revision scope.
   - [ ] Use bounded indexed aggregation for thread/unread counts and avoid repeating equivalent calculations per socket. Mention counts and the Activity mentions list are done; thread counts and the Activity unread walk are not.
+    - **Thread counts: measured, no change made.** The Threads badge is computed on the client from `threadFollows`, so on the server only the followed-threads list counts unread replies. It counts them for every followed thread before ordering and paging.
+    - The measurement (1 October, `b443a8c`): one channel of 200,000 messages in threads of ten, one reply in seven also sent to the channel, timing `Store.followedThreads`.
+
+      | Followed threads | One page of 30       | Unread only           |
+      | ---------------- | -------------------- | --------------------- |
+      | 20               | 0.9 ms (p95 1.7 ms)  | 1.0 ms                |
+      | 1,000            | 8.4 ms (p95 10.5 ms) | 11.7 ms (p95 20.9 ms) |
+
+      That is not worth an index or a cache yet. Look again if someone follows tens of thousands of threads.
+
+    - **Activity unread:** measured at 0.7–0.8 ms for the first page (above), and not changed.
   - [x] Coordinate count semantics with FIX-08 before caching them. Nothing is cached; the counts apply FIX-08's rule.
   - [ ] Measure channel/thread page and snapshot hydration at varied files/reactions/follows, including membership changes.
   - [ ] Measure page normalization separately from unread marker/count and boundary-query costs, following [Rocket.Chat RC-4](research/2026-09-30/rocket-chat-comparison.md#rc-4-separate-page-normalization-from-unreadcount-work). Preserve the current four page-scoped relation queries, #160's thread index and #165's mention index; a generic N+1 repair is not established.
