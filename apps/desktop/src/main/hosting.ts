@@ -125,6 +125,16 @@ export interface HostedWorkspaceSummary {
   restored: boolean;
 }
 
+/** A scheduled backup whose last try did not finish, for the tray to say so (OPS-02). */
+export interface BackupAttention {
+  folder: string;
+  name: string;
+  /** What the window says of it. */
+  note: string;
+  /** Whether trying again would make a backup: not when one was made and only removing older ones failed. */
+  canRetry: boolean;
+}
+
 /**
  * Reads an earlier version's remembered workspace, refusing anything
  * malformed rather than starting hosting under a name or port nobody chose.
@@ -844,6 +854,26 @@ export function createHostingController(options: HostingOptions) {
       // Binding succeeded. A settings failure is a warning, never a failed start.
       await saveMetadata();
       return status();
+    });
+  }
+
+  /**
+   * The scheduled backups whose last try did not finish, from the list as
+   * last read. A restored copy waiting to be put back in use is left out:
+   * its schedule is not running.
+   */
+  function backupAttention(): BackupAttention[] {
+    return (registry ?? []).flatMap((entry) => {
+      const failure = entry.autoBackup?.failure;
+      if (!failure || entry.restoredHold !== undefined) return [];
+      return [
+        {
+          folder: entry.folder,
+          name: entry.name,
+          note: backupFailureNote(entry.name, failure)!,
+          canRetry: failure.kind !== "cleanup",
+        },
+      ];
     });
   }
 
@@ -1899,6 +1929,7 @@ export function createHostingController(options: HostingOptions) {
   return {
     status,
     list,
+    backupAttention,
     lastHosted,
     backup,
     restore,

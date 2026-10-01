@@ -61,6 +61,13 @@ export interface AutoBackup {
   destination: string;
   everyDays: 1 | 7;
   keep: number;
+  /** When this schedule last made a backup into its folder, if it has. */
+  lastAt?: number;
+  /**
+   * Why its last try did not finish, until one does. `cleanup`: the backup
+   * was made, but older ones there could not be removed.
+   */
+  failure?: { kind: string };
 }
 
 /** Every workspace hosted on this computer, most recent first. */
@@ -261,6 +268,11 @@ export interface Platform {
       schedule: { everyDays: 1 | 7; keep: number } | null,
       chooseFolder: boolean,
     ) => Promise<AutoBackup | null | undefined>;
+    /**
+     * Makes every scheduled backup that is due now, a failed one included,
+     * and resolves when they have finished or failed again (OPS-02).
+     */
+    retryBackups?: () => Promise<void>;
     /**
      * Whether the OS opens Gatherline when someone signs in to this computer.
      * `get` resolves to null where it cannot, such as a copy run from source.

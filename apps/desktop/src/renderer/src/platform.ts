@@ -45,6 +45,7 @@ interface SlackossBridge {
     schedule: { everyDays: 1 | 7; keep: number } | null,
     chooseFolder: boolean,
   ) => Promise<AutoBackup | null | undefined>;
+  hostingRunDueBackups: () => Promise<void>;
   hostingOpenAtLogin: () => Promise<boolean | null>;
   hostingSetOpenAtLogin: (open: boolean) => Promise<boolean>;
   hostingRestore: () => Promise<{
@@ -131,6 +132,7 @@ export function electronPlatform(): Platform {
       setPort: (folder, port) => plainly(bridge.hostingSetPort(folder, port)),
       setAutoBackup: (folder, schedule, chooseFolder) =>
         plainly(bridge.hostingSetAutoBackup(folder, schedule, chooseFolder)),
+      retryBackups: () => bridge.hostingRunDueBackups(),
       lastHosted: () => bridge.hostingLastHosted(),
       list: () => bridge.hostingList(),
       backup: (folder) => plainly(bridge.hostingBackup(folder)),

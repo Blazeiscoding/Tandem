@@ -33,6 +33,7 @@ import { pickScreen } from "./screenPicker.js";
 import { mergeOutboxSetting } from "./outboxStorage.js";
 import { mergeDraftsSetting } from "./draftsStorage.js";
 import { createHostingController } from "./hosting.js";
+import { backupTrayItems } from "./trayBackups.js";
 import { loginItemOptions, loginItemProblem, openedAtLogin } from "./loginItem.js";
 import {
   findCloudflared,
@@ -492,6 +493,7 @@ ipcMain.handle(
     return saved;
   },
 );
+ipcMain.handle("hosting:runDueBackups", () => hosting.runDueBackups());
 ipcMain.handle("hosting:setReopenPublicOnLaunch", (_e, reopen: unknown) =>
   hosting.setReopenPublicOnLaunch(reopen),
 );
@@ -691,9 +693,11 @@ function updateTray(): void {
               status.connected !== undefined ? ` · ${status.connected} connected` : ""
             }`
           : "Not hosting";
-  // Hosting can be running while part of starting with Gatherline failed; the
-  // tray is often all there is to see at sign-in, so it says so too.
-  const attention = status.launchError ? " · needs attention" : "";
+  // Hosting can be running while part of starting with Gatherline failed, or
+  // a scheduled backup keep failing; the tray is often all there is to see at
+  // sign-in, so it says so too.
+  const backups = backupTrayItems(hosting.backupAttention());
+  const attention = status.launchError || backups.length ? " · needs attention" : "";
   tray.setToolTip(`Gatherline — ${label}${attention}`.slice(0, 127));
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -717,6 +721,14 @@ function updateTray(): void {
             },
           ]
         : []),
+      ...backups.map((item) => ({
+        label: item.label,
+        click: () => {
+          if (item.action === "show") showMainWindow();
+          // A backup that failed is still due, so this tries it now.
+          else void hosting.runDueBackups();
+        },
+      })),
       {
         label: "Stop hosting…",
         enabled: status.phase === "running" && !quitting && !trayStopPending,
@@ -890,6 +902,9 @@ void app.whenReady().then(async () => {
   if (initial && !pendingDeepLink) pendingDeepLink = initial;
   createTray();
   followNetworkChanges();
+  // A scheduled backup that failed before the app last quit is said in the
+  // tray from the start, not only once the window lists the workspaces.
+  void hosting.list().then(updateTray, () => {});
   // Scheduled backups: once the app has settled, then every quarter hour.
   setTimeout(() => void hosting.runDueBackups(), 60_000).unref();
   setInterval(() => void hosting.runDueBackups(), 15 * 60_000).unref();

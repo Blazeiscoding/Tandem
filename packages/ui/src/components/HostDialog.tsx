@@ -359,7 +359,9 @@ function AutoBackupSettings(props: {
   onChanged: () => void;
 }) {
   const setAutoBackup = props.hosting.setAutoBackup;
+  const retryBackups = props.hosting.retryBackups;
   const [saving, setSaving] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const schedule = props.schedule;
   // A restored copy being looked inside has nothing to back up by itself yet.
   if (!setAutoBackup || (props.held && !schedule)) return null;
@@ -390,9 +392,22 @@ function AutoBackupSettings(props: {
     }
   }
 
+  /** A failed backup is still due: this makes it now, rather than at the next check. */
+  async function retry() {
+    setRetrying(true);
+    props.onNote(null);
+    try {
+      await retryBackups!();
+    } finally {
+      setRetrying(false);
+      // Whether it failed again, and why, comes back with the list.
+      props.onChanged();
+    }
+  }
+
   const often = (everyDays: 1 | 7) => (everyDays === 1 ? "every day" : "every week");
   return (
-    <fieldset className="space-y-2" disabled={props.disabled || saving}>
+    <fieldset className="space-y-2" disabled={props.disabled || saving || retrying}>
       <legend className="mb-1 text-ink-dim">Automatic backups</legend>
       {schedule ? (
         <>
@@ -408,6 +423,11 @@ function AutoBackupSettings(props: {
               {props.name} is backed up {often(schedule.everyDays)}, keeping the newest{" "}
               {schedule.keep}, into{" "}
               <span className="break-all font-mono text-xs">{schedule.destination}</span>
+            </p>
+          )}
+          {schedule.lastAt !== undefined && (
+            <p className="text-xs text-ink-dim">
+              Last backed up there {backedUpWhen(schedule.lastAt)}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-3">
@@ -506,9 +526,17 @@ function AutoBackupSettings(props: {
         </>
       )}
       {props.error && (
-        <p role="alert" className="text-sm text-alert">
-          {props.error}
-        </p>
+        <div className="space-y-1">
+          <p role="alert" className="text-sm text-alert">
+            {props.error}
+          </p>
+          {/* Only removing older ones failed: the backup itself was made. */}
+          {retryBackups && schedule && schedule.failure?.kind !== "cleanup" && !props.held && (
+            <button type="button" className={linkBtnCls} onClick={() => void retry()}>
+              {retrying ? "Trying again…" : "Try again"}
+            </button>
+          )}
+        </div>
       )}
     </fieldset>
   );
@@ -1657,6 +1685,10 @@ export function HostDialog(props: {
                                     : ""
                                 }`}
                           </p>
+                          {/* The running one says so under Automatic backups, with Try again. */}
+                          {w.autoBackupError && !w.running && (
+                            <p className="text-xs text-alert">{w.autoBackupError}</p>
+                          )}
                           {!w.missing && (renameFn || openFolderFn || setPortFn) && (
                             <div className="mt-1 flex gap-3">
                               {renameFn && (
