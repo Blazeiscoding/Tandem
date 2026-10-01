@@ -493,7 +493,7 @@ ipcMain.handle(
     return saved;
   },
 );
-ipcMain.handle("hosting:runDueBackups", () => hosting.runDueBackups());
+ipcMain.handle("hosting:runDueBackups", () => hosting.runDueBackups(true));
 ipcMain.handle("hosting:setReopenPublicOnLaunch", (_e, reopen: unknown) =>
   hosting.setReopenPublicOnLaunch(reopen),
 );
@@ -725,8 +725,8 @@ function updateTray(): void {
         label: item.label,
         click: () => {
           if (item.action === "show") showMainWindow();
-          // A backup that failed is still due, so this tries it now.
-          else void hosting.runDueBackups();
+          // An explicit retry can bypass the automatic failure backoff.
+          else void hosting.runDueBackups(true);
         },
       })),
       {

@@ -16,6 +16,8 @@ import { socketMessage } from "./socketSchema.js";
 import type { RateLimiter } from "./limits.js";
 import { resolveClientAddress } from "./netTrust.js";
 
+type HuddleJoinResult = Extract<EphemeralEvent, { type: "huddle.join.result" }>;
+
 interface Client {
   ws: WebSocket;
   userId: ID;
@@ -236,6 +238,7 @@ export class Gateway {
           threadFollows: this.store.threadFollows(user.id),
           mentionCounts: this.store.unreadMentionCounts(user.id),
           huddles: this.huddlesVisibleTo(user.id),
+          huddleJoinReplies: true,
           workspaceName: this.workspaceName(),
           workspaceId: this.store.getMeta("workspace_id") ?? undefined,
           friends: this.store.listFriends(user.id),
@@ -270,9 +273,7 @@ export class Gateway {
           );
         }
       } else if (msg.type === "huddle.join") {
-        if (this.store.canAccess(msg.channelId, client.userId)) {
-          this.joinHuddle(msg.channelId, client.userId);
-        }
+        this.joinHuddle(msg.channelId, client, msg.requestId);
       } else if (msg.type === "huddle.leave") {
         this.leaveHuddle(msg.channelId, client.userId);
       } else if (msg.type === "huddle.signal") {
@@ -349,12 +350,49 @@ export class Gateway {
     return out;
   }
 
-  private joinHuddle(channelId: ID, userId: ID): void {
+  private joinHuddle(channelId: ID, client: Client, requestId?: string): void {
+    const userId = client.userId;
+    const reply = (event: HuddleJoinResult) => {
+      if (!requestId) return; // Older clients do not wait for admission replies.
+      // One bounded reply only to this socket, like pong. Room fanout stays
+      // admission-rationed; send() applies the existing slow-reader limit.
+      this.send(client.ws, { type: "ephemeral", event });
+    };
+    const refuse = (message: string, retryAfterMs?: number) => {
+      if (requestId)
+        reply({
+          type: "huddle.join.result",
+          channelId,
+          requestId,
+          accepted: false,
+          message,
+          retryAfterMs,
+        });
+    };
+    if (!this.store.canAccess(channelId, userId)) {
+      refuse("You no longer have access to this conversation.");
+      return;
+    }
     let room = this.huddles.get(channelId);
+    // Repeated joins are already represented by the room and spend no admission.
+    if (room?.has(userId)) {
+      if (requestId) reply({ type: "huddle.join.result", channelId, requestId, accepted: true });
+      return;
+    }
+    // Each admitted join can cause at most one later departure broadcast. Leave,
+    // disconnect and access revocation must still release the seat when exhausted.
+    const admission = this.limiter?.take("ephemeral", userId);
+    if (admission && !admission.ok) {
+      refuse(
+        `Huddle joins are temporarily limited. Wait ${Math.max(1, Math.ceil(admission.retryAfterMs / 1000))} seconds, then try again.`,
+        admission.retryAfterMs,
+      );
+      return;
+    }
     if (!room) this.huddles.set(channelId, (room = new Set()));
-    if (room.has(userId)) return;
     room.add(userId);
     this.publishHuddle(channelId);
+    if (requestId) reply({ type: "huddle.join.result", channelId, requestId, accepted: true });
   }
 
   private leaveHuddle(channelId: ID, userId: ID): void {

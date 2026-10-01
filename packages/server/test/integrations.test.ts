@@ -1313,6 +1313,41 @@ describe("interactive buttons", () => {
     expect(updated.actions).toEqual([]);
   });
 
+  it("refreshes live mention counts when an app replaces its message", async () => {
+    const { messageId, responseUrl } = await buttonMessage("Mention Update Bot");
+    const reader = connectWs(bobToken);
+    await reader.next((frame) => frame.type === "ready");
+    const baseline = server.store.unreadMentionCounts(bob.id)[channelId] ?? 0;
+    reader.received.length = 0;
+    try {
+      const replace = (text: string) =>
+        fetch(responseUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ replace_original: true, text }),
+        });
+      expect((await replace(`Please review <@${bob.id}>`)).status).toBe(200);
+      await reader.next(
+        (frame) =>
+          frame.type === "ephemeral" &&
+          frame.event.type === "mentions" &&
+          frame.event.counts[channelId] === baseline + 1,
+      );
+      reader.received.length = 0;
+      expect((await replace("Review no longer needed")).status).toBe(200);
+      await reader.next(
+        (frame) =>
+          frame.type === "ephemeral" &&
+          frame.event.type === "mentions" &&
+          (frame.event.counts[channelId] ?? 0) === baseline,
+      );
+      expect(server.store.getMessage(messageId)?.text).toBe("Review no longer needed");
+      expect(server.store.getMessage(messageId)?.actions).toEqual([]);
+    } finally {
+      reader.ws.terminate();
+    }
+  });
+
   it("removes the message later through response_url when asked to", async () => {
     const { messageId, responseUrl } = await buttonMessage("Cleanup Bot");
     const res = await fetch(responseUrl, {

@@ -20,7 +20,9 @@ Early-stage, independently developed team chat under the [MIT license](LICENSE).
 See [deployment and backups](docs/DEPLOYMENT.md), [validation results and limits](docs/VALIDATION.md),
 [contributing](CONTRIBUTING.md), and [security](SECURITY.md). Not affiliated with Slack or Salesforce.
 
-The [current update plan](docs/UPDATE-PLAN-2026-09-30.md) tracks verified remaining work.
+The [current implementation plan](docs/IMPLEMENTATION-PLAN-2026-10-01.md) orders the
+17 reviewed issues and further improvements into scoped work with implementation status and acceptance checks.
+The [September update backlog](docs/UPDATE-PLAN-2026-09-30.md) retains detailed tickets and implementation history.
 The [optimization plan](docs/OPTIMIZATION-PLAN-2026-09-30.md) covers Electron, chat and server improvements researched from T3 Code and other applications.
 
 Open-source team chat that **you** host. Run the server on a VPS, or click
@@ -353,8 +355,9 @@ pnpm test:e2e
 ```
 
 The EXE is written to `apps/desktop/release/`. Local builds are unsigned unless
-you configure a signing certificate. CI configuration is included for server,
-browser, Docker, and Windows checks; it has not been run on GitHub in this workspace.
+you configure a signing certificate. CI checks cover the server, browser, Docker,
+and Windows app. See [CI duration and caching](docs/CI.md) for the build reuse,
+installer selection and measured baseline; optimized remote timings remain to be measured.
 
 File transfers stream through the server, a channel keeps a bounded window of
 messages in memory however far back you scroll, idle attachment blobs are

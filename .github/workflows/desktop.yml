@@ -1,29 +1,35 @@
 name: Desktop
-# The packaged Windows app. Windows minutes count twice against the account's
-# free allowance, and this job used about two thirds of September's, so it runs
-# when a pull request changes something the packaged app itself depends on:
-# the desktop app, the server it embeds, the client and protocol under the
-# interface, the screens its suite drives, or what installs it. Anything else
-# can ask for it with a manual run: `gh workflow run desktop.yml --ref <branch>`.
+# Test the packaged Windows app when its runtime or packaging inputs change.
+# Ordinary runtime PRs need win-unpacked; installer inputs and manual runs also
+# validate NSIS. Manual runs default to producing the installer.
 on:
   pull_request:
     paths:
       - "apps/desktop/**"
+      - "apps/web/**"
       - "packages/server/**"
       - "packages/client-core/**"
       - "packages/protocol/**"
-      - "packages/ui/src/App.tsx"
-      - "packages/ui/src/platform.ts"
-      - "packages/ui/src/screens/**"
-      - "packages/ui/src/components/HostDialog.tsx"
-      - "packages/ui/src/components/HuddleBar.tsx"
-      - "packages/ui/src/lib/resume.ts"
+      - "packages/ui/**"
       - "tests/e2e/desktop.spec.ts"
       - "playwright.desktop.config.ts"
       - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - "package.json"
+      - ".npmrc"
+      - ".pnpmfile.cjs"
+      - "tsconfig.base.json"
+      - "scripts/check-web-bundle.mjs"
+      - "scripts/generate-icons.mjs"
+      - "scripts/desktop-ci-mode*.mjs"
       - ".github/workflows/desktop.yml"
+      - "!**/*.md"
   workflow_dispatch:
+    inputs:
+      installer:
+        description: Build the NSIS installer as well as the unpacked app
+        type: boolean
+        default: true
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -34,18 +40,40 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Include the PR merge commit's parents for the installer-input diff.
+          fetch-depth: 2
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+      - name: Cache Electron and packaging tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-${{ runner.os }}-${{ runner.arch }}-
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @slackoss/desktop package --win
+      - name: Select packaging coverage
+        id: packaging
+        run: |
+          node --test scripts/desktop-ci-mode.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/desktop-ci-mode.mjs
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BUILD_INSTALLER: ${{ inputs.installer }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      - name: Package unpacked app
+        if: steps.packaging.outputs.installer == 'false'
+        run: pnpm --filter @slackoss/desktop package --win --dir
+      - name: Package app and installer
+        if: steps.packaging.outputs.installer == 'true'
+        run: pnpm --filter @slackoss/desktop package --win
       - run: node scripts/check-web-bundle.mjs apps/desktop/out/renderer
-      # Packaging still has to succeed here, and test:desktop then launches the
-      # unpacked app it produced. What is no longer kept is the installer that
-      # same step writes beside it: uploading a 107 MB file on every push and
-      # holding it for ninety days used most of what this repository is given
-      # for artifacts, and nothing read them. A release workflow can publish
-      # one deliberately when there is something to hand out.
+      # Both modes produce the unpacked executable these tests launch.
       - run: pnpm test:desktop

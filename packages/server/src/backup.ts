@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
   copyFile,
@@ -9,6 +9,7 @@ import {
   readdir,
   realpath,
   rename,
+  rmdir,
   rm,
   stat,
   writeFile,
@@ -18,7 +19,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./db.js";
-import { holdWorkspace } from "./ownership.js";
+import { holdWorkspace, WorkspaceInUseError } from "./ownership.js";
 import { SERVER_VERSION } from "./server.js";
 
 /** What a backup directory contains, and what it must still look like on restore. */
@@ -134,6 +135,67 @@ function countRows(db: DatabaseSync): Record<string, number> {
   return counts;
 }
 
+const CAPTURE_PREFIX = ".gatherline-backup-";
+const CAPTURE_RECORD = "operation.json";
+const captureSchema = z
+  .object({
+    kind: z.literal("gatherline.backup-capture"),
+    version: z.literal(1),
+    id: z.uuid(),
+    dataDir: z.string(),
+    out: z.string(),
+    preserveEmpty: z.boolean(),
+  })
+  .strict();
+
+/** A journal and its lock stay outside the copy, including during publication. */
+async function discardInterruptedCaptures(parent: string, dataDir: string): Promise<void> {
+  for (const item of await readdir(parent, { withFileTypes: true })) {
+    if (!item.isDirectory() || !item.name.startsWith(CAPTURE_PREFIX)) continue;
+    const operation = join(parent, item.name);
+    const recordPath = join(operation, CAPTURE_RECORD);
+    let record: z.infer<typeof captureSchema>;
+    try {
+      await regularFile(recordPath);
+      record = captureSchema.parse(JSON.parse(await readFile(recordPath, "utf8")));
+      if (
+        item.name !== `${CAPTURE_PREFIX}${record.id}` ||
+        record.dataDir !== dataDir ||
+        !isAbsolute(record.out) ||
+        dirname(record.out) !== parent
+      )
+        continue;
+    } catch {
+      // A similarly named user folder or an unreadable record is not ours to remove.
+      continue;
+    }
+    let hold;
+    try {
+      hold = holdWorkspace(operation, "a backup cleanup");
+    } catch (error) {
+      if (error instanceof WorkspaceInUseError) continue;
+      throw error;
+    }
+    try {
+      // A crash between removing an empty destination and publishing must not
+      // lose the host's original directory. Nothing already there is changed.
+      if (record.preserveEmpty && !existsSync(record.out)) await mkdir(record.out);
+    } finally {
+      hold.release();
+    }
+    // This exact operation has no live owner, and only its staging is removed.
+    await rm(operation, { recursive: true, force: true });
+  }
+}
+
+async function emptyDestination(out: string): Promise<boolean> {
+  if (!existsSync(out)) return false;
+  const info = await lstat(out);
+  if (!info.isDirectory() || info.isSymbolicLink() || (await readdir(out)).length > 0)
+    throw new Error(`${out} is not empty. Choose a new directory for the backup.`);
+  return true;
+}
+
 /**
  * Captures a workspace into `out`.
  *
@@ -153,12 +215,74 @@ export async function backupWorkspace(opts: {
   await separateDirectories(dataDir, out);
   const source = join(dataDir, DATABASE);
   if (!existsSync(source)) throw new Error(`No workspace database at ${source}`);
-  if (existsSync(out) && (await readdir(out)).length > 0) {
-    throw new Error(`${out} is not empty. Choose a new directory for the backup.`);
+  await emptyDestination(out);
+  const parent = await canonical(dirname(out));
+  await mkdir(parent, { recursive: true });
+  const canonicalSource = await canonical(dataDir);
+  await discardInterruptedCaptures(parent, canonicalSource);
+  // Reconciliation may have restored the original empty destination.
+  const preserveEmpty = await emptyDestination(out);
+  const id = randomUUID();
+  const operation = join(parent, `${CAPTURE_PREFIX}${id}`);
+  const staged = join(operation, "capture");
+  await mkdir(operation);
+  let hold: ReturnType<typeof holdWorkspace> | undefined;
+  let removedEmpty = false;
+  let published = false;
+  let failure: unknown;
+  try {
+    hold = holdWorkspace(operation, "a backup");
+    await writeFile(
+      join(operation, CAPTURE_RECORD),
+      JSON.stringify({
+        kind: "gatherline.backup-capture",
+        version: 1,
+        id,
+        dataDir: canonicalSource,
+        out: join(parent, relative(dirname(out), out)),
+        preserveEmpty,
+      }),
+      { flag: "wx" },
+    );
+    const manifest = await captureWorkspace(dataDir, staged);
+    // Publication happens only after all bytes and references have passed verification.
+    if (preserveEmpty) {
+      await rmdir(out); // Refuses a directory someone populated while the copy ran.
+      removedEmpty = true;
+    } else if (existsSync(out)) {
+      throw new Error(`${out} already exists. Choose a new directory for the backup.`);
+    }
+    await rename(staged, out);
+    published = true;
+    return manifest;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    try {
+      hold?.release();
+      if (removedEmpty && !published && !existsSync(out)) await mkdir(out);
+      await rm(operation, { recursive: true, force: true });
+    } catch (cleanupError) {
+      if (failure !== undefined)
+        throw new AggregateError(
+          [failure, cleanupError],
+          `${failure instanceof Error ? failure.message : String(failure)} The unfinished backup could not be removed. Check access to its destination before retrying.`,
+        );
+      // The published copy is verified. A leftover journal must not turn it
+      // into an unsuccessful copy; the next capture reconciles the journal.
+      process.emitWarning(
+        "The backup finished, but its temporary operation record could not be removed.",
+        { code: "backup_cleanup_failed" },
+      );
+    }
   }
+}
+
+async function captureWorkspace(dataDir: string, out: string): Promise<BackupManifest> {
   await mkdir(join(out, FILES), { recursive: true });
 
-  const db = new DatabaseSync(source, { readOnly: true });
+  const db = new DatabaseSync(join(dataDir, DATABASE), { readOnly: true });
   try {
     db.prepare("VACUUM INTO ?").run(join(out, DATABASE));
   } finally {

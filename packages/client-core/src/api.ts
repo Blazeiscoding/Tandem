@@ -268,7 +268,7 @@ export class Api {
   listMessages(
     channelId: ID,
     opts: { before?: ID; limit?: number; threadRootId?: ID } = {},
-  ): Promise<{ messages: Message[]; readThroughSeq?: number }> {
+  ): Promise<{ messages: Message[]; readThroughSeq?: number; seq?: number }> {
     const params = new URLSearchParams();
     if (opts.before) params.set("before", opts.before);
     if (opts.limit) params.set("limit", String(opts.limit));
@@ -289,6 +289,7 @@ export class Api {
     hasMoreOlder: boolean;
     hasMoreNewer: boolean;
     threadRootId?: ID | null;
+    seq?: number;
   }> {
     return this.request(
       "GET",
@@ -298,7 +299,11 @@ export class Api {
     );
   }
 
-  listMessagesAfter(channelId: ID, afterId: ID, limit = 50): Promise<{ messages: Message[] }> {
+  listMessagesAfter(
+    channelId: ID,
+    afterId: ID,
+    limit = 50,
+  ): Promise<{ messages: Message[]; seq?: number }> {
     return this.request(
       "GET",
       `/api/channels/${channelId}/messages/after/${afterId}?limit=${limit}`,

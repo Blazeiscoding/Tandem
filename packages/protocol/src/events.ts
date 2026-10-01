@@ -74,6 +74,16 @@ export type EphemeralEvent =
   | { type: "mentions"; counts: Record<ID, number> }
   /** Who is in a channel's huddle right now. */
   | { type: "huddle.participants"; channelId: ID; userIds: ID[] }
+  /** Sender-only admission result, correlated to this device's join attempt. */
+  | { type: "huddle.join.result"; channelId: ID; requestId: string; accepted: true }
+  | {
+      type: "huddle.join.result";
+      channelId: ID;
+      requestId: string;
+      accepted: false;
+      message: string;
+      retryAfterMs?: number;
+    }
   /** A relayed WebRTC handshake payload from one peer. */
   | { type: "huddle.signal"; channelId: ID; from: ID; signal: HuddleSignal }
   /**
@@ -136,6 +146,8 @@ export interface ReadySnapshot {
   threadFollows?: ThreadFollow[];
   /** Live huddles the user can see: channelId -> participant ids. */
   huddles: Record<ID, ID[]>;
+  /** This server answers correlated join attempts before clients start their peer mesh. */
+  huddleJoinReplies?: true;
   workspaceName: string;
   /** Stable across address/name changes and backup restores. Older servers omit it. */
   workspaceId?: ID;
@@ -166,7 +178,7 @@ export type ClientToServer =
       syncVersion?: 1;
     }
   | { type: "typing"; channelId: ID }
-  | { type: "huddle.join"; channelId: ID }
+  | { type: "huddle.join"; channelId: ID; requestId?: string }
   | { type: "huddle.leave"; channelId: ID }
   | { type: "huddle.signal"; channelId: ID; to: ID; signal: HuddleSignal }
   | { type: "ping" };

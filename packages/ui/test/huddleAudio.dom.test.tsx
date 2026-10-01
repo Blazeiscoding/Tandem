@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient, type HuddlePeer } from "@slackoss/client-core";
 import type { User } from "@slackoss/protocol";
 import { ClientContext } from "../src/context.js";
 import { HuddleBar } from "../src/components/HuddleBar.js";
+import { HuddleAudio } from "../src/components/HuddleAudio.js";
 
 /**
  * Hearing the others in a huddle when the browser will not play sound until
@@ -34,8 +35,12 @@ const priya: HuddlePeer = {
   speaking: false,
 };
 
-const play = vi.spyOn(HTMLMediaElement.prototype, "play");
-afterEach(() => play.mockReset());
+const spyPlay = () => vi.spyOn(HTMLMediaElement.prototype, "play");
+let play: ReturnType<typeof spyPlay>;
+beforeEach(() => {
+  play = spyPlay();
+});
+afterEach(() => vi.restoreAllMocks());
 
 function bar() {
   const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
@@ -117,5 +122,82 @@ describe("sound the browser holds back", () => {
     await screen.findByRole("alert");
     act(() => client.store.setState({ huddle: { ...client.state.huddle!, peers: [] } }));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+const peer = (userId: string): HuddlePeer => ({
+  userId,
+  audioStream: {} as MediaStream,
+  cameraStream: null,
+  screenStream: null,
+  connected: true,
+  micMuted: false,
+  speaking: false,
+});
+
+describe("recovering huddle audio", () => {
+  it("offers one gesture to retry blocked peers and leaves audible peers playing", async () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockRejectedValueOnce(new DOMException("Autoplay blocked", "NotAllowedError"))
+      .mockRejectedValueOnce(new DOMException("Autoplay blocked", "NotAllowedError"))
+      .mockResolvedValue(undefined);
+    const peers = [peer("A"), peer("B"), peer("C")];
+    const { container } = render(<HuddleAudio peers={peers} />);
+    const retry = await screen.findByRole("button", { name: "Turn on sound" });
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(play).toHaveBeenCalledTimes(3);
+    fireEvent.click(retry);
+    // These calls happen inside the click, before an effect or another task.
+    expect(play).toHaveBeenCalledTimes(5);
+    const audio = container.querySelectorAll("audio");
+    expect(play.mock.contexts.slice(3)).toEqual([audio[0], audio[1]]);
+    await waitFor(() => expect(screen.queryByRole("button")).not.toBeInTheDocument());
+    expect(audio[2]!.srcObject).toBe(peers[2]!.audioStream);
+  });
+
+  it("keeps recovery available when another playback attempt fails", async () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockRejectedValue(new Error("Device unavailable"));
+    render(<HuddleAudio peers={[peer("A")]} />);
+    const retry = await screen.findByRole("button", { name: "Turn on sound" });
+    fireEvent.click(retry);
+    await act(async () => {});
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(retry).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Call audio could not start.");
+  });
+
+  it("ignores a removed peer's late rejection and detaches its stream", async () => {
+    let reject!: (reason: Error) => void;
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(
+      () =>
+        new Promise<void>((_, fail) => {
+          reject = fail;
+        }),
+    );
+    const { container, rerender } = render(<HuddleAudio peers={[peer("A")]} />);
+    const audio = container.querySelector("audio")!;
+    rerender(<HuddleAudio peers={[]} />);
+    await act(async () => reject(new Error("Late failure")));
+    expect(audio.srcObject).toBeNull();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("does not let a superseded stream's failure block a working replacement", async () => {
+    let reject!: (reason: Error) => void;
+    vi.spyOn(HTMLMediaElement.prototype, "play")
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_, fail) => {
+            reject = fail;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    const { rerender } = render(<HuddleAudio peers={[peer("A")]} />);
+    rerender(<HuddleAudio peers={[peer("A")]} />);
+    await act(async () => reject(new Error("Old stream failed")));
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

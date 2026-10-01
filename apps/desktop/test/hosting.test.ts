@@ -9,7 +9,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as fsPromises from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   createHostingController,
@@ -40,7 +41,19 @@ interface StartRequest {
 }
 
 const roots: string[] = [];
+const cleanupFault = vi.hoisted(() => ({ path: null as string | null }));
+vi.mock("node:fs/promises", async (original) => {
+  const actual = await original<typeof fsPromises>();
+  return {
+    ...actual,
+    rm: async (...args: Parameters<typeof actual.rm>) => {
+      if (String(args[0]) === cleanupFault.path) throw new Error("EACCES: old backup is locked");
+      return actual.rm(...args);
+    },
+  };
+});
 afterEach(() => {
+  cleanupFault.path = null;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -2520,6 +2533,96 @@ describe("protecting recovery copies", () => {
     await expect(verifyBackup(fresh)).resolves.toBeDefined();
   });
 
+  it("leaves one good copy intact through failed attachment retries and replaces it after repair", async () => {
+    const { h, destination, dataDir } = await realScheduled(1);
+    const server = await createWorkspaceServer({
+      dataDir,
+      port: 0,
+      host: "127.0.0.1",
+      mdns: false,
+    });
+    let fileId: string;
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "owner", displayName: "Owner", password: "password123" }),
+      });
+      const owner = (await response.json()) as { user: { id: string } };
+      fileId = server.store.createFile({
+        channelId: server.store.getChannelByName("general")!.id,
+        userId: owner.user.id,
+        name: "saved.txt",
+        mime: "text/plain",
+        size: 4,
+        width: null,
+        height: null,
+      }).id;
+      writeFileSync(join(dataDir, "files", fileId), "kept");
+    } finally {
+      await server.stop();
+    }
+    const good = await archive(dataDir, destination, "2026-01-01T00-00-00");
+    rmSync(join(dataDir, "files", fileId));
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await h.controller.runDueBackups();
+      expect(readdirSync(destination)).toEqual([good.slice(destination.length + 1)]);
+      expect(registryOf(h)[0]!.autoBackup!.lastAt).toBeUndefined();
+      await expect(verifyBackup(good)).resolves.toBeDefined();
+      h.clock = registryOf(h)[0]!.autoBackup!.retry!.nextAt;
+    }
+    writeFileSync(join(dataDir, "files", fileId), "kept");
+    await h.controller.runDueBackups();
+    expect(readdirSync(destination)).toHaveLength(1);
+    expect(existsSync(good)).toBe(false);
+    await expect(verifyBackup(h.backups.at(-1)!.out)).resolves.toBeDefined();
+    expect(registryOf(h)[0]!.autoBackup!.retry).toBeUndefined();
+  });
+
+  it("records verified success and a durable cleanup warning without scheduling another capture", async () => {
+    const { h, destination, dataDir } = await realScheduled(1);
+    const old = await archive(dataDir, destination, "2026-01-01T00-00-00");
+    cleanupFault.path = old;
+    await h.controller.runDueBackups();
+    const schedule = registryOf(h)[0]!.autoBackup!;
+    expect(schedule.lastAt).toBeDefined();
+    expect(schedule.retry).toBeUndefined();
+    expect(schedule.warning).toMatch(/verified backup.*older backup cleanup did not finish/);
+    expect(schedule.failure).toMatchObject({ kind: "cleanup" });
+    expect(h.controller.backupAttention()).toEqual([
+      {
+        folder: registryOf(h)[0]!.folder,
+        name: "Rocket Team",
+        note: schedule.warning,
+        canRetry: false,
+      },
+    ]);
+    expect(existsSync(old)).toBe(true);
+    await expect(verifyBackup(h.backups[0]!.out)).resolves.toBeDefined();
+    h.clock = schedule.lastAt! + 3600_000;
+    await h.controller.runDueBackups();
+    expect(h.backups).toHaveLength(1);
+
+    const restarted = harness({ root: dirname(h.dataRoot), settings: h.settings });
+    restarted.realBackups = true;
+    restarted.clock = h.clock;
+    expect((await restarted.controller.list()).workspaces[0]!.autoBackupError).toMatch(
+      /verified backup.*cleanup/,
+    );
+    expect(restarted.controller.backupAttention()[0]!.canRetry).toBe(false);
+    await restarted.controller.runDueBackups(true);
+    expect(restarted.backups).toEqual([]);
+    cleanupFault.path = null;
+    restarted.clock = schedule.lastAt! + DAY;
+    await restarted.controller.runDueBackups();
+    expect(restarted.backups).toHaveLength(1);
+    expect(existsSync(old)).toBe(false);
+    expect(registryOf(restarted)[0]!.autoBackup!.warning).toBeUndefined();
+    expect(registryOf(restarted)[0]!.autoBackup!.failure).toBeUndefined();
+    expect(restarted.controller.backupAttention()).toEqual([]);
+    expect((await restarted.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+  });
+
   it("refuses to back up a listed workspace whose folder now holds another", async () => {
     const settings = new Map<string, unknown>();
     const h = harness({ settings });
@@ -2655,17 +2758,63 @@ describe("scheduled backups", () => {
     });
   });
 
-  it("keeps a first backup that failed due, and says so, until one is made", async () => {
+  it("keeps a failed backup visible and waits before retrying a repaired destination", async () => {
     const { h, destination } = await scheduled();
     h.free = 0;
     await h.controller.runDueBackups();
     expect((await h.controller.list()).workspaces[0]!.autoBackupError).toMatch(/did not finish/);
     expect(readdirSync(destination)).toEqual([]);
-    // No day has passed, and it is still due.
+    // Still due, but automatic checks cannot immediately repeat failed work.
     h.free = Number.MAX_SAFE_INTEGER;
+    await h.controller.runDueBackups();
+    expect(readdirSync(destination)).toEqual([]);
+    h.clock = registryOf(h)[0]!.autoBackup!.retry!.nextAt;
     await h.controller.runDueBackups();
     expect(readdirSync(destination)).toHaveLength(1);
     expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+    expect(registryOf(h)[0]!.autoBackup!.retry).toBeUndefined();
+  });
+
+  it("preserves failure and exponentially bounded retry delays through restart", async () => {
+    const { h } = await scheduled();
+    h.free = 0;
+    await h.controller.runDueBackups();
+    const first = registryOf(h)[0]!.autoBackup!.retry!;
+    const restarted = harness({ root: dirname(h.dataRoot), settings: h.settings });
+    for (const [path, db] of h.databases) restarted.databases.set(path, db);
+    restarted.clock = h.clock;
+    restarted.free = 0;
+    expect((await restarted.controller.list()).workspaces[0]!.autoBackupError).toMatch(
+      /not enough free space/,
+    );
+    await restarted.controller.runDueBackups();
+    expect(restarted.backups).toEqual([]);
+    expect(registryOf(restarted)[0]!.autoBackup!.retry).toEqual(first);
+    for (let attempt = 2; attempt <= 8; attempt++) {
+      const before = registryOf(restarted)[0]!.autoBackup!.retry!;
+      restarted.clock = before.nextAt;
+      const at = restarted.clock;
+      await restarted.controller.runDueBackups();
+      const next = registryOf(restarted)[0]!.autoBackup!.retry!;
+      expect(next.attempts).toBe(Math.min(attempt, 6));
+      expect(next.nextAt - at).toBeGreaterThanOrEqual(Math.min(3600_000 * 2 ** (attempt - 1), DAY));
+      expect(next.nextAt - at).toBeLessThan(Math.min(3600_000 * 2 ** (attempt - 1), DAY) + 10);
+    }
+    restarted.free = Number.MAX_SAFE_INTEGER;
+    restarted.clock = registryOf(restarted)[0]!.autoBackup!.retry!.nextAt;
+    await restarted.controller.runDueBackups();
+    expect(restarted.backups).toHaveLength(1);
+    expect(registryOf(restarted)[0]!.autoBackup!.retry).toBeUndefined();
+    expect((await restarted.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+  });
+
+  it("does not take a snapshot when it cannot persist its retry reservation", async () => {
+    const { h } = await scheduled();
+    h.saveFails = true;
+    await h.controller.runDueBackups();
+    await h.controller.runDueBackups();
+    expect(h.backups).toEqual([]);
+    expect((await h.controller.list()).workspaces[0]!.autoBackupError).toMatch(/read-only/);
   });
 
   it("makes one backup when two checks overlap, and reports no failure", async () => {
@@ -2723,6 +2872,7 @@ describe("scheduled backups", () => {
     expect(h.changes.at(-1)).toBeDefined();
 
     h.free = Number.MAX_SAFE_INTEGER;
+    h.clock = registryOf(h)[0]!.autoBackup!.retry!.nextAt;
     await h.controller.runDueBackups();
     expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
   });
@@ -2750,6 +2900,10 @@ describe("scheduled backups", () => {
     expect((await later.controller.list()).workspaces[0]!.autoBackupError).toMatch(
       /^The scheduled backup of Rocket Team did not finish\. There is not enough free space there\./,
     );
+    await later.controller.runDueBackups();
+    expect(later.backups).toEqual([]);
+    expect(registryOf(later)[0]!.autoBackup!.failure).toEqual(saved.failure);
+    later.clock = saved.retry!.nextAt;
     await later.controller.runDueBackups();
     const [made] = readdirSync(destination);
     const after = registryOf(later)[0]!.autoBackup!;
@@ -2783,6 +2937,10 @@ describe("scheduled backups", () => {
     await later.controller.list();
     expect(later.controller.backupAttention()).toHaveLength(1);
     await later.controller.runDueBackups();
+    expect(later.controller.backupAttention()).toHaveLength(1);
+    expect(later.backups).toEqual([]);
+    // The tray's explicit retry bypasses the automatic delay, then clears attention.
+    await later.controller.runDueBackups(true);
     expect(later.controller.backupAttention()).toEqual([]);
   });
 
@@ -2884,11 +3042,13 @@ describe("scheduled backups", () => {
     const base = { destination: profile(), everyDays: 7 as const, keep: 3 };
     const failure = { at: 20, kind: "destination", message: "The folder cannot be reached." };
     const lastPath = join(base.destination, "rocket-team-2026-09-30T00-00-00");
-    expect(parseAutoBackup({ ...base, lastAttemptAt: 20, lastPath, failure })).toEqual({
+    const retry = { attempts: 2, nextAt: 7200020, error: "The folder cannot be reached." };
+    expect(parseAutoBackup({ ...base, lastAttemptAt: 20, lastPath, failure, retry })).toEqual({
       ...base,
       lastAttemptAt: 20,
       lastPath,
       failure,
+      retry,
     });
     // A kind from a later version is still a failure, of a kind this one cannot name.
     expect(parseAutoBackup({ ...base, failure: { ...failure, kind: "quota" } })!.failure).toEqual({

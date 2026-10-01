@@ -22,6 +22,8 @@ import { FileCache } from "./fileCache.js";
 import { captureFailure } from "./capture.js";
 import { HuddleSession, type HuddleState } from "./huddle.js";
 
+class HuddleJoinRefusedError extends Error {}
+
 export type ConnectionStatus =
   | "connecting"
   | "online"
@@ -170,6 +172,10 @@ function sendFailureReason(error: unknown): string {
 export interface ChannelTimeline {
   /** Channel message watermark represented by this loaded tail, not future arrivals. */
   readThroughSeq?: number;
+  /** Creation events through this tail snapshot are already represented by its window. */
+  snapshotSeq?: number;
+  /** Older/newer pages can contain rows captured at different event sequences. */
+  messageSnapshots?: Record<ID, number>;
   /** Oldest → newest, top-level messages only. */
   items: Message[];
   /** More history exists before the first loaded message. */
@@ -194,6 +200,98 @@ export interface ThreadPage {
 }
 
 const THREAD_WINDOW = 300;
+const HISTORY_EVENTS_LIMIT = 2000;
+
+interface TimelineLoad {
+  ticket: object;
+  startSeq: number;
+  events: EventEnvelope[];
+  seen: Set<number>;
+  overflow: boolean;
+}
+
+/** Remember which socket events a page already includes, even if they arrive later. */
+function snapshotTimeline(timeline: ChannelTimeline, seq: number | undefined): ChannelTimeline {
+  if (seq === undefined) return timeline;
+  return {
+    ...timeline,
+    snapshotSeq: seq,
+    messageSnapshots: Object.fromEntries(timeline.items.map((message) => [message.id, seq])),
+  };
+}
+
+/** All socket events through this watermark have been reconciled into these rows. */
+function stampTimeline(timeline: ChannelTimeline, seq: number): ChannelTimeline {
+  return {
+    ...timeline,
+    snapshotSeq: Math.max(timeline.snapshotSeq ?? 0, seq),
+    messageSnapshots: Object.fromEntries(
+      timeline.items.map((message) => [
+        message.id,
+        Math.max(timeline.messageSnapshots?.[message.id] ?? 0, seq),
+      ]),
+    ),
+  };
+}
+
+/** Reconcile one history snapshot without repeating notification or outbox effects. */
+function updateTimeline(timeline: ChannelTimeline, envelopes: EventEnvelope[]): ChannelTimeline {
+  let { items, readThroughSeq } = timeline;
+  for (const { event, seq } of envelopes) {
+    const newer = (id: ID) => seq > (timeline.messageSnapshots?.[id] ?? 0);
+    const patch = (id: ID, change: (message: Message) => Message) => {
+      if (!newer(id)) return;
+      items = items.map((message) => (message.id === id ? change(message) : message));
+    };
+    if (event.type === "message.created") {
+      const message = { ...event.message, seq };
+      if (message.threadRootId) {
+        const rootLoaded =
+          newer(message.threadRootId) && items.some((m) => m.id === message.threadRootId);
+        patch(message.threadRootId, (root) => ({ ...root, replyCount: root.replyCount + 1 }));
+        if (!timeline.hasMoreNewer && rootLoaded)
+          readThroughSeq = Math.max(readThroughSeq ?? 0, seq);
+      }
+      if (
+        (!message.threadRootId || message.broadcast) &&
+        !timeline.hasMoreNewer &&
+        seq > (timeline.snapshotSeq ?? 0)
+      ) {
+        items = sortedInsert(items, message);
+        readThroughSeq = Math.max(readThroughSeq ?? 0, seq);
+      }
+    } else if (event.type === "message.updated") {
+      patch(event.message.id, () => event.message);
+    } else if (event.type === "message.deleted") {
+      items = items.filter((message) => message.id !== event.messageId || !newer(message.id));
+      if (event.threadRootId)
+        patch(event.threadRootId, (root) => ({
+          ...root,
+          replyCount: Math.max(0, root.replyCount - 1),
+        }));
+    } else if (event.type === "history.removed") {
+      const gone = new Set(event.rootIds);
+      items = items.filter(
+        (message) =>
+          !gone.has(message.id) && !(message.threadRootId && gone.has(message.threadRootId)),
+      );
+    } else if (event.type === "pin.added" || event.type === "pin.removed") {
+      patch(event.messageId, (message) => ({ ...message, pinned: event.type === "pin.added" }));
+    } else if (event.type === "reaction.added" || event.type === "reaction.removed") {
+      patch(event.messageId, (message) => {
+        const old = message.reactions.find((group) => group.emoji === event.emoji)?.userIds ?? [];
+        const userIds =
+          event.type === "reaction.added"
+            ? [...new Set([...old, event.userId])]
+            : old.filter((id) => id !== event.userId);
+        const reactions = message.reactions.filter((group) => group.emoji !== event.emoji);
+        if (userIds.length) reactions.push({ emoji: event.emoji, userIds });
+        return { ...message, reactions };
+      });
+    }
+  }
+  return { ...timeline, items, readThroughSeq };
+}
 
 /** Apply only events newer than a history response when reconciling that response. */
 function updateThread(
@@ -405,9 +503,17 @@ const HISTORY_CACHE_LIMIT = 20;
 function windowTimeline(timeline: ChannelTimeline, drop: "oldest" | "newest"): ChannelTimeline {
   const excess = timeline.items.length - MAX_TIMELINE_ITEMS;
   if (excess <= 0) return timeline;
-  return drop === "oldest"
-    ? { ...timeline, items: timeline.items.slice(excess), hasMore: true }
-    : { ...timeline, items: timeline.items.slice(0, MAX_TIMELINE_ITEMS), hasMoreNewer: true };
+  const next =
+    drop === "oldest"
+      ? { ...timeline, items: timeline.items.slice(excess), hasMore: true }
+      : { ...timeline, items: timeline.items.slice(0, MAX_TIMELINE_ITEMS), hasMoreNewer: true };
+  if (next.messageSnapshots) {
+    const kept = new Set(next.items.map((message) => message.id));
+    next.messageSnapshots = Object.fromEntries(
+      Object.entries(next.messageSnapshots).filter(([id]) => kept.has(id)),
+    );
+  }
+  return next;
 }
 
 /**
@@ -442,13 +548,8 @@ export class WorkspaceClient {
   private threadLoads = new Map<ID, { events: EventEnvelope[]; overflow: boolean }>();
   private messageJump = 0;
   private timelineRequests = new Map<ID, object>();
-  /**
-   * Live messages that arrived while a conversation's first or newest page was
-   * on its way. The server may have read that page before they existed, and a
-   * timeline not loaded yet has nowhere to put them, so they wait for the page
-   * that request brings and join it when it lands.
-   */
-  private timelineHolds = new Map<ID, { ticket: object; messages: Message[] }>();
+  /** Events held until their history page's snapshot sequence decides which to replay. */
+  private timelineHolds = new Map<ID, TimelineLoad>();
   private timelineRecency = new Map<ID, true>();
   private threadRecency = new Map<ID, true>();
   private activeConversation: ID | null = null;
@@ -491,6 +592,9 @@ export class WorkspaceClient {
   destroy(): void {
     this.stopped = true;
     this.historyEpoch++;
+    this.timelineRequests.clear();
+    this.timelineHolds.clear();
+    this.threadLoads.clear();
     this.clearReadRequests();
     if (this.readRetryTimer) clearInterval(this.readRetryTimer);
     this.readRetryTimer = null;
@@ -507,7 +611,12 @@ export class WorkspaceClient {
     this.files.dispose();
     this.retryFiles.clear();
     this.uploadedFiles.clear();
-    this.store.setState({ status: "closed" });
+    this.store.setState((s) => ({
+      status: "closed",
+      threadPages: Object.fromEntries(
+        Object.entries(s.threadPages).map(([id, page]) => [id, { ...page, loading: false }]),
+      ),
+    }));
   }
 
   private openSocket(lastSeq: number | null): void {
@@ -600,6 +709,7 @@ export class WorkspaceClient {
   }
 
   private applyReady(snap: ReadySnapshot): void {
+    this.huddleJoinReplies = snap.huddleJoinReplies === true;
     // A replaced server must not inherit this connection's private drafts or
     // outbox, even if a copied session token happens to work there. Keep the
     // old identity intact so unmount can flush its work before signing in again.
@@ -694,6 +804,7 @@ export class WorkspaceClient {
 
   private resetHistory(): void {
     this.historyEpoch++;
+    for (const id of this.timelineHolds.keys()) this.reloadChannels.add(id);
     this.timelineRequests.clear();
     this.timelineHolds.clear();
     this.timelineRecency.clear();
@@ -730,7 +841,6 @@ export class WorkspaceClient {
     this.pendingReads.delete(channelId);
     this.readRequests.get(channelId)?.abort();
     this.readRequests.delete(channelId);
-    this.historyEpoch++;
     if (this.session?.channelId === channelId) this.leaveHuddle();
     const state = this.state;
     const roots = new Set(state.timelines[channelId]?.items.map((m) => m.id) ?? []);
@@ -796,7 +906,10 @@ export class WorkspaceClient {
       case "message.created": {
         const message = { ...event.message, seq };
         if (!s.channels[message.channelId]) break;
-        if (!fromHttp && this.acknowledgedMessages.delete(message.id)) break;
+        if (!fromHttp && this.acknowledgedMessages.delete(message.id)) {
+          this.store.setState(patch);
+          return;
+        }
         if (
           fromHttp &&
           !s.pending.some((p) => p.userId === message.userId && p.nonce === message.nonce)
@@ -823,10 +936,8 @@ export class WorkspaceClient {
         }
         const appendToTimeline = (from: WorkspaceState["timelines"]) => {
           const tl = from[message.channelId];
-          // A page on its way may predate this message; it joins that page too.
-          this.timelineHolds.get(message.channelId)?.messages.push(message);
           // Appending to an anchored view would fake adjacency across a gap.
-          if (!tl?.loaded || tl.hasMoreNewer) return undefined;
+          if (!tl?.loaded || tl.hasMoreNewer || seq <= (tl.snapshotSeq ?? 0)) return undefined;
           return {
             ...from,
             [message.channelId]: windowTimeline(
@@ -849,7 +960,7 @@ export class WorkspaceClient {
           }
           // Bump replyCount on the root in its timeline.
           const tl = s.timelines[message.channelId];
-          if (tl?.loaded) {
+          if (tl?.loaded && seq > (tl.messageSnapshots?.[message.threadRootId] ?? 0)) {
             patch.timelines = {
               ...s.timelines,
               [message.channelId]: {
@@ -885,14 +996,15 @@ export class WorkspaceClient {
         break;
       }
       case "message.updated": {
-        const hold = this.timelineHolds.get(event.message.channelId);
-        if (hold)
-          hold.messages = hold.messages.map((m) =>
-            m.id === event.message.id ? { ...m, ...event.message } : m,
-          );
-        patch.timelines = this.patchMessage(s, event.message.channelId, event.message.id, () => ({
-          ...event.message,
-        }));
+        patch.timelines = this.patchMessage(
+          s,
+          event.message.channelId,
+          event.message.id,
+          () => ({
+            ...event.message,
+          }),
+          seq,
+        );
         patch.threads = this.patchThreadMessage(s, event.message.id, () => ({ ...event.message }));
         break;
       }
@@ -901,8 +1013,6 @@ export class WorkspaceClient {
         const gone = new Set(event.rootIds);
         const kept = (m: Message) =>
           !gone.has(m.id) && !(m.threadRootId && gone.has(m.threadRootId));
-        const hold = this.timelineHolds.get(event.channelId);
-        if (hold) hold.messages = hold.messages.filter(kept);
         const tl = s.timelines[event.channelId];
         if (tl)
           patch.timelines = {
@@ -926,8 +1036,6 @@ export class WorkspaceClient {
         break;
       }
       case "message.deleted": {
-        const hold = this.timelineHolds.get(event.channelId);
-        if (hold) hold.messages = hold.messages.filter((m) => m.id !== event.messageId);
         const tl = s.timelines[event.channelId];
         if (tl?.loaded) {
           patch.timelines = {
@@ -935,9 +1043,11 @@ export class WorkspaceClient {
             [event.channelId]: {
               ...tl,
               items: tl.items
-                .filter((m) => m.id !== event.messageId)
+                .filter(
+                  (m) => m.id !== event.messageId || seq <= (tl.messageSnapshots?.[m.id] ?? 0),
+                )
                 .map((m) =>
-                  m.id === event.threadRootId
+                  m.id === event.threadRootId && seq > (tl.messageSnapshots?.[m.id] ?? 0)
                     ? { ...m, replyCount: Math.max(0, m.replyCount - 1) }
                     : m,
                 ),
@@ -972,7 +1082,7 @@ export class WorkspaceClient {
           if (userIds.length > 0) groups.push({ emoji: event.emoji, userIds });
           return { ...m, reactions: groups };
         };
-        patch.timelines = this.patchMessage(s, event.channelId, event.messageId, apply);
+        patch.timelines = this.patchMessage(s, event.channelId, event.messageId, apply, seq);
         patch.threads = this.patchThreadMessage(s, event.messageId, apply);
         break;
       }
@@ -982,7 +1092,7 @@ export class WorkspaceClient {
         // A pin chosen here and not yet answered stays as chosen; see `choose`.
         if (this.heardChoice(`pin:${event.messageId}`, pinned)) break;
         const setPinned = (m: Message): Message => ({ ...m, pinned });
-        patch.timelines = this.patchMessage(s, event.channelId, event.messageId, setPinned);
+        patch.timelines = this.patchMessage(s, event.channelId, event.messageId, setPinned, seq);
         patch.threads = this.patchThreadMessage(s, event.messageId, setPinned);
         break;
       }
@@ -1055,12 +1165,21 @@ export class WorkspaceClient {
 
     const channelId =
       "message" in event ? event.message.channelId : "channelId" in event ? event.channelId : null;
+    if (channelId && /^(message|reaction|pin|history)\./.test(event.type)) {
+      const hold = this.timelineHolds.get(channelId);
+      if (hold && !hold.seen.has(seq)) {
+        if (hold.events.length < HISTORY_EVENTS_LIMIT) {
+          hold.events.push(envelope);
+          hold.seen.add(seq);
+        } else hold.overflow = true;
+      }
+    }
     if (channelId && /^(message|reaction|pin)\./.test(event.type)) {
       for (const [rootId, page] of Object.entries(s.threadPages)) {
         if (page.channelId !== channelId) continue;
         const load = this.threadLoads.get(rootId);
         if (load) {
-          if (load.events.length < 2000) load.events.push(envelope);
+          if (load.events.length < HISTORY_EVENTS_LIMIT) load.events.push(envelope);
           else load.overflow = true;
         }
         const items = s.threads[rootId] ?? [];
@@ -1087,9 +1206,11 @@ export class WorkspaceClient {
     channelId: ID,
     messageId: ID,
     fn: (m: Message) => Message,
+    seq?: number,
   ): Record<ID, ChannelTimeline> {
     const tl = s.timelines[channelId];
-    if (!tl?.loaded) return s.timelines;
+    if (!tl?.loaded || (seq !== undefined && seq <= (tl.messageSnapshots?.[messageId] ?? 0)))
+      return s.timelines;
     return {
       ...s.timelines,
       [channelId]: { ...tl, items: tl.items.map((m) => (m.id === messageId ? fn(m) : m)) },
@@ -1166,12 +1287,18 @@ export class WorkspaceClient {
       else delete huddles[event.channelId];
       this.store.setState({ huddles });
       // Reconcile our own mesh against the new roster.
-      if (this.session?.channelId === event.channelId) {
+      if (this.session?.channelId === event.channelId && this.huddleAdmitted) {
         this.session.syncParticipants(event.userIds);
         this.publishHuddleState();
       }
+    } else if (event.type === "huddle.join.result") {
+      const pending = this.pendingHuddleJoin;
+      if (pending?.channelId === event.channelId && pending.requestId === event.requestId) {
+        if (event.accepted) this.huddleAdmitted = true;
+        pending.finish(event.accepted ? undefined : new HuddleJoinRefusedError(event.message));
+      }
     } else if (event.type === "huddle.signal") {
-      if (this.session?.channelId === event.channelId) {
+      if (this.session?.channelId === event.channelId && this.huddleAdmitted) {
         void this.session.handleSignal(event.from, event.signal);
       }
     } else if (event.type === "channel.read") {
@@ -1327,10 +1454,42 @@ export class WorkspaceClient {
   }
 
   /** Each conversation accepts only its most recently requested history window. */
-  private beginTimelineRequest(channelId: ID): object {
-    const ticket = {};
-    this.timelineRequests.set(channelId, ticket);
+  private beginTimelineRequest(channelId: ID): TimelineLoad {
+    const ticket: TimelineLoad = {
+      ticket: {},
+      startSeq: this.state.lastSeq,
+      events: [],
+      seen: new Set(),
+      overflow: false,
+    };
+    this.timelineRequests.set(channelId, ticket.ticket);
+    this.timelineHolds.set(channelId, ticket);
     return ticket;
+  }
+
+  private releaseTimelineRequest(channelId: ID, ticket: TimelineLoad): void {
+    if (this.timelineHolds.get(channelId) === ticket) this.timelineHolds.delete(channelId);
+  }
+
+  private timelineEvents(ticket: TimelineLoad, snapshotSeq: number | undefined): EventEnvelope[] {
+    if (ticket.overflow || (snapshotSeq === undefined && ticket.events.length))
+      throw new ApiError(409, "history_changed", "Conversation changed while loading. Try again.");
+    return ticket.events
+      .filter((event) => event.seq > (snapshotSeq ?? 0))
+      .sort((a, b) => a.seq - b.seq);
+  }
+
+  /** History refreshes keep the latest pin choice while its write is unanswered. */
+  private timelineChoices(timeline: ChannelTimeline): ChannelTimeline {
+    return {
+      ...timeline,
+      items: timeline.items.map((message) => {
+        const choice = this.choices.get(`pin:${message.id}`) as Choice<boolean> | undefined;
+        return choice && choice.latest !== message.pinned
+          ? { ...message, pinned: choice.latest }
+          : message;
+      }),
+    };
   }
 
   async loadTimeline(
@@ -1343,58 +1502,70 @@ export class WorkspaceClient {
     if (tl?.loaded && !opts.older && !opts.latest) return;
     if (opts.older && (!tl?.hasMore || tl.items.length === 0)) return;
     const ticket = this.beginTimelineRequest(channelId);
-    if (!opts.older) this.timelineHolds.set(channelId, { ticket, messages: [] });
-    const releaseHold = () => {
-      const hold = this.timelineHolds.get(channelId);
-      if (hold?.ticket !== ticket) return [];
-      this.timelineHolds.delete(channelId);
-      return hold.messages;
-    };
 
     const before = opts.older ? tl!.items[0]!.id : undefined;
     let answer: Awaited<ReturnType<Api["listMessages"]>>;
     try {
       answer = await this.api.listMessages(channelId, { before, limit: 50 });
-    } catch (err) {
-      releaseHold();
-      throw err;
+    } finally {
+      this.releaseTimelineRequest(channelId, ticket);
     }
-    const { messages, readThroughSeq } = answer;
-    const held = releaseHold();
+    const { messages, readThroughSeq, seq } = answer;
     if (
       this.stopped ||
       epoch !== this.historyEpoch ||
-      this.timelineRequests.get(channelId) !== ticket ||
+      this.timelineRequests.get(channelId) !== ticket.ticket ||
       !this.state.channels[channelId]
     )
       return;
-    const page = [...messages].reverse(); // API returns newest-first
+    const page = stampTimeline(
+      updateTimeline(
+        snapshotTimeline(
+          {
+            items: [...messages].reverse(), // API returns newest-first
+            hasMore: messages.length === 50,
+            hasMoreNewer: !!opts.older,
+            readThroughSeq: opts.older ? undefined : (readThroughSeq ?? messages[0]?.seq ?? 0),
+            loaded: true,
+          },
+          seq,
+        ),
+        this.timelineEvents(ticket, seq),
+      ),
+      this.state.lastSeq,
+    );
+    // Replaying into the captured window also keeps the bridge to an older
+    // page if live arrivals trimmed the current cache while it was in flight.
+    const existing =
+      opts.older && tl
+        ? stampTimeline(
+            updateTimeline(tl, this.timelineEvents(ticket, ticket.startSeq)),
+            this.state.lastSeq,
+          )
+        : null;
 
     this.store.setState((s) => {
-      const existing = s.timelines[channelId];
-      const items = opts.older
-        ? [...page, ...(existing?.items ?? [])]
-        : held.reduce(
-            sortedInsert,
-            page.reduce(sortedInsert, opts.latest ? [] : (existing?.items ?? [])),
-          );
       return {
         timelines: {
           ...s.timelines,
-          [channelId]: windowTimeline(
-            {
-              items,
-              hasMore: messages.length === 50,
-              // loadTimeline always lands at the tail.
-              hasMoreNewer: opts.older ? (existing?.hasMoreNewer ?? false) : false,
-              readThroughSeq: opts.older
-                ? existing?.readThroughSeq
-                : Math.max(existing?.readThroughSeq ?? 0, readThroughSeq ?? page.at(-1)?.seq ?? 0),
-              loaded: true,
-            },
-            // Paging up drops the far end, which is now hundreds of messages
-            // below the viewport, not the history being read.
-            opts.older ? "newest" : "oldest",
+          [channelId]: this.timelineChoices(
+            windowTimeline(
+              {
+                ...page,
+                items: existing ? [...page.items, ...existing.items] : page.items,
+                snapshotSeq: existing?.snapshotSeq ?? page.snapshotSeq,
+                messageSnapshots: existing
+                  ? { ...existing.messageSnapshots, ...page.messageSnapshots }
+                  : page.messageSnapshots,
+                hasMore: messages.length === 50,
+                // loadTimeline always lands at the tail.
+                hasMoreNewer: opts.older ? (existing?.hasMoreNewer ?? false) : false,
+                readThroughSeq: opts.older ? existing?.readThroughSeq : page.readThroughSeq,
+              },
+              // Paging up drops the far end, which is now hundreds of messages
+              // below the viewport, not the history being read.
+              opts.older ? "newest" : "oldest",
+            ),
           ),
         },
       };
@@ -1408,37 +1579,56 @@ export class WorkspaceClient {
    */
   async jumpToMessage(channelId: ID, messageId: ID): Promise<ID | null | undefined> {
     const ticket = ++this.messageJump;
-    const timelineTicket = this.beginTimelineRequest(channelId);
     const epoch = this.historyEpoch;
     const existing = this.state.timelines[channelId];
     if (existing) this.touchHistory("timeline", channelId);
-    // Already on screen in a tail view — nothing to reload.
+    // A message already on screen needs no request and must not cancel paging.
     if (
       existing?.loaded &&
       !existing.hasMoreNewer &&
       existing.items.some((m) => m.id === messageId)
-    ) {
+    )
       return null;
+    const timelineTicket = this.beginTimelineRequest(channelId);
+    let answer: Awaited<ReturnType<Api["listMessagesAround"]>>;
+    try {
+      answer = await this.api.listMessagesAround(channelId, messageId);
+    } finally {
+      this.releaseTimelineRequest(channelId, timelineTicket);
     }
-    const { messages, hasMoreOlder, hasMoreNewer, threadRootId } =
-      await this.api.listMessagesAround(channelId, messageId);
+    const { messages, hasMoreOlder, hasMoreNewer, threadRootId, seq } = answer;
     if (
       this.stopped ||
       epoch !== this.historyEpoch ||
       ticket !== this.messageJump ||
-      this.timelineRequests.get(channelId) !== timelineTicket ||
+      this.timelineRequests.get(channelId) !== timelineTicket.ticket ||
       !this.state.channels[channelId]
     )
       return;
+    const next = this.timelineChoices(
+      windowTimeline(
+        stampTimeline(
+          updateTimeline(
+            snapshotTimeline(
+              {
+                items: [...messages].reverse(),
+                hasMore: hasMoreOlder,
+                hasMoreNewer,
+                loaded: true,
+              },
+              seq,
+            ),
+            this.timelineEvents(timelineTicket, seq),
+          ),
+          this.state.lastSeq,
+        ),
+        "oldest",
+      ),
+    );
     this.store.setState((s) => ({
       timelines: {
         ...s.timelines,
-        [channelId]: {
-          items: [...messages].reverse(),
-          hasMore: hasMoreOlder,
-          hasMoreNewer,
-          loaded: true,
-        },
+        [channelId]: next,
       },
     }));
     this.touchHistory("timeline", channelId);
@@ -1456,27 +1646,58 @@ export class WorkspaceClient {
     if (!tl?.loaded || !tl.hasMoreNewer || tl.items.length === 0) return;
     const ticket = this.beginTimelineRequest(channelId);
     const newest = tl.items[tl.items.length - 1]!;
-    const { messages } = await this.api.listMessagesAfter(channelId, newest.id, 50);
+    let answer: Awaited<ReturnType<Api["listMessagesAfter"]>>;
+    try {
+      answer = await this.api.listMessagesAfter(channelId, newest.id, 50);
+    } finally {
+      this.releaseTimelineRequest(channelId, ticket);
+    }
+    const { messages, seq } = answer;
     if (
       this.stopped ||
       epoch !== this.historyEpoch ||
-      this.timelineRequests.get(channelId) !== ticket ||
+      this.timelineRequests.get(channelId) !== ticket.ticket ||
       !this.state.channels[channelId]
     )
       return;
+    const page = stampTimeline(
+      updateTimeline(
+        snapshotTimeline(
+          {
+            items: [...messages].reverse(),
+            hasMore: true,
+            hasMoreNewer: messages.length === 50,
+            loaded: true,
+          },
+          seq,
+        ),
+        this.timelineEvents(ticket, seq),
+      ),
+      this.state.lastSeq,
+    );
+    const current = stampTimeline(
+      updateTimeline(tl, this.timelineEvents(ticket, ticket.startSeq)),
+      this.state.lastSeq,
+    );
     this.store.setState((s) => {
-      const current = s.timelines[channelId];
-      if (!current) return {};
       return {
         timelines: {
           ...s.timelines,
-          [channelId]: windowTimeline(
-            {
-              ...current,
-              items: [...current.items, ...[...messages].reverse()],
-              hasMoreNewer: messages.length === 50,
-            },
-            "oldest",
+          [channelId]: this.timelineChoices(
+            windowTimeline(
+              {
+                ...current,
+                items: [...current.items, ...page.items],
+                snapshotSeq: page.hasMoreNewer ? current.snapshotSeq : page.snapshotSeq,
+                messageSnapshots: { ...current.messageSnapshots, ...page.messageSnapshots },
+                hasMoreNewer: page.hasMoreNewer,
+                readThroughSeq: Math.max(
+                  current.readThroughSeq ?? 0,
+                  page.readThroughSeq ?? page.items.at(-1)?.seq ?? 0,
+                ),
+              },
+              "oldest",
+            ),
           ),
         },
       };
@@ -2230,6 +2451,13 @@ export class WorkspaceClient {
 
   private session: HuddleSession | null = null;
   private huddleAttempt = 0;
+  private huddleAdmitted = false;
+  private huddleJoinReplies = false;
+  private pendingHuddleJoin: {
+    channelId: ID;
+    requestId: string;
+    finish: (error?: Error) => void;
+  } | null = null;
 
   /** Mirrors the live session into the store so React can render it. */
   private publishHuddleState(): void {
@@ -2238,8 +2466,8 @@ export class WorkspaceClient {
 
   /**
    * Joins the channel's huddle, starting one if nobody is in it, with the
-   * microphone off when `muted`. Throws if the microphone is unavailable,
-   * leaving no half-joined room behind.
+   * microphone off when `muted`. Throws if the microphone is unavailable or
+   * admission fails, releasing local media and leaving no half-joined room.
    */
   async joinHuddle(channelId: ID, options: { muted?: boolean } = {}): Promise<void> {
     this.leaveHuddle();
@@ -2273,10 +2501,47 @@ export class WorkspaceClient {
       session.destroy();
       return;
     }
+    try {
+      if (this.huddleJoinReplies) {
+        const requestId = `join-${attempt}`;
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            this.pendingHuddleJoin?.finish(
+              new Error("The huddle did not answer. Check your connection, then try again."),
+            );
+          }, 10_000);
+          this.pendingHuddleJoin = {
+            channelId,
+            requestId,
+            finish: (error) => {
+              clearTimeout(timer);
+              this.pendingHuddleJoin = null;
+              if (error) reject(error);
+              else resolve();
+            },
+          };
+          this.sendSocket({ type: "huddle.join", channelId, requestId });
+        });
+      } else {
+        // Servers predating admission replies retain their original join flow.
+        this.sendSocket({ type: "huddle.join", channelId });
+      }
+    } catch (error) {
+      session.destroy();
+      if (this.session === session) {
+        this.session = null;
+        if (!(error instanceof HuddleJoinRefusedError))
+          this.sendSocket({ type: "huddle.leave", channelId });
+        this.publishHuddleState();
+      }
+      throw error;
+    }
+    if (attempt !== this.huddleAttempt) {
+      session.destroy();
+      return;
+    }
+    this.huddleAdmitted = true;
     session.onChange = () => this.publishHuddleState();
-    this.session = session;
-
-    this.sendSocket({ type: "huddle.join", channelId });
     // Dial whoever is already there; later arrivals come via participants events.
     session.syncParticipants(this.state.huddles[channelId] ?? []);
     this.publishHuddleState();
@@ -2284,6 +2549,8 @@ export class WorkspaceClient {
 
   leaveHuddle(): void {
     this.huddleAttempt++;
+    this.huddleAdmitted = false;
+    this.pendingHuddleJoin?.finish(new Error("Joining the huddle was cancelled."));
     const session = this.session;
     if (!session) return;
     this.session = null;

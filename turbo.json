@@ -1,15 +1,47 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["tsconfig.base.json", "pnpm-workspace.yaml", ".npmrc", ".pnpmfile.cjs"],
+  "globalEnv": ["CI", "NODE_ENV"],
+  "cacheMaxAge": "7d",
+  "cacheMaxSize": "100MB",
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!test/**"],
       "outputs": ["dist/**", "out/**"]
     },
     "typecheck": {
       "dependsOn": ["^build"]
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "env": ["VITEST_MAX_THREADS", "VITEST_MAX_FORKS"]
+    },
+    "@slackoss/desktop#test": {
+      "dependsOn": ["^build"],
+      "env": ["VITEST_MAX_THREADS", "VITEST_MAX_FORKS"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tests/fixtures/**"]
+    },
+    "@slackoss/server#test": {
+      "dependsOn": ["^build"],
+      "env": ["VITEST_MAX_THREADS", "VITEST_MAX_FORKS"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/INTEGRATIONS.md",
+        "$TURBO_ROOT$/apps/desktop/src/renderer/index.html"
+      ]
+    },
+    "@slackoss/ui#test": {
+      "dependsOn": ["^build"],
+      "env": ["VITEST_MAX_THREADS", "VITEST_MAX_FORKS"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/desktop/src/main/index.ts",
+        "$TURBO_ROOT$/apps/desktop/src/renderer/index.html",
+        "$TURBO_ROOT$/apps/desktop/src/renderer/public/gatherline.svg",
+        "$TURBO_ROOT$/apps/web/index.html",
+        "$TURBO_ROOT$/apps/web/public/gatherline.svg"
+      ]
     },
     "dev": {
       "cache": false,

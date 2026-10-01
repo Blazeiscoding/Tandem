@@ -38,7 +38,7 @@ export interface Limits {
   upload: LimitRule;
   /** Sockets one address may open. Loose, for the same NAT reason. */
   socket: LimitRule;
-  /** Typing notices and call signalling from one account. */
+  /** Typing notices, new huddle joins and call signalling from one account. */
   ephemeral: LimitRule;
   /**
    * Posts to one incoming webhook. Whoever holds its URL can post, with no

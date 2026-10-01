@@ -1,21 +1,28 @@
 name: Container
 # Building the image and starting it took half a minute of every check run,
-# though only the server, what bundles it, the image's own files or the
-# lockfile can break it. The web client it serves is built and checked by
-# ci.yml on every pull request. The smoke test needs Docker and Node only.
+# and it includes both the server and web client. Run it when either artifact,
+# their shared dependencies, or the image's own inputs change. The smoke test
+# needs Docker and Node only.
 on:
   pull_request:
     paths:
       - "docker/**"
       - ".dockerignore"
       - "apps/server-cli/**"
+      - "apps/web/**"
       - "packages/server/**"
       - "packages/protocol/**"
+      - "packages/client-core/**"
+      - "packages/ui/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "package.json"
+      - ".npmrc"
+      - ".pnpmfile.cjs"
+      - "tsconfig.base.json"
       - "tests/docker-smoke.mjs"
       - ".github/workflows/container.yml"
+      - "!**/*.md"
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

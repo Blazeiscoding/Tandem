@@ -26,6 +26,7 @@ export function ActivityPanel({
   const memberships = useWorkspace((s) => s.memberships);
   const threadFollows = useWorkspace((s) => s.threadFollows);
   const repliesRead = useWorkspace((s) => s.repliesRead);
+  const mentionCounts = useWorkspace((s) => s.mentionCounts);
   const removedHistory = useWorkspace((s) => s.removedHistory);
   const { panel, heading } = usePanelFocus({ takeFocus: true });
   const [mode, setMode] = useState<ActivityMode>("unread");
@@ -47,6 +48,8 @@ export function ActivityPanel({
   const [revision, setRevision] = useState(0);
   const cursor = cursors.at(-1);
 
+  // The server refreshes this identity for mention edits, even when the unread
+  // count stays the same. Keep the current filter/page current with that signal.
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -65,7 +68,7 @@ export function ActivityPanel({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [client, mode, cursor, revision]);
+  }, [client, mode, cursor, revision, mentionCounts]);
 
   // Retention took threads from a conversation this page shows: load it again,
   // rather than go on listing what the server no longer has.

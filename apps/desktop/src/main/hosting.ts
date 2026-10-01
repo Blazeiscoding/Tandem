@@ -864,14 +864,18 @@ export function createHostingController(options: HostingOptions) {
    */
   function backupAttention(): BackupAttention[] {
     return (registry ?? []).flatMap((entry) => {
-      const failure = entry.autoBackup?.failure;
-      if (!failure || entry.restoredHold !== undefined) return [];
+      const schedule = entry.autoBackup;
+      const note =
+        schedule?.warning ??
+        backupFailureNote(entry.name, schedule?.failure) ??
+        schedule?.retry?.error;
+      if (!note || entry.restoredHold !== undefined) return [];
       return [
         {
           folder: entry.folder,
           name: entry.name,
-          note: backupFailureNote(entry.name, failure)!,
-          canRetry: failure.kind !== "cleanup",
+          note,
+          canRetry: !schedule?.warning && schedule?.failure?.kind !== "cleanup",
         },
       ];
     });
@@ -895,7 +899,11 @@ export function createHostingController(options: HostingOptions) {
           missing: !existsSync(join(options.dataRoot, entry.folder)),
           startsOnLaunch: entry.folder === starting,
           autoBackup: entry.autoBackup ?? null,
-          autoBackupError: backupFailureNote(entry.name, entry.autoBackup?.failure),
+          autoBackupError:
+            entry.autoBackup?.warning ??
+            backupFailureNote(entry.name, entry.autoBackup?.failure) ??
+            entry.autoBackup?.retry?.error ??
+            null,
           restored: entry.restoredHold !== undefined,
         })),
       unreadable: unreadableFolders,
@@ -1155,6 +1163,9 @@ export function createHostingController(options: HostingOptions) {
             destination,
             everyDays: asked.everyDays,
             keep: asked.keep,
+            // Changing frequency/retention does not bypass a failed copy's delay.
+            // Explicitly choosing a destination is an operator-requested retry.
+            retry: asked.destination === undefined ? entry.autoBackup?.retry : undefined,
           }) ?? null;
         if (!chosen)
           throw new Error("Choose a folder, daily or weekly, and to keep 1 to 60 backups.");
@@ -1225,9 +1236,9 @@ export function createHostingController(options: HostingOptions) {
 
   /**
    * Backs up every workspace whose schedule has come due, one at a time, then
-   * keeps only the newest of its backups. A failure is saved with the
-   * schedule for the window to show, across restarts, and tried again at the
-   * next check (OPS-02).
+   * keeps only the newest of its backups. A failure is kept for the window to
+   * show across restarts. Retries wait one hour, then double up to one day.
+   * An explicit operator retry can bypass that delay for a failed capture.
    *
    * One pass runs at a time. A check asked for while one runs, such as a
    * schedule just saved, runs once more after it rather than beside it, and
@@ -1237,15 +1248,19 @@ export function createHostingController(options: HostingOptions) {
    */
   let duePass: Promise<void> | null = null;
   let dueAgain = false;
-  function runDueBackups(): Promise<void> {
+  let retryRequested = false;
+  function runDueBackups(retryFailed = false): Promise<void> {
+    retryRequested ||= retryFailed;
     if (duePass) {
       dueAgain = true;
       return duePass;
     }
     duePass = (async () => {
       do {
+        const retryFailed = retryRequested;
+        retryRequested = false;
         dueAgain = false;
-        await dueOnce();
+        await dueOnce(retryFailed);
       } while (dueAgain && !closing);
     })().finally(() => {
       duePass = null;
@@ -1253,7 +1268,7 @@ export function createHostingController(options: HostingOptions) {
     return duePass;
   }
 
-  async function dueOnce(): Promise<void> {
+  async function dueOnce(retryFailed: boolean): Promise<void> {
     let entries: HostedWorkspace[];
     try {
       entries = await loadRegistry();
@@ -1271,6 +1286,7 @@ export function createHostingController(options: HostingOptions) {
           // only copy of what the restore went back past.
           if (!entry || !schedule || entry.restoredHold !== undefined || closing) return false;
           if (!existsSync(join(options.dataRoot, entry.folder))) return false;
+          if (schedule.retry && now() < schedule.retry.nextAt && !retryFailed) return false;
           // Never backed up by this schedule into its folder, it is due now.
           // Otherwise a little early is fine: the check runs every few minutes.
           const due =
@@ -1279,48 +1295,79 @@ export function createHostingController(options: HostingOptions) {
               : schedule.lastAt + schedule.everyDays * 24 * 3600_000 - 10 * 60_000;
           if (now() < due) return false;
           const attempt = now();
-          // Recorded against this schedule only while it is still the one in force.
-          const record = async (outcome: Partial<AutoBackup>, done: boolean) => {
-            const latest = registry?.find((e) => e.folder === entry.folder)?.autoBackup;
-            if (latest?.destination !== schedule.destination) return;
-            const { failure: _settled, ...rest } = latest;
-            updateEntry(entry.folder, {
-              autoBackup: { ...(done ? rest : latest), lastAttemptAt: attempt, ...outcome },
-            });
-            // Kept in memory for the window either way; only a restart can lose it.
-            await saveRegistry().catch(() => {});
+          const attempts = Math.min((schedule.retry?.attempts ?? 0) + 1, 6);
+          const retry = {
+            attempts,
+            nextAt: attempt + Math.min(3600_000 * 2 ** (attempts - 1), 24 * 3600_000),
+            error:
+              "The previous scheduled backup did not finish. It will be tried again after its retry delay.",
           };
-          let made: { path: string; at: number };
+          // Reserve before taking any snapshot. A killed worker/app must not
+          // restart into an immediate expensive retry, or erase the failure.
+          updateEntry(entry.folder, {
+            autoBackup: { ...schedule, lastAttemptAt: attempt, retry },
+          });
+          let made: Awaited<ReturnType<typeof backupNow>>;
           try {
+            await saveRegistry();
             made = await backupNow(entry, schedule.destination);
           } catch (error) {
-            await record(
-              {
-                failure: {
-                  at: now(),
-                  kind: failureKind(error),
-                  message: error instanceof Error ? error.message : "",
+            const latest = registry?.find((e) => e.folder === entry.folder) ?? entry;
+            const failure: BackupFailure = {
+              at: now(),
+              kind: failureKind(error),
+              message: (error instanceof Error ? error.message : "").slice(0, 1000),
+            };
+            updateEntry(entry.folder, {
+              autoBackup: {
+                ...(latest.autoBackup ?? schedule),
+                lastAttemptAt: attempt,
+                failure,
+                warning: undefined,
+                retry: {
+                  ...retry,
+                  error: backupFailureNote(entry.name, failure)!.slice(0, 1000),
                 },
               },
-              false,
-            );
+            });
+            await saveRegistry().catch(() => {});
             throw error;
           }
-          await record({ lastAt: made.at, lastPath: made.path }, true);
+          const latest = registry?.find((e) => e.folder === entry.folder) ?? entry;
+          const {
+            retry: _retry,
+            warning: _warning,
+            failure: _failure,
+            ...completed
+          } = latest.autoBackup ?? schedule;
+          const finished = { ...completed, lastAt: made.at, lastPath: made.path };
+          updateEntry(entry.folder, { autoBackup: finished });
+          let savedCompletion = false;
           try {
-            await pruneBackups(entry, schedule, made.path);
+            await saveRegistry();
+            savedCompletion = true;
+            // A failed capture cannot trigger retention or displace a verified copy.
+            await pruneBackups(latest, schedule, made.path);
           } catch (error) {
-            await record(
-              {
+            // A verified copy is a successful capture even if its metadata or
+            // retention cleanup fails. Do not promise a capture retry that its
+            // fresh lastAt would correctly prevent, or create another snapshot.
+            const warning =
+              `A verified backup of ${entry.name} was made, but ${savedCompletion ? "older backup cleanup did not finish" : "its completion could not be saved"}. Some older backups may remain. ${error instanceof Error ? error.message : ""}`
+                .trim()
+                .slice(0, 1000);
+            updateEntry(entry.folder, {
+              autoBackup: {
+                ...finished,
+                warning,
                 failure: {
                   at: now(),
                   kind: "cleanup",
-                  message: error instanceof Error ? error.message : "",
+                  message: (error instanceof Error ? error.message : "").slice(0, 1000),
                 },
               },
-              false,
-            );
-            throw error;
+            });
+            await saveRegistry().catch(() => {});
           }
           return true;
         });

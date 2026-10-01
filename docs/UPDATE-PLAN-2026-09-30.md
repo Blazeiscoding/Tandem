@@ -2,7 +2,7 @@
 
 **30 September 2026 · latest full recheck: `origin/main` at `6a95898` · original research baseline: `7d91fd3` · implementation status: proposed unless explicitly marked implemented/merged.**
 
-This is the current work queue for Codex or Claude. It combines a new source inspection, controlled reproductions, dependency audits, and research into T3 Code and other chat repositories. It supersedes the execution order and open/closed labels in the older September plans. Keep their dated measurements and implementation history. The [optimization plan](OPTIMIZATION-PLAN-2026-09-30.md) contains the performance experiments; the [research record](research/2026-09-30/research-and-code-evidence.md) explains evidence and sources.
+The [October implementation plan](IMPLEMENTATION-PLAN-2026-10-01.md) is the current execution queue after the latest local review. This document retains the detailed September backlog, source inspection, controlled reproductions, dependency audits, and research into T3 Code and other chat repositories. Its recorded closures supersede the open/closed labels in older September plans; preserve dated measurements and implementation history. The [optimization plan](OPTIMIZATION-PLAN-2026-09-30.md) contains the performance experiments; the [research record](research/2026-09-30/research-and-code-evidence.md) explains evidence and sources.
 
 The goal is dependable communication and approachable ownership of its history. Preserve the portable SQLite workspace, shared browser/desktop interface, event sequence and nonce contracts, existing access checks, and current visual language. Select optional capabilities for a named group rather than treating every feature in another app as a release requirement.
 

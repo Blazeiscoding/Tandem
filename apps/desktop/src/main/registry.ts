@@ -60,6 +60,10 @@ export interface AutoBackup {
    * cannot hide it, until a backup into the same folder finishes.
    */
   failure?: BackupFailure;
+  /** Reserved before starting a copy, so interruption and restart keep its retry delay. */
+  retry?: { attempts: number; nextAt: number; error: string };
+  /** A verified copy exists, but recording completion or cleaning older copies failed. */
+  warning?: string;
 }
 
 /** What someone can do about a scheduled backup that did not finish. */
@@ -104,7 +108,7 @@ function parseBackupFailure(value: unknown): BackupFailure | undefined {
 /** A schedule as stored, or undefined when it is not one this version can follow. */
 export function parseAutoBackup(value: unknown): AutoBackup | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const { destination, everyDays, keep, lastAt, lastAttemptAt, lastPath, failure } =
+  const { destination, everyDays, keep, lastAt, lastAttemptAt, lastPath, failure, retry, warning } =
     value as Record<string, unknown>;
   if (typeof destination !== "string" || !isAbsolute(destination)) return undefined;
   if (everyDays !== 1 && everyDays !== 7) return undefined;
@@ -124,6 +128,23 @@ export function parseAutoBackup(value: unknown): AutoBackup | undefined {
       kind: "other",
       message: "",
     };
+  if (retry && typeof retry === "object" && !Array.isArray(retry)) {
+    const { attempts, nextAt, error } = retry as Record<string, unknown>;
+    if (
+      typeof attempts === "number" &&
+      Number.isInteger(attempts) &&
+      attempts >= 1 &&
+      attempts <= 6 &&
+      typeof nextAt === "number" &&
+      Number.isFinite(nextAt) &&
+      nextAt >= 0 &&
+      typeof error === "string" &&
+      error.length <= 1000
+    )
+      schedule.retry = { attempts, nextAt, error };
+  }
+  if (typeof warning === "string" && warning.length > 0 && warning.length <= 1000)
+    schedule.warning = warning;
   return schedule;
 }
 

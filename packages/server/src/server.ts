@@ -629,6 +629,20 @@ async function startWorkspaceServer(
     return result;
   };
 
+  /** Edits from people and apps refresh both removed and newly added mentions after commit. */
+  const updateMessage = (existing: Message, text: string, clearActions = false): Message =>
+    mutate((emit, afterCommit) => {
+      const recipients = new Set([
+        ...store.mentionedMemberIds(existing.channelId, existing.text, existing.userId),
+        ...store.mentionedMemberIds(existing.channelId, text, existing.userId),
+      ]);
+      if (clearActions) store.clearMessageActions(existing.id);
+      const message = store.editMessage(existing.id, text);
+      emit({ type: "message.updated", message }, message.channelId);
+      afterCommit(() => pushMentionCounts(recipients));
+      return message;
+    });
+
   /** Adds every eligible subscriber beside the event, inside its transaction. */
   const enqueueSubscriberDeliveries = (envelope: EventEnvelope, channelId: ID | null): void => {
     const subs = store.listAllSubscriptions();
@@ -1795,7 +1809,11 @@ async function startWorkspaceServer(
       limit: q.limit,
       threadRootId: q.threadRootId,
     });
-    return { messages, readThroughSeq: store.lastMessageSeq(req.params.id) };
+    return {
+      messages,
+      readThroughSeq: store.lastMessageSeq(req.params.id),
+      seq: store.currentSeq(),
+    };
   });
 
   app.get<{ Params: { id: string; messageId: string } }>(
@@ -1813,6 +1831,7 @@ async function startWorkspaceServer(
       return {
         ...store.listMessagesAround(req.params.id, rootId, limit),
         threadRootId: target.threadRootId,
+        seq: store.currentSeq(),
       };
     },
   );
@@ -1823,7 +1842,10 @@ async function startWorkspaceServer(
       const me = requireUser(req);
       requireChannelAccess(req.params.id, me);
       const { limit } = messageHistoryQuery.parse(req.query);
-      return { messages: store.listMessagesAfter(req.params.id, req.params.messageId, limit) };
+      return {
+        messages: store.listMessagesAfter(req.params.id, req.params.messageId, limit),
+        seq: store.currentSeq(),
+      };
     },
   );
 
@@ -1868,11 +1890,7 @@ async function startWorkspaceServer(
         "This message has changed. Choose which version to keep before saving.",
       );
     }
-    return mutate((emit) => {
-      const message = store.editMessage(existing.id, body.text);
-      emit({ type: "message.updated", message }, message.channelId);
-      return { message };
-    });
+    return { message: updateMessage(existing, body.text) };
   });
 
   app.delete<{ Params: { id: string } }>("/api/messages/:id", async (req) => {
@@ -2728,11 +2746,7 @@ async function startWorkspaceServer(
         }
         const replacement = payloadToText(payload);
         if (replacement) {
-          mutate((emit) => {
-            store.clearMessageActions(existing.id);
-            const updated = store.editMessage(existing.id, replacement);
-            emit({ type: "message.updated", message: updated }, updated.channelId);
-          });
+          updateMessage(existing, replacement, true);
         }
         return;
       }

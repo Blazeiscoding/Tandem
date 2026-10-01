@@ -94,7 +94,14 @@ under Login Items in System Settings.
 the newest few. A copy is kept only if it holds the same workspace as the one
 listed, retention never removes the copy it has just made, and an older copy
 counts toward the number kept only after it passes the same check as
-`verify-backup`. **Restore from a backup…** checks a backup, then restores it as a hosted
+`verify-backup`. A failed automatic copy keeps its error across restarts and waits
+one hour before retrying; repeated failures double that delay up to 24 hours.
+**Back up now** can make an immediate copy, and choosing an automatic backup
+folder explicitly resets the delay. **Try the backup again** in the tray or
+hosting window also retries immediately. Failed captures never trigger removal of
+older verified backups.
+
+**Restore from a backup…** checks a backup, then restores it as a hosted
 workspace without starting it; it will not restore over a workspace already
 hosted here. A restored workspace is held until you put it back in use, and the
 hold survives restarting Gatherline. While held, it is listed as "Restored, not
@@ -569,6 +576,9 @@ recording the schema version, checksums, and row counts from the copied database
 `--out` must be a new or empty directory outside the workspace data directory.
 Stop the server first for a backup that is certain to be complete.
 If an attachment disappears during capture, backup fails instead of reporting success.
+The copy is captured and verified in an owned staging folder beside the destination,
+then published into `--out`. Failed staging is removed; a later capture reconciles
+interrupted operation records without deleting unrecognized folders or active captures.
 
 `verify-backup` checks checksums, safe attachment paths, the actual database schema,
 row counts, foreign keys and attachment inventory without changing a workspace.

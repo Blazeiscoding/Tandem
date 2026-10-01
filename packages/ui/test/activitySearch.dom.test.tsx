@@ -94,8 +94,89 @@ describe("the Activity panel", () => {
         </ClientContext.Provider>
       </PlatformContext.Provider>,
     );
-    return { spy, panel: screen.getByRole("complementary", { name: "Activity" }) };
+    return { client, spy, panel: screen.getByRole("complementary", { name: "Activity" }) };
   }
+
+  it("refreshes an open Mentions filter when an edit adds or removes a mention", async () => {
+    const user = userEvent.setup();
+    let messages: Message[] = [];
+    const { client, panel, spy } = renderActivity(async () => ({ messages, nextCursor: null }));
+    await within(panel).findByText("You're caught up.");
+    await user.click(within(panel).getByRole("tab", { name: "Mentions" }));
+    await within(panel).findByText("No mentions yet.");
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    messages = [message("M2", "Please review this", 2)];
+    act(() => client.store.setState({ mentionCounts: { [design.id]: 1 } }));
+    expect(await within(panel).findByText("Please review this")).toBeVisible();
+    expect(spy).toHaveBeenLastCalledWith(
+      "mentions",
+      expect.objectContaining({ cursor: undefined }),
+    );
+
+    // A new durable event without a mention refresh does not fetch this list.
+    await act(async () => client.store.setState({ lastSeq: 30 }));
+    expect(spy).toHaveBeenCalledTimes(3);
+
+    messages = [];
+    act(() => client.store.setState({ mentionCounts: {} }));
+    expect(await within(panel).findByText("No mentions yet.")).toBeVisible();
+    expect(within(panel).queryByText("Please review this")).toBeNull();
+    expect(spy).toHaveBeenCalledTimes(4);
+  });
+
+  it("refreshes edited text when mention counts stay equal, preserving its filter and cursor", async () => {
+    const user = userEvent.setup();
+    let text = "Earlier mention text";
+    const { client, panel, spy } = renderActivity(async (_mode, { cursor }) =>
+      cursor
+        ? { messages: [message("M2", text, 2)], nextCursor: null }
+        : { messages: [message("M5", "Newer mention", 5)], nextCursor: "M5" },
+    );
+    await within(panel).findByText("Newer mention");
+    await user.click(within(panel).getByRole("tab", { name: "Mentions" }));
+    await within(panel).findByText("Newer mention");
+    act(() => client.store.setState({ mentionCounts: { [design.id]: 1 } }));
+    await waitFor(() =>
+      expect(within(panel).getByRole("button", { name: "Next page" })).toBeEnabled(),
+    );
+    await user.click(within(panel).getByRole("button", { name: "Next page" }));
+    await within(panel).findByText("Earlier mention text");
+    const requests = spy.mock.calls.length;
+
+    text = "Updated mention text";
+    act(() => client.store.setState({ mentionCounts: { [design.id]: 1 } }));
+    expect(await within(panel).findByText("Updated mention text")).toBeVisible();
+    expect(within(panel).queryByText("Earlier mention text")).toBeNull();
+    expect(spy).toHaveBeenCalledTimes(requests + 1);
+    expect(spy).toHaveBeenLastCalledWith("mentions", expect.objectContaining({ cursor: "M5" }));
+    expect(within(panel).getByRole("button", { name: "Previous page" })).toBeEnabled();
+    expect(within(panel).getByRole("tab", { name: "Mentions" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("ignores a captured older page after a mention refresh loads a newer result", async () => {
+    let release!: (page: { messages: Message[]; nextCursor: null }) => void;
+    let requests = 0;
+    const { client, panel, spy } = renderActivity(() => {
+      if (requests++ === 0) return new Promise((resolve) => (release = resolve));
+      return Promise.resolve({ messages: [message("M2", "Current mention", 2)], nextCursor: null });
+    });
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const oldSignal = spy.mock.calls[0]![1]?.signal;
+    act(() => client.store.setState({ mentionCounts: { [design.id]: 1 } }));
+    expect(await within(panel).findByText("Current mention")).toBeVisible();
+    expect(oldSignal?.aborted).toBe(true);
+
+    await act(async () =>
+      release({ messages: [message("M2", "Captured old text", 2)], nextCursor: null }),
+    );
+    expect(within(panel).getByText("Current mention")).toBeVisible();
+    expect(within(panel).queryByText("Captured old text")).toBeNull();
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
 
   it("loads its page again when retention takes threads from a conversation it shows", async () => {
     const { client, platform } = workspace();
