@@ -14,6 +14,7 @@ import { JumpToLatestBar, MessageTimeline } from "../components/MessageTimeline.
 import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
+import { useCallPreferences } from "../lib/callPreferences.js";
 import { QuickSwitcher } from "../components/QuickSwitcher.js";
 import { PinsPanel, SavedPanel, ThreadsPanel } from "../components/MessageListPanel.js";
 import { ProfileDialog } from "../components/ProfileDialog.js";
@@ -229,6 +230,7 @@ function WorkspaceInner({
   const users = useWorkspace((s) => s.users);
   const self = useWorkspace((s) => s.self);
   const clientFromCtx = useClient();
+  const calls = useCallPreferences();
   const serverUrl = clientFromCtx.baseUrl;
   // Where the address, or Back and a reload, left this workspace. A link to a
   // message says where to go instead.
@@ -758,13 +760,15 @@ function WorkspaceInner({
             onTryHuddle={() => {
               if (!activeChannelId) return;
               setSidebarOpen(false);
-              clientFromCtx.joinHuddle(activeChannelId).catch((err: unknown) => {
-                setNavigationError(
-                  err instanceof Error
-                    ? `Could not start a huddle: ${err.message}`
-                    : "Could not start a huddle. Check your connection and try again.",
-                );
-              });
+              clientFromCtx
+                .joinHuddle(activeChannelId, { muted: calls.joinMuted })
+                .catch((err: unknown) => {
+                  setNavigationError(
+                    err instanceof Error
+                      ? `Could not start a huddle: ${err.message}`
+                      : "Could not start a huddle. Check your connection and try again.",
+                  );
+                });
             }}
           />
         }

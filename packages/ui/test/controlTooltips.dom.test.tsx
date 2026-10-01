@@ -3,10 +3,11 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient, type HuddlePeer } from "@slackoss/client-core";
 import type { Channel, User } from "@slackoss/protocol";
-import { ClientContext } from "../src/context.js";
+import { ClientContext, PlatformContext } from "../src/context.js";
 import { FormattingToolbar } from "../src/components/FormattingToolbar.js";
 import { HuddleButton } from "../src/components/HuddleBar.js";
 import { HuddleStage } from "../src/components/HuddleStage.js";
+import type { Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 
 // jsdom has no media pipeline: a video only needs somewhere to put a stream.
@@ -200,21 +201,26 @@ describe("compact controls explain themselves with the shared tooltip", () => {
   it("names the header's huddle button when its word is hidden on a narrow screen", async () => {
     const user = userEvent.setup();
     const c = client();
-    const { rerender } = render(
-      <ClientContext.Provider value={c}>
-        <HuddleButton channelId="C_GENERAL" />
-      </ClientContext.Provider>,
+    // Where the choice to join muted is kept.
+    const platform: Platform = {
+      kind: "web",
+      storage: { get: async () => null, set: async () => {} },
+      notify: () => {},
+    };
+    const button = (
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={c}>
+          <HuddleButton channelId="C_GENERAL" />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>
     );
+    const { rerender } = render(button);
     const start = screen.getByRole("button", { name: "Start a huddle" });
     expect(start).not.toHaveAttribute("title");
     expect(await tabTo(user, start)).toHaveTextContent("Start a huddle");
 
     act(() => c.store.setState({ huddles: { C_GENERAL: ["U_PRIYA"] } }));
-    rerender(
-      <ClientContext.Provider value={c}>
-        <HuddleButton channelId="C_GENERAL" />
-      </ClientContext.Provider>,
-    );
+    rerender(button);
     expect(screen.getByRole("tooltip")).toHaveTextContent("Join the huddle (1)");
   });
 });

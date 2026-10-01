@@ -2237,10 +2237,11 @@ export class WorkspaceClient {
   }
 
   /**
-   * Joins the channel's huddle, starting one if nobody is in it. Throws if the
-   * microphone is unavailable, leaving no half-joined room behind.
+   * Joins the channel's huddle, starting one if nobody is in it, with the
+   * microphone off when `muted`. Throws if the microphone is unavailable,
+   * leaving no half-joined room behind.
    */
-  async joinHuddle(channelId: ID): Promise<void> {
+  async joinHuddle(channelId: ID, options: { muted?: boolean } = {}): Promise<void> {
     this.leaveHuddle();
     const attempt = this.huddleAttempt;
     const selfId = this.state.self?.id;
@@ -2259,7 +2260,7 @@ export class WorkspaceClient {
     );
     this.session = session;
     try {
-      await session.startLocalAudio();
+      await session.startLocalAudio(options.muted);
     } catch (err) {
       session.destroy();
       if (this.session === session) this.session = null;

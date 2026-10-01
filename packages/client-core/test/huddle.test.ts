@@ -343,6 +343,26 @@ describe("HuddleSession", () => {
     session.destroy();
   });
 
+  it("starts with the microphone off when asked, and says so to each peer as it connects", async () => {
+    const { session, sent } = makeSession("A");
+    const mic = { kind: "audio", enabled: true, stop() {} };
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(
+      new FakeMediaStream([mic]) as unknown as MediaStream,
+    );
+    await session.startLocalAudio(true);
+    expect(mic.enabled).toBe(false);
+    expect(session.state().micMuted).toBe(true);
+
+    session.syncParticipants(["A", "B"]);
+    expect(sent.find((m) => m.to === "B" && m.signal.kind === "media")?.signal).toMatchObject({
+      kind: "media",
+      muted: true,
+    });
+    session.toggleMic();
+    expect(mic.enabled).toBe(true);
+    session.destroy();
+  });
+
   describe("a microphone that stops mid-call (CALL-01)", () => {
     type Track = { kind: string; enabled: boolean; stop: () => void; onended?: () => void };
     const track = (): Track => ({ kind: "audio", enabled: true, stop: vi.fn() });
