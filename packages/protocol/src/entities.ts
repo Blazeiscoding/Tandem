@@ -232,6 +232,11 @@ export interface WorkspaceStatus {
    * milliseconds; null until a minute has passed.
    */
   eventLoopDelayMs: { p50: number; p99: number; max: number } | null;
+  /**
+   * Background queues failing now: since when and how many times in a row.
+   * Empty when all are running; absent from servers that predate it.
+   */
+  backgroundFailures?: { queue: string; since: number; failures: number }[];
 }
 
 /** Unauthenticated probe of a server — what the Join screen shows. */

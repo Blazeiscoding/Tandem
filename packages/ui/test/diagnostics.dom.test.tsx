@@ -157,6 +157,22 @@ describe("the server's status in the report, for the owner and admins (OPS-10)",
     expect(report).toContain("Event loop delay: not measured until the server has run a minute");
   });
 
+  it("says whether background work is running, and which queues are failing (REV-01)", () => {
+    const report = (backgroundFailures: WorkspaceStatus["backgroundFailures"]) =>
+      diagnosticsReport({ ...base, workspace: { ...busy, backgroundFailures } });
+    expect(report([])).toContain("Background work: all running");
+    expect(
+      report([
+        { queue: "scheduled messages", failures: 3, since: Date.parse("2026-09-26T11:55:00Z") },
+        { queue: "event deliveries", failures: 1, since: Date.parse("2026-09-26T11:59:30Z") },
+      ]),
+    ).toContain(
+      "Background work failing: scheduled messages (3 times in a row, for 5 min); event deliveries (1 time in a row, for 30 s)",
+    );
+    // A server from before it does not say, so neither does the report.
+    expect(report(undefined)).not.toContain("Background work");
+  });
+
   it("says when the status could not be read", () => {
     const report = diagnosticsReport({ ...base, workspace: { error: "timed out" } });
     expect(report.split("\n").slice(-2)).toEqual(["Workspace status", "Not available: timed out"]);

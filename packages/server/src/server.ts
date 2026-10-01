@@ -59,6 +59,7 @@ import {
   type MessageAction,
   type Message,
   type ModalView,
+  type ScheduledMessage,
   type ServerInfo,
   type User,
   type WorkspaceEvent,
@@ -601,6 +602,42 @@ async function startWorkspaceServer(
     }
   };
 
+  /**
+   * Queues failing in the background now, by name: since when and how many
+   * times in a row (REV-01). Cleared when the queue next succeeds. Times and
+   * counts only, so admin status can show it without any error text.
+   */
+  const backgroundFailures = new Map<string, { since: number; failures: number }>();
+  /** Runs already being watched: callers share one in-flight flush, which fails once. */
+  const watchedRuns = new WeakSet<Promise<unknown>>();
+  /**
+   * Runs queue work from a timer, an immediate or startup, where a throw or a
+   * rejection would end the process (REV-01). The failure is logged and
+   * counted, and the queue tries again on its next round; the durable rows
+   * it was working on stay as they were. Callers that must learn of a
+   * failure, such as tests and operators, call the queue's own function.
+   */
+  const inBackground = (queue: string, work: () => unknown): void => {
+    const failed = (err: unknown) => {
+      const failing = backgroundFailures.get(queue);
+      backgroundFailures.set(queue, {
+        since: failing?.since ?? Date.now(),
+        failures: (failing?.failures ?? 0) + 1,
+      });
+      app.log.error({ err, queue }, "background work failed; it will be tried again");
+    };
+    const succeeded = () => backgroundFailures.delete(queue);
+    try {
+      const result = work();
+      if (!(result instanceof Promise)) succeeded();
+      else if (!watchedRuns.has(result)) {
+        watchedRuns.add(result);
+        result.then(succeeded, failed);
+      }
+    } catch (err) {
+      failed(err);
+    }
+  };
   /** Runs work that follows a commit, so its failure is logged instead of undoing the answer. */
   const afterCommitted = (what: string, work: () => void): void => {
     try {
@@ -632,7 +669,7 @@ async function startWorkspaceServer(
         gateway.resynchronize();
       }
     }
-    if (events.length > 0) void flushEventDeliveries();
+    if (events.length > 0) inBackground("event deliveries", flushEventDeliveries);
     for (const { envelope } of events) {
       afterCommitted("send thread follow states", () => publishThreadFollows(envelope));
       afterCommitted("send mention counts", () => publishMentionChanges(envelope));
@@ -2255,6 +2292,10 @@ async function startWorkspaceServer(
       },
       connections: { sockets: gateway.socketCount(), people: gateway.onlineUserIds().length },
       eventLoopDelayMs: lastMinuteDelay,
+      backgroundFailures: [...backgroundFailures].map(([queue, failing]) => ({
+        queue,
+        ...failing,
+      })),
     };
   });
 
@@ -3639,7 +3680,7 @@ async function startWorkspaceServer(
       });
       return count;
     });
-    void flushEventDeliveries();
+    inBackground("event deliveries", flushEventDeliveries);
     return { ok: true, retried };
   });
 
@@ -4069,42 +4110,12 @@ async function startWorkspaceServer(
     const due = store.dueScheduled(Date.now(), scheduledLimits.batch);
     const retryAt = Date.now() + scheduledLimits.heldRetryMs;
     for (const item of due) {
-      const channel = store.getChannel(item.channelId);
-      const held = !channel
-        ? "That channel no longer exists."
-        : channel.archived
-          ? "That channel is archived."
-          : !store.canAccess(channel.id, item.userId)
-            ? "You are no longer a member of that channel."
-            : store.getUser(item.userId)?.deactivated
-              ? "Your account is deactivated."
-              : null;
-      if (held) {
-        store.holdScheduled(item.id, held, retryAt);
-        continue;
-      }
       try {
-        postMessage({
-          channelId: item.channelId,
-          userId: item.userId,
-          text: item.text,
-          threadRootId: item.threadRootId,
-          broadcast: item.broadcast,
-          nonce: null,
-          fileIds: item.fileIds,
-          scheduledId: item.id,
-        });
+        sendScheduled(item, retryAt);
       } catch (err) {
-        const code = err instanceof HttpError ? err.code : null;
-        if (code === "bad_thread_root") {
-          store.failScheduled(item.id, "The message this replied to was deleted.");
-        } else if (code === "invalid_attachments") {
-          store.failScheduled(item.id, "Its attachments are no longer available.");
-        } else if (store.countScheduledAttempt(item.id) >= SCHEDULED_ATTEMPTS) {
-          store.failScheduled(item.id, "Sending failed repeatedly, so it was not posted.");
-        } else {
-          store.holdScheduled(item.id, "Sending failed. It will be tried again shortly.", retryAt);
-        }
+        // Recording what happened failed too. The row is as it was, so it is
+        // due again next round; the rest of the batch still goes.
+        app.log.error({ err, scheduledId: item.id }, "scheduled message not handled; it stays due");
       }
     }
     // A full batch may mean more are due. They are taken on a later turn, so
@@ -4112,20 +4123,65 @@ async function startWorkspaceServer(
     if (due.length === scheduledLimits.batch && !scheduledDrain && !closing) {
       scheduledDrain = setImmediate(() => {
         scheduledDrain = null;
-        flushScheduled();
+        inBackground("scheduled messages", flushScheduled);
       });
     }
   };
-  flushScheduled();
-  void flushEventDeliveries();
-  reconcileOrphanedBlobs();
-  expireAbandonedUploads();
-  void flushFileDeletions();
+  /** Posts one due scheduled message, or records why it waits or failed. */
+  const sendScheduled = (item: ScheduledMessage, retryAt: number): void => {
+    const channel = store.getChannel(item.channelId);
+    const held = !channel
+      ? "That channel no longer exists."
+      : channel.archived
+        ? "That channel is archived."
+        : !store.canAccess(channel.id, item.userId)
+          ? "You are no longer a member of that channel."
+          : store.getUser(item.userId)?.deactivated
+            ? "Your account is deactivated."
+            : null;
+    if (held) {
+      store.holdScheduled(item.id, held, retryAt);
+      return;
+    }
+    try {
+      postMessage({
+        channelId: item.channelId,
+        userId: item.userId,
+        text: item.text,
+        threadRootId: item.threadRootId,
+        broadcast: item.broadcast,
+        nonce: null,
+        fileIds: item.fileIds,
+        scheduledId: item.id,
+      });
+    } catch (err) {
+      const code = err instanceof HttpError ? err.code : null;
+      if (code === "bad_thread_root") {
+        store.failScheduled(item.id, "The message this replied to was deleted.");
+      } else if (code === "invalid_attachments") {
+        store.failScheduled(item.id, "Its attachments are no longer available.");
+      } else if (store.countScheduledAttempt(item.id) >= SCHEDULED_ATTEMPTS) {
+        store.failScheduled(item.id, "Sending failed repeatedly, so it was not posted.");
+      } else {
+        store.holdScheduled(item.id, "Sending failed. It will be tried again shortly.", retryAt);
+      }
+    }
+  };
+  // Each queue on its own, so one failing neither stops the server starting
+  // nor skips the others.
+  inBackground("scheduled messages", flushScheduled);
+  inBackground("event deliveries", flushEventDeliveries);
+  inBackground("orphaned attachments", reconcileOrphanedBlobs);
+  inBackground("abandoned uploads", expireAbandonedUploads);
+  inBackground("attachment cleanup", flushFileDeletions);
   const scheduleTimer = setInterval(() => {
-    flushScheduled();
-    void flushFileDeletions();
+    inBackground("scheduled messages", flushScheduled);
+    inBackground("attachment cleanup", flushFileDeletions);
   }, 15_000);
-  const eventDeliveryTimer = setInterval(() => void flushEventDeliveries(), 5_000);
+  const eventDeliveryTimer = setInterval(
+    () => inBackground("event deliveries", flushEventDeliveries),
+    5_000,
+  );
 
   /**
    * An exception thrown from a timer is an uncaught exception, which ends the

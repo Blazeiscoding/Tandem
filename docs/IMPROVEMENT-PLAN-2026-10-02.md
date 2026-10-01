@@ -242,7 +242,7 @@ Each package names its owner when work starts and its PR when it merges. One ent
 
 - **REV-10** · Claude session · Implemented (the PR after #212). Every post-commit step is contained: access effects, then every durable frame, then follow states and mention counts, each failing alone, so a failed recount no longer turns a committed DELETE into a 500 or cuts off the deletion frames after it. A frame that cannot be fanned out closes every socket (1012), so clients replay from their last event instead of passing the gap. Message creation, `mutate` and retention share the path. Already-deleted messages still answer 404 on a repeated DELETE. Covered by server socket tests and a real-client reconnect test; nothing left for local verification.
 
-- **REV-01** · Claude session · Not started.
+- **REV-01** · Claude session · Implemented (the PR after #213). Every timer, immediate and startup entry to the scheduled, event-delivery and attachment queues runs through one contained runner: a throw or rejection is logged and counted, durable rows stay as they were, and the queue tries again next round. One failing queue neither stops startup nor skips the others, and one scheduled message whose bookkeeping fails no longer skips the rest of its batch. Admin status lists queues failing now (`backgroundFailures`: queue, since, count; no error text) and diagnostics show it; the exposed `flushScheduled`/`flushEventDeliveries` still throw so callers can learn of a failure. Covered by fake-interval tests of the real timers, the immediate continuation, startup and a held-item write failure, and one real child process kept alive through two failing delivery ticks. Nothing left for local verification.
 
 - **REV-02** · Claude session · Not started.
 

@@ -114,5 +114,18 @@ function workspaceLines(status: WorkspaceStatus | { error: string }, now: number
         ? `p50 ${loop.p50} ms, p99 ${loop.p99} ms, max ${loop.max} ms`
         : "not measured until the server has run a minute"
     }`,
+    // Servers before REV-01 do not say, and a line would guess.
+    ...(status.backgroundFailures
+      ? [
+          status.backgroundFailures.length === 0
+            ? "Background work: all running"
+            : `Background work failing: ${status.backgroundFailures
+                .map(
+                  (f) =>
+                    `${f.queue} (${plural(f.failures, "time")} in a row, for ${roughDuration(now - f.since)})`,
+                )
+                .join("; ")}`,
+        ]
+      : []),
   ];
 }
