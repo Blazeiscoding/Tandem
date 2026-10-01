@@ -561,7 +561,7 @@ Existing controls to preserve: 300 messages per timeline/thread window, 20 total
 ### INT-01 · P1 resource review · Scoped bot credentials and bounded capabilities
 
 - [ ] Specify minimally sufficient token scopes/channel controls with backward-compatible existing-app behavior.
-  - [ ] Add count ceilings/expiry sweeps to triggers, response URLs and related in-memory capability maps; admission limits alone do not bound all lifetime combinations.
+  - [x] Add count ceilings/expiry sweeps to triggers, response URLs and related in-memory capability maps; admission limits alone do not bound all lifetime combinations. **Status:** implemented; see the PR after #190. Response urls (30 minutes), trigger ids (3 minutes) and open modals (30 minutes) were kept in plain maps. They were swept by scanning the whole map each time one was made, and nothing bounded how many were alive at once: at the `appCall` rate, one account can mint 1,800 response urls in their half hour. They are now kept in `CapabilityMap` (`capabilities.ts`) with ceilings in `CAPABILITIES_ALIVE`: 10,000 response urls, 10,000 trigger ids and 2,000 open modals. Every entry in one map lives the same time, so the expired are swept from the front, stopping at the first that is not, and past the ceiling the oldest goes. An app whose capability went that way gets the same answer as for one that expired. `appCallsInFlight` was already bounded, since entries leave as calls finish.
   - [ ] Recheck app/user/channel revocation at use and release resources on every path.
   - [ ] Check denied use, long-lifetime accumulation, restart and delegated visibility without leaking secrets.
 
