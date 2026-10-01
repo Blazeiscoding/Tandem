@@ -844,6 +844,13 @@ anyone can send those headers, and without a proxy to vouch for them a forged on
 would decide where an app's reply and its token went. With neither set, the server
 uses the address the connection arrived on, which no header can change.
 
+The browser client is sent already compressed. The build writes a Brotli and a
+gzip copy of each script and stylesheet, and the server sends the one the browser
+accepts, with `Vary: Accept-Encoding`. Files under `/assets/` are named by their
+content, so they are cached for a year (`immutable`); the page itself is
+`no-cache`, so a new version is picked up on the next visit. A proxy needs no
+compression of its own for these: let `Accept-Encoding` through and keep `Vary`.
+
 The address must be a full `http://` or `https://` URL. A path is fine, for a
 server published under one (`https://example.com/chat`), though clients reach a
 server at its root, so links are then built on the address each person uses

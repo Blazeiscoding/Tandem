@@ -49,6 +49,8 @@ jobs:
       # need no Electron, so they run on every change here.
       - name: Test the desktop archive gate
         run: node --test scripts/check-desktop-archive.test.mjs
+      - name: Test the web compression gate
+        run: node --test scripts/check-web-precompressed.test.mjs
       # Turbo compares each task's input hash; the archive only transports
       # its local cache. PR caches are reusable by later runs of the same PR.
       - name: Restore task cache
@@ -72,6 +74,10 @@ jobs:
       # few seconds without Electron itself.
       - run: node scripts/check-web-bundle.mjs
       - run: node scripts/check-web-bundle.mjs apps/desktop/out/renderer
+      # Every compressed copy the server may send in place of a file decodes
+      # to that file, in the client and in the copy the CLI ships (REV-13).
+      - run: node scripts/check-web-precompressed.mjs
+      - run: node scripts/check-web-precompressed.mjs apps/server-cli/dist/web
       - name: Save successful task cache
         if: steps.task-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
