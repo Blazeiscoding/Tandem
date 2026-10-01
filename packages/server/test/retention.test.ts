@@ -428,17 +428,26 @@ function countMessages(): number {
   }
 }
 
-describe("a retention window over a large backlog", () => {
-  it("takes a thread with more replies than SQLite accepts parameters", async () => {
-    await start({ retentionDays: 30 });
-    await signIn();
-    // SQLite refuses a statement with more than 32,766 bound values, which is
-    // what one parameter per message used to need here.
-    seedOldThread("0000000000ROOT", 33_000);
+// Seeds and removes 33,001 messages: under a second alone, 3.4 s on CI's
+// shared two-worker runner, and 5.1 s on a busier run, past Vitest's 5 s
+// default. The size is the point of the test, so it gets the time it needs.
+const LARGE_THREAD_MS = 30_000;
 
-    expect(server!.applyRetention()).toBe(33_001);
-    expect(countMessages()).toBe(0);
-  });
+describe("a retention window over a large backlog", () => {
+  it(
+    "takes a thread with more replies than SQLite accepts parameters",
+    async () => {
+      await start({ retentionDays: 30 });
+      await signIn();
+      // SQLite refuses a statement with more than 32,766 bound values, which is
+      // what one parameter per message used to need here.
+      seedOldThread("0000000000ROOT", 33_000);
+
+      expect(server!.applyRetention()).toBe(33_001);
+      expect(countMessages()).toBe(0);
+    },
+    LARGE_THREAD_MS,
+  );
 
   it("budgets each pass by messages, and finishes the backlog over several", async () => {
     await start({ retentionDays: 30 });
