@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import type { Channel, Invite, ServerInfo, User } from "@slackoss/protocol";
@@ -9,6 +9,7 @@ import { ConfirmProvider } from "../src/components/Confirm.js";
 import { Mrkdwn } from "../src/components/Mrkdwn.js";
 import { ShareableServerProvider } from "../src/components/ShareableServer.js";
 import { webPlatform, type HostingStatus, type Platform } from "../src/platform.js";
+import { workspaceAddressTrustKey } from "../src/lib/workspaceAddressTrust.js";
 import { accessibilityProblems } from "./accessibility.js";
 import { copyBySelection, withoutClipboardApi } from "./clipboard.js";
 
@@ -262,20 +263,57 @@ describe("inviting someone", () => {
 });
 
 describe("a link to a message, written in a message", () => {
-  function renderText(text: string) {
+  // Addresses linked to the workspace are kept on the device; each case starts without.
+  afterEach(() => localStorage.clear());
+
+  /**
+   * A message's text in a workspace open on the office network, whose host
+   * published a public address, as the workspace screen shows it. `linked`
+   * are addresses this device has linked to the workspace.
+   */
+  async function renderText(text: string, linked: string[] = []) {
     const openMessage = vi.fn();
+    const client = new WorkspaceClient("http://192.168.1.20:8543", "test-token-not-a-credential");
+    client.store.setState({
+      self: owner,
+      users: { U_SAM: owner },
+      workspaceId: "W1",
+      status: "online",
+    });
+    vi.spyOn(client.api, "serverInfo").mockResolvedValue({
+      app: "slackoss",
+      protocolVersion: 1,
+      serverVersion: "0.0.0-test",
+      workspaceName: "Rocket Team",
+      userCount: 3,
+      requiresInvite: true,
+      requiresClaim: false,
+      publicUrl: "https://rocket.example.dev",
+    });
+    const platform = webPlatform();
+    if (linked.length)
+      await platform.storage.set(workspaceAddressTrustKey("W1", "U_SAM"), {
+        version: 1,
+        addresses: linked,
+      });
     render(
-      <OpenMessageContext.Provider value={openMessage}>
-        <Mrkdwn text={text} users={{ U_SAM: owner }} channels={{ C_DESIGN: design }} />
-      </OpenMessageContext.Provider>,
+      <ClientContext.Provider value={client}>
+        <ShareableServerProvider platform={platform}>
+          <OpenMessageContext.Provider value={openMessage}>
+            <Mrkdwn text={text} users={{ U_SAM: owner }} channels={{ C_DESIGN: design }} />
+          </OpenMessageContext.Provider>
+        </ShareableServerProvider>
+      </ClientContext.Provider>,
     );
+    // The published address is fetched from the server once the workspace is open.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     return openMessage;
   }
 
-  it("opens the message here when it is in this workspace, whatever address the link carries", () => {
+  it("opens the message here when it is in this workspace, whatever address the link carries", async () => {
     // One person copied it on the office network, another through the public
     // address; both lead to the same message.
-    const openMessage = renderText(
+    const openMessage = await renderText(
       "The plan http://192.168.1.20:8543/#/c/C_DESIGN/m/M_PLAN and from outside https://rocket.example.dev/#/c/C_DESIGN/m/M_PLAN",
     );
     const [onNetwork, outside] = screen.getAllByRole("link");
@@ -288,8 +326,28 @@ describe("a link to a message, written in a message", () => {
     ]);
   });
 
-  it("leaves a click asking for a new tab, and any other link, to the browser", () => {
-    const openMessage = renderText(
+  it("leaves a link to another server holding the same ids to go where it says", async () => {
+    // A restored copy of this workspace, somewhere else: same channel and message ids.
+    const openMessage = await renderText(
+      "https://restored.example.org/#/c/C_DESIGN/m/M_PLAN http://10.0.0.9:8543/#/c/C_DESIGN/m/M_PLAN",
+      ["http://10.0.0.9:8543"],
+    );
+    const noWindows = (event: Event) => event.preventDefault();
+    document.addEventListener("click", noWindows);
+    try {
+      const [restored, linkedHere] = screen.getAllByRole("link");
+      fireEvent.click(restored!);
+      expect(openMessage).not.toHaveBeenCalled();
+      // An address this device linked to this workspace is its own.
+      fireEvent.click(linkedHere!);
+      expect(openMessage.mock.calls).toEqual([["C_DESIGN", "M_PLAN"]]);
+    } finally {
+      document.removeEventListener("click", noWindows);
+    }
+  });
+
+  it("leaves a click asking for a new tab, and any other link, to the browser", async () => {
+    const openMessage = await renderText(
       "http://192.168.1.20:8543/#/c/C_DESIGN/m/M_PLAN http://192.168.1.20:8543/#/c/C_ELSEWHERE/m/M_2 https://example.com/docs",
     );
     // Stops jsdom trying to open the windows a browser would.

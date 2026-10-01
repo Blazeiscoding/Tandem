@@ -396,7 +396,17 @@ Existing controls to preserve: 300 messages per timeline/thread window, 20 total
   - [ ] Introduce expected message revision for edits and a conflict UI preserving local text; ordinary edits currently overwrite unconditionally.
   - [ ] Check paste, code fences, IME, keyboard send preference and attachment retry.
   - [ ] Add link previews only through bounded outbound protections, respecting private networks, size and content lifetime.
-  - [ ] Verify workspace identity before intercepting an HTTP message link as local navigation. Current matching by channel/message ID can misroute a link to a different server sharing restored IDs; retain normal external navigation when identity is uncertain.
+  - [x] Verify workspace identity before intercepting an HTTP message link as local navigation. Current matching by channel/message ID can misroute a link to a different server sharing restored IDs; retain normal external navigation when identity is uncertain. Done in the PR after #177. A link written in a message opens here only when its address is one this workspace is known by:
+    - the address this app is connected through;
+    - the address its host published (`publicUrl`);
+    - the addresses this computer answers on when it hosts the workspace;
+    - the addresses this device has linked to the workspace (`workspaceAddressTrust`).
+
+    `ShareableServerProvider` keeps that set beside the address links are built on. A restored copy keeps the same workspace id, so the id cannot tell the two apart; these addresses can. Any other address is left to the browser or the system, which open it where it says. The app-level link path already required the exact server.
+
+    In `links.dom.test.tsx`, through the real provider: a link on the office network and one on the published address both open here, as before. A restored copy at another address does not; the old renderer opened it here. An address this device linked does open here.
+
+    Limit: a link to another address of this same workspace that this device has never linked, and that the host did not publish, opens where it says rather than here.
 
 **Done:** ordinary composition works consistently and two editors cannot silently lose one another's version.
 

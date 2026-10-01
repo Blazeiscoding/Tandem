@@ -108,3 +108,19 @@ export function trustWorkspaceAddress(
     return { address, addresses, allowed: true };
   });
 }
+
+/**
+ * The addresses this device has linked to a workspace for an account, without
+ * recording any: nothing when there are none or they cannot be read.
+ */
+export async function trustedWorkspaceAddresses(
+  platform: Platform,
+  workspaceId: string,
+  userId: string,
+): Promise<string[]> {
+  try {
+    return (await readAddresses(platform, workspaceAddressTrustKey(workspaceId, userId))) ?? [];
+  } catch {
+    return [];
+  }
+}
