@@ -4,6 +4,8 @@ export { FileCache } from "./fileCache.js";
 export { decideNotification, isMessageOnScreen, notificationBody } from "./notify.js";
 export type { NotifyDecision, OnScreen } from "./notify.js";
 export { HuddleSession } from "./huddle.js";
+export { captureFailure } from "./capture.js";
+export type { CaptureKind } from "./capture.js";
 export {
   OUTBOX_TOMBSTONES_KEPT,
   OUTBOX_TOMBSTONES_MAX,

@@ -96,11 +96,13 @@ export class HuddleSession {
     private rtcConfig: RTCConfiguration = { iceServers: [] },
   ) {}
 
-  /** Grabs the microphone. Rejects if permission is refused or no device exists. */
+  /**
+   * Grabs the microphone. Rejects as the browser does if permission is
+   * refused or no device exists, and with `NotSupportedError` where there is
+   * no way to ask (an insecure page); `captureFailure` words each for people.
+   */
   async startLocalAudio(): Promise<void> {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Microphone access requires the desktop app or an HTTPS browser connection.");
-    }
+    if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       video: false,
@@ -394,6 +396,7 @@ export class HuddleSession {
       this.stopCamera();
       return;
     }
+    if (!navigator.mediaDevices?.getUserMedia) throw unsupported("camera");
     this.acquiringCamera = true;
     let stream: MediaStream;
     try {
@@ -437,6 +440,7 @@ export class HuddleSession {
       this.stopScreenShare();
       return;
     }
+    if (!navigator.mediaDevices?.getDisplayMedia) throw unsupported("screen");
     this.acquiringScreen = true;
     let display: MediaStream;
     try {
@@ -559,4 +563,9 @@ interface Peer {
   cameraOn: boolean;
   screenOn: boolean;
   micMuted: boolean;
+}
+
+/** What the browser would have said, had it offered a way to ask at all. */
+function unsupported(kind: string): DOMException {
+  return new DOMException(`No way to reach the ${kind} here.`, "NotSupportedError");
 }
