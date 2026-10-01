@@ -255,8 +255,11 @@ export interface WorkspaceServer {
   upgradeBackup: string | null;
   /** Posts anything now due. Runs on a timer; exposed so tests need not wait. */
   flushScheduled: () => void;
-  /** Retries a bounded batch of committed attachment deletions. */
-  flushFileDeletions: () => Promise<void>;
+  /**
+   * Removes a page of committed attachment deletions due by `now` (default:
+   * the present), going on with the next page on a later turn if it was full.
+   */
+  flushFileDeletions: (now?: number) => Promise<void>;
   /** Frees uploads nobody attached. Runs on a timer; exposed so tests need not wait. */
   expireAbandonedUploads: () => number;
   /**
@@ -974,13 +977,28 @@ async function startWorkspaceServer(
   const abandonedUploadTtlMs = opts.abandonedUploadTtlMs ?? 24 * 3600_000;
   const retentionMs = (opts.retentionDays ?? 0) * 24 * 3600_000;
 
+  /** Removals taken per turn; a full page means more may be due, taken on the next turn. */
+  const FILE_CLEANUP_PAGE = 100;
   let fileCleanup: Promise<void> | null = null;
-  const flushFileDeletions = (): Promise<void> => {
+  let fileCleanupNext: ReturnType<typeof setImmediate> | null = null;
+  /**
+   * Removes the blobs of committed deletions due by `now`, a page at a time
+   * (REV-02). One that fails waits longer each time while the rest go on, so
+   * a few that cannot be removed never hold back the many that can, and a
+   * full page is followed by the next on a later turn rather than fifteen
+   * seconds on. A name this server never gives a file is set aside for good,
+   * still counted. Storage stays counted until a blob is actually gone.
+   */
+  const flushFileDeletions = (now = Date.now()): Promise<void> => {
     if (fileCleanup) return fileCleanup;
+    let more = false;
     fileCleanup = (async () => {
-      for (const id of store.pendingFileDeletions()) {
+      const due = store.dueFileDeletions(now, FILE_CLEANUP_PAGE);
+      more = due.length === FILE_CLEANUP_PAGE;
+      for (const id of due) {
         if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) {
-          app.log.error({ fileId: id }, "invalid attachment cleanup id");
+          app.log.error({ fileId: id }, "invalid attachment cleanup id; set aside");
+          store.rejectFileDeletion(id);
           continue;
         }
         try {
@@ -988,6 +1006,7 @@ async function startWorkspaceServer(
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
             app.log.warn({ fileId: id, err }, "attachment cleanup deferred");
+            store.deferFileDeletion(id, Date.now());
             continue;
           }
         }
@@ -996,10 +1015,17 @@ async function startWorkspaceServer(
       }
     })()
       .catch((err) => {
+        more = false;
         app.log.error({ err }, "attachment cleanup failed; pending work retained");
       })
       .finally(() => {
         fileCleanup = null;
+        if (more && !closing && !fileCleanupNext) {
+          fileCleanupNext = setImmediate(() => {
+            fileCleanupNext = null;
+            inBackground("attachment cleanup", () => flushFileDeletions(Math.max(now, Date.now())));
+          });
+        }
       });
     return fileCleanup;
   };
@@ -2281,7 +2307,11 @@ async function startWorkspaceServer(
         bytes: counts.databaseBytes,
         walBytes: dbPath === ":memory:" ? 0 : sizeOf(`${dbPath}-wal`),
       },
-      attachments: { bytes: storage.usedBytes, limitBytes: storage.limitBytes },
+      attachments: {
+        bytes: storage.usedBytes,
+        limitBytes: storage.limitBytes,
+        removal: store.fileDeletionCounts(),
+      },
       diskFreeBytes,
       deliveries: counts.deliveries,
       scheduled: counts.scheduled,
@@ -4269,6 +4299,7 @@ async function startWorkspaceServer(
         closing = true;
         clearInterval(scheduleTimer);
         if (scheduledDrain) clearImmediate(scheduledDrain);
+        if (fileCleanupNext) clearImmediate(fileCleanupNext);
         clearInterval(eventDeliveryTimer);
         clearInterval(pruneTimer);
         clearInterval(loopDelayTimer);

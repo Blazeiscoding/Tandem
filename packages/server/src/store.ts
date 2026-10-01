@@ -1551,21 +1551,87 @@ export class Store {
 
   queueFileDeletions(fileIds: ID[]): void {
     const stmt = this.db.prepare(
-      "INSERT OR IGNORE INTO pending_file_deletions (file_id) VALUES (?)",
+      "INSERT OR IGNORE INTO pending_file_deletions (file_id, queued_at) VALUES (?, ?)",
     );
-    for (const id of fileIds) stmt.run(id);
+    const now = Date.now();
+    for (const id of fileIds) stmt.run(id, now);
   }
 
+  /** Every removal still to do, set-aside ones included, oldest first. */
   pendingFileDeletions(): ID[] {
     return (
-      this.db.prepare("SELECT file_id FROM pending_file_deletions LIMIT 100").all() as unknown as {
-        file_id: string;
-      }[]
+      this.db
+        .prepare("SELECT file_id FROM pending_file_deletions ORDER BY queued_at, file_id")
+        .all() as unknown as { file_id: string }[]
+    ).map((row) => row.file_id);
+  }
+
+  /**
+   * Removals due by `now`, in a stable order, at most `limit` (REV-02). One
+   * that failed comes back only when its wait is over, so failures cannot
+   * fill every page ahead of a removal that would succeed.
+   */
+  dueFileDeletions(now: number, limit: number): ID[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT file_id FROM pending_file_deletions
+           WHERE rejected = 0 AND next_attempt_at <= ?
+           ORDER BY next_attempt_at, file_id LIMIT ?`,
+        )
+        .all(now, limit) as unknown as { file_id: string }[]
     ).map((row) => row.file_id);
   }
 
   completeFileDeletion(fileId: ID): void {
     this.db.prepare("DELETE FROM pending_file_deletions WHERE file_id = ?").run(fileId);
+  }
+
+  /** Waits longer after each failure: a minute, five, thirty, then two hours. */
+  static readonly FILE_DELETION_RETRY_MS = [60_000, 300_000, 1_800_000, 7_200_000];
+
+  /** A removal that failed; it is tried again later, and the rest go on. */
+  deferFileDeletion(fileId: ID, now: number): void {
+    const row = this.db
+      .prepare("SELECT attempts FROM pending_file_deletions WHERE file_id = ?")
+      .get(fileId) as { attempts: number } | undefined;
+    if (!row) return;
+    const waits = Store.FILE_DELETION_RETRY_MS;
+    const wait = waits[Math.min(row.attempts, waits.length - 1)]!;
+    this.db
+      .prepare(
+        "UPDATE pending_file_deletions SET attempts = attempts + 1, next_attempt_at = ? WHERE file_id = ?",
+      )
+      .run(now + wait, fileId);
+  }
+
+  /** A removal that can never succeed: set aside, never tried again, still counted. */
+  rejectFileDeletion(fileId: ID): void {
+    this.db.prepare("UPDATE pending_file_deletions SET rejected = 1 WHERE file_id = ?").run(fileId);
+  }
+
+  /** How attachment removal stands, in counts and times only. */
+  fileDeletionCounts(): {
+    waiting: number;
+    retrying: number;
+    rejected: number;
+    oldestQueuedAt: number | null;
+  } {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) FILTER (WHERE rejected = 0 AND attempts = 0) AS waiting,
+                COUNT(*) FILTER (WHERE rejected = 0 AND attempts > 0) AS retrying,
+                COUNT(*) FILTER (WHERE rejected = 1) AS rejected,
+                MIN(queued_at) FILTER (WHERE rejected = 0) AS oldest
+         FROM pending_file_deletions`,
+      )
+      .get() as { waiting: number; retrying: number; rejected: number; oldest: number | null };
+    return {
+      waiting: row.waiting,
+      retrying: row.retrying,
+      rejected: row.rejected,
+      oldestQueuedAt: row.oldest,
+    };
   }
 
   // ---------- reactions ----------

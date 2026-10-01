@@ -173,6 +173,28 @@ describe("the server's status in the report, for the owner and admins (OPS-10)",
     expect(report(undefined)).not.toContain("Background work");
   });
 
+  it("says how removing deleted attachments goes (REV-02)", () => {
+    const report = diagnosticsReport({
+      ...base,
+      workspace: {
+        ...busy,
+        attachments: {
+          ...busy.attachments,
+          removal: {
+            waiting: 3,
+            retrying: 2,
+            rejected: 1,
+            oldestQueuedAt: Date.parse("2026-09-26T11:40:00Z"),
+          },
+        },
+      },
+    });
+    expect(report).toContain(
+      "Attachment removal: 3 waiting (oldest for 20 min), 2 retrying, 1 set aside",
+    );
+    expect(diagnosticsReport({ ...base, workspace: busy })).not.toContain("Attachment removal");
+  });
+
   it("says when the status could not be read", () => {
     const report = diagnosticsReport({ ...base, workspace: { error: "timed out" } });
     expect(report.split("\n").slice(-2)).toEqual(["Workspace status", "Not available: timed out"]);

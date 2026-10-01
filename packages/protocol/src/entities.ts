@@ -211,8 +211,22 @@ export interface WorkspaceStatus {
   uptimeSeconds: number;
   /** The database file and its write-ahead log, in bytes. */
   database: { bytes: number; walBytes: number };
-  /** Stored attachments, against the configured limit (null: none). */
-  attachments: { bytes: number; limitBytes: number | null };
+  /**
+   * Stored attachments, against the configured limit (null: none), and the
+   * removal of deleted ones (REV-02): due or soon, failed and waiting to be
+   * tried again, and set aside because they can never succeed. Absent from
+   * servers that predate it.
+   */
+  attachments: {
+    bytes: number;
+    limitBytes: number | null;
+    removal?: {
+      waiting: number;
+      retrying: number;
+      rejected: number;
+      oldestQueuedAt: number | null;
+    };
+  };
   /** Free space where the workspace is kept; null where it cannot be read. */
   diskFreeBytes: number | null;
   /** App event deliveries: waiting, the oldest waiting since, and given up on. */

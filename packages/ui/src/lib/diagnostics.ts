@@ -93,6 +93,16 @@ function workspaceLines(status: WorkspaceStatus | { error: string }, now: number
     `Attachments: ${formatBytes(attachments.bytes)}${
       attachments.limitBytes === null ? ", no limit" : ` of ${formatBytes(attachments.limitBytes)}`
     }`,
+    // Servers before REV-02 do not say how removing deleted attachments goes.
+    ...(attachments.removal
+      ? [
+          `Attachment removal: ${attachments.removal.waiting} waiting${
+            attachments.removal.oldestQueuedAt === null
+              ? ""
+              : ` (oldest for ${roughDuration(now - attachments.removal.oldestQueuedAt)})`
+          }, ${attachments.removal.retrying} retrying, ${attachments.removal.rejected} set aside`,
+        ]
+      : []),
     `Free disk: ${status.diskFreeBytes === null ? "unknown" : formatBytes(status.diskFreeBytes)}`,
     `App deliveries: ${deliveries.waiting} waiting${
       deliveries.oldestWaitingAt === null

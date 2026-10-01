@@ -106,7 +106,11 @@ describe("the workspace's operational status", () => {
     });
     expect(report.database.bytes).toBeGreaterThan(0);
     expect(report.diskFreeBytes).toBeGreaterThan(0);
-    expect(report.attachments).toEqual({ bytes: 0, limitBytes: null });
+    expect(report.attachments).toEqual({
+      bytes: 0,
+      limitBytes: null,
+      removal: { waiting: 0, retrying: 0, rejected: 0, oldestQueuedAt: null },
+    });
     expect(text).not.toContain("Thursday");
     expect(text).not.toContain(owner);
   });
