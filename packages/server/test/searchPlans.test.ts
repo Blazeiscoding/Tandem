@@ -144,40 +144,49 @@ function seed() {
   return { ana, ben, small };
 }
 
+// Exhaustive by design: every query, both readers, pages of 1, 7 and 50, so
+// thousands of searches. 1.7 s alone; on CI, sharing two workers with the
+// other packages' tests, it took 6.4 s, past Vitest's 5 s default.
+const EXHAUSTIVE_MS = 30_000;
+
 describe("a search, whichever way it goes", () => {
-  it("pages through exactly what one query over every match says", () => {
-    const { ana, ben, small } = seed();
-    const queries = [
-      "common",
-      "sometimes",
-      "rare",
-      "nothing-has-this",
-      "common sometimes",
-      "common in:#small",
-      "common from:@ben",
-      "common has:link",
-      "common before:2026-01-10",
-      "common after:2026-01-20",
-      "sometimes after:2026-01-05 before:2026-01-25",
-      "from:@cai",
-    ];
-    for (const reader of [ana.id, ben.id]) {
-      for (const text of queries) {
-        const expected = everyMatch(reader, text);
-        for (const size of [1, 7, 50]) {
-          expect(everyPage(reader, text, size), `${text}, ${size} a page`).toEqual(expected);
+  it(
+    "pages through exactly what one query over every match says",
+    () => {
+      const { ana, ben, small } = seed();
+      const queries = [
+        "common",
+        "sometimes",
+        "rare",
+        "nothing-has-this",
+        "common sometimes",
+        "common in:#small",
+        "common from:@ben",
+        "common has:link",
+        "common before:2026-01-10",
+        "common after:2026-01-20",
+        "sometimes after:2026-01-05 before:2026-01-25",
+        "from:@cai",
+      ];
+      for (const reader of [ana.id, ben.id]) {
+        for (const text of queries) {
+          const expected = everyMatch(reader, text);
+          for (const size of [1, 7, 50]) {
+            expect(everyPage(reader, text, size), `${text}, ${size} a page`).toEqual(expected);
+          }
+          expect(
+            everyPage(reader, text, 7, { channelId: small.id }),
+            `${text} in one channel`,
+          ).toEqual(everyMatch(reader, text, { channelId: small.id }));
         }
-        expect(
-          everyPage(reader, text, 7, { channelId: small.id }),
-          `${text} in one channel`,
-        ).toEqual(everyMatch(reader, text, { channelId: small.id }));
       }
-    }
-    // Both ways were taken: a common word walked the newest, and the walk
-    // ran out of window and read older ones from the matches.
-    expect(everyMatch(ana.id, "common").length).toBeGreaterThan(statics.SEARCH_WINDOW);
-    expect(everyMatch(ana.id, "rare").length).toBeLessThanOrEqual(statics.SEARCH_FEW_MATCHES);
-  });
+      // Both ways were taken: a common word walked the newest, and the walk
+      // ran out of window and read older ones from the matches.
+      expect(everyMatch(ana.id, "common").length).toBeGreaterThan(statics.SEARCH_WINDOW);
+      expect(everyMatch(ana.id, "rare").length).toBeLessThanOrEqual(statics.SEARCH_FEW_MATCHES);
+    },
+    EXHAUSTIVE_MS,
+  );
 
   it("never returns a message from a conversation the reader cannot see", () => {
     const { ana } = seed();
