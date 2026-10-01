@@ -26,6 +26,7 @@ export interface SlackossBridge {
     schedule: { everyDays: number; keep: number } | null,
     chooseFolder: boolean,
   ) => Promise<unknown>;
+  hostingRunDueBackups: () => Promise<void>;
   hostingOpenAtLogin: () => Promise<unknown>;
   hostingSetOpenAtLogin: (open: boolean) => Promise<unknown>;
   hostingRestore: () => Promise<unknown>;
@@ -85,6 +86,7 @@ const bridge: SlackossBridge = {
   hostingSetPort: (folder, port) => ipcRenderer.invoke("hosting:setPort", { folder, port }),
   hostingSetAutoBackup: (folder, schedule, chooseFolder) =>
     ipcRenderer.invoke("hosting:setAutoBackup", folder, schedule, chooseFolder),
+  hostingRunDueBackups: () => ipcRenderer.invoke("hosting:runDueBackups"),
   hostingOpenAtLogin: () => ipcRenderer.invoke("hosting:openAtLogin"),
   hostingSetOpenAtLogin: (open) => ipcRenderer.invoke("hosting:setOpenAtLogin", open),
   hostingRestore: () => ipcRenderer.invoke("hosting:restore"),

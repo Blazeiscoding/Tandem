@@ -2760,6 +2760,32 @@ describe("scheduled backups", () => {
     expect((await later.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
   });
 
+  it("lists a failing schedule for the tray, from the start of the next launch, until one finishes", async () => {
+    const { h, folder } = await scheduled();
+    expect(h.controller.backupAttention()).toEqual([]);
+    h.free = 0;
+    await h.controller.runDueBackups();
+    expect(h.controller.backupAttention()).toEqual([
+      {
+        folder,
+        name: "Rocket Team",
+        note: expect.stringMatching(
+          /^The scheduled backup of Rocket Team did not finish\. There is not enough free space there\./,
+        ),
+        canRetry: true,
+      },
+    ]);
+
+    const later = harness({ root: join(h.dataRoot, ".."), settings: h.settings });
+    later.databases = h.databases;
+    // Nothing read yet; the app reads the list as it opens.
+    expect(later.controller.backupAttention()).toEqual([]);
+    await later.controller.list();
+    expect(later.controller.backupAttention()).toHaveLength(1);
+    await later.controller.runDueBackups();
+    expect(later.controller.backupAttention()).toEqual([]);
+  });
+
   it("says a scheduled backup's folder cannot be reached, and never makes it anew", async () => {
     const { h, destination } = await scheduled();
     // A drive that is not connected leaves the folder missing.

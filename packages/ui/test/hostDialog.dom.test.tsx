@@ -76,6 +76,7 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
             ): Promise<AutoBackup | null | undefined> =>
               schedule ? { destination: "D:\\Backups", ...schedule } : null,
           ),
+          retryBackups: vi.fn(async () => {}),
         }
       : {}),
     stop: vi.fn(async () => {
@@ -1354,6 +1355,69 @@ describe("automatic backups", () => {
     expect(
       await screen.findByText("That folder is not there any more. Choose another."),
     ).toHaveAttribute("role", "alert");
+  });
+
+  it("tries a failed backup again on Try again, and shows how it went (OPS-02)", async () => {
+    const user = userEvent.setup();
+    const failing = { destination: "D:\\Backups", everyDays: 1 as const, keep: 7 };
+    const { hosting } = scheduled(
+      { ...failing, failure: { kind: "destination" } },
+      "The scheduled backup of Rocket Team did not finish. The folder D:\\Backups cannot be reached.",
+    );
+    const done = Date.now();
+    hosting.retryBackups!.mockImplementationOnce(async () => {
+      hosting.list!.mockResolvedValue({
+        workspaces: [
+          { ...rocket, autoBackup: { ...failing, lastAt: done }, autoBackupError: null },
+        ],
+        unreadable: [],
+      });
+    });
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "Automatic backups" });
+    expect(within(group).queryByText(/Last backed up there/)).toBeNull();
+    await user.click(within(group).getByRole("button", { name: "Try again" }));
+    expect(hosting.retryBackups).toHaveBeenCalledOnce();
+    await waitFor(() => expect(within(group).queryByRole("alert")).toBeNull());
+    expect(within(group).getByText(/^Last backed up there today, /)).toBeVisible();
+    expect(within(group).queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("offers no Try again when the backup was made and only removing older ones failed", async () => {
+    const { hosting } = scheduled(
+      { destination: "D:\\Backups", everyDays: 1, keep: 7, failure: { kind: "cleanup" } },
+      "The scheduled backup of Rocket Team was made, but older ones there could not be removed.",
+    );
+    render(<Harness hosting={hosting} />);
+    const group = await screen.findByRole("group", { name: "Automatic backups" });
+    expect(within(group).getByRole("alert")).toHaveTextContent("was made, but older ones");
+    expect(within(group).queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("says a stopped workspace's scheduled backup did not finish, in the list", async () => {
+    const { hosting } = fakeHosting(stopped, {
+      workspaces: [
+        {
+          ...rocket,
+          running: false,
+          autoBackup: {
+            destination: "D:\\Backups",
+            everyDays: 1,
+            keep: 7,
+            failure: { kind: "space" },
+          },
+          autoBackupError:
+            "The scheduled backup of Rocket Team did not finish. There is not enough free space there.",
+        },
+      ],
+      unreadable: [],
+    });
+    render(<Harness hosting={hosting} />);
+    expect(
+      await screen.findByRole("region", { name: "Hosted on this computer" }),
+    ).toHaveTextContent(
+      "The scheduled backup of Rocket Team did not finish. There is not enough free space there.",
+    );
   });
 
   it("notes a schedule in the list of stopped workspaces", async () => {
