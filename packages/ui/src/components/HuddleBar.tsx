@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ID, User } from "@slackoss/protocol";
 import type { HuddlePeer } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
@@ -12,22 +12,76 @@ import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 /**
  * Plays one peer's audio. A hidden <audio> element is what actually makes a
  * WebRTC stream audible — receiving the track alone is not enough.
+ *
+ * A browser that will not play sound until someone asks refuses with
+ * `NotAllowedError`. The element is handed up to the bar, which asks
+ * (CALL-01); any other refusal is a play cut short by a new stream.
  */
-function PeerAudio({ peer }: { peer: HuddlePeer }) {
+function PeerAudio({
+  peer,
+  onHeldBack,
+}: {
+  peer: HuddlePeer;
+  onHeldBack: (userId: ID, el: HTMLAudioElement | null) => void;
+}) {
   const ref = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !peer.audioStream) return;
     el.srcObject = peer.audioStream;
-    // Autoplay can be refused; there is nothing useful to do but carry on.
-    void el.play().catch(() => {});
+    void el.play()?.then(
+      () => onHeldBack(peer.userId, null),
+      (err: unknown) => {
+        if (err instanceof DOMException && err.name === "NotAllowedError") {
+          onHeldBack(peer.userId, el);
+        }
+      },
+    );
     return () => {
       el.srcObject = null;
+      onHeldBack(peer.userId, null);
     };
-  }, [peer.audioStream]);
+  }, [peer.audioStream, peer.userId, onHeldBack]);
 
   return <audio ref={ref} autoPlay hidden />;
+}
+
+/**
+ * The audio the browser is holding back, and a way to let it play. Any click
+ * or key press counts as asking, since the bar is out of sight on a full
+ * screen stage; the button says so where it can be seen.
+ */
+function useHeldBackAudio() {
+  const [held, setHeld] = useState<ReadonlyMap<ID, HTMLAudioElement>>(() => new Map());
+  const onHeldBack = useCallback((userId: ID, el: HTMLAudioElement | null) => {
+    setHeld((previous) => {
+      if (previous.get(userId) === (el ?? undefined)) return previous;
+      const next = new Map(previous);
+      if (el) next.set(userId, el);
+      else next.delete(userId);
+      return next;
+    });
+  }, []);
+  // Played from within the gesture itself, which is what the browser waits for.
+  const play = useCallback(() => {
+    for (const [userId, el] of held) {
+      void el.play()?.then(
+        () => onHeldBack(userId, null),
+        () => {},
+      );
+    }
+  }, [held, onHeldBack]);
+  useEffect(() => {
+    if (held.size === 0) return;
+    document.addEventListener("pointerdown", play, true);
+    document.addEventListener("keydown", play, true);
+    return () => {
+      document.removeEventListener("pointerdown", play, true);
+      document.removeEventListener("keydown", play, true);
+    };
+  }, [held, play]);
+  return { heldBack: held.size > 0, onHeldBack, play };
 }
 
 /**
@@ -83,6 +137,7 @@ export function HuddleBar({
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   const selfId = useWorkspace((s) => s.self?.id);
+  const { heldBack, onHeldBack, play } = useHeldBackAudio();
 
   if (!huddle) return null;
   const channel = channels[huddle.channelId];
@@ -146,8 +201,24 @@ export function HuddleBar({
       </ul>
 
       {huddle.peers.map((p) => (
-        <PeerAudio key={p.userId} peer={p} />
+        <PeerAudio key={p.userId} peer={p} onHeldBack={onHeldBack} />
       ))}
+
+      {heldBack && (
+        <p
+          role="alert"
+          className="flex basis-full items-center gap-3 text-sm text-alert sm:basis-auto"
+        >
+          Your browser is holding back the huddle's sound.
+          <button
+            onClick={play}
+            className="flex h-9 shrink-0 items-center gap-2 rounded-xl border border-alert px-3 font-medium transition-colors hover:bg-alert/10"
+          >
+            <Icon name="headphones" size={16} />
+            Turn on sound
+          </button>
+        </p>
+      )}
 
       {view === "hidden" && onViewChange && huddleHasVideo(huddle) && (
         <button
