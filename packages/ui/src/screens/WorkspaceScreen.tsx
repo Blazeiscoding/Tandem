@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import {
   WorkspaceClient,
@@ -647,7 +647,10 @@ function WorkspaceInner({
 
   // Desktop notifications for incoming messages, gated by channel preferences,
   // mute and Do Not Disturb (the rules live in client-core so they're testable).
-  useEffect(() => {
+  // Installed as the screen commits, not after: a message arriving between a
+  // conversation appearing and a passive effect running would otherwise be
+  // judged against the one before, and notify about what is on screen.
+  useLayoutEffect(() => {
     clientFromCtx.onIncomingMessage = (msg, { live }) => {
       const state = clientFromCtx.state;
       // Read to a screen reader what reaches the conversation on screen, but
