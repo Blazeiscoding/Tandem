@@ -56,7 +56,7 @@ const mention = (over: Partial<Message> = {}): Message => ({
 });
 
 /** The workspace screen with #general open and focused, on a wide window. */
-async function lookingAtGeneral() {
+async function lookingAtGeneral(previews: Record<string, string> | null = null) {
   vi.stubGlobal("matchMedia", (query: string) => ({
     // Wide: the layout's min-width queries hold and its max-width ones do not.
     matches: !query.includes("max-width"),
@@ -72,7 +72,12 @@ async function lookingAtGeneral() {
       platform={{
         kind: "web",
         storage: {
-          get: async <T,>(key: string) => (key === "servers" ? [rocket] : null) as T | null,
+          get: async <T,>(key: string) =>
+            (key === "servers"
+              ? [rocket]
+              : key === "notification-previews"
+                ? previews
+                : null) as T | null,
           set: async () => {},
         },
         notify,
@@ -116,5 +121,34 @@ describe("notifying about a message in the conversation on screen", () => {
     arrive(mention({ id: "M_REPLY", threadRootId: "M_ROOT" }));
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0]![0]).toBe("Alex Chen in #general");
+  });
+
+  describe("showing only what this account chose (IMP-03)", () => {
+    const account = `${rocket.url} ${sam.id}`;
+    const reply = () => mention({ id: "M_REPLY", threadRootId: "M_ROOT" });
+
+    it("names nobody and says nothing of the message when the choice is nothing", async () => {
+      const { arrive, notify } = await lookingAtGeneral({ [account]: "none" });
+      arrive(reply());
+      expect(notify).toHaveBeenCalledTimes(1);
+      const [title, body] = notify.mock.calls[0]!;
+      expect([title, body]).toEqual(["New message", "Open Gatherline to read it."]);
+      expect(`${title} ${body}`).not.toMatch(/Alex|general|look at this/);
+    });
+
+    it("names the sender and the channel, not the words, when the choice is the sender", async () => {
+      const { arrive, notify } = await lookingAtGeneral({ [account]: "sender" });
+      arrive(reply());
+      expect(notify.mock.calls[0]!.slice(0, 2)).toEqual(["Alex Chen in #general", "New message"]);
+    });
+
+    it("shows the message for an account that has not chosen", async () => {
+      const { arrive, notify } = await lookingAtGeneral({ "http://elsewhere:9 U_SAM": "none" });
+      arrive(reply());
+      expect(notify.mock.calls[0]!.slice(0, 2)).toEqual([
+        "Alex Chen in #general",
+        "@Sam Rivera can you look at this?",
+      ]);
+    });
   });
 });

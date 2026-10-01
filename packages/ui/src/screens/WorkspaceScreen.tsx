@@ -15,6 +15,13 @@ import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
+import {
+  notificationContent,
+  previewAccount,
+  previewFor,
+  useNotificationPreviews,
+  type NotificationPreview,
+} from "../lib/notificationPreview.js";
 import { QuickSwitcher } from "../components/QuickSwitcher.js";
 import { PinsPanel, SavedPanel, ThreadsPanel } from "../components/MessageListPanel.js";
 import type { AccountSection } from "../components/AccountDialog.js";
@@ -644,6 +651,14 @@ function WorkspaceInner({
    * an expanded huddle video covers the timeline too.
    */
   const covered = useRef({ channel: false, thread: false });
+  // Read when a message arrives, like what covers the screen, so a change of
+  // choice applies to the next notification without reinstalling the handler.
+  const previews = useNotificationPreviews();
+  const preview = useRef<NotificationPreview>("none");
+  preview.current = previewFor(
+    previews,
+    self ? previewAccount(clientFromCtx.baseUrl, self.id) : null,
+  );
   covered.current = {
     channel: panelCovers || chatCovered || (sidebarOpen && drawerLayout()),
     thread: sidebarOpen && drawerLayout(),
@@ -682,14 +697,15 @@ function WorkspaceInner({
       if (onScreen) return;
       if (!decideNotification(state, msg, { live }).notify) return;
 
-      const channel = state.channels[msg.channelId];
-      const from = state.users[msg.userId]?.displayName ?? "Someone";
-      const where = channel?.name ? ` in #${channel.name}` : "";
+      // Only as much as this account chose to show on this device.
+      const { title, body } = notificationContent(preview.current, {
+        from: state.users[msg.userId]?.displayName ?? "Someone",
+        channelName: state.channels[msg.channelId]?.name,
+        body: notificationBody(state, msg),
+      });
       // A click opens the message it names, through the same jump that
       // search results, pins and links use.
-      platform.notify(`${from}${where}`, notificationBody(state, msg), () =>
-        openMessage(msg.channelId, msg.id),
-      );
+      platform.notify(title, body, () => openMessage(msg.channelId, msg.id));
     };
     return () => {
       clientFromCtx.onIncomingMessage = null;
