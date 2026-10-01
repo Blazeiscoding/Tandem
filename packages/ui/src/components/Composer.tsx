@@ -9,7 +9,7 @@ import { formatScheduleTime, localDateTime, schedulePresets } from "../lib/sched
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Tooltip } from "./Tooltip.js";
-import { caretToRestore, isImeKey, type PendingCaret } from "../lib/textInput.js";
+import { caretToRestore, insideCodeBlock, isImeKey, type PendingCaret } from "../lib/textInput.js";
 import { useListbox } from "../lib/useListbox.js";
 import {
   readWorkspaceStorage,
@@ -595,6 +595,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       }
     }
     if (e.key === "Enter" && !e.shiftKey && !e.altKey && enterSends) {
+      // A new line of the code, not half a code block sent; Ctrl/Cmd+Enter sends.
+      if (insideCodeBlock(e.currentTarget.value, e.currentTarget.selectionStart)) return;
       e.preventDefault();
       send();
     }

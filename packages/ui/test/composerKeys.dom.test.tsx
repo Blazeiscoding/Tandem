@@ -126,6 +126,27 @@ describe.each([
     expect(box).toHaveValue("");
   });
 
+  it("starts a new line of code inside an unclosed code block, and sends once it is closed", async () => {
+    const user = userEvent.setup();
+    const { send, box } = await renderComposer(enterSends);
+    await user.type(box, "```");
+    await user.keyboard(enterSends ? "{Enter}" : newLineKey);
+    await user.type(box, "npm test");
+    await user.keyboard(enterSends ? "{Enter}" : newLineKey);
+    expect(send).not.toHaveBeenCalled();
+    await user.type(box, "```");
+    await user.keyboard(sendKey);
+    expect(send).toHaveBeenCalledWith(design.id, "```\nnpm test\n```", expect.anything());
+  });
+
+  it("sends from inside a code block with Ctrl+Enter", async () => {
+    const user = userEvent.setup();
+    const { send, box } = await renderComposer(enterSends);
+    await user.type(box, "```still open");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    expect(send).toHaveBeenCalledWith(design.id, "```still open", expect.anything());
+  });
+
   it("never sends on the Enter an input method uses to choose a character", async () => {
     const { send, box } = await renderComposer(enterSends);
     fireEvent.change(box, { target: { value: "にほんご" } });

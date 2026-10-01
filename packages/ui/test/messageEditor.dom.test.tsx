@@ -152,6 +152,18 @@ describe("editing a message", () => {
     expect(box).toHaveValue("Ship it on Friday!");
   });
 
+  it("starts a new line inside an unclosed code block, and saves with Ctrl+Enter", async () => {
+    const user = userEvent.setup();
+    const { edit, onClose, box } = renderEditor();
+    await user.clear(box);
+    await user.type(box, "```{Enter}npm test{Enter}");
+    expect(edit).not.toHaveBeenCalled();
+    expect(box).toHaveValue("```\nnpm test\n");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    expect(edit).toHaveBeenCalledWith("M1", "```\nnpm test", "Ship it on Friday");
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
   it("does not save while an input method is choosing a character", async () => {
     const { edit, onClose, box } = renderEditor();
     fireEvent.change(box, { target: { value: "金曜日に出荷" } });

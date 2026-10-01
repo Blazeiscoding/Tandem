@@ -9,7 +9,7 @@ import {
   MESSAGE_LIMIT,
 } from "./FormattingToolbar.js";
 import { Mrkdwn } from "./Mrkdwn.js";
-import { isImeKey } from "../lib/textInput.js";
+import { insideCodeBlock, isImeKey } from "../lib/textInput.js";
 
 /**
  * An unsaved edit, kept with the words it started from so that one picked up
@@ -211,8 +211,19 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
                 format(marker, "text");
                 return;
               }
+              // Saves from anywhere, a code block included, as it sends in the composer.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (!changedElsewhere) void save();
+                return;
+              }
             }
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (
+              e.key === "Enter" &&
+              !e.shiftKey &&
+              // A new line of the code, not half a code block saved.
+              !insideCodeBlock(e.currentTarget.value, e.currentTarget.selectionStart)
+            ) {
               e.preventDefault();
               if (!changedElsewhere) void save();
             }

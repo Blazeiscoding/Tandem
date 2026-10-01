@@ -32,6 +32,16 @@ export function isImeKey(event: KeyLike): boolean {
   return event.isComposing === true || event.keyCode === 229;
 }
 
+/**
+ * Whether the caret is inside a ``` code block that has not been closed yet.
+ * Messages split on ``` the same way (`Mrkdwn`): an odd number of fences
+ * before the caret means it is in one. There, Enter starts a new line of the
+ * code rather than sending or saving half of it (UX-04).
+ */
+export function insideCodeBlock(text: string, caret: number): boolean {
+  return (text.slice(0, caret).split("```").length - 1) % 2 === 1;
+}
+
 /** A caret position waiting to be restored, and the text it was computed for. */
 export interface PendingCaret {
   start: number;
