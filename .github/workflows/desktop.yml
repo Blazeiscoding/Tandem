@@ -22,6 +22,7 @@ on:
       - "scripts/check-web-bundle.mjs"
       - "scripts/generate-icons.mjs"
       - "scripts/desktop-ci-mode*.mjs"
+      - "scripts/check-desktop-archive*.mjs"
       - ".github/workflows/desktop.yml"
       - "!**/*.md"
   workflow_dispatch:
@@ -75,5 +76,8 @@ jobs:
         if: steps.packaging.outputs.installer == 'true'
         run: pnpm --filter @slackoss/desktop package --win
       - run: node scripts/check-web-bundle.mjs apps/desktop/out/renderer
+      # No workspace database, attachment, log or collected workspace source
+      # may ship in the archive (REV-12); it also prints what the archive holds.
+      - run: node scripts/check-desktop-archive.mjs apps/desktop/release/win-unpacked/resources/app.asar
       # Both modes produce the unpacked executable these tests launch.
       - run: pnpm test:desktop

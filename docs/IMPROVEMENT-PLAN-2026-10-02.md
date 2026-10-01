@@ -250,7 +250,7 @@ Each package names its owner when work starts and its PR when it merges. One ent
 
 - **GL-01–03 storage acknowledgement** · Unassigned · Not started.
 
-- **REV-12** · Unassigned · Not started.
+- **REV-12** · Claude session · Gate and closure implemented (the PR after #217). `scripts/check-desktop-archive.mjs` reads an `app.asar` (its header directly, no Electron needed) or an unpacked folder, prints files, bytes and the largest dependencies, and fails on databases and their WAL/SHM/journal, `.turbo`, logs, attachments, pre-upgrade copies, `.env` files and any collected `node_modules/@slackoss/*`. The desktop workflow runs it on every Windows package after packaging, and Checks runs its tests (a real `@electron/asar` archive, clean and forbidden cases) on every change. The workspace packages the main bundle already contains moved to `devDependencies`, so Electron Builder no longer collects their source, `data/` or `.turbo`; the bundle's runtime imports are only Electron, `fastify`, `@fastify/cors`, `ws`, `zod` and `bonjour-service`. The PR's Windows job packages, gates and launches the app. See [left for local verification](#left-for-local-verification) for the installer.
 
 - **REV-14** · Unassigned · Not started.
 
@@ -281,3 +281,7 @@ Each package names its owner when work starts and its PR when it merges. One ent
 What a package's PR could not check in the cloud session, for a run on a Windows machine with Docker. Each item names its package; strike it through, or note the result, once run.
 
 - **Environment:** the cloud session has no Docker daemon, no Electron binary and no Windows, so container builds, packaged/native Electron behavior and installers are verified locally for every package below that touches them.
+
+- **REV-12, installer:** on Windows, run `pnpm --filter @slackoss/desktop package --win` (NSIS too), then `node scripts/check-desktop-archive.mjs apps/desktop/release/win-unpacked/resources/app.asar` and keep its file/byte summary for the record against the earlier archive (4,462,219 bytes of workspace data, 132 workspace source files). Install the result and check hosting a workspace, a manual backup with verify, and a restore from the installed app; then uninstall and confirm workspace data is kept.
+
+- **REV-12, canary:** run `node docs/research/2026-10-02-deep/desktop-packaging-canary.mjs` and the gate on the asar it builds. Its fixture still declares the workspace package as a production dependency, so the gate should fail it, naming each canary: that is the before case. Changing the fixture's dependency to a `devDependencies` entry should make the gate pass: the after case.
