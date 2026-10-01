@@ -593,7 +593,7 @@ Existing controls to preserve: 300 messages per timeline/thread window, 20 total
   - [ ] Build matching artifacts before browser/packaged tests; avoid passing against old output.
   - [ ] Add targeted concurrent-context, crash/restart, access and load cases from confirmed findings; avoid tests that only mirror implementation.
   - [ ] Restore usable CI and use path filters, bounded artifacts and release-only distribution without hiding necessary checks.
-  - [ ] Align formatter exclusions with generated desktop `out/` artifacts. The current repository-wide check includes built output unless `.gitignore` is supplied; keep source formatting enforced without reformatting generated bundles or another agent's worktree.
+  - [x] Align formatter exclusions with generated desktop `out/` artifacts. The current repository-wide check includes built output unless `.gitignore` is supplied; keep source formatting enforced without reformatting generated bundles or another agent's worktree. **Status:** done; see the PR after #191. `.prettierignore` now lists `out/` and `.claude/worktrees/` itself. Probed with a badly formatted file in each: before, the default check (which also reads `.gitignore`) failed on the worktree file, and a check given only `.prettierignore` failed on both; after, neither is checked, and source is still.
   - [ ] Verify sibling dependency changes against the intended merged baseline before a PR merges.
 
 **Done:** readers can distinguish an executed pass, a blocked job, a controlled source probe and a real-device result.
