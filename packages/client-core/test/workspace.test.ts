@@ -232,6 +232,29 @@ describe("WorkspaceClient", () => {
     reconnected.destroy();
   });
 
+  it("says when a message it caught up on was deleted since", async () => {
+    const client = new WorkspaceClient(base, aliceToken);
+    client.connect();
+    await until(client, (s) => s.status === "online");
+    const general = Object.values(client.state.channels).find((c) => c.name === "general")!;
+    const seqBefore = client.state.lastSeq;
+    client.destroy();
+    const bob = new Api(base, bobToken);
+    const { message } = await bob.sendMessage(general.id, { text: "never mind" });
+    await bob.deleteMessage(message.id);
+
+    const reconnected = new WorkspaceClient(base, aliceToken);
+    const heard: string[] = [];
+    reconnected.onIncomingMessage = (incoming) => heard.push(`created ${incoming.id}`);
+    reconnected.onMessageDeleted = (id) => heard.push(`deleted ${id}`);
+    reconnected.store.setState({ lastSeq: seqBefore });
+    reconnected.connect();
+    await until(reconnected, (s) => s.status === "online");
+    // A catch-up summary counts on this to leave the message out (IMP-03).
+    expect(heard).toEqual([`created ${message.id}`, `deleted ${message.id}`]);
+    reconnected.destroy();
+  });
+
   it("applies reactions, pins and saves from events", async () => {
     const client = new WorkspaceClient(base, aliceToken);
     client.connect();

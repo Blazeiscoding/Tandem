@@ -536,6 +536,8 @@ export class WorkspaceClient {
    * what was missed during a disconnect, which `@here` has to know about.
    */
   onIncomingMessage: ((msg: Message, context: { live: boolean }) => void) | null = null;
+  /** A message was deleted, so whatever was about to be said of it is not news. */
+  onMessageDeleted: ((messageId: ID) => void) | null = null;
 
   /**
    * The server's seq when this connection opened. Everything at or below it
@@ -1036,6 +1038,7 @@ export class WorkspaceClient {
         break;
       }
       case "message.deleted": {
+        this.onMessageDeleted?.(event.messageId);
         const tl = s.timelines[event.channelId];
         if (tl?.loaded) {
           patch.timelines = {

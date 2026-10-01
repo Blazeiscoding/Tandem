@@ -1,9 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ID } from "@slackoss/protocol";
+import type { ID, Message } from "@slackoss/protocol";
 import {
   WorkspaceClient,
   decideNotification,
   isMessageOnScreen,
+  isMessageRead,
   notificationBody,
 } from "@slackoss/client-core";
 import { ClientContext, OpenMessageContext, useClient, useWorkspace } from "../context.js";
@@ -15,7 +16,9 @@ import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
+import { CatchUpSummary, namesList } from "../lib/catchUp.js";
 import {
+  catchUpContent,
   notificationContent,
   previewAccount,
   previewFor,
@@ -655,10 +658,12 @@ function WorkspaceInner({
   // choice applies to the next notification without reinstalling the handler.
   const previews = useNotificationPreviews();
   const preview = useRef<NotificationPreview>("none");
-  preview.current = previewFor(
-    previews,
-    self ? previewAccount(clientFromCtx.baseUrl, self.id) : null,
-  );
+  const account = self ? previewAccount(clientFromCtx.baseUrl, self.id) : null;
+  preview.current = previewFor(previews, account);
+  // Each window of this account tags a message's notification the same way,
+  // so the browser shows it once however many windows heard it.
+  const accountTag = useRef(account);
+  accountTag.current = account;
   covered.current = {
     channel: panelCovers || chatCovered || (sidebarOpen && drawerLayout()),
     thread: sidebarOpen && drawerLayout(),
@@ -666,12 +671,89 @@ function WorkspaceInner({
   // What the last conversation received is not news in the next one.
   useEffect(() => forget(), [activeChannelId, forget]);
 
+  // What a reconnect catches up on is told once, as a summary, rather than one
+  // interruption per missed message (IMP-03). One for the life of the screen,
+  // so what it holds survives changing conversation, and made as the screen
+  // commits, before the handler below, so it is there for the first message
+  // that handler hears. How it judges and shows messages is set with the handler.
+  const catchUpRules = useRef<{
+    stillNews: (msg: Message) => boolean;
+    show: (messages: Message[]) => void;
+  }>({ stillNews: () => false, show: () => {} });
+  const catchUp = useRef<CatchUpSummary | null>(null);
+  useLayoutEffect(() => {
+    const summary = new CatchUpSummary({
+      stillNews: (msg) => catchUpRules.current.stillNews(msg),
+      show: (messages) => catchUpRules.current.show(messages),
+    });
+    catchUp.current = summary;
+    clientFromCtx.onMessageDeleted = (id) => summary.drop(id);
+    return () => {
+      summary.dispose();
+      catchUp.current = null;
+      clientFromCtx.onMessageDeleted = null;
+    };
+  }, [clientFromCtx]);
+
   // Desktop notifications for incoming messages, gated by channel preferences,
   // mute and Do Not Disturb (the rules live in client-core so they're testable).
   // Installed as the screen commits, not after: a message arriving between a
   // conversation appearing and a passive effect running would otherwise be
   // judged against the one before, and notify about what is on screen.
   useLayoutEffect(() => {
+    const onScreen = (msg: Message) =>
+      isMessageOnScreen(msg, {
+        focused: document.hasFocus() && document.visibilityState !== "hidden",
+        channelId: activeChannelId,
+        channelVisible: !covered.current.channel,
+        threadRootId: openThreadId,
+        threadVisible: !covered.current.thread,
+      });
+    const tell = (msg: Message) => {
+      const state = clientFromCtx.state;
+      // Only as much as this account chose to show on this device.
+      const { title, body } = notificationContent(preview.current, {
+        from: state.users[msg.userId]?.displayName ?? "Someone",
+        channelName: state.channels[msg.channelId]?.name,
+        body: notificationBody(state, msg),
+      });
+      // A click opens the message it names, through the same jump that
+      // search results, pins and links use.
+      platform.notify(title, body, () => openMessage(msg.channelId, msg.id), {
+        tag: `${accountTag.current} ${msg.id}`,
+      });
+    };
+    catchUpRules.current = {
+      // Read elsewhere, muted, left or now in view since: not news any more.
+      stillNews: (msg) => {
+        const state = clientFromCtx.state;
+        return (
+          !onScreen(msg) &&
+          !isMessageRead(msg, state) &&
+          decideNotification(state, msg, { live: false }).notify
+        );
+      },
+      show: (messages) => {
+        const first = messages[0]!;
+        if (messages.length === 1) return tell(first);
+        const state = clientFromCtx.state;
+        const conversations = new Set(messages.map((msg) => msg.channelId));
+        const senders = [
+          ...new Set(messages.map((msg) => state.users[msg.userId]?.displayName ?? "Someone")),
+        ];
+        const { title, body } = catchUpContent(preview.current, {
+          count: messages.length,
+          conversations: conversations.size,
+          channelName: state.channels[first.channelId]?.name,
+          senders: namesList(senders),
+        });
+        // A click opens the earliest, where reading them starts. The tag is
+        // the same in every window that caught up on the same messages.
+        platform.notify(title, body, () => openMessage(first.channelId, first.id), {
+          tag: `${accountTag.current} catch-up ${first.id}`,
+        });
+      },
+    };
     clientFromCtx.onIncomingMessage = (msg, { live }) => {
       const state = clientFromCtx.state;
       // Read to a screen reader what reaches the conversation on screen, but
@@ -687,25 +769,10 @@ function WorkspaceInner({
       }
       // A message you're already looking at needs no notification. One in a
       // thread that is not open is not in view just because its channel is.
-      const onScreen = isMessageOnScreen(msg, {
-        focused: document.hasFocus() && document.visibilityState !== "hidden",
-        channelId: activeChannelId,
-        channelVisible: !covered.current.channel,
-        threadRootId: openThreadId,
-        threadVisible: !covered.current.thread,
-      });
-      if (onScreen) return;
+      if (onScreen(msg)) return;
       if (!decideNotification(state, msg, { live }).notify) return;
-
-      // Only as much as this account chose to show on this device.
-      const { title, body } = notificationContent(preview.current, {
-        from: state.users[msg.userId]?.displayName ?? "Someone",
-        channelName: state.channels[msg.channelId]?.name,
-        body: notificationBody(state, msg),
-      });
-      // A click opens the message it names, through the same jump that
-      // search results, pins and links use.
-      platform.notify(title, body, () => openMessage(msg.channelId, msg.id));
+      if (live) tell(msg);
+      else catchUp.current?.hold(msg);
     };
     return () => {
       clientFromCtx.onIncomingMessage = null;
