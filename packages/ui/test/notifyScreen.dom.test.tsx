@@ -99,7 +99,10 @@ async function lookingAtGeneral(previews: Record<string, string> | null = null) 
   await waitFor(() => expect(screen.getByRole("textbox", { name: /general/ })).toBeVisible());
   const arrive = (message: Message) =>
     act(() => client.onIncomingMessage?.(message, { live: true }));
-  return { arrive, notify };
+  /** As a reconnect replays what was missed. */
+  const replay = (message: Message) =>
+    act(() => client.onIncomingMessage?.(message, { live: false }));
+  return { arrive, replay, notify, client };
 }
 
 describe("notifying about a message in the conversation on screen", () => {
@@ -149,6 +152,84 @@ describe("notifying about a message in the conversation on screen", () => {
         "Alex Chen in #general",
         "@Sam Rivera can you look at this?",
       ]);
+    });
+
+    it("tags a message's notification the same in every window of the account", async () => {
+      const { arrive, notify } = await lookingAtGeneral();
+      arrive(reply());
+      expect(notify.mock.calls[0]![3]).toEqual({ tag: `${account} M_REPLY` });
+    });
+  });
+
+  describe("catching up after a reconnect (IMP-03)", () => {
+    const account = `${rocket.url} ${sam.id}`;
+    // Replies in a thread that is not open, so #general on screen does not hide them.
+    const missed = (n: number) =>
+      mention({ id: `M_MISSED_${n}`, threadRootId: "M_ROOT", seq: 10 + n });
+
+    afterEach(() => vi.useRealTimers());
+
+    async function caughtUp(count: number, previews: Record<string, string> | null = null) {
+      const screen = await lookingAtGeneral(previews);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      for (let n = 0; n < count; n++) screen.replay(missed(n));
+      return screen;
+    }
+    const settle = () => act(() => vi.advanceTimersByTime(1_000));
+
+    it("tells about a hundred missed messages once, when the replay is over", async () => {
+      const { notify } = await caughtUp(100);
+      expect(notify).not.toHaveBeenCalled();
+      settle();
+      expect(notify).toHaveBeenCalledTimes(1);
+      const [title, body, open, options] = notify.mock.calls[0]!;
+      expect([title, body]).toEqual(["100 new messages in #general", "From Alex Chen"]);
+      expect(options).toEqual({ tag: `${account} catch-up M_MISSED_0` });
+      expect(open).toBeTypeOf("function");
+    });
+
+    it("names nobody and no conversation when the choice is nothing", async () => {
+      const { notify } = await caughtUp(2, { [account]: "none" });
+      settle();
+      expect(notify.mock.calls[0]!.slice(0, 2)).toEqual([
+        "2 new messages",
+        "Open Gatherline to read them.",
+      ]);
+    });
+
+    it("leaves out what was read elsewhere or deleted, and tells the one left as itself", async () => {
+      const { notify, client } = await caughtUp(3);
+      // Read on another device up to the first; the second deleted since.
+      act(() => client.store.setState({ memberships: { [general.id]: missed(0).seq } }));
+      act(() => client.onMessageDeleted?.("M_MISSED_1"));
+      settle();
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify.mock.calls[0]!.slice(0, 2)).toEqual([
+        "Alex Chen in #general",
+        "@Sam Rivera can you look at this?",
+      ]);
+      expect(notify.mock.calls[0]![3]).toEqual({ tag: `${account} M_MISSED_2` });
+    });
+
+    it("says nothing once the channel was muted before the summary", async () => {
+      const { notify, client } = await caughtUp(5);
+      act(() =>
+        client.store.setState({
+          prefs: { [general.id]: { notifyLevel: "mentions", muted: true } },
+        }),
+      );
+      settle();
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it("keeps telling live messages one by one meanwhile", async () => {
+      const { arrive, notify } = await caughtUp(4);
+      arrive(mention({ id: "M_LIVE", threadRootId: "M_ROOT", seq: 99 }));
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify.mock.calls[0]![3]).toEqual({ tag: `${account} M_LIVE` });
+      settle();
+      expect(notify).toHaveBeenCalledTimes(2);
+      expect(notify.mock.calls[1]![0]).toBe("4 new messages in #general");
     });
   });
 });

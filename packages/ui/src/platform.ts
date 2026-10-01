@@ -188,7 +188,12 @@ export interface Platform {
     /** As `watchOutbox`, for a drafts key. */
     watchDrafts?: (key: string, cb: (stored: unknown) => void) => () => void;
   };
-  notify: (title: string, body: string, onClick?: () => void) => void;
+  /**
+   * `tag` names what the notification is about. Windows of one browser that
+   * show the same tag show one notification, so each window of an account
+   * can tell about the same message without it appearing twice (IMP-03).
+   */
+  notify: (title: string, body: string, onClick?: () => void, options?: { tag?: string }) => void;
   /** Hand a scoped download URL to the browser/OS; completion is managed there. */
   downloadFile?: (url: string) => Promise<void>;
   /** Subscribe to LAN server discovery. Returns unsubscribe. Desktop only. */
@@ -379,9 +384,9 @@ export function webPlatform(): Platform {
         }),
       watchDrafts: watchLocalStorage,
     },
-    notify: (title, body, onClick) => {
+    notify: (title, body, onClick, options) => {
       if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-      const note = new Notification(title, { body });
+      const note = new Notification(title, { body, tag: options?.tag });
       if (onClick) {
         note.onclick = (event) => {
           event.preventDefault();

@@ -104,8 +104,8 @@ export function electronPlatform(): Platform {
           if (changed === key) cb(stored);
         }),
     },
-    notify: (title, body, onClick) => {
-      const note = new Notification(title, { body, silent: false });
+    notify: (title, body, onClick, options) => {
+      const note = new Notification(title, { body, silent: false, tag: options?.tag });
       if (onClick) {
         note.onclick = (event) => {
           event.preventDefault();

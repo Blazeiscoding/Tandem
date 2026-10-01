@@ -34,6 +34,26 @@ export function notificationContent(
   return { title, body: preview === "full" ? message.body : "New message" };
 }
 
+/**
+ * What one notification for several missed messages says under each choice:
+ * how many and where, then who sent them. Nothing about it names nobody and
+ * no conversation.
+ */
+export function catchUpContent(
+  preview: NotificationPreview,
+  missed: { count: number; conversations: number; channelName?: string; senders: string },
+): { title: string; body: string } {
+  const count = `${missed.count} new messages`;
+  if (preview === "none") return { title: count, body: "Open Gatherline to read them." };
+  const where =
+    missed.conversations > 1
+      ? ` in ${missed.conversations} conversations`
+      : missed.channelName
+        ? ` in #${missed.channelName}`
+        : "";
+  return { title: `${count}${where}`, body: `From ${missed.senders}` };
+}
+
 /** One account on one server: the choice is per workspace, not per device. */
 export function previewAccount(serverUrl: string, userId: string): string {
   return `${serverUrl.replace(/\/+$/, "")} ${userId}`;
