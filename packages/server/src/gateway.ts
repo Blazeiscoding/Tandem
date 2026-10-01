@@ -457,6 +457,17 @@ export class Gateway {
     }
   }
 
+  /**
+   * Closes every socket, so each client reconnects and replays from the last
+   * event it received. For a committed event that could not be fanned out: a
+   * client that went on receiving later events would take the next one as its
+   * checkpoint and never ask for the one it missed. Closing stops further
+   * frames at once; the close handler unregisters as usual.
+   */
+  resynchronize(): void {
+    for (const client of this.clients) client.ws.close(1012, "resynchronize");
+  }
+
   disconnectSession(tokenHash: string): void {
     for (const client of [...this.clients]) {
       if (client.tokenHash === tokenHash) this.revoke(client, "signed out");

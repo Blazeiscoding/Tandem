@@ -601,11 +601,42 @@ async function startWorkspaceServer(
     }
   };
 
-  const publish = (envelope: EventEnvelope, channelId: ID | null) => {
-    gateway.publish(envelope, channelId);
-    void flushEventDeliveries();
-    publishThreadFollows(envelope);
-    publishMentionChanges(envelope);
+  /** Runs work that follows a commit, so its failure is logged instead of undoing the answer. */
+  const afterCommitted = (what: string, work: () => void): void => {
+    try {
+      work();
+    } catch (err) {
+      app.log.error({ err }, `could not ${what} after a commit`);
+    }
+  };
+  /**
+   * Hands committed events to everyone allowed to see them (REV-10). The
+   * change has happened, so nothing here may turn its answer into a failure
+   * or stop the events after it: every durable frame goes out first, then the
+   * follow states and mention counts that can be recomputed, each failing
+   * alone. A frame that cannot be fanned out closes every socket, so each
+   * client reconnects from the last event it has and replays the rest, rather
+   * than taking the next event as its checkpoint and never asking for it.
+   */
+  const publishCommitted = (
+    events: readonly { envelope: EventEnvelope; channelId: ID | null }[],
+  ): void => {
+    for (const { envelope, channelId } of events) {
+      try {
+        gateway.publish(envelope, channelId);
+      } catch (err) {
+        app.log.error(
+          { err, seq: envelope.seq },
+          "could not send a committed event; clients replay it",
+        );
+        gateway.resynchronize();
+      }
+    }
+    if (events.length > 0) void flushEventDeliveries();
+    for (const { envelope } of events) {
+      afterCommitted("send thread follow states", () => publishThreadFollows(envelope));
+      afterCommitted("send mention counts", () => publishMentionChanges(envelope));
+    }
   };
   /** Commit synchronous state and its event log before exposing any side effects. */
   const mutate = <T>(
@@ -624,8 +655,9 @@ async function startWorkspaceServer(
       ),
     );
     // Access revocation must happen before fanout, but only after a successful commit.
-    for (const effect of effects) effect();
-    for (const { envelope, channelId } of events) publish(envelope, channelId);
+    // Fanout reads access from the committed rows, so a failed effect leaks nothing.
+    for (const effect of effects) afterCommitted("apply a committed change", effect);
+    publishCommitted(events);
     return result;
   };
 
@@ -892,7 +924,7 @@ async function startWorkspaceServer(
       events.push(recordEvent({ type: "message.created", message: hydrated }, input.channelId));
       return hydrated;
     });
-    for (const event of events) publish(event, input.channelId);
+    publishCommitted(events.map((envelope) => ({ envelope, channelId: input.channelId })));
     return message;
   };
 
@@ -1005,11 +1037,15 @@ async function startWorkspaceServer(
       return purged;
     });
     if (messages === 0) return 0;
-    for (const { envelope, channelId } of events) publish(envelope, channelId);
-    const online = new Set(gateway.onlineUserIds());
-    pushMentionCounts(
-      events.flatMap(({ channelId }) => store.memberIds(channelId).filter((id) => online.has(id))),
-    );
+    publishCommitted(events);
+    afterCommitted("send mention counts", () => {
+      const online = new Set(gateway.onlineUserIds());
+      pushMentionCounts(
+        events.flatMap(({ channelId }) =>
+          store.memberIds(channelId).filter((id) => online.has(id)),
+        ),
+      );
+    });
     app.log.info(
       { messages, files: fileIds.length, retentionDays: opts.retentionDays },
       "discarded conversation past the retention window",

@@ -322,6 +322,35 @@ describe("timeline snapshot reconciliation", () => {
     expect(client.state.threads[root.id]?.map((m) => m.text)).toEqual(["second"]);
   });
 
+  it("drops a deleted thread when a deletion frame could not go out, and takes later messages (REV-10)", async () => {
+    const root = (await owner.sendMessage(channelId, { text: "root" })).message;
+    for (const text of ["one", "two", "three"])
+      await owner.sendMessage(channelId, { text, threadRootId: root.id });
+    await caughtUp();
+    await client.loadTimeline(channelId);
+    await client.loadThread(root.id, channelId);
+    expect(client.state.threads[root.id]).toHaveLength(3);
+    (client as unknown as { reconnectDelay: number }).reconnectDelay = 10;
+    // The second deletion cannot be fanned out; the server closes the socket.
+    const publish = server.gateway.publish.bind(server.gateway);
+    let calls = 0;
+    vi.spyOn(server.gateway, "publish").mockImplementation((envelope, channel) => {
+      if (++calls === 2) throw new Error("could not serialize");
+      publish(envelope, channel);
+    });
+    await owner.deleteMessage(root.id);
+    vi.mocked(server.gateway.publish).mockRestore();
+    // A later message must not carry the client past the deletions it missed.
+    const later = (await owner.sendMessage(channelId, { text: "later" })).message;
+
+    await expect.poll(() => client.state.status).toBe("online");
+    await caughtUp();
+    const timeline = client.state.timelines[channelId]?.items.map((m) => m.id) ?? [];
+    expect(timeline).not.toContain(root.id);
+    expect(timeline).toContain(later.id);
+    expect(client.state.threads[root.id] ?? []).toEqual([]);
+  });
+
   it("keeps an HTTP-acknowledged reply exactly once when its socket echo follows the page", async () => {
     const root = (await owner.sendMessage(channelId, { text: "root" })).message;
     await client.loadTimeline(channelId);
