@@ -152,6 +152,14 @@ describe("notificationBody", () => {
     expect(body).toBe("hi @Me and @someone");
   });
 
+  it("reads a labelled link as its label, and an unlabelled one as its address", () => {
+    const body = notificationBody(
+      state(),
+      message({ text: "build <https://ci.example.com/7|#7 failed>, see <https://ci.example.com>" }),
+    );
+    expect(body).toBe("build #7 failed, see https://ci.example.com");
+  });
+
   it("describes attachments when there is no text", () => {
     const withFile = message({
       text: "",

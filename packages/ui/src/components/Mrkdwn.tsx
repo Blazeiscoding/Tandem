@@ -17,7 +17,8 @@ interface Props {
 
 /**
  * Renders Slack-mrkdwn-compatible message text:
- * ```blocks```, `code`, *bold*, _italic_, ~strike~, <@USER>, <#CHANNEL>, URLs.
+ * ```blocks```, `code`, *bold*, _italic_, ~strike~, <@USER>, <#CHANNEL>, URLs,
+ * <https://url|labelled links> and > quoted lines.
  */
 export function Mrkdwn({
   text,
@@ -67,14 +68,26 @@ export function Mrkdwn({
           </code>
         ) : (
           <Fragment key={i}>
-            {renderInline(trimAtFences(block, i > 0, i < blocks.length - 1), {
-              users,
-              channels,
-              selfId,
-              onChannelClick,
-              openMessage,
-              ours,
-              highlight,
+            {quoteRuns(trimAtFences(block, i > 0, i < blocks.length - 1)).map((run, j) => {
+              const inline = renderInline(run.text, {
+                users,
+                channels,
+                selfId,
+                onChannelClick,
+                openMessage,
+                ours,
+                highlight,
+              });
+              return run.quote ? (
+                <blockquote
+                  key={j}
+                  className="my-0.5 block border-l-2 border-edge pl-2 text-ink-dim"
+                >
+                  {inline}
+                </blockquote>
+              ) : (
+                <Fragment key={j}>{inline}</Fragment>
+              );
             })}
           </Fragment>
         ),
@@ -94,11 +107,48 @@ function trimAtFences(text: string, afterFence: boolean, beforeFence: boolean): 
   return trimmed;
 }
 
+/**
+ * Splits text into runs of quoted lines (`> said this`, as Slack writes them)
+ * and the lines between. A quote is a block of its own, so the line breaks at
+ * its edges are dropped with the `>` markers rather than drawn as blank lines.
+ */
+function quoteRuns(text: string): { quote: boolean; text: string }[] {
+  const runs: { quote: boolean; text: string }[] = [];
+  for (const line of text.split("\n")) {
+    const quoted = /^>\s?/.exec(line);
+    const quote = quoted !== null;
+    const content = quoted ? line.slice(quoted[0].length) : line;
+    const last = runs.at(-1);
+    if (last && last.quote === quote) last.text += `\n${content}`;
+    else runs.push({ quote, text: content });
+  }
+  return runs;
+}
+
+/**
+ * The host a link really goes to, when its label names a different one. A
+ * label is the sender's to choose, and one reading like an address must not
+ * stand in for where the link goes.
+ */
+function disguisedHost(url: string, label: string): string | null {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const named = /(?:[a-z0-9-]+\.)+[a-z]{2,}/i.exec(label)?.[0]?.toLowerCase();
+  if (!named || named === host || host.endsWith(`.${named}`)) return null;
+  return host;
+}
+
 // The escape alternative has to come first: it consumes "\_" before the italic
 // rule can pair that underscore with a later one. Without it ¯\_(ツ)_/¯ arrives
 // italicised and missing both underscores.
+// A link in angle brackets, labelled or not, is Slack's own form, and the one
+// apps send; only web addresses are made links.
 const INLINE_RE =
-  /(\\[*_~`\\])|(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(<@[A-Za-z0-9_-]+>)|(<#[A-Za-z0-9_-]+>)|(<!(?:channel|here|everyone)>)|(https?:\/\/[^\s<>]+)/g;
+  /(\\[*_~`\\])|(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(<@[A-Za-z0-9_-]+>)|(<#[A-Za-z0-9_-]+>)|(<!(?:channel|here|everyone)>)|(https?:\/\/[^\s<>]+)|<(https?:\/\/[^\s|<>]+)(?:\|([^<>\n]+))?>/g;
 
 function renderInline(
   text: string,
@@ -175,40 +225,59 @@ function renderInline(
           {broadcastLabel(tok.slice(2, -1))}
         </span>,
       );
-    } else if (m[9]) {
-      // A link to a message in this workspace opens it here, instead of in a
-      // new window of the app. A click asking for a new tab or window still
-      // gets one. Only a link to an address this workspace is known by:
-      // another server can hold the same ids, as a restored copy of this
-      // workspace does, and its link goes where it says.
-      const link = parseDeepLink(tok);
-      const { openMessage } = ctx;
-      const openHere =
-        openMessage &&
-        link?.kind === "message" &&
-        !!ctx.ours?.(link.serverUrl) &&
-        ctx.channels[link.channelId]
-          ? (event: React.MouseEvent) => {
-              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
-              event.preventDefault();
-              openMessage(link.channelId, link.messageId);
-            }
-          : undefined;
-      out.push(
-        <a
-          key={key++}
-          href={tok}
-          target="_blank"
-          rel="noreferrer"
-          onClick={openHere}
-          className="text-copper underline decoration-copper/40 hover:decoration-copper"
-        >
-          {ctx.highlight(tok)}
-        </a>,
-      );
+    } else if (m[9] || m[10]) {
+      const url = m[9] ?? m[10]!;
+      const label = m[11]?.trim();
+      out.push(renderLink(url, label && label !== url ? label : null, key++, ctx));
     }
     last = m.index + tok.length;
   }
   if (last < text.length) out.push(ctx.highlight(text.slice(last)));
   return out;
+}
+
+/**
+ * A web link. One to a message in this workspace opens it here, instead of in
+ * a new window of the app; a click asking for a new tab or window still gets
+ * one. Only a link to an address this workspace is known by: another server
+ * can hold the same ids, as a restored copy of this workspace does, and its
+ * link goes where it says. A label shows in place of the address, which the
+ * link's title always names, and a label that reads as another site's address
+ * has the real one beside it.
+ */
+function renderLink(
+  url: string,
+  label: string | null,
+  key: number,
+  ctx: Parameters<typeof renderInline>[1],
+): ReactNode {
+  const link = parseDeepLink(url);
+  const { openMessage } = ctx;
+  const openHere =
+    openMessage &&
+    link?.kind === "message" &&
+    !!ctx.ours?.(link.serverUrl) &&
+    ctx.channels[link.channelId]
+      ? (event: React.MouseEvent) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+          event.preventDefault();
+          openMessage(link.channelId, link.messageId);
+        }
+      : undefined;
+  const realHost = label ? disguisedHost(url, label) : null;
+  return (
+    <Fragment key={key}>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        title={label ? url : undefined}
+        onClick={openHere}
+        className="text-copper underline decoration-copper/40 hover:decoration-copper"
+      >
+        {ctx.highlight(label ?? url)}
+      </a>
+      {realHost && <span className="text-ink-faint"> ({realHost})</span>}
+    </Fragment>
+  );
 }
