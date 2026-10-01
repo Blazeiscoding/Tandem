@@ -1,0 +1,3 @@
+AUDIT {"phase":"result","mode":"retry_capacity","trigger":"actual authenticated HTTP retry; isolated mode prevents outbound network","configuredPendingCeiling":500,"phases":[{"phase":"fill-0","counts":{"waiting":0,"oldestWaitingAt":null,"failed":500}},{"phase":"fill-1","counts":{"waiting":0,"oldestWaitingAt":null,"failed":1000}},{"phase":"fill-2","counts":{"waiting":500,"oldestWaitingAt":1790890301400,"failed":1000}}],"http":{"status":200,"body":{"ok":true,"retried":1000}},"after":{"waiting":1500,"oldestWaitingAt":1790890301354,"failed":0}}
+
+--- STDERR ---

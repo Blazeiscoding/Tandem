@@ -1,0 +1,3 @@
+AUDIT {"phase":"result","mode":"retention_boundary","knownDocumentedException":true,"nominalMessageBudget":5000,"actualRowsRemoved":6001,"roots":1,"rollback":true,"afterRollback":{"n":6001},"queryPlan":[{"id":5,"parent":0,"notused":70,"detail":"SEARCH m USING INDEX idx_messages_thread_page (thread_root_id=?)"},{"id":14,"parent":0,"notused":0,"detail":"CORRELATED SCALAR SUBQUERY 1"},{"id":19,"parent":14,"notused":62,"detail":"SEARCH r USING INDEX idx_messages_thread_page (thread_root_id=?)"}],"timingClaim":"none"}
+
+--- STDERR ---

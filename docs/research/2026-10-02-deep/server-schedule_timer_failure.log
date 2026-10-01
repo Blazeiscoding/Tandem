@@ -1,0 +1,16 @@
+AUDIT {"phase":"ready","mode":"schedule_timer_failure","port":50085,"scheduledStatus":"queued"}
+AUDIT {"phase":"armed","trigger":"unaltered production 15000ms interval","injection":"Store.dueScheduled throws"}
+
+--- STDERR ---
+F:\personal\MaybeProducts\SlackOSS\docs\research\2026-10-02-deep\server-probes.mts:106
+      server.store.dueScheduled = () => { throw new Error("AUDIT_NATIVE_SCHEDULE_TIMER_READ_FAILURE"); };
+                                          ^
+
+Error: AUDIT_NATIVE_SCHEDULE_TIMER_READ_FAILURE
+    at Store.server.store.dueScheduled (F:\personal\MaybeProducts\SlackOSS\docs\research\2026-10-02-deep\server-probes.mts:106:49)
+    at flushScheduled (F:\personal\MaybeProducts\SlackOSS\packages\server\src\server.ts:4033:23)
+    at Timeout._onTimeout (F:\personal\MaybeProducts\SlackOSS\packages\server\src\server.ts:4089:5)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+
+Node.js v24.16.0

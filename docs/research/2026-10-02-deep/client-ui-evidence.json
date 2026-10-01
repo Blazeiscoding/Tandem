@@ -1,0 +1,36 @@
+{
+  "sourceRevision": "a285ee6c8a67e93db01ef2d9046493ea0572a34c",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32"
+  },
+  "scope": "Actual UI/client source mounted in jsdom against real in-memory HTTP/WebSocket server; Profiler commit counts, not browser layout/latency.",
+  "observations": [
+    {
+      "name": "link_provider_unrelated_connected_count",
+      "mountedRows": 30,
+      "committedRows": 30,
+      "addressSetIdentityChanged": true,
+      "addressEntriesUnchanged": true,
+      "transport": "Real HTTP/socket client; simulated desktop HostingStatus bridge subscription",
+      "limitation": "Profiler observes React commits in jsdom; no packaged Electron IPC, production React timing, browser layout or paint measurement."
+    },
+    {
+      "name": "activity_equal_count_invalidation_burst",
+      "invalidations": 10,
+      "resultingRequests": 10,
+      "blankObservations": 10,
+      "abortedBeforeRelease": 9,
+      "finalAuthoritativeResultVisible": true,
+      "transport": "Real gateway frames and HTTP responses; response delivery held after real fetch",
+      "limitation": "Invalidations deliberately spaced across React effect turns; same-turn updates can batch. Network/server work occurs before the delivery gate; no latency or body-waste measurement."
+    },
+    {
+      "name": "visible_thread_unrelated_live_message",
+      "additionalCommits": 1,
+      "visibleContentUnchanged": true,
+      "transport": "Real HTTP send and reader WebSocket into actual ThreadPanel",
+      "limitation": "Read marking disabled to isolate render churn; jsdom does no real scroll geometry or layout."
+    }
+  ]
+}

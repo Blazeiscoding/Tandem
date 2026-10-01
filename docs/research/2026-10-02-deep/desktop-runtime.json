@@ -1,0 +1,156 @@
+{
+  "mode": "runtime",
+  "capturedAt": "2026-10-01T21:47:56.108Z",
+  "sourceRevision": "a285ee6c8a67e93db01ef2d9046493ea0572a34c",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32",
+    "release": "10.0.26300",
+    "architecture": "x64"
+  },
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-12400F",
+    "logicalProcessors": 12,
+    "memoryBytes": 17010511872
+  },
+  "probes": [
+    {
+      "name": "foreign-hidden-window-ipc",
+      "auxiliary": {
+        "id": 2,
+        "url": "about:blank"
+      },
+      "result": {
+        "href": "about:blank",
+        "bridgePresent": true,
+        "savedCredentials": [
+          {
+            "url": "http://127.0.0.1:18543",
+            "token": "desktop-audit-not-a-secret",
+            "workspaceName": "Audit only",
+            "handle": "audit",
+            "lastUsedAt": 1
+          }
+        ],
+        "hostingStatus": {
+          "running": false,
+          "phase": "stopped",
+          "tunnelAvailable": true,
+          "backgroundAvailable": true
+        },
+        "guardControl": "Error invoking remote method 'file:download': Error: Invalid download request",
+        "storageWrite": "accepted",
+        "primarySamePayloadControl": "Error invoking remote method 'file:download': TypeError: Invalid URL",
+        "primaryObservedForeignWrite": "written-by-auxiliary-window"
+      },
+      "limitation": "Harness creates the auxiliary BrowserWindow with the real preload; this proves missing IPC sender authorization, not a remote renderer exploit or ordinary UI path"
+    },
+    {
+      "name": "credential-at-rest-control",
+      "encrypted": true,
+      "plaintextTokenPresent": false
+    },
+    {
+      "name": "same-origin-subframe-control",
+      "result": {
+        "href": "about:blank",
+        "ownBridgePresent": false,
+        "parentBridgePresent": true,
+        "viaParent": "written-by-auxiliary-window"
+      },
+      "limitation": "Same-origin child delegates to its parent's bridge; this is normal same-origin access, not proof of cross-origin access. Direct bridge is absent from child."
+    },
+    {
+      "name": "renderer-crash-recovery",
+      "primaryId": 1,
+      "observationDelayMs": 2000,
+      "result": {
+        "windows": [
+          {
+            "id": 1,
+            "crashed": true,
+            "destroyed": false,
+            "url": "file:///F:/personal/MaybeProducts/SlackOSS/apps/desktop/out/renderer/index.html"
+          }
+        ],
+        "unhandled": []
+      }
+    },
+    {
+      "name": "failed-renderer-load",
+      "target": "local blocked port, no outside request",
+      "observationDelayMs": 2000,
+      "result": {
+        "windows": [
+          {
+            "id": 1,
+            "url": "http://127.0.0.1:1/desktop-audit-unreachable",
+            "crashed": false,
+            "loading": false
+          }
+        ],
+        "unhandled": []
+      }
+    }
+  ],
+  "outputUnderTest": {
+    "entry": "apps/desktop/out/main/index.js",
+    "sha256": "77f686efb761dd17b9d881ec793015db7adebc65c05772dd5052cda52ffaa132",
+    "packaged": false,
+    "existingAsarWasNotLaunched": true
+  },
+  "electronRuntime": {
+    "node": "24.19.0",
+    "acorn": "8.17.0",
+    "ada": "3.4.4",
+    "amaro": "1.1.10",
+    "ares": "1.34.6",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.2",
+    "llhttp": "9.4.3",
+    "merve": "1.2.2",
+    "modules": "149",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.69.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "0.0.0",
+    "simdjson": "4.6.4",
+    "simdutf": "7.7.0",
+    "sqlite": "3.53.3",
+    "tz": "2025c",
+    "undici": "7.29.0",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "15.2.124.18-electron.0",
+    "zlib": "1.3.2.1-motley",
+    "zstd": "1.6.0",
+    "electron": "44.1.0",
+    "chrome": "152.0.7977.65"
+  },
+  "observedStorageGetSenders": [
+    {
+      "webContentsId": 2,
+      "senderFrameUrl": "about:blank",
+      "mainFrame": true,
+      "key": "servers"
+    },
+    {
+      "webContentsId": 1,
+      "senderFrameUrl": "file:///F:/personal/MaybeProducts/SlackOSS/apps/desktop/out/renderer/index.html",
+      "mainFrame": true,
+      "key": "desktop-audit-foreign-write"
+    },
+    {
+      "webContentsId": 1,
+      "senderFrameUrl": "file:///F:/personal/MaybeProducts/SlackOSS/apps/desktop/out/renderer/index.html",
+      "mainFrame": true,
+      "key": "desktop-audit-foreign-write"
+    }
+  ],
+  "disposableDataCleaned": true
+}
