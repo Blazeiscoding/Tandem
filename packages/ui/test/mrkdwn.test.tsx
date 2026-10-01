@@ -76,4 +76,60 @@ describe("Mrkdwn", () => {
     const html = render("before ```\n\nfirst\n\nlast\n\n``` after");
     expect(html).toMatch(/before <code[^>]*>\nfirst\n\nlast\n<\/code> after/);
   });
+
+  describe("quoted lines", () => {
+    it("draws consecutive > lines as one quote, formatted, and leaves the rest as it was", () => {
+      const html = render("Earlier:\n> it *does* ship\n>today\nAgreed.");
+      expect(html).toContain(
+        '<blockquote class="my-0.5 block border-l-2 border-edge pl-2 text-ink-dim">it <strong>does</strong> ship\ntoday</blockquote>',
+      );
+      // The quote is a block, so the breaks at its edges are not drawn twice.
+      expect(html).toContain("Earlier:<blockquote");
+      expect(html).toContain("</blockquote>Agreed.");
+    });
+
+    it("quotes only at the start of a line", () => {
+      const html = render("5 > 3, and a -> b");
+      expect(html).not.toContain("<blockquote");
+      expect(html).toContain("5 &gt; 3, and a -&gt; b");
+    });
+
+    it("leaves a > inside a code block alone", () => {
+      const html = render("```\n> not a quote\n```");
+      expect(html).not.toContain("<blockquote");
+      expect(html).toContain("&gt; not a quote");
+    });
+  });
+
+  describe("links in angle brackets, as apps send them", () => {
+    it("shows a label in place of the address, and names the address in its title", () => {
+      const html = render("Build <https://ci.example.com/runs/7|run 7> failed");
+      expect(html).toContain('href="https://ci.example.com/runs/7"');
+      expect(html).toContain('title="https://ci.example.com/runs/7"');
+      expect(html).toContain(">run 7</a>");
+      expect(html).not.toContain("|");
+    });
+
+    it("shows the address when there is no label", () => {
+      const html = render("see <https://example.com/a>");
+      expect(html).toContain('href="https://example.com/a"');
+      expect(html).toContain(">https://example.com/a</a>");
+      expect(html).not.toContain("&lt;");
+    });
+
+    it("names the real site beside a label that reads as another one's address", () => {
+      const html = render("<https://evil.example.net/login|https://bank.example.com>");
+      expect(html).toContain(">https://bank.example.com</a>");
+      expect(html).toContain("(evil.example.net)");
+      // A label naming the site it goes to, or a part of it, needs nothing more.
+      expect(render("<https://docs.example.com/x|example.com docs>")).not.toContain("(");
+      expect(render("<https://example.com/x|example.com>")).not.toContain("(example.com)");
+    });
+
+    it("makes links only of web addresses", () => {
+      const html = render("<javascript:alert(1)|click me>");
+      expect(html).not.toContain("<a");
+      expect(html).toContain("&lt;javascript:alert(1)|click me&gt;");
+    });
+  });
 });
