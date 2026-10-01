@@ -113,7 +113,12 @@ export function notificationBody(state: WorkspaceState, message: Message): strin
       const user = state.users[id];
       return user ? `@${user.displayName}` : "@someone";
     })
-    .replaceAll(/<!(channel|here|everyone)>/g, (_all, who: string) => broadcastLabel(who));
+    .replaceAll(/<!(channel|here|everyone)>/g, (_all, who: string) => broadcastLabel(who))
+    // A labelled link reads as its label, and an unlabelled one as its address.
+    .replaceAll(
+      /<(https?:\/\/[^\s|<>]+)(?:\|([^<>\n]+))?>/g,
+      (_all, url: string, label?: string) => label?.trim() || url,
+    );
   if (text.trim()) return text;
   const count = message.files.length;
   return count === 1 ? "Sent a file" : `Sent ${count} files`;
