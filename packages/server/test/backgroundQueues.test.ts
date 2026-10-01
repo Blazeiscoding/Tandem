@@ -29,6 +29,9 @@ async function start(options: Partial<Parameters<typeof createWorkspaceServer>[0
     })
   ).json()) as { token: string; user: { id: string } };
   const channelId = server.store.getChannelByName("general")!.id;
+  // Each due a moment before the last one scheduled, so they are taken in
+  // the order scheduled, rather than by ids made in the same millisecond.
+  let order = 0;
   const schedule = (text: string) =>
     server!.store.scheduleMessage({
       channelId,
@@ -36,7 +39,7 @@ async function start(options: Partial<Parameters<typeof createWorkspaceServer>[0
       text,
       threadRootId: null,
       fileIds: [],
-      sendAt: Date.now() - 1,
+      sendAt: Date.now() - 1_000 + order++,
     });
   const status = async () =>
     (await (
