@@ -286,7 +286,12 @@ Existing controls to preserve: 300 messages per timeline/thread window, 20 total
 
 ### OPS-04 · P1 · Bound shutdown and cover OS termination separately
 
-- [ ] Characterize never-settling HTTP handlers, uploads, outbound calls and a long serialized recovery operation.
+- [ ] Characterize never-settling HTTP handlers, uploads, outbound calls and a long serialized recovery operation. The server half is characterized (1 October, `b443a8c`); the desktop and recovery half is not:
+  - **Upload.** A client that sends a multipart upload's headers and part of its body, then stalls, did not hold the server up. `stop()` returned in 20 ms: `forceCloseConnections: true` destroys the socket, so the handler's stream fails and it settles. Probed with a real socket against a workspace on disk.
+  - **Outbound calls.** Every call to an app from a route (slash commands, interactivity, callback verification) carries `shutdown.signal`, which `stop()` aborts before waiting on anything, plus a 4 s timeout.
+  - **Other awaits.** What the remaining handlers await is finite: password hashing, `stat`/`open`/`unlink` of attachment files. Event delivery and retention check `closing` and the same signal.
+  - **Within the process.** The server-side drain is bounded, and RECHECK-11 (#172) made a failed stop retryable. No route runs a backup or restore: those run in the desktop worker.
+  - **Still open.** A worker job in flight when the app quits (OPS-03), OS shutdown, and a declared quit budget.
   - [ ] Define graceful drain stages/deadlines and cancellation; never close SQLite underneath code that still owns it.
   - [ ] Persist/reconcile unfinished jobs before any forced process boundary; document service-manager/container stop budgets.
   - [ ] Add supported Windows/macOS/Linux lifecycle handling where meaningful. Windows shutdown/restart/logout is not equivalent to Electron's ordinary `before-quit` path.
