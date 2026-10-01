@@ -25,6 +25,7 @@ import type {
   UpdateChannelBody,
   UpdateMeBody,
   User,
+  WorkspaceStatus,
   Webhook,
 } from "@slackoss/protocol";
 
@@ -636,6 +637,14 @@ export class Api {
 
   createInvite(body: CreateInviteBody = {}): Promise<{ invite: Invite }> {
     return this.request("POST", "/api/invites", body);
+  }
+
+  /**
+   * Whether the server is keeping up: sizes, queues and timings, never what is
+   * in them. The owner and admins only (OPS-10).
+   */
+  workspaceStatus(): Promise<WorkspaceStatus> {
+    return this.request("GET", "/api/admin/status", undefined, { timeoutMs: 10_000 });
   }
 
   /** A page of what administrators have changed, newest first. */

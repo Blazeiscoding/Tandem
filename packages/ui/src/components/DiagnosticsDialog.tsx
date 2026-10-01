@@ -1,19 +1,37 @@
 import { useEffect, useState } from "react";
-import type { ServerInfo } from "@slackoss/protocol";
-import { useClient, usePlatform } from "../context.js";
+import type { ServerInfo, WorkspaceStatus } from "@slackoss/protocol";
+import { ApiError } from "@slackoss/client-core";
+import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { diagnosticsReport } from "../lib/diagnostics.js";
 import { useCopy } from "../lib/useCopy.js";
 import { Dialog } from "./Dialog.js";
 import { buttonClass } from "./Button.js";
 
+type Failed = { error: string };
+const failure = (err: unknown): Failed => ({
+  error: err instanceof Error ? err.message : "no answer",
+});
+
+/** Why the server's status could not be read, in words for the report. */
+function statusFailure(err: unknown): Failed {
+  if (err instanceof ApiError && err.status === 404)
+    return { error: "this server's version does not report it" };
+  if (err instanceof ApiError && err.status === 403)
+    return { error: "only the owner and admins can read it" };
+  return failure(err);
+}
+
 /**
  * What to send whoever helps when something is wrong. It shows the whole
  * report before anything is copied, and the report holds versions, the
- * connection and the device, never what anybody wrote.
+ * connection and the device, never what anybody wrote. For the owner and
+ * admins it also says how the server is keeping up (OPS-10): sizes, queues
+ * and timings, never what is in them.
  */
 export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
   const client = useClient();
   const platform = usePlatform();
+  const admin = useWorkspace((s) => s.self?.role === "owner" || s.self?.role === "admin");
   const [report, setReport] = useState<string | null>(null);
   const { copy, label } = useCopy(2500);
 
@@ -21,7 +39,7 @@ export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
   // exactly what is copied, however long the dialog stays open.
   useEffect(() => {
     let alive = true;
-    const take = (server: ServerInfo | { error: string }) => {
+    const take = (server: ServerInfo | Failed, workspace?: WorkspaceStatus | Failed) => {
       const { status, huddle, pending } = client.state;
       setReport(
         diagnosticsReport({
@@ -42,26 +60,27 @@ export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
               : typeof Notification === "undefined"
                 ? "not supported"
                 : Notification.permission,
+          workspace,
           now: new Date(),
         }),
       );
     };
-    client.api
-      .serverInfo()
-      .then((info) => alive && take(info))
-      .catch((err: unknown) => {
-        if (alive) take({ error: err instanceof Error ? err.message : "no answer" });
-      });
+    void Promise.all([
+      client.api.serverInfo().catch(failure),
+      admin ? client.api.workspaceStatus().catch(statusFailure) : undefined,
+    ]).then(([server, workspace]) => alive && take(server, workspace));
     return () => {
       alive = false;
     };
-  }, [client, platform]);
+  }, [client, platform, admin]);
 
   return (
     <Dialog title="Diagnostics" onClose={onClose} width={560}>
       <p className="text-sm text-ink-dim">
         Send this to whoever is helping you. It says which versions are running and how this device
-        is connected. It never includes messages, names or files.
+        is connected
+        {admin ? ", and how the server is keeping up: sizes, queues and timings" : ""}. It never
+        includes messages, names or files.
       </p>
       {report ? (
         <pre
@@ -73,7 +92,7 @@ export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
         </pre>
       ) : (
         <p role="status" className="mt-3 text-sm text-ink-faint">
-          Asking the server for its version…
+          {admin ? "Asking the server how it is doing…" : "Asking the server for its version…"}
         </p>
       )}
       <div className="mt-4 flex justify-end">
