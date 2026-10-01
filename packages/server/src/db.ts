@@ -746,14 +746,25 @@ export function openDb(
     }
     options.onUpgradeBackup?.(file);
   }
-  for (let v = user_version; v < upTo; v++) {
+  // Every step or none (OPS-05). An upgrade that fails, or is cut off, partway
+  // through several versions leaves the workspace as it was, which the release
+  // it came from still opens, rather than at a version between the two that no
+  // release a person has would open.
+  if (user_version < upTo) {
     db.exec("BEGIN");
     try {
-      db.exec(MIGRATIONS[v]!);
-      db.exec(`PRAGMA user_version = ${v + 1}`);
+      for (let v = user_version; v < upTo; v++) {
+        db.exec(MIGRATIONS[v]!);
+        db.exec(`PRAGMA user_version = ${v + 1}`);
+      }
       db.exec("COMMIT");
     } catch (err) {
-      db.exec("ROLLBACK");
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // SQLite has already rolled back after some failures, a full disk
+        // among them; the error worth reporting is the one that stopped it.
+      }
       // Leave nothing holding the file: on Windows a leaked handle blocks the
       // caller from even moving the workspace aside to recover it.
       db.close();
