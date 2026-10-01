@@ -150,9 +150,13 @@ export class Gateway {
     }
   }
 
+  /**
+   * Who is online. Everyone else is offline, as clients have always read an
+   * account missing from the map; listing every account as offline made each
+   * handshake load them all a second time (OPT-13).
+   */
   presenceMap(): Record<ID, Presence> {
     const out: Record<ID, Presence> = {};
-    for (const u of this.store.listUsers()) out[u.id] = "offline";
     for (const id of this.byUser.keys()) out[id] = "online";
     return out;
   }

@@ -255,7 +255,25 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
 
 **References:** Zulip anchor-aware fetches, Mattermost deterministic bounded queries. **Gatherline:** initial/resync snapshot, People, Apps, members and thread summaries.
 
-- [ ] Measure snapshot bytes, SQL time, serialization and renderer processing versus member/channel/message cardinality.
+**Status:** the handshake snapshot is measured, and its two costs that grew with the workspace are removed; see the PR after #182. Every connect and reconnect builds one, so after a restart every client asks at once.
+
+- **Channels.** Each listed channel ran its own query for its managers, or its members for a conversation. A manager lookup read every member row of the channel, since `is_manager` had no index, so the list's cost grew with members, not channels: 7 ms at 200 members and 159 ms at 10,000 for the same 350 channels. Schema v34 adds a partial index, `idx_channel_managers` (`WHERE is_manager = 1`), and `listChannelsVisibleTo` reads all managers and conversation members in two queries.
+- **Presence.** The map listed every account as offline, loading them all a second time on each handshake (37 ms at 10,000). It now names only who is online. Every client already reads a missing account as offline, and a snapshot replaces the map whole.
+
+Measured with [`scripts/measure-snapshot.mts`](../scripts/measure-snapshot.mts) on `ed2e377` against the candidate, on one machine (4-thread Xeon 2.8 GHz, Node 24.21). Each member is in 30 of the public channels, and the reader also has 50 DMs, 200 followed threads and 100 saved messages. A herd is 100 handshakes at once, as after a restart.
+
+| Workspace                     | Handshake p50  | Snapshot         | 100 at once   |
+| ----------------------------- | -------------- | ---------------- | ------------- |
+| 200 members, 300 channels     | 13.8 → 7.4 ms  | 149 → 145 kB     | 1.57 → 0.87 s |
+| 2,000 members, 300 channels   | 46.8 → 16.5 ms | 562 → 523 kB     | 5.49 → 1.98 s |
+| 10,000 members, 300 channels  | 251 → 60 ms    | 2,398 → 2,203 kB | 25.6 → 6.4 s  |
+| 2,000 members, 1,500 channels | 71.7 → 26.5 ms | 809 → 770 kB     | 7.87 → 3.05 s |
+
+At 10,000 members the channel list went from 159 ms to 1.6 ms and presence from 37 ms to nothing. Building v34's index over 300,000 memberships took 20 ms; a member row that manages nothing is not in it, so joining and leaving cost the same. `test/snapshotChannels.test.ts` holds the batched list to what reading each channel alone says (public with and without managers, private, hidden, DM and group DM, a member who left). `test/snapshotPresence.test.ts` covers the presence map.
+
+What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,000 members, about two-thirds of the handshake. Shrinking it is the lean bootstrap and paged People list below, a protocol change, not a query.
+
+- [ ] Measure snapshot bytes, SQL time, serialization and renderer processing versus member/channel/message cardinality. Server side measured and its query costs removed (above); renderer processing is not yet measured.
   - [ ] Page/search member/app lists with stable cursors; avoid repeatedly loading every account to display one page.
   - [ ] Design a versioned lean bootstrap plus on-demand details only if snapshot cost warrants it.
   - [ ] Preserve coherent sequence watermark and authenticated channel visibility through paging/replay.

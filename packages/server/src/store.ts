@@ -487,7 +487,14 @@ export class Store {
 
   // ---------- channels ----------
 
-  private toChannel(r: ChannelRow): Channel {
+  /**
+   * `people`, when given, holds the managers and conversation members of every
+   * channel being listed, read once, in place of a query for each one.
+   */
+  private toChannel(
+    r: ChannelRow,
+    people?: { managers: Map<ID, ID[]>; members: Map<ID, ID[]> },
+  ): Channel {
     const ch: Channel = {
       id: r.id,
       type: r.type as ChannelType,
@@ -499,7 +506,9 @@ export class Store {
       createdAt: r.created_at,
     };
     if (ch.type === "dm" || ch.type === "group_dm") {
-      ch.memberIds = this.memberIds(r.id);
+      ch.memberIds = people ? (people.members.get(r.id) ?? []) : this.memberIds(r.id);
+    } else if (people) {
+      ch.managerIds = people.managers.get(r.id) ?? [];
     } else {
       ch.managerIds = (
         this.db
@@ -611,7 +620,37 @@ export class Store {
          ORDER BY c.name`,
       )
       .all(userId) as unknown as ChannelRow[];
-    return rows.map((r) => this.toChannel(r));
+    // Every handshake lists these, so who manages each channel and who is in
+    // each conversation are read once for all of them (OPT-13).
+    const group = (pairs: { channel_id: ID; user_id: ID }[]) => {
+      const out = new Map<ID, ID[]>();
+      for (const { channel_id, user_id } of pairs) {
+        const list = out.get(channel_id);
+        if (list) list.push(user_id);
+        else out.set(channel_id, [user_id]);
+      }
+      return out;
+    };
+    const managers = group(
+      this.db
+        .prepare(
+          `SELECT channel_id, user_id FROM channel_members WHERE is_manager = 1
+           ORDER BY channel_id, user_id`,
+        )
+        .all() as { channel_id: ID; user_id: ID }[],
+    );
+    const members = group(
+      this.db
+        .prepare(
+          `SELECT m.channel_id, m.user_id FROM channel_members mine
+           JOIN channels c ON c.id = mine.channel_id AND c.type IN ('dm', 'group_dm')
+           JOIN channel_members m ON m.channel_id = mine.channel_id
+           WHERE mine.user_id = ?
+           ORDER BY m.channel_id, m.user_id`,
+        )
+        .all(userId) as { channel_id: ID; user_id: ID }[],
+    );
+    return rows.map((r) => this.toChannel(r, { managers, members }));
   }
 
   listPublicChannelIds(): ID[] {
