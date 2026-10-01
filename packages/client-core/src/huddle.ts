@@ -107,15 +107,19 @@ export class HuddleSession {
    * Grabs the microphone. Rejects as the browser does if permission is
    * refused or no device exists, and with `NotSupportedError` where there is
    * no way to ask (an insecure page); `captureFailure` words each for people.
+   *
+   * `muted` starts it off, for someone who chose to join huddles that way:
+   * nothing they say is sent until they turn it on, and each peer is told so
+   * as it connects (CALL-01).
    */
-  async startLocalAudio(): Promise<void> {
+  async startLocalAudio(muted = false): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
     const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
     if (this.destroyed) {
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
-    this.adoptMicrophone(stream, false);
+    this.adoptMicrophone(stream, muted);
     this.startLevelPolling();
   }
 

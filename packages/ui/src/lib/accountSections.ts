@@ -4,6 +4,7 @@ export const ACCOUNT_SECTIONS = [
   "notifications",
   "appearance",
   "composing",
+  "calls",
   "security",
   "devices",
   "storage",

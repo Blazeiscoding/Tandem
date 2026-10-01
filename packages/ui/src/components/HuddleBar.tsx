@@ -8,6 +8,7 @@ import { Icon } from "./Icon.js";
 import { HuddleControls } from "./HuddleControls.js";
 import { Tooltip } from "./Tooltip.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
+import { useCallPreferences } from "../lib/callPreferences.js";
 
 /**
  * Plays one peer's audio. A hidden <audio> element is what actually makes a
@@ -242,13 +243,14 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
   const inThis = useWorkspace((s) => s.huddle?.channelId === channelId);
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+  const calls = useCallPreferences();
   const count = participants?.length ?? 0;
 
   async function join() {
     setError(null);
     setJoining(true);
     try {
-      await client.joinHuddle(channelId);
+      await client.joinHuddle(channelId, { muted: calls.joinMuted });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not join this huddle.");
       setTimeout(() => setError(null), 4000);
