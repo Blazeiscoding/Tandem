@@ -235,3 +235,49 @@ Keep the existing 500,000-byte entry limit and documented 100 ms longest desktop
 Further product improvements remain in the existing backlog: persistent thread position (the remaining IMP-02 slice), ongoing public-route reachability (IMP-06), physical-device/accessibility and declared browser support (IMP-09). Filename/file-kind search and notification-preview privacy/catch-up (IMP-03) were implemented on newer main and stay closed. Choose remaining product work from pilot-user tasks; do not turn this optimization batch into a feature expansion.
 
 A work package closes with its owner, starting/candidate revision, implementation decision, focused correctness regression, appropriate typecheck/build and matching-artifact integration evidence recorded. Performance packages also require comparable successful before/after measurements and an explicit keep/reject decision. Passing the checks recorded above establishes this review's baseline; none of these planned implementations has been completed by this review.
+
+## Implementation status
+
+Each package names its owner when work starts and its PR when it merges. One entry per package, kept apart by blank lines so concurrent PRs can update their own entries without conflicting. A cloud Claude session (Linux, no Docker daemon, no Electron binary, no Windows) runs unit, typecheck, build, bundle and browser E2E checks; anything that needs more is listed under [left for local verification](#left-for-local-verification).
+
+- **REV-10** · Claude session · Not started.
+
+- **REV-01** · Claude session · Not started.
+
+- **REV-02** · Claude session · Not started.
+
+- **REV-11 / GL-13** · Claude session · Not started.
+
+- **GL-01–03 storage acknowledgement** · Unassigned · Not started.
+
+- **REV-12** · Unassigned · Not started.
+
+- **REV-14** · Unassigned · Not started.
+
+- **Build identity (IMP-08)** · Unassigned · Not started.
+
+- **Mixed performance baseline (IMP-07)** · Unassigned · Not started.
+
+- **REV-13** · Unassigned · Not started.
+
+- **REV-07** · Unassigned · Not started.
+
+- **REV-03** · Unassigned · Not started.
+
+- **REV-04** · Unassigned · Not started.
+
+- **REV-05** · Unassigned · Not started.
+
+- **REV-06** · Unassigned · Not started.
+
+- **REV-15** · Unassigned · Not started.
+
+- **REV-08** · Unassigned · Not started.
+
+- **REV-09** · Unassigned · Not started.
+
+## Left for local verification
+
+What a package's PR could not check in the cloud session, for a run on a Windows machine with Docker. Each item names its package; strike it through, or note the result, once run.
+
+- **Environment:** the cloud session has no Docker daemon, no Electron binary and no Windows, so container builds, packaged/native Electron behavior and installers are verified locally for every package below that touches them.
