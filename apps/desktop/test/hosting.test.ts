@@ -2727,6 +2727,84 @@ describe("scheduled backups", () => {
     expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
   });
 
+  it("still says a scheduled backup did not finish after a restart, until one does (OPS-02)", async () => {
+    const { h, destination } = await scheduled();
+    h.free = 0;
+    h.clock = 5000;
+    await h.controller.runDueBackups();
+    const saved = registryOf(h)[0]!.autoBackup!;
+    expect(saved).toMatchObject({
+      failure: {
+        kind: "space",
+        message: expect.stringMatching(/^There is not enough free space there\./),
+      },
+    });
+    expect(saved.lastAttemptAt).toBeGreaterThanOrEqual(5000);
+    expect(saved.failure!.at).toBeGreaterThanOrEqual(saved.lastAttemptAt!);
+    expect(saved.lastAt).toBeUndefined();
+
+    // The app opens again, with the settings file as it was left.
+    const later = harness({ root: join(h.dataRoot, ".."), settings: h.settings });
+    later.databases = h.databases;
+    later.clock = 9000;
+    expect((await later.controller.list()).workspaces[0]!.autoBackupError).toMatch(
+      /^The scheduled backup of Rocket Team did not finish\. There is not enough free space there\./,
+    );
+    await later.controller.runDueBackups();
+    const [made] = readdirSync(destination);
+    const after = registryOf(later)[0]!.autoBackup!;
+    expect(after.lastPath).toBe(join(destination, made!));
+    expect(after.lastAttemptAt).toBeGreaterThanOrEqual(9000);
+    expect(after.lastAt).toBeGreaterThanOrEqual(after.lastAttemptAt!);
+    expect(after.failure).toBeUndefined();
+    expect((await later.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+  });
+
+  it("says a scheduled backup's folder cannot be reached, and never makes it anew", async () => {
+    const { h, destination } = await scheduled();
+    // A drive that is not connected leaves the folder missing.
+    rmSync(destination, { recursive: true });
+    await h.controller.runDueBackups();
+    expect(h.backups).toHaveLength(0);
+    expect(existsSync(destination)).toBe(false);
+    expect(registryOf(h)[0]!.autoBackup!.failure).toMatchObject({ kind: "destination" });
+    expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBe(
+      `The scheduled backup of Rocket Team did not finish. The folder ${destination} cannot be reached. If it is on a drive or network share, connect it, then try again.`,
+    );
+  });
+
+  it("counts a disk that fills partway through the copy as out of space", async () => {
+    const { h } = await scheduled();
+    const full = Promise.reject(
+      Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" }),
+    );
+    full.catch(() => {});
+    h.backupGate = full;
+    await h.controller.runDueBackups();
+    expect(registryOf(h)[0]!.autoBackup!.failure).toMatchObject({
+      kind: "space",
+      message: "ENOSPC: no space left on device, write",
+    });
+  });
+
+  it("keeps a failure while only how often or how many changes, and drops it with a new folder", async () => {
+    const { h, folder } = await scheduled();
+    h.free = 0;
+    await h.controller.runDueBackups();
+    await h.controller.setAutoBackup({ folder, schedule: { everyDays: 7, keep: 3 } });
+    expect(registryOf(h)[0]!.autoBackup).toMatchObject({
+      everyDays: 7,
+      keep: 3,
+      failure: { kind: "space" },
+    });
+    await h.controller.setAutoBackup({
+      folder,
+      schedule: { destination: profile(), everyDays: 7, keep: 3 },
+    });
+    expect(registryOf(h)[0]!.autoBackup!.failure).toBeUndefined();
+    expect((await h.controller.list()).workspaces[0]!.autoBackupError).toBeNull();
+  });
+
   it("changes how often and how many while keeping the folder, and turns off", async () => {
     const { h, folder, destination } = await scheduled();
     expect(
@@ -2774,6 +2852,29 @@ describe("scheduled backups", () => {
     expect(parseAutoBackup({ ...base, lastAt: 1234 })).toEqual({ ...base, lastAt: 1234 });
     for (const lastAt of [-1, "yesterday", Number.NaN, null])
       expect(parseAutoBackup({ ...base, lastAt })).toEqual(base);
+  });
+
+  it("reads how a schedule's last try went, and keeps a failure it cannot fully read", () => {
+    const base = { destination: profile(), everyDays: 7 as const, keep: 3 };
+    const failure = { at: 20, kind: "destination", message: "The folder cannot be reached." };
+    const lastPath = join(base.destination, "rocket-team-2026-09-30T00-00-00");
+    expect(parseAutoBackup({ ...base, lastAttemptAt: 20, lastPath, failure })).toEqual({
+      ...base,
+      lastAttemptAt: 20,
+      lastPath,
+      failure,
+    });
+    // A kind from a later version is still a failure, of a kind this one cannot name.
+    expect(parseAutoBackup({ ...base, failure: { ...failure, kind: "quota" } })!.failure).toEqual({
+      ...failure,
+      kind: "other",
+    });
+    expect(parseAutoBackup({ ...base, lastAttemptAt: 20, failure: "garbled" })!.failure).toEqual({
+      at: 20,
+      kind: "other",
+      message: "",
+    });
+    expect(parseAutoBackup({ ...base, lastPath: "relative/path" })).toEqual(base);
   });
 
   it("reads a schedule back from the settings file, and drops one it could not follow", () => {

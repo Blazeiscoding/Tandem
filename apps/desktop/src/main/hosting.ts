@@ -14,6 +14,8 @@ import {
   serializeRegistry,
   writeWorkspaceName,
   type AutoBackup,
+  type BackupFailure,
+  type BackupFailureKind,
   type HostedWorkspace,
 } from "./registry.js";
 
@@ -346,6 +348,36 @@ function megabytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
 }
 
+/** A backup that did not finish, for a reason someone can act on. */
+class BackupFailed extends Error {
+  constructor(
+    readonly kind: BackupFailureKind,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** What kind of failure an error from a backup is, as far as it says. */
+function failureKind(error: unknown): BackupFailureKind {
+  if (error instanceof BackupFailed) return error.kind;
+  // A full disk can be found only partway through the copy, in the worker.
+  const said = `${(error as { code?: unknown } | null)?.code ?? ""} ${
+    error instanceof Error ? error.message : ""
+  }`;
+  return /\b(ENOSPC|EDQUOT)\b/.test(said) ? "space" : "other";
+}
+
+/** What the window says of a scheduled backup that did not finish, until one does. */
+function backupFailureNote(name: string, failure: BackupFailure | undefined): string | null {
+  if (!failure) return null;
+  return (
+    failure.kind === "cleanup"
+      ? `The scheduled backup of ${name} was made, but older ones there could not be removed. ${failure.message}`
+      : `The scheduled backup of ${name} did not finish. ${failure.message}`
+  ).trim();
+}
+
 /** Owns the embedded server, including operations accepted just before app shutdown. */
 export function createHostingController(options: HostingOptions) {
   let server: HostedServer | null = null;
@@ -394,8 +426,6 @@ export function createHostingController(options: HostingOptions) {
     { message: string; part: "hosting" | "public-address"; folder: string | null } | undefined;
   /** Stops listening for who connects to the running server. */
   let stopWatchingConnections: (() => void) | null = null;
-  /** Why each workspace's last scheduled backup failed, by folder, until one finishes. */
-  const autoBackupErrors = new Map<string, string>();
 
   function changed(): void {
     // A renderer/tray notification must never lose ownership of a live server.
@@ -835,7 +865,7 @@ export function createHostingController(options: HostingOptions) {
           missing: !existsSync(join(options.dataRoot, entry.folder)),
           startsOnLaunch: entry.folder === starting,
           autoBackup: entry.autoBackup ?? null,
-          autoBackupError: autoBackupErrors.get(entry.folder) ?? null,
+          autoBackupError: backupFailureNote(entry.name, entry.autoBackup?.failure),
           restored: entry.restoredHold !== undefined,
         })),
       unreadable: unreadableFolders,
@@ -872,22 +902,35 @@ export function createHostingController(options: HostingOptions) {
   ): Promise<{ path: string; at: number }> {
     const dataDir = join(options.dataRoot, entry.folder);
     if (!existsSync(dataDir))
-      throw new Error(
+      throw new BackupFailed(
+        "source",
         `The folder that held ${entry.name} is missing, so there is nothing to back up.`,
       );
+    // Never made anew: a drive that is not connected would leave its folder
+    // missing, and the backup would land on whatever disk holds the path.
+    const unreachable = () =>
+      new BackupFailed(
+        "destination",
+        `The folder ${destination} cannot be reached. If it is on a drive or network share, connect it, then try again.`,
+      );
+    if (!existsSync(destination)) throw unreachable();
     if (options.freeBytes) {
       // The copy is about the size of the folder. A little over that leaves
       // room for the database's snapshot to be larger than the file it came from.
       const needed = Math.ceil((await folderBytes(dataDir)) * 1.1) + 16 * 1024 * 1024;
-      const free = await options.freeBytes(destination);
+      const free = await options.freeBytes(destination).catch(() => {
+        throw unreachable();
+      });
       if (free < needed)
-        throw new Error(
+        throw new BackupFailed(
+          "space",
           `There is not enough free space there. The backup needs about ${megabytes(needed)}, and ${megabytes(free)} is free.`,
         );
     }
     const found = read(dataDir);
     if (entry.id && found?.id !== entry.id)
-      throw new Error(
+      throw new BackupFailed(
+        "source",
         `The folder listed as ${entry.name} holds ${
           found?.name ? `“${found.name}”` : "a different or unreadable workspace"
         } instead, so nothing was backed up.`,
@@ -906,7 +949,8 @@ export function createHostingController(options: HostingOptions) {
     if (read(out)?.id !== expected) {
       // A copy of something else must not stand in for this workspace's backup.
       await rm(out, { recursive: true, force: true }).catch(() => {});
-      throw new Error(
+      throw new BackupFailed(
+        "source",
         `The folder of ${entry.name} changed while it was being copied, so the copy was removed. Try again.`,
       );
     }
@@ -1075,13 +1119,12 @@ export function createHostingController(options: HostingOptions) {
           throw new Error("Choose a folder to back the workspace up into.");
         chosen =
           parseAutoBackup({
+            // Only a schedule still writing to the same folder keeps how its
+            // last run went, failure included; a new folder is due at once.
+            ...(destination === entry.autoBackup?.destination ? entry.autoBackup : {}),
             destination,
             everyDays: asked.everyDays,
             keep: asked.keep,
-            // Only a schedule still writing to the same folder keeps its last run;
-            // a new folder is due at once.
-            lastAt:
-              destination === entry.autoBackup?.destination ? entry.autoBackup?.lastAt : undefined,
           }) ?? null;
         if (!chosen)
           throw new Error("Choose a folder, daily or weekly, and to keep 1 to 60 backups.");
@@ -1098,7 +1141,6 @@ export function createHostingController(options: HostingOptions) {
           "Gatherline could not save the backup schedule. Check that its settings folder is writable, then try again.",
         );
       }
-      autoBackupErrors.delete(entry.folder);
       changed();
       return chosen;
     });
@@ -1153,8 +1195,9 @@ export function createHostingController(options: HostingOptions) {
 
   /**
    * Backs up every workspace whose schedule has come due, one at a time, then
-   * keeps only the newest of its backups. A failure is kept for the window to
-   * show, and tried again at the next check.
+   * keeps only the newest of its backups. A failure is saved with the
+   * schedule for the window to show, across restarts, and tried again at the
+   * next check (OPS-02).
    *
    * One pass runs at a time. A check asked for while one runs, such as a
    * schedule just saved, runs once more after it rather than beside it, and
@@ -1189,7 +1232,6 @@ export function createHostingController(options: HostingOptions) {
     }
     for (const { folder } of entries) {
       if (closing) return;
-      let name = folder;
       try {
         const ran = await serialized(async () => {
           const entry = (await loadRegistry()).find((e) => e.folder === folder);
@@ -1198,7 +1240,6 @@ export function createHostingController(options: HostingOptions) {
           // backups until it is put back in use: a newer one there may be the
           // only copy of what the restore went back past.
           if (!entry || !schedule || entry.restoredHold !== undefined || closing) return false;
-          name = entry.name;
           if (!existsSync(join(options.dataRoot, entry.folder))) return false;
           // Never backed up by this schedule into its folder, it is due now.
           // Otherwise a little early is fine: the check runs every few minutes.
@@ -1207,25 +1248,55 @@ export function createHostingController(options: HostingOptions) {
               ? 0
               : schedule.lastAt + schedule.everyDays * 24 * 3600_000 - 10 * 60_000;
           if (now() < due) return false;
-          const made = await backupNow(entry, schedule.destination);
-          const latest = registry?.find((e) => e.folder === entry.folder) ?? entry;
-          // Recorded against this schedule only if it is still the one in force.
-          if (latest.autoBackup?.destination === schedule.destination) {
-            updateEntry(entry.folder, { autoBackup: { ...latest.autoBackup, lastAt: made.at } });
+          const attempt = now();
+          // Recorded against this schedule only while it is still the one in force.
+          const record = async (outcome: Partial<AutoBackup>, done: boolean) => {
+            const latest = registry?.find((e) => e.folder === entry.folder)?.autoBackup;
+            if (latest?.destination !== schedule.destination) return;
+            const { failure: _settled, ...rest } = latest;
+            updateEntry(entry.folder, {
+              autoBackup: { ...(done ? rest : latest), lastAttemptAt: attempt, ...outcome },
+            });
+            // Kept in memory for the window either way; only a restart can lose it.
             await saveRegistry().catch(() => {});
+          };
+          let made: { path: string; at: number };
+          try {
+            made = await backupNow(entry, schedule.destination);
+          } catch (error) {
+            await record(
+              {
+                failure: {
+                  at: now(),
+                  kind: failureKind(error),
+                  message: error instanceof Error ? error.message : "",
+                },
+              },
+              false,
+            );
+            throw error;
           }
-          await pruneBackups(latest, schedule, made.path);
+          await record({ lastAt: made.at, lastPath: made.path }, true);
+          try {
+            await pruneBackups(entry, schedule, made.path);
+          } catch (error) {
+            await record(
+              {
+                failure: {
+                  at: now(),
+                  kind: "cleanup",
+                  message: error instanceof Error ? error.message : "",
+                },
+              },
+              false,
+            );
+            throw error;
+          }
           return true;
         });
-        if (ran) autoBackupErrors.delete(folder);
         if (ran) changed();
-      } catch (error) {
-        autoBackupErrors.set(
-          folder,
-          `The scheduled backup of ${name} did not finish. ${
-            error instanceof Error ? error.message : ""
-          }`.trim(),
-        );
+      } catch {
+        // Saved with its schedule above, for the window to show.
         changed();
       }
     }
