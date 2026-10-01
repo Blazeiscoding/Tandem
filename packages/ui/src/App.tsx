@@ -1,9 +1,8 @@
-import { lazy, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { normalizeServerUrl, WorkspaceClient } from "@slackoss/client-core";
 import { PlatformContext } from "./context.js";
 import type { Platform, SavedServer } from "./platform.js";
 import { parseDeepLink } from "./lib/deeplink.js";
-import { JoinScreen } from "./screens/JoinScreen.js";
 import { WorkspaceScreen } from "./screens/WorkspaceScreen.js";
 import { Dialog } from "./components/Dialog.js";
 import { Icon } from "./components/Icon.js";
@@ -11,6 +10,12 @@ import { LazyDialog } from "./components/LazyView.js";
 import { useHostingStatus, useLastHosted } from "./lib/hosting.js";
 import { useApplyAppearance } from "./lib/appearance.js";
 import { buttonClass } from "./components/Button.js";
+
+// Joining is the first screen once per device; someone returning opens straight
+// into their workspace, so it loads on first use and stays out of every start.
+const JoinScreen = lazy(() =>
+  import("./screens/JoinScreen.js").then((module) => ({ default: module.JoinScreen })),
+);
 
 // Only the desktop app hosts, and only now and then, so its dialog loads on first use.
 const HostDialog = lazy(() =>
@@ -34,6 +39,19 @@ type Session =
       /** Set when a link to a message opened this workspace. */
       target?: { channelId: string; messageId: string } | null;
     };
+
+/** What shows while the app starts, or while a screen it needs arrives. */
+function Starting() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4">
+      <span
+        className="flex size-9 animate-spin rounded-full border-2 border-edge border-t-copper"
+        aria-hidden="true"
+      />
+      <span className="font-mono text-sm text-ink-faint">starting…</span>
+    </div>
+  );
+}
 
 /** The chosen theme and density, on the document, for every screen. */
 function Appearance() {
@@ -319,15 +337,7 @@ export function App({ platform }: { platform: Platform }) {
             </div>
           )}
           <div className="min-h-0 flex-1">
-            {session.view === "loading" && (
-              <div className="flex h-full flex-col items-center justify-center gap-4">
-                <span
-                  className="flex size-9 animate-spin rounded-full border-2 border-edge border-t-copper"
-                  aria-hidden="true"
-                />
-                <span className="font-mono text-sm text-ink-faint">starting…</span>
-              </div>
-            )}
+            {session.view === "loading" && <Starting />}
             {session.view === "restore_failed" && (
               <div className="flex h-full items-center justify-center bg-ground p-6">
                 <div className="w-full max-w-md rounded-3xl border border-edge bg-raised p-8 text-center text-ink shadow-sm">
@@ -368,29 +378,49 @@ export function App({ platform }: { platform: Platform }) {
               </div>
             )}
             {session.view === "join" && (
-              <JoinScreen
-                platform={platform}
-                savedServers={savedServers}
-                autoProbe={session.autoProbe}
-                inviteCode={session.inviteCode}
-                onConnected={(server) => {
-                  const pending = pendingTarget.current;
-                  pendingTarget.current = null;
-                  openWorkspace(
-                    server,
-                    savedServers,
-                    pending?.serverUrl === server.url
-                      ? { channelId: pending.channelId, messageId: pending.messageId }
-                      : null,
-                  );
-                }}
-                onForget={forgetServer}
-                onHostClick={platform.hosting ? () => setHostDialogOpen(true) : undefined}
-                hostingStatus={hosting.status}
-                hostingStatusError={hosting.error}
-                hostingStatusLoading={hosting.loading}
-                lastHosted={lastHosted}
-              />
+              <ErrorBoundary
+                fallback={
+                  <div
+                    role="alert"
+                    className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm"
+                  >
+                    <p>The screen for joining a workspace could not load.</p>
+                    <button
+                      type="button"
+                      className={buttonClass("primary")}
+                      onClick={() => window.location.reload()}
+                    >
+                      Reload
+                    </button>
+                  </div>
+                }
+              >
+                <Suspense fallback={<Starting />}>
+                  <JoinScreen
+                    platform={platform}
+                    savedServers={savedServers}
+                    autoProbe={session.autoProbe}
+                    inviteCode={session.inviteCode}
+                    onConnected={(server) => {
+                      const pending = pendingTarget.current;
+                      pendingTarget.current = null;
+                      openWorkspace(
+                        server,
+                        savedServers,
+                        pending?.serverUrl === server.url
+                          ? { channelId: pending.channelId, messageId: pending.messageId }
+                          : null,
+                      );
+                    }}
+                    onForget={forgetServer}
+                    onHostClick={platform.hosting ? () => setHostDialogOpen(true) : undefined}
+                    hostingStatus={hosting.status}
+                    hostingStatusError={hosting.error}
+                    hostingStatusLoading={hosting.loading}
+                    lastHosted={lastHosted}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
             {session.view === "workspace" && (
               <WorkspaceScreen

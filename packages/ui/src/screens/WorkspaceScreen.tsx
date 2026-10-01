@@ -17,7 +17,6 @@ import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
 import { QuickSwitcher } from "../components/QuickSwitcher.js";
 import { PinsPanel, SavedPanel, ThreadsPanel } from "../components/MessageListPanel.js";
-import { ProfileDialog } from "../components/ProfileDialog.js";
 import type { AccountSection } from "../components/AccountDialog.js";
 import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
@@ -25,7 +24,6 @@ import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { GettingStarted } from "../components/GettingStarted.js";
 import { LazyDialog, LazyPanel } from "../components/LazyView.js";
 import { ViewModal } from "../components/ViewModal.js";
-import { FriendsDialog } from "../components/FriendsDialog.js";
 import { Icon } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
 import { NotificationBanner } from "../components/NotificationBanner.js";
@@ -84,6 +82,12 @@ const InviteDialog = lazy(() =>
 );
 const HuddleStage = lazy(() =>
   import("../components/HuddleStage.js").then((module) => ({ default: module.HuddleStage })),
+);
+const FriendsDialog = lazy(() =>
+  import("../components/FriendsDialog.js").then((module) => ({ default: module.FriendsDialog })),
+);
+const ProfileDialog = lazy(() =>
+  import("../components/ProfileDialog.js").then((module) => ({ default: module.ProfileDialog })),
 );
 const DiagnosticsDialog = lazy(() =>
   import("../components/DiagnosticsDialog.js").then((module) => ({
@@ -1036,13 +1040,17 @@ function WorkspaceInner({
           it shows itself whenever one arrives. */}
       <ViewModal />
       {dialog.kind === "friends" && (
-        <FriendsDialog
-          onClose={closeDialog}
-          onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
-        />
+        <LazyDialog loading="Loading friends" onClose={closeDialog}>
+          <FriendsDialog
+            onClose={closeDialog}
+            onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
+          />
+        </LazyDialog>
       )}
       {dialog.kind === "profile" && (
-        <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />
+        <LazyDialog loading="Loading profile" onClose={closeDialog}>
+          <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />
+        </LazyDialog>
       )}
       {dialog.kind === "channel-details" && activeChannelId && (
         <LazyDialog loading="Loading channel details" onClose={closeDialog}>

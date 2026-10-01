@@ -43,7 +43,7 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
   - [ ] Profile join-only, hosting, tray sign-in, reconnect and renderer restore separately.
   - [ ] Capture query execution versus queue/serialization/IPC/render time.
   - [ ] Add mixed successful chat/search/file/replay workloads to existing stall probes.
-  - [ ] Choose low-spec reference hardware and budgets; keep existing 500 kB entry and 100 ms main-loop targets visible.
+  - [ ] Choose low-spec reference hardware and budgets; keep existing 500 kB entry and 100 ms main-loop targets visible. **Entry headroom restored (1 October; see the PR after #203):** the web entry had reached 493.2 kB of 500 kB. The join screen (20.8 kB), which someone returning never sees at start, and the profile (4.8 kB) and friends (3.5 kB) dialogs now load on first use, taking the entry to 465.2 kB (142.3 kB gzipped, from 150.1). React DOM is 182 kB of what remains.
   - [ ] Retain a small JSON result artifact with fixture/runtime metadata and a readable interpretation.
 
 **Done:** subsequent optimization PRs can reproduce the same successful workload and identify which stage improved. Measurement infrastructure alone is not completion of the later code-change tickets.
