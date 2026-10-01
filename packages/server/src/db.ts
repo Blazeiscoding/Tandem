@@ -513,6 +513,12 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE thread_follows ADD COLUMN unread_hold INTEGER;
   `,
+  // v34 — a channel's managers without reading every member's row. Each
+  // handshake lists the managers of every channel its reader can see, and a
+  // channel of a thousand members has one or two (OPT-13).
+  `
+  CREATE INDEX idx_channel_managers ON channel_members(channel_id, user_id) WHERE is_manager = 1;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

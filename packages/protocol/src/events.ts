@@ -123,6 +123,10 @@ export interface ReadySnapshot {
   }[];
   /** Latest message seq per channel the user belongs to, for unread badges. */
   channelLastSeq: Record<ID, number>;
+  /**
+   * Who is online. Anyone missing is offline. Servers before 1 October 2026
+   * also listed every other account as offline.
+   */
   presence: Record<ID, Presence>;
   /** Message ids this user has saved for later. */
   savedMessageIds: ID[];
