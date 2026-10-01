@@ -246,7 +246,7 @@ Each package names its owner when work starts and its PR when it merges. One ent
 
 - **REV-02** · Claude session · Not started.
 
-- **REV-11 / GL-13** · Claude session · Not started.
+- **REV-11 / GL-13** · Claude session · Implemented (the PR after #214). Pins, saves and Do Not Disturb now keep one request out per item; choices made meanwhile wait, and the latest goes as one request when it is answered, also after a refusal; a contested accepted choice is still sent once more. `destroy()` clears pending choices and channel-preference writes and refuses new ones, so a closed client sends no queued choice or correction after its replacement chooses. Covered by real-server tests that hold the first write and check the second waits, and by pin/save/snooze/preference replacement tests; all fail on the old client. Still open by design: a request already delivered before `destroy()` cannot be recalled, and cross-device ordering needs a server revision contract.
 
 - **GL-01–03 storage acknowledgement** · Unassigned · Not started.
 
