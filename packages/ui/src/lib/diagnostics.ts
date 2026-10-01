@@ -57,6 +57,14 @@ export function diagnosticsReport(input: DiagnosticsInput): string {
   ].join("\n");
 }
 
+/**
+ * The name a saved report gets: when it was taken, so several kept side by
+ * side sort by time, with nothing about the workspace or person in it.
+ */
+export function diagnosticsFileName(taken: Date): string {
+  return `gatherline-diagnostics-${taken.toISOString().slice(0, 19).replaceAll(":", "-")}Z.txt`;
+}
+
 /** A span of time, roughly: "45 s", "12 min", "3 h 5 min", "2 d 4 h". */
 function roughDuration(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
