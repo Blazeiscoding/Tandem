@@ -77,6 +77,14 @@ export const DEFAULT_LIMITS: Limits = {
  */
 export const APP_CALLS_IN_FLIGHT = { perAccount: 4, perApp: 16 };
 
+/**
+ * Capabilities handed to apps that may be alive at once (INT-01). At the
+ * `appCall` rate one account can mint 1,800 response urls in their half hour,
+ * so it is the number of accounts that left these unbounded. Past a ceiling
+ * the oldest goes; an open modal holds its whole form, so fewer of those.
+ */
+export const CAPABILITIES_ALIVE = { responseUrls: 10_000, triggers: 10_000, openViews: 2_000 };
+
 interface Bucket {
   tokens: number;
   updatedAt: number;

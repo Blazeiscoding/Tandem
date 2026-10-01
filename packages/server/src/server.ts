@@ -74,7 +74,14 @@ import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { parsePort, parsePublicUrl } from "./config.js";
 import { iceServersSchema } from "./rtc.js";
-import { APP_CALLS_IN_FLIGHT, DEFAULT_LIMITS, RateLimiter, type Limits } from "./limits.js";
+import {
+  APP_CALLS_IN_FLIGHT,
+  CAPABILITIES_ALIVE,
+  DEFAULT_LIMITS,
+  RateLimiter,
+  type Limits,
+} from "./limits.js";
+import { CapabilityMap } from "./capabilities.js";
 import { LOGGER_OPTIONS } from "./redact.js";
 import {
   firstHeaderValue,
@@ -2554,16 +2561,15 @@ async function startWorkspaceServer(
     expiresAt: number;
     usesLeft: number;
   }
-  const responseTargets = new Map<string, ResponseTarget>();
+  const responseTargets = new CapabilityMap<ResponseTarget>(CAPABILITIES_ALIVE.responseUrls);
 
   const newResponseUrl = (
     target: Omit<ResponseTarget, "expiresAt" | "usesLeft">,
     origin: string,
   ): string => {
     const now = Date.now();
-    for (const [k, v] of responseTargets) if (v.expiresAt < now) responseTargets.delete(k);
     const token = secretToken();
-    responseTargets.set(token, { ...target, expiresAt: now + 30 * 60_000, usesLeft: 5 });
+    responseTargets.set(token, { ...target, expiresAt: now + 30 * 60_000, usesLeft: 5 }, now);
     return `${origin}/api/commands/response/${token}`;
   };
 
@@ -3075,13 +3081,12 @@ async function startWorkspaceServer(
     botUserId: ID;
     expiresAt: number;
   }
-  const triggers = new Map<string, Trigger>();
+  const triggers = new CapabilityMap<Trigger>(CAPABILITIES_ALIVE.triggers);
 
   const newTrigger = (trigger: Omit<Trigger, "expiresAt">): string => {
     const now = Date.now();
-    for (const [k, v] of triggers) if (v.expiresAt < now) triggers.delete(k);
     const id = ulid();
-    triggers.set(id, { ...trigger, expiresAt: now + 3 * 60_000 });
+    triggers.set(id, { ...trigger, expiresAt: now + 3 * 60_000 }, now);
     return id;
   };
 
@@ -3094,7 +3099,7 @@ async function startWorkspaceServer(
     botUserId: ID;
     expiresAt: number;
   }
-  const openViews = new Map<ID, OpenView>();
+  const openViews = new CapabilityMap<OpenView>(CAPABILITIES_ALIVE.openViews);
 
   /**
    * Slack's views.open. The trigger_id decides who sees it, so an app cannot
@@ -3127,15 +3132,18 @@ async function startWorkspaceServer(
     }
 
     const now = Date.now();
-    for (const [k, v] of openViews) if (v.expiresAt < now) openViews.delete(k);
-    openViews.set(id, {
-      view,
-      userId: trigger.userId,
-      channelId: trigger.channelId,
-      appId: owner.id,
-      botUserId: owner.botUserId,
-      expiresAt: now + 30 * 60_000,
-    });
+    openViews.set(
+      id,
+      {
+        view,
+        userId: trigger.userId,
+        channelId: trigger.channelId,
+        appId: owner.id,
+        botUserId: owner.botUserId,
+        expiresAt: now + 30 * 60_000,
+      },
+      now,
+    );
     gateway.sendToUser(trigger.userId, { type: "view.open", view });
     return { ok: true, view: { id, callback_id: view.callbackId } };
   });
