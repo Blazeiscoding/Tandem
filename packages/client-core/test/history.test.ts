@@ -309,6 +309,19 @@ describe("timeline snapshot reconciliation", () => {
     expect(client.state.timelines[channelId]?.hasMoreNewer).toBe(true);
   });
 
+  it("opens a thread at its newest replies when the reply to open at is gone (IMP-02)", async () => {
+    const root = (await owner.sendMessage(channelId, { text: "root" })).message;
+    const first = (await owner.sendMessage(channelId, { text: "first", threadRootId: root.id }))
+      .message;
+    await owner.sendMessage(channelId, { text: "second", threadRootId: root.id });
+    await owner.deleteMessage(first.id);
+    await caughtUp();
+    await client.loadThread(root.id, channelId, "latest", first.id);
+    expect(client.state.threadPages[root.id]).toMatchObject({ loaded: true, error: null });
+    expect(client.state.threadPages[root.id]?.root?.id).toBe(root.id);
+    expect(client.state.threads[root.id]?.map((m) => m.text)).toEqual(["second"]);
+  });
+
   it("keeps an HTTP-acknowledged reply exactly once when its socket echo follows the page", async () => {
     const root = (await owner.sendMessage(channelId, { text: "root" })).message;
     await client.loadTimeline(channelId);

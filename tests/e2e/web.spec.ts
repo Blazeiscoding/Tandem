@@ -2778,3 +2778,115 @@ test("a browser refetches authenticated file bytes after access is revoked", asy
   expect((await fetchInBrowser(viewer.token)).status).toBe(404);
   expect(first.cacheControl).toBe("no-store");
 });
+
+test("a long thread left partway opens again where it was left, its newer replies unread", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const register = async (handle: string) =>
+    (await (
+      await fetch(`${base}/api/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle, displayName: handle, password: "password123" }),
+      })
+    ).json()) as { token: string; user: { id: string } };
+  const reader = await register("placereader");
+  const writer = await register("placewriter");
+  const call = async (token: string, path: string, body: unknown, method = "POST") =>
+    (
+      await fetch(`${base}${path}`, {
+        method,
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    ).json();
+  const { channel } = await call(reader.token, "/api/channels", {
+    type: "public",
+    name: "long-thread",
+    memberIds: [writer.user.id],
+  });
+  const { message: root } = await call(reader.token, `/api/channels/${channel.id}/messages`, {
+    text: "Notes from the offsite",
+  });
+  await call(reader.token, `/api/messages/${root.id}/follow`, { following: true }, "PUT");
+  const replies: { id: string }[] = [];
+  for (let n = 1; n <= 60; n++)
+    replies.push(
+      (
+        await call(writer.token, `/api/channels/${channel.id}/messages`, {
+          text: `Point ${n} from the offsite`,
+          threadRootId: root.id,
+        })
+      ).message,
+    );
+  const unread = async () =>
+    (
+      (await (
+        await fetch(`${base}/api/threads/followed`, {
+          headers: { authorization: `Bearer ${reader.token}` },
+        })
+      ).json()) as { threads: { root: { id: string }; unreadCount: number }[] }
+    ).threads.find((t) => t.root.id === root.id)?.unreadCount;
+
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  try {
+    const page = await context.newPage();
+    await page.goto(base);
+    await page.evaluate(
+      (server) => localStorage.setItem("slackoss:servers", JSON.stringify([server])),
+      {
+        url: base,
+        token: reader.token,
+        workspaceName: "Product Test",
+        handle: "placereader",
+        lastUsedAt: 1,
+      },
+    );
+    await page.goto(`${base}/#/c/${channel.id}/t/${root.id}`);
+    await page.reload();
+    const thread = page.getByRole("complementary", { name: "Thread", exact: true });
+    await expect(thread.getByText("Point 60 from the offsite", { exact: true })).toBeVisible();
+    // Opened at its newest reply, it is read.
+    await expect.poll(unread).toBe(0);
+
+    // Scrolled back so the twentieth point is at the top, then closed.
+    const twentieth = thread.locator(`[data-reply="${replies[19]!.id}"]`);
+    const offsetInPanel = () =>
+      twentieth.evaluate((reply) => {
+        const panel = reply.closest<HTMLElement>("[aria-busy]")!;
+        return reply.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+      });
+    await twentieth.evaluate((reply) => {
+      const panel = reply.closest<HTMLElement>("[aria-busy]")!;
+      panel.scrollTop += reply.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+    });
+    await expect.poll(async () => Math.abs(await offsetInPanel())).toBeLessThan(2);
+    await thread.getByRole("button", { name: "Close thread", exact: true }).click();
+    await expect(thread).toHaveCount(0);
+
+    // Three more points arrive while it is closed.
+    for (let n = 61; n <= 63; n++)
+      await call(writer.token, `/api/channels/${channel.id}/messages`, {
+        text: `Point ${n} from the offsite`,
+        threadRootId: root.id,
+      });
+    await expect.poll(unread).toBe(3);
+
+    // Opened again, it is back at the twentieth point, and the new ones stay unread.
+    const rootRow = page.locator(`[data-mid="${root.id}"]`);
+    await rootRow.hover();
+    await rootRow.getByRole("button", { name: "Reply in thread", exact: true }).click();
+    await expect(twentieth).toBeVisible();
+    await expect.poll(async () => Math.abs(await offsetInPanel())).toBeLessThan(2);
+    await page.waitForTimeout(1_000);
+    expect(await unread()).toBe(3);
+
+    // Going to the newest reads them.
+    await thread.getByRole("button", { name: "Jump to latest", exact: true }).click();
+    await expect(thread.getByText("Point 63 from the offsite", { exact: true })).toBeVisible();
+    await expect.poll(unread).toBe(0);
+  } finally {
+    await context.close().catch(() => {});
+  }
+});
