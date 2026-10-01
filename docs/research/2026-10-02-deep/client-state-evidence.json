@@ -1,0 +1,77 @@
+{
+  "sourceRevision": "a285ee6c8a67e93db01ef2d9046493ea0572a34c",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32"
+  },
+  "scope": "Current production source, in-memory real HTTP/WebSocket server; no comparative latency measurement.",
+  "observations": [
+    {
+      "name": "unrelated_thread_cache_references",
+      "transport": "real HTTP and WebSocket",
+      "rows": [
+        {
+          "rootId": "01M3WP2MGK26QW2HDHB71WA7BF",
+          "repliesReferenceChanged": true,
+          "pageReferenceChanged": true,
+          "repliesContentUnchanged": true
+        },
+        {
+          "rootId": "01M3WP2MGW5Z2BPZ7PVHVYAKNW",
+          "repliesReferenceChanged": true,
+          "pageReferenceChanged": true,
+          "repliesContentUnchanged": true
+        }
+      ]
+    },
+    {
+      "name": "duplicate_history_and_destroy_signals",
+      "equivalentRequests": 2,
+      "abortedAtDestroy": [false, false],
+      "responsesDeliveredAfterDestroy": 2,
+      "lateResponseInstalled": false,
+      "limitation": "Real HTTP response acquired before a delivery gate; verifies caller signals and late-response guards, not wasted body-transfer bytes."
+    },
+    {
+      "name": "ephemeral_growth",
+      "transport": "real gateway sender and reader socket; no external command service",
+      "uniqueFrames": 1000,
+      "repeatedFrames": 5,
+      "retainedItems": 1005,
+      "retainedTextUtf8Bytes": 1031130,
+      "duplicateIdRows": 6,
+      "limitation": "Injected at production gateway's private-response boundary; no end-to-end slash-command provider call or renderer memory timing."
+    },
+    {
+      "name": "choice_overlap_and_post_destroy_repair",
+      "transport": "real writes; first pin delayed before forwarding",
+      "observedBeforeFirstReleased": {
+        "pinCalls": 1,
+        "unpinCalls": 1,
+        "stopped": false
+      },
+      "totalPinCalls": 1,
+      "totalUnpinCalls": 2,
+      "repairRequestAfterDestroy": true,
+      "serverEndsPinned": false,
+      "limitation": "Intentional API forwarding gate; confirms lifecycle/concurrency boundary, not an ordinary final-state convergence failure or an auth bypass."
+    },
+    {
+      "name": "destroyed_choice_overrides_replacement_intent",
+      "transport": "same account/token, real replacement connection and real HTTP writes; first old write gated before forwarding",
+      "replacementPinnedBeforeRelease": true,
+      "serverPinnedAfterOldRepair": false,
+      "replacementShowsPinnedAfterOldRepair": false,
+      "oldPinCalls": 1,
+      "oldUnpinCalls": 2,
+      "limitation": "Account token intentionally stays valid across workspace close/reopen; no logout or authorization bypass."
+    },
+    {
+      "name": "logout_revocation_control",
+      "realLogout": true,
+      "postDestroyRepairAttempts": 1,
+      "serverPinPreserved": true,
+      "interpretation": "Callback still tries a repair after logout, but server session revocation rejects it; no auth bypass."
+    }
+  ]
+}

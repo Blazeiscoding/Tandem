@@ -1,0 +1,15 @@
+AUDIT {"phase":"ready","mode":"schedule_immediate_failure","port":50084,"scheduledStatus":"queued"}
+AUDIT {"phase":"armed","trigger":"production setImmediate after full successful batch","directEntryReturned":true,"firstScheduleStatus":"sent"}
+
+--- STDERR ---
+F:\personal\MaybeProducts\SlackOSS\docs\research\2026-10-02-deep\server-probes.mts:116
+        if (++calls === 2) throw new Error("AUDIT_NATIVE_SCHEDULE_IMMEDIATE_READ_FAILURE");
+                           ^
+
+Error: AUDIT_NATIVE_SCHEDULE_IMMEDIATE_READ_FAILURE
+    at Store.server.store.dueScheduled (F:\personal\MaybeProducts\SlackOSS\docs\research\2026-10-02-deep\server-probes.mts:116:34)
+    at flushScheduled (F:\personal\MaybeProducts\SlackOSS\packages\server\src\server.ts:4033:23)
+    at Immediate.<anonymous> (F:\personal\MaybeProducts\SlackOSS\packages\server\src\server.ts:4079:9)
+    at process.processImmediate (node:internal/timers:504:21)
+
+Node.js v24.16.0

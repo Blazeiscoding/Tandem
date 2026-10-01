@@ -1,0 +1,50 @@
+{
+  "capturedAt": "2026-10-01T21:50:34.444Z",
+  "sourceRevision": "a285ee6c8a67e93db01ef2d9046493ea0572a34c",
+  "scope": "Minimal synthetic desktop fixture with the current files:[out/**,package.json] policy and a linked workspace production dependency. No actual workspace data or source is copied. This validates collector behavior, not a fresh full Gatherline package.",
+  "electronBuilderVersion": "26.15.3",
+  "electronVersion": "44.1.0",
+  "syntheticFileResults": [
+    {
+      "path": "data/workspace.db",
+      "included": true
+    },
+    {
+      "path": "data/workspace.db-wal",
+      "included": true
+    },
+    {
+      "path": "data/workspace.db-shm",
+      "included": true
+    },
+    {
+      "path": "data/files/synthetic-attachment",
+      "included": true
+    },
+    {
+      "path": ".turbo/turbo-test.log",
+      "included": true
+    }
+  ],
+  "archiveEntries": [
+    "node_modules",
+    "node_modules/@slackoss",
+    "node_modules/@slackoss/server",
+    "node_modules/@slackoss/server/.turbo",
+    "node_modules/@slackoss/server/.turbo/turbo-test.log",
+    "node_modules/@slackoss/server/data",
+    "node_modules/@slackoss/server/data/files",
+    "node_modules/@slackoss/server/data/files/synthetic-attachment",
+    "node_modules/@slackoss/server/data/workspace.db",
+    "node_modules/@slackoss/server/data/workspace.db-shm",
+    "node_modules/@slackoss/server/data/workspace.db-wal",
+    "node_modules/@slackoss/server/package.json",
+    "node_modules/@slackoss/server/src",
+    "node_modules/@slackoss/server/src/index.ts",
+    "out",
+    "out/main",
+    "out/main/index.js",
+    "package.json"
+  ],
+  "disposableDataCleaned": true
+}

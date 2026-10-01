@@ -1,0 +1,1267 @@
+{
+  "mode": "inventory",
+  "capturedAt": "2026-10-01T21:51:39.692Z",
+  "sourceRevision": "a285ee6c8a67e93db01ef2d9046493ea0572a34c",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32",
+    "release": "10.0.26300",
+    "architecture": "x64"
+  },
+  "hardware": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-12400F",
+    "logicalProcessors": 12,
+    "memoryBytes": 17010511872
+  },
+  "backupWorker": {
+    "entry": "apps/desktop/out/main/backupWorker-D4F1Wtjj.js",
+    "bundledModuleBytes": 684998,
+    "modules": [
+      {
+        "path": "apps/desktop/out/main/backupWorker-D4F1Wtjj.js",
+        "bytes": 1161,
+        "sha256": "67b3a2ca1b0b88382c24ae09deabf417ca8fb08f8e5f948d1f971f412e38a174",
+        "imports": [
+          "node:worker_threads",
+          "node:path",
+          "node:crypto",
+          "node:fs",
+          "node:perf_hooks",
+          "node:fs/promises",
+          "node:stream",
+          "node:stream/promises",
+          "fastify",
+          "@fastify/cors",
+          "./backup-DRAaASg9.js",
+          "zod",
+          "node:sqlite",
+          "node:url",
+          "node:os",
+          "ws",
+          "node:net",
+          "bonjour-service",
+          "node:dns",
+          "node:http",
+          "node:https"
+        ],
+        "dynamicImports": []
+      },
+      {
+        "path": "apps/desktop/out/main/backup-DRAaASg9.js",
+        "bytes": 683837,
+        "sha256": "31754f839a4dd3566986b2e086d06db450de75a35f66268ee16e219ba9942898",
+        "imports": [
+          "node:crypto",
+          "node:fs",
+          "node:fs/promises",
+          "node:path",
+          "node:sqlite",
+          "zod",
+          "node:url",
+          "node:os",
+          "node:perf_hooks",
+          "node:stream",
+          "node:stream/promises",
+          "fastify",
+          "@fastify/cors",
+          "node:events",
+          "node:string_decoder",
+          "fs",
+          "node:util",
+          "path",
+          "ws",
+          "node:net",
+          "bonjour-service",
+          "node:dns",
+          "node:http",
+          "node:https",
+          "node:module"
+        ],
+        "dynamicImports": []
+      }
+    ],
+    "externalImports": [
+      "@fastify/cors",
+      "bonjour-service",
+      "fastify",
+      "fs",
+      "node:crypto",
+      "node:dns",
+      "node:events",
+      "node:fs",
+      "node:fs/promises",
+      "node:http",
+      "node:https",
+      "node:module",
+      "node:net",
+      "node:os",
+      "node:path",
+      "node:perf_hooks",
+      "node:sqlite",
+      "node:stream",
+      "node:stream/promises",
+      "node:string_decoder",
+      "node:url",
+      "node:util",
+      "node:worker_threads",
+      "path",
+      "ws",
+      "zod"
+    ]
+  },
+  "ipcHandlers": [
+    {
+      "channel": "file:download",
+      "line": 65
+    },
+    {
+      "channel": "window:reveal",
+      "line": 141
+    },
+    {
+      "channel": "deeplink:consume",
+      "line": 146
+    },
+    {
+      "channel": "storage:get",
+      "line": 165
+    },
+    {
+      "channel": "storage:set",
+      "line": 170
+    },
+    {
+      "channel": "storage:mergeOutbox",
+      "line": 174
+    },
+    {
+      "channel": "storage:mergeDrafts",
+      "line": 187
+    },
+    {
+      "channel": "lan:snapshot",
+      "line": 254
+    },
+    {
+      "channel": "hosting:status",
+      "line": 450
+    },
+    {
+      "channel": "hosting:lastHosted",
+      "line": 453
+    },
+    {
+      "channel": "hosting:list",
+      "line": 454
+    },
+    {
+      "channel": "hosting:forget",
+      "line": 455
+    },
+    {
+      "channel": "hosting:rename",
+      "line": 456
+    },
+    {
+      "channel": "hosting:openFolder",
+      "line": 458
+    },
+    {
+      "channel": "hosting:setPort",
+      "line": 459
+    },
+    {
+      "channel": "hosting:setAutoBackup",
+      "line": 465
+    },
+    {
+      "channel": "hosting:runDueBackups",
+      "line": 496
+    },
+    {
+      "channel": "hosting:setReopenPublicOnLaunch",
+      "line": 497
+    },
+    {
+      "channel": "hosting:setStartOnLaunch",
+      "line": 500
+    },
+    {
+      "channel": "hosting:dismissLaunchError",
+      "line": 503
+    },
+    {
+      "channel": "hosting:openAtLogin",
+      "line": 526
+    },
+    {
+      "channel": "hosting:setOpenAtLogin",
+      "line": 527
+    },
+    {
+      "channel": "hosting:restore",
+      "line": 567
+    },
+    {
+      "channel": "hosting:backup",
+      "line": 581
+    },
+    {
+      "channel": "hosting:start",
+      "line": 596
+    },
+    {
+      "channel": "hosting:stop",
+      "line": 603
+    },
+    {
+      "channel": "hosting:openToAll",
+      "line": 604
+    },
+    {
+      "channel": "hosting:endOpenToAll",
+      "line": 609
+    },
+    {
+      "channel": "hosting:setInviteOnly",
+      "line": 613
+    },
+    {
+      "channel": "hosting:setPublicAddress",
+      "line": 617
+    }
+  ],
+  "lifecycleHooks": {
+    "render-process-gone": false,
+    "did-fail-load": false,
+    "unresponsive": false,
+    "ready-to-show": false,
+    "before-quit": true,
+    "will-navigate": true,
+    "will-frame-navigate": false,
+    "will-redirect": false,
+    "shutdown": false
+  },
+  "artifactIdentity": {
+    "apps/desktop/out": {
+      "recognizedIdentityFiles": []
+    },
+    "apps/web/dist": {
+      "recognizedIdentityFiles": []
+    },
+    "apps/server-cli/dist": {
+      "recognizedIdentityFiles": []
+    },
+    "apps/desktop/release/win-unpacked": {
+      "recognizedIdentityFiles": []
+    }
+  },
+  "existingPackagedArchive": {
+    "note": "Existing local archive; no artifact revision stamp means source freshness is unverified",
+    "bytes": 17911024,
+    "sha256": "5a194ae0733f7ab54adfe4e77cd656f5ab0039676b69534f12ff8cb513a55807",
+    "logicalFileBytes": 22245504,
+    "packageCount": 83,
+    "packages": [
+      {
+        "name": "zod",
+        "bytes": 5429652,
+        "files": 704
+      },
+      {
+        "name": "@slackoss/server",
+        "bytes": 4911824,
+        "files": 35
+      },
+      {
+        "name": "lru-cache",
+        "bytes": 2360076,
+        "files": 70
+      },
+      {
+        "name": "glob",
+        "bytes": 1500279,
+        "files": 50
+      },
+      {
+        "name": "ajv",
+        "bytes": 1004070,
+        "files": 373
+      },
+      {
+        "name": "fastify",
+        "bytes": 974259,
+        "files": 92
+      },
+      {
+        "name": "@slackoss/ui",
+        "bytes": 842871,
+        "files": 93
+      },
+      {
+        "name": "minimatch",
+        "bytes": 495119,
+        "files": 40
+      },
+      {
+        "name": "path-scurry",
+        "bytes": 433757,
+        "files": 10
+      },
+      {
+        "name": "minipass",
+        "bytes": 300446,
+        "files": 10
+      },
+      {
+        "name": "pino",
+        "bytes": 293871,
+        "files": 63
+      },
+      {
+        "name": "@slackoss/client-core",
+        "bytes": 186635,
+        "files": 13
+      },
+      {
+        "name": "ws",
+        "bytes": 135179,
+        "files": 18
+      },
+      {
+        "name": "fast-json-stringify",
+        "bytes": 111237,
+        "files": 16
+      },
+      {
+        "name": "fast-uri",
+        "bytes": 98947,
+        "files": 16
+      },
+      {
+        "name": "find-my-way",
+        "bytes": 81109,
+        "files": 19
+      },
+      {
+        "name": "brace-expansion",
+        "bytes": 80861,
+        "files": 10
+      },
+      {
+        "name": "semver",
+        "bytes": 75083,
+        "files": 52
+      },
+      {
+        "name": "light-my-request",
+        "bytes": 68564,
+        "files": 19
+      },
+      {
+        "name": "@fastify/busboy",
+        "bytes": 66934,
+        "files": 17
+      },
+      {
+        "name": "zustand",
+        "bytes": 62178,
+        "files": 35
+      },
+      {
+        "name": "bonjour-service",
+        "bytes": 61217,
+        "files": 29
+      },
+      {
+        "name": "ret",
+        "bytes": 54918,
+        "files": 24
+      },
+      {
+        "name": "dns-packet",
+        "bytes": 53568,
+        "files": 8
+      },
+      {
+        "name": "ajv-formats",
+        "bytes": 48319,
+        "files": 11
+      },
+      {
+        "name": "@slackoss/protocol",
+        "bytes": 47761,
+        "files": 13
+      },
+      {
+        "name": "@fastify/send",
+        "bytes": 45802,
+        "files": 21
+      },
+      {
+        "name": "@fastify/static",
+        "bytes": 43371,
+        "files": 7
+      },
+      {
+        "name": "mime",
+        "bytes": 41613,
+        "files": 8
+      },
+      {
+        "name": "toad-cache",
+        "bytes": 41182,
+        "files": 5
+      },
+      {
+        "name": "cookie",
+        "bytes": 40832,
+        "files": 4
+      },
+      {
+        "name": "ipaddr.js",
+        "bytes": 39705,
+        "files": 3
+      },
+      {
+        "name": "content-disposition",
+        "bytes": 39293,
+        "files": 4
+      },
+      {
+        "name": "avvio",
+        "bytes": 34401,
+        "files": 17
+      },
+      {
+        "name": "@fastify/multipart",
+        "bytes": 32626,
+        "files": 13
+      },
+      {
+        "name": "thread-stream",
+        "bytes": 31523,
+        "files": 13
+      },
+      {
+        "name": "@fastify/cors",
+        "bytes": 28272,
+        "files": 10
+      },
+      {
+        "name": "@pinojs/redact",
+        "bytes": 22976,
+        "files": 8
+      },
+      {
+        "name": "sonic-boom",
+        "bytes": 22763,
+        "files": 10
+      },
+      {
+        "name": "safe-stable-stringify",
+        "bytes": 22269,
+        "files": 5
+      },
+      {
+        "name": "@fastify/ajv-compiler",
+        "bytes": 17435,
+        "files": 10
+      },
+      {
+        "name": "@fastify/merge-json-schemas",
+        "bytes": 17054,
+        "files": 7
+      },
+      {
+        "name": "multicast-dns",
+        "bytes": 16969,
+        "files": 6
+      },
+      {
+        "name": "depd",
+        "bytes": 16630,
+        "files": 5
+      },
+      {
+        "name": "json-schema-traverse",
+        "bytes": 16362,
+        "files": 7
+      },
+      {
+        "name": "secure-json-parse",
+        "bytes": 15665,
+        "files": 12
+      },
+      {
+        "name": "@fastify/proxy-addr",
+        "bytes": 15606,
+        "files": 9
+      },
+      {
+        "name": "@leichtgewicht/ip-codec",
+        "bytes": 15004,
+        "files": 4
+      },
+      {
+        "name": "balanced-match",
+        "bytes": 14677,
+        "files": 10
+      },
+      {
+        "name": "split2",
+        "bytes": 13579,
+        "files": 5
+      },
+      {
+        "name": "fastify-plugin",
+        "bytes": 13135,
+        "files": 9
+      },
+      {
+        "name": "http-errors",
+        "bytes": 12625,
+        "files": 4
+      },
+      {
+        "name": "pino-std-serializers",
+        "bytes": 12390,
+        "files": 12
+      },
+      {
+        "name": "@fastify/error",
+        "bytes": 11643,
+        "files": 9
+      },
+      {
+        "name": "json-schema-ref-resolver",
+        "bytes": 11289,
+        "files": 5
+      },
+      {
+        "name": "fastq",
+        "bytes": 10898,
+        "files": 8
+      },
+      {
+        "name": "fast-querystring",
+        "bytes": 10170,
+        "files": 6
+      },
+      {
+        "name": "process-warning",
+        "bytes": 10114,
+        "files": 6
+      },
+      {
+        "name": "dequal",
+        "bytes": 9429,
+        "files": 8
+      },
+      {
+        "name": "set-cookie-parser",
+        "bytes": 8855,
+        "files": 3
+      },
+      {
+        "name": "fast-deep-equal",
+        "bytes": 8600,
+        "files": 6
+      },
+      {
+        "name": "rfdc",
+        "bytes": 8166,
+        "files": 5
+      },
+      {
+        "name": "@fastify/fast-json-stringify-compiler",
+        "bytes": 7970,
+        "files": 6
+      },
+      {
+        "name": "statuses",
+        "bytes": 7873,
+        "files": 5
+      },
+      {
+        "name": "@fastify/deepmerge",
+        "bytes": 7125,
+        "files": 3
+      },
+      {
+        "name": "fast-decode-uri-component",
+        "bytes": 6893,
+        "files": 5
+      },
+      {
+        "name": "reusify",
+        "bytes": 6026,
+        "files": 10
+      },
+      {
+        "name": "safe-regex2",
+        "bytes": 5829,
+        "files": 6
+      },
+      {
+        "name": "@fastify/accept-negotiator",
+        "bytes": 5798,
+        "files": 3
+      },
+      {
+        "name": "@lukeed/ms",
+        "bytes": 5300,
+        "files": 5
+      },
+      {
+        "name": "thunky",
+        "bytes": 5005,
+        "files": 5
+      },
+      {
+        "name": "quick-format-unescaped",
+        "bytes": 4897,
+        "files": 4
+      },
+      {
+        "name": "pino-abstract-transport",
+        "bytes": 4883,
+        "files": 3
+      },
+      {
+        "name": "atomic-sleep",
+        "bytes": 4472,
+        "files": 4
+      },
+      {
+        "name": "on-exit-leak-free",
+        "bytes": 3618,
+        "files": 3
+      },
+      {
+        "name": "@fastify/forwarded",
+        "bytes": 3330,
+        "files": 3
+      },
+      {
+        "name": "escape-html",
+        "bytes": 2832,
+        "files": 3
+      },
+      {
+        "name": "require-from-string",
+        "bytes": 2436,
+        "files": 3
+      },
+      {
+        "name": "toidentifier",
+        "bytes": 2422,
+        "files": 4
+      },
+      {
+        "name": "real-require",
+        "bytes": 2273,
+        "files": 3
+      },
+      {
+        "name": "inherits",
+        "bytes": 2146,
+        "files": 4
+      },
+      {
+        "name": "setprototypeof",
+        "bytes": 1585,
+        "files": 3
+      },
+      {
+        "name": "abstract-logging",
+        "bytes": 1028,
+        "files": 3
+      }
+    ],
+    "unexpectedRuntimeFiles": [
+      {
+        "path": "node_modules/@slackoss/client-core/.turbo/turbo-test.log",
+        "bytes": 4156
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/.turbo/turbo-typecheck.log",
+        "bytes": 113
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/.turbo/turbo-test.log",
+        "bytes": 477
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/.turbo/turbo-typecheck.log",
+        "bytes": 107
+      },
+      {
+        "path": "node_modules/@slackoss/server/.turbo/turbo-test.log",
+        "bytes": 7661
+      },
+      {
+        "path": "node_modules/@slackoss/server/.turbo/turbo-typecheck.log",
+        "bytes": 103
+      },
+      {
+        "path": "node_modules/@slackoss/server/data/files/01M1C6KTKHXSGNE6YRW7PV5CTT",
+        "bytes": 83961
+      },
+      {
+        "path": "node_modules/@slackoss/server/data/files/01M1C6N2M74QDE8Y4B0X1PFJHC",
+        "bytes": 34
+      },
+      {
+        "path": "node_modules/@slackoss/server/data/workspace.db",
+        "bytes": 200704
+      },
+      {
+        "path": "node_modules/@slackoss/server/data/workspace.db-shm",
+        "bytes": 32768
+      },
+      {
+        "path": "node_modules/@slackoss/server/data/workspace.db-wal",
+        "bytes": 4144752
+      },
+      {
+        "path": "node_modules/@slackoss/ui/.turbo/turbo-test.log",
+        "bytes": 14145
+      },
+      {
+        "path": "node_modules/@slackoss/ui/.turbo/turbo-typecheck.log",
+        "bytes": 95
+      }
+    ],
+    "workspaceSources": [
+      {
+        "path": "node_modules/@slackoss/client-core/src/api.ts",
+        "bytes": 24127
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/src/capture.ts",
+        "bytes": 2824
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/src/drafts.ts",
+        "bytes": 3741
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/src/fileCache.ts",
+        "bytes": 5148
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/src/huddle.ts",
+        "bytes": 25155
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/src/index.ts",
+        "bytes": 1281
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/src/notify.ts",
+        "bytes": 5319
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/src/outbox.ts",
+        "bytes": 8829
+      },
+      {
+        "path": "node_modules/@slackoss/client-core/src/workspace.ts",
+        "bytes": 105290
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/discovery.ts",
+        "bytes": 1950
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/entities.ts",
+        "bytes": 13740
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/events.ts",
+        "bytes": 7014
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/format.ts",
+        "bytes": 1638
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/huddle.ts",
+        "bytes": 1681
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/index.ts",
+        "bytes": 240
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/permissions.ts",
+        "bytes": 1983
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/rest.ts",
+        "bytes": 10898
+      },
+      {
+        "path": "node_modules/@slackoss/protocol/src/search.ts",
+        "bytes": 7513
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/auth.ts",
+        "bytes": 1109
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/backup.ts",
+        "bytes": 20750
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/blockKit.ts",
+        "bytes": 8450
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/capabilities.ts",
+        "bytes": 1632
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/commands.ts",
+        "bytes": 1251
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/config.ts",
+        "bytes": 3996
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/db.ts",
+        "bytes": 30788
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/gateway.ts",
+        "bytes": 17866
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/ids.ts",
+        "bytes": 820
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/imageSize.ts",
+        "bytes": 2247
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/index.ts",
+        "bytes": 568
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/integrations.ts",
+        "bytes": 4690
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/limits.ts",
+        "bytes": 6299
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/main.ts",
+        "bytes": 18338
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/mdns.ts",
+        "bytes": 843
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/netTrust.ts",
+        "bytes": 4523
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/outbound.ts",
+        "bytes": 9174
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/ownership.ts",
+        "bytes": 5135
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/recover.ts",
+        "bytes": 4344
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/redact.ts",
+        "bytes": 3466
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/rtc.ts",
+        "bytes": 648
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/securityHeaders.ts",
+        "bytes": 2702
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/server.ts",
+        "bytes": 163529
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/socketSchema.ts",
+        "bytes": 1256
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/storageBudget.ts",
+        "bytes": 1787
+      },
+      {
+        "path": "node_modules/@slackoss/server/src/store.ts",
+        "bytes": 124718
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/App.tsx",
+        "bytes": 20423
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/AccountDialog.tsx",
+        "bytes": 30524
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ActivityPanel.tsx",
+        "bytes": 8803
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/AppsDialog.tsx",
+        "bytes": 24261
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Attachments.tsx",
+        "bytes": 13244
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/AuditHistory.tsx",
+        "bytes": 9004
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Avatar.tsx",
+        "bytes": 946
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Button.tsx",
+        "bytes": 1638
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ChannelDetailsDialog.tsx",
+        "bytes": 27571
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Composer.tsx",
+        "bytes": 39223
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Confirm.tsx",
+        "bytes": 5017
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/DiagnosticsDialog.tsx",
+        "bytes": 5433
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Dialog.tsx",
+        "bytes": 1495
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/DraftPersistence.tsx",
+        "bytes": 21461
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ErrorBoundary.tsx",
+        "bytes": 2207
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/FormattingToolbar.tsx",
+        "bytes": 7224
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/FriendsDialog.tsx",
+        "bytes": 5888
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/GettingStarted.tsx",
+        "bytes": 5725
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/HostDialog.tsx",
+        "bytes": 74703
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/HuddleAudio.tsx",
+        "bytes": 4432
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/HuddleBar.tsx",
+        "bytes": 6627
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/HuddleControls.tsx",
+        "bytes": 5048
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/HuddleStage.tsx",
+        "bytes": 24721
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Icon.tsx",
+        "bytes": 5209
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/LazyView.tsx",
+        "bytes": 2423
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ListStatus.tsx",
+        "bytes": 4997
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Menu.tsx",
+        "bytes": 7906
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/MessageAnnouncer.tsx",
+        "bytes": 2997
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/MessageEditor.tsx",
+        "bytes": 9334
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/MessageItem.tsx",
+        "bytes": 18764
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/MessageListPanel.tsx",
+        "bytes": 12605
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/MessageTimeline.tsx",
+        "bytes": 23839
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/MicrophoneCheck.tsx",
+        "bytes": 3373
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Modal.tsx",
+        "bytes": 10369
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Mrkdwn.tsx",
+        "bytes": 10065
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/NotificationBanner.tsx",
+        "bytes": 2976
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/PeopleDialog.tsx",
+        "bytes": 16532
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ProfileDialog.tsx",
+        "bytes": 8148
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/QuickSwitcher.tsx",
+        "bytes": 6149
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ReactionPicker.tsx",
+        "bytes": 2254
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ScheduledPanel.tsx",
+        "bytes": 18937
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/SearchDialog.tsx",
+        "bytes": 16759
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ShareableServer.tsx",
+        "bytes": 4847
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ShortcutsDialog.tsx",
+        "bytes": 4007
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Sidebar.tsx",
+        "bytes": 20507
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ThreadPanel.tsx",
+        "bytes": 10430
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Toast.tsx",
+        "bytes": 9877
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/Tooltip.tsx",
+        "bytes": 12061
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/ViewModal.tsx",
+        "bytes": 6433
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/WorkspaceStorageGate.tsx",
+        "bytes": 6584
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/components/dialogs.tsx",
+        "bytes": 19479
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/context.ts",
+        "bytes": 1224
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/index.ts",
+        "bytes": 263
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/account.ts",
+        "bytes": 2258
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/accountSections.ts",
+        "bytes": 444
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/appearance.ts",
+        "bytes": 2873
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/callPreferences.ts",
+        "bytes": 1824
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/composerPreferences.ts",
+        "bytes": 1942
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/connection.ts",
+        "bytes": 2561
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/deeplink.ts",
+        "bytes": 7618
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/deeplinkHelpers.ts",
+        "bytes": 401
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/diagnostics.ts",
+        "bytes": 5019
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/emoji.ts",
+        "bytes": 1909
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/format.ts",
+        "bytes": 2743
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/historyKeys.ts",
+        "bytes": 1028
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/hosting.ts",
+        "bytes": 2472
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/huddleView.ts",
+        "bytes": 475
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/lastConversation.ts",
+        "bytes": 2201
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/messageReferences.ts",
+        "bytes": 3328
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/recentSearches.ts",
+        "bytes": 3568
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/resume.ts",
+        "bytes": 2023
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/route.ts",
+        "bytes": 9380
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/savedServers.ts",
+        "bytes": 1138
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/schedule.ts",
+        "bytes": 2353
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/snooze.ts",
+        "bytes": 869
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/textInput.ts",
+        "bytes": 3295
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/useCopy.ts",
+        "bytes": 2893
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/useListbox.ts",
+        "bytes": 2457
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/useMediaQuery.ts",
+        "bytes": 640
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/usePanelFocus.ts",
+        "bytes": 2797
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/useRovingMessages.ts",
+        "bytes": 4047
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/useTabs.ts",
+        "bytes": 2635
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/workspaceAddressTrust.ts",
+        "bytes": 4069
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/lib/workspaceStorage.ts",
+        "bytes": 13484
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/platform.ts",
+        "bytes": 16892
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/screens/JoinScreen.tsx",
+        "bytes": 36940
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/screens/WorkspaceScreen.tsx",
+        "bytes": 43316
+      },
+      {
+        "path": "node_modules/@slackoss/ui/src/theme.css",
+        "bytes": 10175
+      }
+    ]
+  }
+}

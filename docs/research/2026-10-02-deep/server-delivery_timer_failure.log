@@ -1,0 +1,17 @@
+AUDIT {"phase":"ready","mode":"delivery_timer_failure","port":50082,"scheduledStatus":"queued"}
+AUDIT {"phase":"armed","trigger":"unaltered production 5000ms interval","injection":"Store.dueEventDeliveries throws"}
+
+--- STDERR ---
+F:\personal\MaybeProducts\SlackOSS\docs\research\2026-10-02-deep\server-probes.mts:109
+      server.store.dueEventDeliveries = () => { throw new Error("AUDIT_NATIVE_DELIVERY_TIMER_READ_FAILURE"); };
+                                                      ^
+
+Error: AUDIT_NATIVE_DELIVERY_TIMER_READ_FAILURE
+    at Store.server.store.dueEventDeliveries (F:\personal\MaybeProducts\SlackOSS\docs\research\2026-10-02-deep\server-probes.mts:109:55)
+    at <anonymous> (F:\personal\MaybeProducts\SlackOSS\packages\server\src\server.ts:733:27)
+    at flushEventDeliveries (F:\personal\MaybeProducts\SlackOSS\packages\server\src\server.ts:798:5)
+    at Timeout._onTimeout (F:\personal\MaybeProducts\SlackOSS\packages\server\src\server.ts:4092:53)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+
+Node.js v24.16.0

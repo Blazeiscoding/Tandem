@@ -1,0 +1,3 @@
+AUDIT {"phase":"result","mode":"deletion_publication","amplification":{"http":200,"deletedMessages":21,"members":50,"liveUsers":0,"countCalls":1050,"publications":21},"postCommitFailure":{"injection":"Store.unreadMentionCounts throws after committed deletion","failedHttp":500,"deletedDespiteFailure":true,"durableDeletionEvents":21,"retryHttp":404}}
+
+--- STDERR ---
