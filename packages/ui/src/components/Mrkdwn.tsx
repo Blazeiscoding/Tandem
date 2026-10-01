@@ -1,8 +1,10 @@
 import { Fragment, useContext, type ReactNode } from "react";
 import { broadcastLabel, type ID, type User } from "@slackoss/protocol";
 import type { Channel } from "@slackoss/protocol";
-import { OpenMessageContext } from "../context.js";
+import { ClientContext, OpenMessageContext } from "../context.js";
 import { parseDeepLink } from "../lib/deeplink.js";
+import { normalizeServerUrlSafe } from "../lib/deeplinkHelpers.js";
+import { useWorkspaceAddresses } from "./ShareableServer.js";
 
 interface Props {
   text: string;
@@ -26,6 +28,10 @@ export function Mrkdwn({
   highlightTerms = [],
 }: Props) {
   const openMessage = useContext(OpenMessageContext);
+  const known = useWorkspaceAddresses();
+  const baseUrl = useContext(ClientContext)?.baseUrl;
+  const connected = baseUrl ? normalizeServerUrlSafe(baseUrl) : null;
+  const ours = (serverUrl: string) => (known ? known.has(serverUrl) : serverUrl === connected);
   const blocks = text.split(/```/);
   const terms = [...new Set(highlightTerms.filter((term) => term.trim().length > 0))].sort(
     (a, b) => b.length - a.length,
@@ -67,6 +73,7 @@ export function Mrkdwn({
               selfId,
               onChannelClick,
               openMessage,
+              ours,
               highlight,
             })}
           </Fragment>
@@ -97,6 +104,8 @@ function renderInline(
   text: string,
   ctx: Pick<Props, "users" | "channels" | "selfId" | "onChannelClick"> & {
     openMessage?: ((channelId: ID, messageId: ID) => void) | null;
+    /** Whether an address is this workspace's; only its links open here. */
+    ours?: (serverUrl: string) => boolean;
     highlight: (value: string) => ReactNode;
   },
 ): ReactNode[] {
@@ -169,11 +178,16 @@ function renderInline(
     } else if (m[9]) {
       // A link to a message in this workspace opens it here, instead of in a
       // new window of the app. A click asking for a new tab or window still
-      // gets one.
+      // gets one. Only a link to an address this workspace is known by:
+      // another server can hold the same ids, as a restored copy of this
+      // workspace does, and its link goes where it says.
       const link = parseDeepLink(tok);
       const { openMessage } = ctx;
       const openHere =
-        openMessage && link?.kind === "message" && ctx.channels[link.channelId]
+        openMessage &&
+        link?.kind === "message" &&
+        !!ctx.ours?.(link.serverUrl) &&
+        ctx.channels[link.channelId]
           ? (event: React.MouseEvent) => {
               if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
               event.preventDefault();

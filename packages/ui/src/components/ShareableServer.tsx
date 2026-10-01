@@ -2,9 +2,12 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import { isLoopbackUrl, shareableServer, type ShareableServer } from "../lib/deeplink.js";
+import { normalizeServerUrlSafe } from "../lib/deeplinkHelpers.js";
 import { useHostingStatus } from "../lib/hosting.js";
+import { trustedWorkspaceAddresses } from "../lib/workspaceAddressTrust.js";
 
 const ShareableServerContext = createContext<ShareableServer | null>(null);
+const WorkspaceAddressesContext = createContext<ReadonlySet<string> | null>(null);
 
 /**
  * Works out, for the workspace on screen, which address the links people copy
@@ -63,11 +66,52 @@ export function ShareableServerProvider(props: { platform: Platform; children: R
     () => shareableServer({ baseUrl: client.baseUrl, publicUrl, hosting: hosting.status }),
     [client.baseUrl, publicUrl, hosting.status],
   );
+
+  // Addresses this device has linked to the workspace, read once it is known.
+  const workspaceId = useWorkspace((s) => s.workspaceId);
+  const selfId = useWorkspace((s) => s.self?.id);
+  const [linked, setLinked] = useState<string[]>([]);
+  useEffect(() => {
+    setLinked([]);
+    if (!workspaceId || !selfId) return;
+    let live = true;
+    void trustedWorkspaceAddresses(props.platform, workspaceId, selfId).then((addresses) => {
+      if (live) setLinked(addresses);
+    });
+    return () => {
+      live = false;
+    };
+  }, [props.platform, workspaceId, selfId]);
+
+  const addresses = useMemo(() => {
+    const known = [
+      client.baseUrl,
+      value.serverUrl,
+      ...value.alternatives,
+      ...(publicUrl ? [publicUrl] : []),
+      ...linked,
+    ];
+    return new Set(known.flatMap((address) => normalizeServerUrlSafe(address) ?? []));
+  }, [client.baseUrl, value, publicUrl, linked]);
+
   return (
     <ShareableServerContext.Provider value={value}>
-      {props.children}
+      <WorkspaceAddressesContext.Provider value={addresses}>
+        {props.children}
+      </WorkspaceAddressesContext.Provider>
     </ShareableServerContext.Provider>
   );
+}
+
+/**
+ * Every address this workspace is known by here: the one this app is
+ * connected through, the one its host published, the ones this computer
+ * answers on when it hosts it, and the ones this device has linked to it.
+ * Another server holding the same ids, as a restored copy of this workspace
+ * does, is none of these. Null outside a workspace.
+ */
+export function useWorkspaceAddresses(): ReadonlySet<string> | null {
+  return useContext(WorkspaceAddressesContext);
 }
 
 /** The address to build shared links on, and whether it reaches only this computer. */
