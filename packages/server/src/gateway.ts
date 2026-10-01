@@ -132,6 +132,11 @@ export class Gateway {
     return [...this.byUser.keys()];
   }
 
+  /** Sockets open now, signed in or not yet. */
+  socketCount(): number {
+    return this.sockets.size;
+  }
+
   private presenceListeners = new Set<() => void>();
 
   /** Called whenever someone's first socket opens or last socket closes. */

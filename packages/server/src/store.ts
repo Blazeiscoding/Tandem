@@ -3280,6 +3280,41 @@ export class Store {
   /** How many of the newest messages that walk covers before it gives up. */
   static SEARCH_WINDOW = 20_000;
 
+  /** The queues and sizes `WorkspaceStatus` reports: counts only (OPS-10). */
+  operationalCounts(): {
+    databaseBytes: number;
+    deliveries: { waiting: number; oldestWaitingAt: number | null; failed: number };
+    scheduled: { queued: number; held: number; failed: number };
+  } {
+    const pages = this.db.prepare("PRAGMA page_count").get() as { page_count: number };
+    const size = this.db.prepare("PRAGMA page_size").get() as { page_size: number };
+    const deliveries = this.db
+      .prepare(
+        `SELECT COUNT(*) FILTER (WHERE failed_at IS NULL) AS waiting,
+                MIN(created_at) FILTER (WHERE failed_at IS NULL) AS oldest,
+                COUNT(*) FILTER (WHERE failed_at IS NOT NULL) AS failed
+         FROM event_deliveries`,
+      )
+      .get() as { waiting: number; oldest: number | null; failed: number };
+    const scheduled = this.db
+      .prepare(
+        `SELECT COUNT(*) FILTER (WHERE status = 'queued') AS queued,
+                COUNT(*) FILTER (WHERE status = 'held') AS held,
+                COUNT(*) FILTER (WHERE status = 'failed') AS failed
+         FROM scheduled_messages`,
+      )
+      .get() as { queued: number; held: number; failed: number };
+    return {
+      databaseBytes: pages.page_count * size.page_size,
+      deliveries: {
+        waiting: deliveries.waiting,
+        oldestWaitingAt: deliveries.oldest,
+        failed: deliveries.failed,
+      },
+      scheduled,
+    };
+  }
+
   searchMessages(
     userId: ID,
     query: ParsedSearch,

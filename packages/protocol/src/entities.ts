@@ -199,6 +199,41 @@ export interface AuditEntry {
   details: Record<string, string | number | boolean | null>;
 }
 
+/**
+ * How the workspace server is running, for its owner and admins (OPS-10):
+ * counts, sizes and times only. No message, file name, address, token or
+ * delivery error is in it, so it can be read aloud or pasted into a request
+ * for help without exposing anyone's conversations.
+ */
+export interface WorkspaceStatus {
+  serverVersion: string;
+  schemaVersion: number;
+  uptimeSeconds: number;
+  /** The database file and its write-ahead log, in bytes. */
+  database: { bytes: number; walBytes: number };
+  /** Stored attachments, against the configured limit (null: none). */
+  attachments: { bytes: number; limitBytes: number | null };
+  /** Free space where the workspace is kept; null where it cannot be read. */
+  diskFreeBytes: number | null;
+  /** App event deliveries: waiting, the oldest waiting since, and given up on. */
+  deliveries: { waiting: number; oldestWaitingAt: number | null; failed: number };
+  /** Scheduled messages: due to send, held for a retry, and given up on. */
+  scheduled: { queued: number; held: number; failed: number };
+  /** Removing old history: off (retentionDays 0) or how its last sweeps went. */
+  retention: {
+    enabled: boolean;
+    lastSuccessAt: number | null;
+    failures: number;
+  };
+  /** Open sockets, and the people they belong to. */
+  connections: { sockets: number; people: number };
+  /**
+   * How late the server's event loop ran over the last full minute, in
+   * milliseconds; null until a minute has passed.
+   */
+  eventLoopDelayMs: { p50: number; p99: number; max: number } | null;
+}
+
 /** Unauthenticated probe of a server — what the Join screen shows. */
 export interface ServerInfo {
   app: "slackoss";

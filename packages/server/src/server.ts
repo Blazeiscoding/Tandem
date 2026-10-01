@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, statfsSync, statSync } from "node:fs";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { open, stat, unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -61,8 +62,9 @@ import {
   type ServerInfo,
   type User,
   type WorkspaceEvent,
+  type WorkspaceStatus,
 } from "@slackoss/protocol";
-import { openDb } from "./db.js";
+import { openDb, SCHEMA_VERSION } from "./db.js";
 import { holdWorkspace, type WorkspaceHold } from "./ownership.js";
 import { Store } from "./store.js";
 import { StorageBudget } from "./storageBudget.js";
@@ -2135,6 +2137,73 @@ async function startWorkspaceServer(
     return me;
   };
 
+  // ---------- operational status (OPS-10) ----------
+
+  const startedAt = Date.now();
+  // How late the event loop runs, kept for the last full minute, so a slow
+  // stretch shows without one bad second from an hour ago staying forever.
+  const loopDelay = monitorEventLoopDelay({ resolution: 10 });
+  loopDelay.enable();
+  let lastMinuteDelay: WorkspaceStatus["eventLoopDelayMs"] = null;
+  const toMs = (ns: number) => Math.round(ns / 1e5) / 10;
+  const loopDelayTimer = setInterval(() => {
+    lastMinuteDelay = {
+      p50: toMs(loopDelay.percentile(50)),
+      p99: toMs(loopDelay.percentile(99)),
+      max: toMs(loopDelay.max),
+    };
+    loopDelay.reset();
+  }, 60_000);
+  loopDelayTimer.unref();
+  /** A file's size, or 0 where there is none (a database in memory, no log yet). */
+  const sizeOf = (path: string) => {
+    try {
+      return statSync(path).size;
+    } catch {
+      return 0;
+    }
+  };
+
+  /**
+   * For the owner and admins: whether the server is keeping up, from counts,
+   * sizes and times alone. Nothing from a conversation, an app's delivery
+   * error or a credential is in it.
+   */
+  app.get("/api/admin/status", async (req, reply): Promise<WorkspaceStatus> => {
+    requireAdmin(req);
+    reply.header("Cache-Control", "no-store");
+    const counts = store.operationalCounts();
+    let diskFreeBytes: number | null = null;
+    if (opts.dataDir !== ":memory:") {
+      try {
+        const disk = statfsSync(opts.dataDir);
+        diskFreeBytes = disk.bavail * disk.bsize;
+      } catch {
+        // Not every platform or mount answers; saying so beats a guess.
+      }
+    }
+    return {
+      serverVersion: SERVER_VERSION,
+      schemaVersion: SCHEMA_VERSION,
+      uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
+      database: {
+        bytes: counts.databaseBytes,
+        walBytes: dbPath === ":memory:" ? 0 : sizeOf(`${dbPath}-wal`),
+      },
+      attachments: { bytes: storage.usedBytes, limitBytes: storage.limitBytes },
+      diskFreeBytes,
+      deliveries: counts.deliveries,
+      scheduled: counts.scheduled,
+      retention: {
+        enabled: retentionMs > 0,
+        lastSuccessAt: retention.lastSuccessAt,
+        failures: retention.failures,
+      },
+      connections: { sockets: gateway.socketCount(), people: gateway.onlineUserIds().length },
+      eventLoopDelayMs: lastMinuteDelay,
+    };
+  });
+
   /** A handle for the app's bot user that cannot collide with a person's. */
   const botHandle = (name: string): string => {
     const base =
@@ -4096,6 +4165,8 @@ async function startWorkspaceServer(
         if (scheduledDrain) clearImmediate(scheduledDrain);
         clearInterval(eventDeliveryTimer);
         clearInterval(pruneTimer);
+        clearInterval(loopDelayTimer);
+        loopDelay.disable();
         mdnsHandle?.stop();
         // Before waiting on anything, so whatever is waiting on an app hears
         // about it now rather than at the end of its timeout.
