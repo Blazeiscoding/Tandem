@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { caretToRestore, isImeKey } from "../src/lib/textInput.js";
+import { caretToRestore, insideCodeBlock, isImeKey } from "../src/lib/textInput.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = (file: string) => readFileSync(resolve(here, "../src", file), "utf8");
@@ -94,5 +94,26 @@ describe("asking for less motion", () => {
     const composer = source("components/Composer.tsx");
     expect(composer).not.toContain("requestAnimationFrame");
     expect(composer).toContain("caretToRestore(");
+  });
+});
+
+describe("a caret inside a code block (UX-04)", () => {
+  const at = (text: string) => insideCodeBlock(text.replace("|", ""), text.indexOf("|"));
+
+  it("is inside one opened and not yet closed, on its first line or a later one", () => {
+    expect(at("```|")).toBe(true);
+    expect(at("look:\n```\nconst x = 1|")).toBe(true);
+    expect(at("```js\nline one\n|")).toBe(true);
+  });
+
+  it("is outside one closed, or not yet opened", () => {
+    expect(at("```x = 1```|")).toBe(false);
+    expect(at("plain words|")).toBe(false);
+    expect(at("|```after the caret```")).toBe(false);
+  });
+
+  it("counts only the fences before the caret, as the message is read", () => {
+    expect(at("```a``` and ```b|")).toBe(true);
+    expect(at("```a|``` more")).toBe(true);
   });
 });
