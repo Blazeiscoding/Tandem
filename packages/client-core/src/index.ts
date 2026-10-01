@@ -3,7 +3,7 @@ export type { AppDetail, CommandHint } from "./api.js";
 export { FileCache } from "./fileCache.js";
 export { decideNotification, isMessageOnScreen, notificationBody } from "./notify.js";
 export type { NotifyDecision, OnScreen } from "./notify.js";
-export { HuddleSession } from "./huddle.js";
+export { HuddleSession, testMicrophone } from "./huddle.js";
 export { captureFailure } from "./capture.js";
 export type { CaptureKind } from "./capture.js";
 export {
@@ -26,7 +26,7 @@ export {
   unwrapStoredDrafts,
 } from "./drafts.js";
 export type { DraftChanges } from "./drafts.js";
-export type { HuddlePeer, HuddleState } from "./huddle.js";
+export type { HuddlePeer, HuddleState, MicrophoneTest } from "./huddle.js";
 export { OUTBOX_LIMIT, WorkspaceClient, isMessageRead, unreadThreadCount } from "./workspace.js";
 export type {
   ChannelTimeline,

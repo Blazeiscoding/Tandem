@@ -218,10 +218,7 @@ export class HuddleSession {
 
   private localLevel(): number {
     if (!this.analyser || !this.levelSamples) return 0;
-    this.analyser.getByteTimeDomainData(this.levelSamples);
-    let peak = 0;
-    for (const sample of this.levelSamples) peak = Math.max(peak, Math.abs(sample - 128));
-    return peak / 128;
+    return peakLevel(this.analyser, this.levelSamples);
   }
 
   private startLevelPolling(): void {
@@ -655,4 +652,62 @@ const MICROPHONE: MediaStreamConstraints = {
 /** What the browser would have said, had it offered a way to ask at all. */
 function unsupported(kind: string): DOMException {
   return new DOMException(`No way to reach the ${kind} here.`, "NotSupportedError");
+}
+
+/** The loudest of the latest samples, from 0 (silence) to 1. */
+function peakLevel(analyser: AnalyserNode, samples: Uint8Array<ArrayBuffer>): number {
+  analyser.getByteTimeDomainData(samples);
+  let peak = 0;
+  for (const sample of samples) peak = Math.max(peak, Math.abs(sample - 128));
+  return peak / 128;
+}
+
+/** A microphone opened only to hear whether it works (CALL-01). */
+export interface MicrophoneTest {
+  /** The device's name, where the browser gives one; empty otherwise. */
+  label: string;
+  /** False where the browser cannot measure sound, so no level will come. */
+  metered: boolean;
+  /** Closes the microphone. Safe to call more than once. */
+  stop(): void;
+}
+
+/**
+ * Opens the microphone the way a huddle does and reports how loud it is,
+ * several times a second, until stopped, so someone can check it before a
+ * call. Nothing is sent anywhere. Rejects as `startLocalAudio` does, for
+ * `captureFailure` to word.
+ */
+export async function testMicrophone(onLevel: (level: number) => void): Promise<MicrophoneTest> {
+  if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
+  const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
+  let context: AudioContext | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const Ctx = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
+  if (Ctx) {
+    try {
+      context = new Ctx();
+      void context.resume().catch(() => {});
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 256;
+      context.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Uint8Array(new ArrayBuffer(analyser.fftSize));
+      timer = setInterval(() => onLevel(peakLevel(analyser, samples)), LEVEL_POLL_MS);
+    } catch {
+      // The microphone opened; only the meter is missing.
+      void context?.close().catch(() => {});
+      context = null;
+    }
+  }
+  return {
+    label: stream.getAudioTracks()[0]?.label ?? "",
+    metered: timer !== null,
+    stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+      stream.getTracks().forEach((track) => track.stop());
+      void context?.close().catch(() => {});
+      context = null;
+    },
+  };
 }

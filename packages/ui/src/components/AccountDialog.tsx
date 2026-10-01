@@ -12,6 +12,7 @@ import { DENSITIES, THEMES, useAppearance, type Theme } from "../lib/appearance.
 import { Dialog, inputCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
 import { ProfileForm } from "./ProfileDialog.js";
+import { MicrophoneCheck } from "./MicrophoneCheck.js";
 import { buttonClass } from "./Button.js";
 
 type Confirmation =
@@ -325,6 +326,7 @@ export function AccountDialog({
                   {calls.error}
                 </p>
               )}
+              <MicrophoneCheck />
             </section>
           )}
           {section === "security" && (
