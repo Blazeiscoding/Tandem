@@ -29,6 +29,7 @@ import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
+import { pickScreen } from "./screenPicker.js";
 import { mergeOutboxSetting } from "./outboxStorage.js";
 import { mergeDraftsSetting } from "./draftsStorage.js";
 import { createHostingController } from "./hosting.js";
@@ -846,24 +847,14 @@ function createWindow(): void {
         return;
       }
       try {
-        const screens = await desktopCapturer.getSources({
-          types: ["screen"],
-          thumbnailSize: { width: 0, height: 0 },
+        const selected = await pickScreen({
+          screens: () =>
+            desktopCapturer.getSources({
+              types: ["screen"],
+              thumbnailSize: { width: 0, height: 0 },
+            }),
+          ask: (options) => dialog.showMessageBox(mainWindow!, options),
         });
-        if (screens.length === 0) {
-          callback({});
-          return;
-        }
-        const choice = await dialog.showMessageBox(mainWindow!, {
-          type: "question",
-          title: "Share your screen",
-          message: "Choose a screen to share with this huddle",
-          detail: "Everyone in the huddle will see everything on the selected screen.",
-          buttons: ["Cancel", ...screens.map((screen) => screen.name)],
-          defaultId: 0,
-          cancelId: 0,
-        });
-        const selected = screens[choice.response - 1];
         callback(selected ? { video: selected } : {});
       } catch {
         callback({});
