@@ -266,7 +266,7 @@ Existing controls to preserve: 300 messages per timeline/thread window, 20 total
 
 ### OPS-02 · P1 · Make backup health durable and demonstrate off-device recovery
 
-- [ ] Persist last attempt, verified success, destination, copy path and categorized failure; errors currently live only in memory.
+- [x] Persist last attempt, verified success, destination, copy path and categorized failure; errors currently live only in memory. **Done for scheduled backups; see the PR after #196.** Each schedule now saves, with its destination, when it last tried (`lastAttemptAt`), when it last made a verified copy (`lastAt`) and where (`lastPath`), and why its last try did not finish (`failure`: `destination`, `space`, `source`, `cleanup` or `other`, with the message). A failure is shown again after a restart, until a backup into the same folder finishes, and stays through a change of how often or how many; a new folder starts clean. A destination that is not there (a drive or share not connected) is now refused as unreachable, in words that say to connect it, where the app used to pass on the raw error from reading its free space; the copy is never made into a folder that is not there. A disk found full partway through counts as `space`. A one-off backup still reports straight to the person who asked.
   - [ ] Display stale/unavailable-destination warnings in hosting and tray with actionable retry/folder actions.
   - [ ] Choose an explicit recovery-point/recovery-time target per support mode. A verified archive and a completed restore drill are separate states.
   - [ ] Support an operator-controlled off-device copy/recipe and restore on a fresh machine while the original is offline.

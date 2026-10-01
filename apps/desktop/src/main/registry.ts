@@ -51,12 +51,61 @@ export interface AutoBackup {
    * backups the workspace has had elsewhere.
    */
   lastAt?: number;
+  /** When it last tried, whether or not that finished (OPS-02). */
+  lastAttemptAt?: number;
+  /** The folder its last finished backup was made in. */
+  lastPath?: string;
+  /**
+   * Why its last try did not finish. Kept with the schedule, so a restart
+   * cannot hide it, until a backup into the same folder finishes.
+   */
+  failure?: BackupFailure;
+}
+
+/** What someone can do about a scheduled backup that did not finish. */
+export type BackupFailureKind =
+  /** Its folder cannot be reached: a drive or share not connected, or removed. */
+  | "destination"
+  /** There is not enough room in it. */
+  | "space"
+  /** The workspace's own folder is gone, or holds a different workspace. */
+  | "source"
+  /** The backup was made, but older ones there could not be removed. */
+  | "cleanup"
+  | "other";
+
+export interface BackupFailure {
+  at: number;
+  kind: BackupFailureKind;
+  message: string;
+}
+
+const FAILURE_KINDS: readonly BackupFailureKind[] = [
+  "destination",
+  "space",
+  "source",
+  "cleanup",
+  "other",
+];
+
+/** A stored failure, or undefined when it cannot be read. */
+function parseBackupFailure(value: unknown): BackupFailure | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const { at, kind, message } = value as Record<string, unknown>;
+  if (typeof at !== "number" || !Number.isFinite(at) || at < 0) return undefined;
+  if (typeof message !== "string") return undefined;
+  return {
+    at,
+    kind: FAILURE_KINDS.includes(kind as BackupFailureKind) ? (kind as BackupFailureKind) : "other",
+    message: message.slice(0, 1000),
+  };
 }
 
 /** A schedule as stored, or undefined when it is not one this version can follow. */
 export function parseAutoBackup(value: unknown): AutoBackup | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const { destination, everyDays, keep, lastAt } = value as Record<string, unknown>;
+  const { destination, everyDays, keep, lastAt, lastAttemptAt, lastPath, failure } =
+    value as Record<string, unknown>;
   if (typeof destination !== "string" || !isAbsolute(destination)) return undefined;
   if (everyDays !== 1 && everyDays !== 7) return undefined;
   if (typeof keep !== "number" || !Number.isInteger(keep) || keep < 1 || keep > 60)
@@ -65,6 +114,16 @@ export function parseAutoBackup(value: unknown): AutoBackup | undefined {
   // A time it cannot read only makes the next backup due sooner.
   if (typeof lastAt === "number" && Number.isFinite(lastAt) && lastAt >= 0)
     schedule.lastAt = lastAt;
+  if (typeof lastAttemptAt === "number" && Number.isFinite(lastAttemptAt) && lastAttemptAt >= 0)
+    schedule.lastAttemptAt = lastAttemptAt;
+  if (typeof lastPath === "string" && isAbsolute(lastPath)) schedule.lastPath = lastPath;
+  // One that cannot be read is still a failure, rather than a reason to forget it.
+  if (failure !== undefined)
+    schedule.failure = parseBackupFailure(failure) ?? {
+      at: schedule.lastAttemptAt ?? 0,
+      kind: "other",
+      message: "",
+    };
   return schedule;
 }
 
