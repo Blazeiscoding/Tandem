@@ -29,6 +29,7 @@ import type {
   WorkspaceEvent,
   EventEnvelope,
 } from "@slackoss/protocol";
+import { FILE_TYPE_MATCH } from "@slackoss/protocol";
 import { ulid, inviteCode } from "./ids.js";
 
 interface UserRow {
@@ -3341,6 +3342,18 @@ export class Store {
     if (query.has.includes("file")) {
       filters.push(["EXISTS (SELECT 1 FROM files f WHERE f.message_id = m.id)"]);
     }
+    if (query.types.length > 0) {
+      // By media type, or by the name's ending for a file sent as anything.
+      const kinds = query.types.flatMap((type): Filter[] => [
+        ...FILE_TYPE_MATCH[type].mime.map((mime): Filter => ["lower(f.mime) LIKE ?", mime]),
+        ...FILE_TYPE_MATCH[type].ext.map((ext): Filter => ["lower(f.name) LIKE ?", `%.${ext}`]),
+      ]);
+      filters.push([
+        `EXISTS (SELECT 1 FROM files f WHERE f.message_id = m.id
+           AND (${kinds.map(([sql]) => sql).join(" OR ")}))`,
+        ...kinds.flatMap(([, ...values]) => values),
+      ]);
+    }
     if (query.before !== null) filters.push(["m.created_at < ?", query.before]);
     if (query.after !== null) filters.push(["m.created_at >= ?", query.after]);
 
@@ -3368,9 +3381,23 @@ export class Store {
 
     // Quote every term so user input can never break FTS5 syntax.
     const fts = query.terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" ");
+    // A message is found by the name of a file attached to it too, when every
+    // term is in that one name (IMP-02). Only terms with a letter or digit in
+    // them: "." alone would otherwise find every file there is.
+    const nameTerms = query.terms.filter((t) => /[\p{L}\p{N}]/u.test(t));
+    const named: Filter =
+      nameTerms.length > 0
+        ? [
+            `OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL
+               AND ${nameTerms.map(() => "f.name LIKE ? ESCAPE '\\'").join(" AND ")})`,
+            ...nameTerms.map((t) => `%${t.replaceAll(/[\\%_]/g, "\\$&")}%`),
+          ]
+        : [""];
+    const [namedSql, ...namedValues] = named;
     const matching: Filter = [
-      "m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)",
+      `(m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) ${namedSql})`,
       fts,
+      ...namedValues,
     ];
     const many =
       (
@@ -3406,9 +3433,11 @@ export class Store {
     const newest = page(
       [
         [
-          "+m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND rowid >= ?)",
+          `(+m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND rowid >= ?)
+            ${namedSql})`,
           fts,
           window.low,
+          ...namedValues,
         ],
         ["m.id >= ?", window.edge],
       ],
