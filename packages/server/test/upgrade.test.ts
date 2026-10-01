@@ -249,6 +249,48 @@ describe("upgrading a workspace", () => {
     expect(existsSync(`${file}.moved`)).toBe(true);
   });
 
+  it("keeps no step of an upgrade that fails partway, so the release it came from still opens it", () => {
+    // From v30, four steps: v31 adds message_mentions, v32
+    // purged_message_requests, v33 thread_follows.unread_hold, and v34 an index
+    // named idx_channel_managers, which something already called that stops.
+    const from = olderWorkspace(30);
+    const db = new DatabaseSync(file);
+    db.exec("CREATE INDEX idx_channel_managers ON users(handle)");
+    db.close();
+
+    expect(() => openDb(file)).toThrow(/idx_channel_managers already exists/);
+    expect(versionOf(file)).toBe(from);
+    const left = new DatabaseSync(file, { readOnly: true });
+    try {
+      const tables = (
+        left.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as {
+          name: string;
+        }[]
+      ).map((t) => t.name);
+      expect(tables).not.toContain("message_mentions");
+      expect(tables).not.toContain("purged_message_requests");
+      const follows = (
+        left.prepare("PRAGMA table_info(thread_follows)").all() as { name: string }[]
+      ).map((c) => c.name);
+      expect(follows).not.toContain("unread_hold");
+      expect(left.prepare("SELECT value FROM meta WHERE key = 'workspace_name'").get()).toEqual({
+        value: "Before the upgrade",
+      });
+    } finally {
+      left.close();
+    }
+    // Nothing holds the file for whoever moves it aside.
+    renameSync(file, `${file}.moved`);
+    renameSync(`${file}.moved`, file);
+
+    // With what stopped it gone, the next start upgrades it whole.
+    const fix = new DatabaseSync(file);
+    fix.exec("DROP INDEX idx_channel_managers");
+    fix.close();
+    openDb(file).close();
+    expect(versionOf(file)).toBe(SCHEMA_VERSION);
+  });
+
   it("can be told not to, by someone who has just taken their own backup", () => {
     olderWorkspace();
     openDb(file, undefined, { backupBeforeUpgrade: false }).close();

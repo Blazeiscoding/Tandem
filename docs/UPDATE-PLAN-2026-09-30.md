@@ -303,7 +303,7 @@ Existing controls to preserve: 300 messages per timeline/thread window, 20 total
 
 - [ ] Retain anonymized/minimal genuine historical schema fixtures and a current schema/version support matrix.
   - [ ] Check unread/thread state, file references, sessions, integration queues and scheduled reservations through upgrades.
-  - [ ] Exercise disk exhaustion during migration, readonly/locked files, interrupted start and the newer-schema refusal path.
+  - [ ] Exercise disk exhaustion during migration, readonly/locked files, interrupted start and the newer-schema refusal path. **Partly done; see the PR after #185.** An upgrade over several versions now applies every pending migration in one transaction. Each migration used to commit on its own, so a failure partway (reproduced: v30 to v34 stopped at v34) left the workspace at v33. The release it came from refused that as "created by a newer server version", leaving only the pre-upgrade copy. Now a failed upgrade keeps no step, and a process killed mid-upgrade is rolled back by SQLite on the next open. Either way the workspace stays at the version it started from. A `ROLLBACK` that fails because SQLite already rolled back, as it may after a full disk, no longer hides the error that stopped the upgrade. Still open: driving a real full disk, read-only and locked files, and a kill, against a real process.
   - [ ] Restore the protected pre-upgrade copy with the older supported binary; distinguish data rollback from ordinary app reinstall.
 
 **Done:** each supported upgrade has a matching recovery artifact and drill. Existing generated old-version tests remain useful but do not alone prove every historical release.
