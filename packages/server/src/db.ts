@@ -519,6 +519,19 @@ const MIGRATIONS: string[] = [
   `
   CREATE INDEX idx_channel_managers ON channel_members(channel_id, user_id) WHERE is_manager = 1;
   `,
+  // v35 — attachment removal that failed waits its turn instead of blocking
+  // the rest (REV-02): how often it was tried, when it may be tried again,
+  // and since when it has waited. A removal that can never succeed, such as
+  // an id that cannot name a file, is set aside for good and stays counted.
+  `
+  ALTER TABLE pending_file_deletions ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE pending_file_deletions ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE pending_file_deletions ADD COLUMN queued_at INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE pending_file_deletions ADD COLUMN rejected INTEGER NOT NULL DEFAULT 0;
+  UPDATE pending_file_deletions SET queued_at = CAST(unixepoch('subsec') * 1000 AS INTEGER);
+  CREATE INDEX idx_pending_file_deletions_due
+    ON pending_file_deletions(next_attempt_at, file_id) WHERE rejected = 0;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

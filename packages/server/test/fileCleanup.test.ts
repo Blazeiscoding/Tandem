@@ -98,13 +98,81 @@ describe("committed file cleanup", () => {
     expect(server.store.pendingFileDeletions()).toEqual([item.fileId]);
     await server.stop();
     await start();
-    await server.flushFileDeletions();
-    expect(server.store.pendingFileDeletions()).toEqual([item.fileId]);
+    // Its wait after failing outlasts the restart: it is not tried again yet.
+    expect(server.store.dueFileDeletions(Date.now(), 100)).toEqual([]);
+    expect(server.store.fileDeletionCounts()).toMatchObject({ waiting: 0, retrying: 1 });
     rmdirSync(item.path);
     writeFileSync(item.path, "original attachment");
-    await server.flushFileDeletions();
+    await server.flushFileDeletions(Date.now() + 3_600_000);
     expect(existsSync(item.path)).toBe(false);
     expect(server.store.pendingFileDeletions()).toEqual([]);
+  });
+
+  describe("removing many, some of which fail (REV-02)", () => {
+    const ulid = (n: number) => `01K${String(n).padStart(23, "0")}`;
+    async function uploaded(name: string) {
+      const form = new FormData();
+      form.append("file", new Blob([`bytes of ${name}`]), name);
+      const response = await fetch(`${base}/api/channels/${channelId}/files`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: form,
+      });
+      return ((await response.json()) as { file: { id: string } }).file.id;
+    }
+    /** Deletes an upload's row and queues its blob, as removing its message does. */
+    function forget(id: string) {
+      server.store.transaction(() => {
+        server.store.deleteFiles([id]);
+        server.store.queueFileDeletions([id]);
+      });
+    }
+    const status = async () => (await request("/api/admin/status", "GET")).body.attachments;
+
+    it("does not let a hundred that fail hold back the next, and frees its bytes", async () => {
+      // Directories where files should be make every removal fail, on every platform.
+      const failing = Array.from({ length: 100 }, (_, n) => `00${String(n).padStart(24, "0")}`);
+      for (const id of failing) mkdirSync(join(directory, "files", id));
+      server.store.queueFileDeletions(failing);
+      const healthy = await uploaded("healthy.txt");
+      const counted = (await status()).bytes;
+      expect(counted).toBeGreaterThan(0);
+      forget(healthy);
+
+      await server.flushFileDeletions();
+      await expect.poll(() => existsSync(join(directory, "files", healthy))).toBe(false);
+      const after = await status();
+      expect(after.bytes).toBe(counted - "bytes of healthy.txt".length);
+      expect(after.removal).toMatchObject({ waiting: 0, retrying: 100, rejected: 0 });
+
+      // A restart keeps them waiting, not first in line again.
+      await server.stop();
+      await start();
+      expect(server.store.dueFileDeletions(Date.now(), 100)).toEqual([]);
+      expect((await status()).removal).toMatchObject({ waiting: 0, retrying: 100 });
+    });
+
+    it("sets aside a name the server never gives a file, and says so", async () => {
+      server.store.queueFileDeletions(["../outside"]);
+      await server.flushFileDeletions(Date.now() + 86_400_000);
+      expect(server.store.pendingFileDeletions()).toEqual(["../outside"]);
+      expect(server.store.dueFileDeletions(Date.now() + 86_400_000, 100)).toEqual([]);
+      expect((await status()).removal).toMatchObject({ rejected: 1, waiting: 0, retrying: 0 });
+    });
+
+    it("drains a thousand removals page after page, without waiting for the timer", async () => {
+      const ids = Array.from({ length: 1_000 }, (_, n) => ulid(n));
+      for (const id of ids) writeFileSync(join(directory, "files", id), "x");
+      server.store.queueFileDeletions(ids);
+      await server.flushFileDeletions();
+      // The timer comes every fifteen seconds; the pages follow each other at once.
+      await expect
+        .poll(() => server.store.pendingFileDeletions().length, { timeout: 5_000 })
+        .toBe(0);
+      expect(readdirSync(join(directory, "files")).filter((name) => ids.includes(name))).toEqual(
+        [],
+      );
+    });
   });
 
   it("rejects an upload whose session was revoked while its body streamed", async () => {
