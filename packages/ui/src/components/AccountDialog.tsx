@@ -6,6 +6,12 @@ import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { accountError, deviceLabel } from "../lib/account.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
+import {
+  NOTIFICATION_PREVIEWS,
+  previewAccount,
+  previewFor,
+  useNotificationPreviews,
+} from "../lib/notificationPreview.js";
 import type { AccountSection } from "../lib/accountSections.js";
 import { resumeTime, snoozeOptions } from "../lib/snooze.js";
 import { DENSITIES, THEMES, useAppearance, type Theme } from "../lib/appearance.js";
@@ -628,10 +634,53 @@ function NotificationSettings() {
           )}
         </div>
       </section>
+      <PreviewSettings />
       <p className="mt-6 border-t border-edge pt-5 text-sm text-ink-dim">
         What each channel notifies you about is in its details, under Notifications.
       </p>
     </>
+  );
+}
+
+/** How much a notification shows, for this account on this device (IMP-03). */
+function PreviewSettings() {
+  const client = useClient();
+  const selfId = useWorkspace((s) => s.self?.id ?? null);
+  const previews = useNotificationPreviews();
+  const account = selfId ? previewAccount(client.baseUrl, selfId) : null;
+  const chosen = previewFor(previews, account);
+  return (
+    <fieldset
+      className="mt-6 border-t border-edge pt-5"
+      disabled={!previews.loaded || previews.saving || !account}
+    >
+      <legend className="float-left w-full font-semibold">What notifications show</legend>
+      <p className="clear-both pt-1 text-sm text-ink-dim">
+        For this workspace on this device. Choose less where others can see your screen.
+      </p>
+      <div className="mt-3 space-y-2">
+        {NOTIFICATION_PREVIEWS.map((option) => (
+          <label key={option.id} className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="notification-preview"
+              className="mt-1"
+              checked={previews.loaded && chosen === option.id}
+              onChange={() => account && void previews.setPreview(account, option.id)}
+            />
+            <span>
+              {option.label}
+              <span className="block text-xs text-ink-faint">{option.example}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {previews.error && (
+        <p role="alert" className="mt-2 text-sm text-alert">
+          {previews.error}
+        </p>
+      )}
+    </fieldset>
   );
 }
 
