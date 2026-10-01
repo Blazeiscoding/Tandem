@@ -278,6 +278,18 @@ export interface FollowedThread {
 export const PROTOCOL_VERSION = 1;
 
 /**
+ * Here rather than beside the request schemas: the client and the desktop
+ * main process read it, and importing it from there would bring zod with it.
+ *
+ * How long an app goes on sending a message from its outbox on its own. An
+ * older one waits for its author to choose Retry or Discard. For at least this
+ * long after a message is posted, the server remembers its send key, without
+ * its words, even after retention has removed it. So an app's own retry can
+ * never post a removed message again.
+ */
+export const SEND_RETRY_WINDOW_MS = 30 * 24 * 3600_000;
+
+/**
  * Where a queued message is in its delivery lifecycle. `held` is reversible —
  * every flush re-checks it, so unarchiving a channel or regaining access sends
  * the message. `failed` is terminal and only an explicit reschedule revives it.
