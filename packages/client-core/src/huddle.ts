@@ -27,6 +27,11 @@ export interface HuddleState {
   localScreenStream: MediaStream | null;
   /** You are talking right now. */
   speaking: boolean;
+  /**
+   * Your microphone stopped, unplugged or its permission taken back, and no
+   * other could be had: nobody can hear you until one is (CALL-01).
+   */
+  micLost: boolean;
   peers: HuddlePeer[];
 }
 
@@ -74,6 +79,8 @@ export class HuddleSession {
   private peers = new Map<ID, Peer>();
   private connected = new Set<ID>();
   private localStream: MediaStream | null = null;
+  private micLost = false;
+  private recoveringMic: Promise<boolean> | null = null;
   private cameraTrack: MediaStreamTrack | null = null;
   private screenTrack: MediaStreamTrack | null = null;
   private localCameraStream: MediaStream | null = null;
@@ -103,17 +110,85 @@ export class HuddleSession {
    */
   async startLocalAudio(): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-      video: false,
-    });
+    const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
     if (this.destroyed) {
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
-    this.localStream = stream;
-    this.watchLocalLevel(stream);
+    this.adoptMicrophone(stream, false);
     this.startLevelPolling();
+  }
+
+  /** Makes this the microphone everyone hears, and watches for it stopping. */
+  private adoptMicrophone(stream: MediaStream, muted: boolean): void {
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      track.enabled = !muted;
+      // Stopping a track ourselves does not end it this way, so this is only
+      // ever the device going, or its permission.
+      track.onended = () => void this.recoverMicrophone();
+    }
+    this.localStream = stream;
+    this.micLost = false;
+    void this.audioContext?.close().catch(() => {});
+    this.audioContext = null;
+    this.watchLocalLevel(stream);
+  }
+
+  /**
+   * The microphone stopped: unplugged, or its permission taken back. Asks for
+   * one again, which is whatever the system now has as its default, and sends
+   * it to everyone in place of the old one, muted if it was (CALL-01). With
+   * none to be had the huddle says so, tells the others this side is muted
+   * rather than leaving them to wonder at the silence, and tries again when a
+   * device is plugged in. Resolves whether there is a microphone now.
+   */
+  async recoverMicrophone(): Promise<boolean> {
+    if (this.destroyed || !this.localStream) return false;
+    if (this.recoveringMic) return this.recoveringMic;
+    const attempt = this.replaceMicrophone(this.micMuted);
+    this.recoveringMic = attempt;
+    void attempt.finally(() => {
+      if (this.recoveringMic === attempt) this.recoveringMic = null;
+    });
+    return attempt;
+  }
+
+  private async replaceMicrophone(muted: boolean): Promise<boolean> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
+      if (this.destroyed) {
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+      for (const track of this.localStream?.getTracks() ?? []) track.stop();
+      this.adoptMicrophone(stream, muted);
+      this.stopWaitingForMicrophone();
+      await Promise.all(
+        [...this.peers.values()].map((peer) =>
+          peer.audioTx?.sender.replaceTrack(stream.getAudioTracks()[0] ?? null).catch(() => {}),
+        ),
+      );
+      return true;
+    } catch {
+      if (this.destroyed) return false;
+      this.micLost = true;
+      this.waitForMicrophone();
+      return false;
+    } finally {
+      this.announceMedia();
+      this.onChange?.();
+    }
+  }
+
+  private readonly onDeviceChange = () => void this.recoverMicrophone();
+
+  private waitForMicrophone(): void {
+    navigator.mediaDevices?.addEventListener?.("devicechange", this.onDeviceChange);
+  }
+
+  private stopWaitingForMicrophone(): void {
+    navigator.mediaDevices?.removeEventListener?.("devicechange", this.onDeviceChange);
   }
 
   /**
@@ -217,6 +292,7 @@ export class HuddleSession {
         speaking: this.speaking.has(userId),
       })),
       speaking: this.speaking.has(this.selfId),
+      micLost: this.micLost,
     };
   }
 
@@ -507,7 +583,7 @@ export class HuddleSession {
       kind: "media" as const,
       camera: this.cameraTrack !== null,
       screen: this.screenTrack !== null,
-      muted: this.micMuted,
+      muted: this.micMuted || this.micLost,
     };
     for (const userId of to ? [to] : this.peers.keys()) {
       this.transport.send({
@@ -530,6 +606,7 @@ export class HuddleSession {
   /** Tears down every connection and releases the camera and microphone. */
   destroy(): void {
     this.destroyed = true;
+    this.stopWaitingForMicrophone();
     if (this.levelTimer) clearInterval(this.levelTimer);
     this.levelTimer = null;
     this.analyser = null;
@@ -564,6 +641,12 @@ interface Peer {
   screenOn: boolean;
   micMuted: boolean;
 }
+
+/** The microphone a huddle asks for, at the start and after losing one. */
+const MICROPHONE: MediaStreamConstraints = {
+  audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+  video: false,
+};
 
 /** What the browser would have said, had it offered a way to ask at all. */
 function unsupported(kind: string): DOMException {

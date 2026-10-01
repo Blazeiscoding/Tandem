@@ -25,7 +25,7 @@ const sam: User = {
   createdAt: 0,
 };
 
-function controls(overlay = false) {
+function controls(overlay = false, micLost = false) {
   const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
   client.store.setState({
     self: sam,
@@ -39,17 +39,19 @@ function controls(overlay = false) {
       localCameraStream: null,
       localScreenStream: null,
       speaking: false,
+      micLost,
       peers: [],
     },
   });
   const camera = vi.spyOn(client, "toggleCamera");
   const share = vi.spyOn(client, "toggleScreenShare");
+  const retryMic = vi.spyOn(client, "retryMicrophone").mockImplementation(() => {});
   render(
     <ClientContext.Provider value={client}>
       <HuddleControls overlay={overlay} />
     </ClientContext.Provider>,
   );
-  return { camera, share };
+  return { camera, share, retryMic };
 }
 
 const refused = (name: string, message: string) => new DOMException(message, name);
@@ -102,6 +104,23 @@ describe("turning on a camera or a screen share that does not start", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Another app may be using it");
     camera.mockResolvedValueOnce();
     await user.click(screen.getByRole("button", { name: "Camera" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("a microphone that stopped mid-call (CALL-01)", () => {
+  it("says nobody can hear you, and asks for one again on Try again", async () => {
+    const user = userEvent.setup();
+    const { retryMic } = controls(false, true);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Your microphone stopped, so nobody can hear you.",
+    );
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(retryMic).toHaveBeenCalledOnce();
+  });
+
+  it("says nothing while the microphone works", () => {
+    controls();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });

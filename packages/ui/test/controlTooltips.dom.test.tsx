@@ -166,6 +166,7 @@ describe("compact controls explain themselves with the shared tooltip", () => {
         localCameraStream: null,
         localScreenStream: null,
         speaking: false,
+        micLost: false,
         peers: [
           peer("U_PRIYA", { cameraStream: {} as MediaStream, screenStream: {} as MediaStream }),
         ],
