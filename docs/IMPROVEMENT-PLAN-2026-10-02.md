@@ -240,7 +240,7 @@ A work package closes with its owner, starting/candidate revision, implementatio
 
 Each package names its owner when work starts and its PR when it merges. One entry per package, kept apart by blank lines so concurrent PRs can update their own entries without conflicting. A cloud Claude session (Linux, no Docker daemon, no Electron binary, no Windows) runs unit, typecheck, build, bundle and browser E2E checks; anything that needs more is listed under [left for local verification](#left-for-local-verification).
 
-- **REV-10** · Claude session · Not started.
+- **REV-10** · Claude session · Implemented (the PR after #212). Every post-commit step is contained: access effects, then every durable frame, then follow states and mention counts, each failing alone, so a failed recount no longer turns a committed DELETE into a 500 or cuts off the deletion frames after it. A frame that cannot be fanned out closes every socket (1012), so clients replay from their last event instead of passing the gap. Message creation, `mutate` and retention share the path. Already-deleted messages still answer 404 on a repeated DELETE. Covered by server socket tests and a real-client reconnect test; nothing left for local verification.
 
 - **REV-01** · Claude session · Not started.
 
