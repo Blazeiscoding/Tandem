@@ -188,11 +188,15 @@ browser client served by the server itself.
 Search covers every channel you can see, with modifiers:
 
 ```
-from:@alice  in:#general  has:link  has:file  after:2026-01-01  before:2026-02-01
+from:@alice  in:#general  has:link  has:file  type:pdf  after:2026-01-01  before:2026-02-01
 ```
 
-Modifiers combine with each other and with free text, and never widen what you
-are allowed to see — naming a channel you are not in returns nothing.
+Free text finds what messages say and the names of files attached to them, so
+`budget` finds `Q3 Budget.xlsx`. `type:` asks for one kind of file: `image`,
+`video`, `audio`, `pdf`, `document`, `spreadsheet`, `presentation` or
+`archive`. Modifiers combine with each other and with free text, and never
+widen what you are allowed to see — naming a channel you are not in returns
+nothing.
 
 Search hits, pins and saved items open the channel scrolled to that exact
 message, with the surrounding history loaded around it. Every message has a

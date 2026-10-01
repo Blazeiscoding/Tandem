@@ -305,6 +305,46 @@ describe("workspace server", () => {
     expect(aliceSearch.data.messages).toHaveLength(2);
   });
 
+  it("finds a message by the name of its attachment, only where the reader can see it (IMP-02)", async () => {
+    const attach = async (channelId: string, name: string, text: string) => {
+      const form = new FormData();
+      // Sent as anything: only the name says it is a spreadsheet.
+      form.append("file", new Blob(["a,b\n1,2"], { type: "application/octet-stream" }), name);
+      const upload = await fetch(`${base}/api/channels/${channelId}/files`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${aliceToken}` },
+        body: form,
+      });
+      const { file } = (await upload.json()) as { file: { id: string } };
+      const sent = await api<{ message: Message }>(`/api/channels/${channelId}/messages`, {
+        token: aliceToken,
+        body: { text, fileIds: [file.id] },
+      });
+      return sent.data.message;
+    };
+    const general = server.store.getChannelByName("general")!;
+    const secret = server.store.getChannelByName("secret-plans")!;
+    const shared = await attach(general.id, "Q3 Budget.xlsx", "numbers for the quarter");
+    await attach(secret.id, "Q3 budget final.xlsx", "the real numbers");
+    const search = async (q: string, token: string) =>
+      (
+        await api<{ messages: Message[] }>(`/api/search?q=${encodeURIComponent(q)}`, { token })
+      ).data.messages.map((m) => m.text);
+
+    expect(await search("budget", bobToken)).toEqual(["numbers for the quarter"]);
+    expect(await search("q3 BUDGET", aliceToken)).toEqual([
+      "the real numbers",
+      "numbers for the quarter",
+    ]);
+    expect(await search("type:spreadsheet", bobToken)).toEqual(["numbers for the quarter"]);
+    expect(await search("budget type:pdf", aliceToken)).toEqual([]);
+
+    // Deleted, it is found by nothing, its file's name included.
+    const del = await api(`/api/messages/${shared.id}`, { method: "DELETE", token: aliceToken });
+    expect(del.status).toBe(200);
+    expect(await search("budget", bobToken)).toEqual([]);
+  });
+
   it("uploads a file, attaches it to a message, and gates access by channel", async () => {
     const general = server.store.getChannelByName("general")!;
 

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { parseSearchQuery } from "@slackoss/protocol";
+import { FILE_TYPE_MATCH, parseSearchQuery } from "@slackoss/protocol";
 import { openDb } from "../src/db.js";
 import { Store } from "../src/store.js";
 
@@ -46,8 +46,23 @@ function everyMatch(reader: string, text: string, opts: { channelId?: string } =
   const params: (string | number)[] = [];
   if (opts.channelId) where.push("m.channel_id = ?") && params.push(opts.channelId);
   if (q.terms.length) {
-    where.push("m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)");
+    // Said in the message, or every word in the name of one file attached to it.
+    where.push(
+      `(m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)
+        OR m.id IN (SELECT message_id FROM files WHERE ${q.terms.map(() => "instr(lower(name), ?) > 0").join(" AND ")}))`,
+    );
     params.push(q.terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" "));
+    params.push(...q.terms.map((t) => t.toLowerCase()));
+  }
+  if (q.types.length) {
+    const kinds = q.types.flatMap((type) => [
+      ...FILE_TYPE_MATCH[type].mime.map((mime) => ["lower(f.mime) LIKE ?", mime] as const),
+      ...FILE_TYPE_MATCH[type].ext.map((ext) => ["lower(f.name) LIKE ?", `%.${ext}`] as const),
+    ]);
+    where.push(
+      `EXISTS (SELECT 1 FROM files f WHERE f.message_id = m.id AND (${kinds.map(([sql]) => sql).join(" OR ")}))`,
+    );
+    params.push(...kinds.map(([, value]) => value));
   }
   if (q.from.length) where.push("u.handle = ?") && params.push(q.from[0]!);
   if (q.in.length) where.push("c.name = ?") && params.push(q.in[0]!);
@@ -125,6 +140,10 @@ function seed() {
     `INSERT INTO messages (id, channel_id, user_id, text, seq, created_at, deleted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
+  const attach = db.prepare(
+    `INSERT INTO files (id, channel_id, user_id, message_id, name, mime, size, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, 0)`,
+  );
   for (const n of order) {
     const words = [`message ${n}`];
     if (n % 5 !== 0) words.push("common");
@@ -140,6 +159,25 @@ function seed() {
       Date.UTC(2026, 0, 1) + n * 3_600_000,
       n % 23 === 0 ? 1 : null,
     );
+    // Files whose names say what their messages do not (IMP-02): one sent as
+    // anything, known for a spreadsheet only by its name; one with a common
+    // word in it, for the walk through the newest; and one that "100%" and
+    // "photo_" find only if % and _ are taken as wildcards.
+    const id = `M${String(n).padStart(6, "0")}`;
+    const channel = channels[n % channels.length]!;
+    const user = people[n % 3]!.id;
+    if (n % 11 === 0) attach.run(`F${n}a`, channel, user, id, `Budget ${n}.PDF`, "application/pdf");
+    if (n % 13 === 0) attach.run(`F${n}b`, channel, user, id, `photo_${n}.png`, "image/png");
+    if (n % 17 === 0)
+      attach.run(
+        `F${n}c`,
+        channel,
+        user,
+        id,
+        "100% common budget.xlsx",
+        "application/octet-stream",
+      );
+    if (n % 19 === 0) attach.run(`F${n}d`, channel, user, id, `photos-1000-${n}.csv`, "text/csv");
   }
   return { ana, ben, small };
 }
@@ -167,6 +205,15 @@ describe("a search, whichever way it goes", () => {
         "common after:2026-01-20",
         "sometimes after:2026-01-05 before:2026-01-25",
         "from:@cai",
+        "budget",
+        "BUDGET pdf",
+        "budget common",
+        "100%",
+        "photo_",
+        "type:image",
+        "type:spreadsheet budget",
+        "type:pdf type:image from:@ana",
+        "common type:pdf",
       ];
       for (const reader of [ana.id, ben.id]) {
         for (const text of queries) {
@@ -180,6 +227,9 @@ describe("a search, whichever way it goes", () => {
           ).toEqual(everyMatch(reader, text, { channelId: small.id }));
         }
       }
+      // A file's name found messages that do not say it.
+      expect(everyMatch(ana.id, "budget").length).toBeGreaterThan(0);
+      expect(everyMatch(ana.id, "common")).toContain("M000085");
       // Both ways were taken: a common word walked the newest, and the walk
       // ran out of window and read older ones from the matches.
       expect(everyMatch(ana.id, "common").length).toBeGreaterThan(statics.SEARCH_WINDOW);

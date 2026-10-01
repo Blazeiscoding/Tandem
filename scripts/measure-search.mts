@@ -8,7 +8,9 @@
  * each of five small channels, and 2.5% each in a private channel the reader
  * is in and one they are not. "the" is in 60% of messages, "deploy" in 5%,
  * "zebra" in 0.01%, and "classified" only in the channel the reader cannot
- * see; 2% carry a link and 0.2% a file.
+ * see; 2% carry a link and 1% a file, named for a budget, a photo, a
+ * contract, notes or logs in turn, so free text and `type:` find them by
+ * name and kind (IMP-02).
  *
  * It checks that nothing from the hidden channel is returned, then times one
  * page (21 rows, as the route asks for 20) of each query through the store and
@@ -59,8 +61,15 @@ try {
   );
   const attach = db.prepare(
     `INSERT INTO files (id, channel_id, user_id, message_id, name, mime, size, created_at)
-     VALUES (?, ?, ?, ?, 'notes.txt', 'text/plain', 10, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, 10, ?)`,
   );
+  const files: [name: string, mime: string][] = [
+    ["Q3 budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    ["site photo.jpg", "image/jpeg"],
+    ["contract.pdf", "application/pdf"],
+    ["notes.txt", "text/plain"],
+    ["logs.zip", "application/zip"],
+  ];
   const people = Array.from({ length: 50 }, (_, i) => `U${String(i).padStart(2, "0")}`);
   for (const id of people) addUser.run(id, id.toLowerCase(), id);
   addUser.run("URARE", "rare", "Rare");
@@ -99,7 +108,10 @@ try {
     const id = `M${String(at).padStart(14, "0")}${String(i).padStart(7, "0")}`;
     const author = i % 2000 === 0 ? "URARE" : people[i % 50]!;
     insert.run(id, channel, author, words.join(" "), i + 1, at);
-    if (i % 500 === 250) attach.run(`F${i}`, channel, author, id, at);
+    if (i % 100 === 50) {
+      const [name, mime] = files[((i / 100) % files.length) | 0]!;
+      attach.run(`F${i}`, channel, author, id, name, mime, at);
+    }
   }
   db.exec("COMMIT");
   let head = "";
@@ -130,6 +142,12 @@ try {
     [`before:${day(START + 30 * DAY)}`],
     [`zebra before:${day(START + 30 * DAY)}`],
     ["deploy", { channelId: "CSM2" }],
+    ["budget"],
+    ["contract pdf"],
+    ["invoice"],
+    ["type:pdf"],
+    ["type:image the"],
+    ["budget type:spreadsheet"],
   ];
   console.log("query                              rows   p50 ms   p95 ms");
   for (const [text, options] of queries) {

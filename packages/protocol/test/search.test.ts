@@ -58,6 +58,14 @@ describe("parseSearchQuery", () => {
     expect(hasSearchCriteria(parseSearchQuery("   "))).toBe(false);
     expect(hasSearchCriteria(parseSearchQuery("in:#general"))).toBe(true);
     expect(hasSearchCriteria(parseSearchQuery("hello"))).toBe(true);
+    expect(hasSearchCriteria(parseSearchQuery("type:pdf"))).toBe(true);
+  });
+
+  it("reads the kinds of file asked for once each, and leaves out kinds there are not (IMP-02)", () => {
+    const p = parseSearchQuery("TYPE:PDF type:image type:pdf type:banana budget");
+    expect(p.types).toEqual(["pdf", "image"]);
+    expect(p.terms).toEqual(["budget"]);
+    expect(hasSearchCriteria(parseSearchQuery("type:banana"))).toBe(false);
   });
 });
 

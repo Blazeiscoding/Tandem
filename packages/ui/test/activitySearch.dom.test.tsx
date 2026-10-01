@@ -399,4 +399,43 @@ describe("the search dialog", () => {
     await within(dialog).findByText(/are ready/);
     expect(submit).toBeEnabled();
   });
+
+  describe("finding files (IMP-02)", () => {
+    const withFile = (name: string) => ({
+      ...message("M3", "Numbers for the quarter", 3),
+      threadRootId: "M1",
+      files: [{ id: "F1", name, mime: "application/pdf", size: 2048, width: null, height: null }],
+    });
+
+    it("shows the names of a result's files, marking the words searched for", async () => {
+      const user = userEvent.setup();
+      const { dialog, box } = renderSearch(async () => ({
+        messages: [withFile("Q3 Budget.pdf")],
+        nextCursor: null,
+      }));
+      await user.type(box, "budget{Enter}");
+      const files = await within(dialog).findByRole("list", { name: "Attachments" });
+      expect(files).toHaveTextContent("Q3 Budget.pdf");
+      expect(files).toHaveTextContent("2.0 KB");
+      expect(within(files).getByText("Budget").tagName).toBe("MARK");
+      // Where it was said, so it can be opened there.
+      expect(dialog).toHaveTextContent("Thread reply");
+    });
+
+    it("asks for one kind of file and says so", async () => {
+      const user = userEvent.setup();
+      const { dialog, box, spy } = renderSearch(async () => ({
+        messages: [withFile("Q3 Budget.pdf")],
+        nextCursor: null,
+      }));
+      await user.selectOptions(within(dialog).getByLabelText("Contains"), "PDFs");
+      expect(within(dialog).getByText("pdfs")).toBeVisible();
+      await user.type(box, "budget{Enter}");
+      await within(dialog).findByRole("list", { name: "Attachments" });
+      expect(spy).toHaveBeenCalledWith("budget type:pdf", 30, expect.anything());
+
+      await user.click(within(dialog).getByRole("button", { name: "Clear filters" }));
+      expect(within(dialog).getByLabelText("Contains")).toHaveValue("");
+    });
+  });
 });

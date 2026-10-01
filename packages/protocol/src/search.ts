@@ -1,10 +1,80 @@
 /**
  * Search syntax shared by the server (which runs the query) and the client
  * (which shows what it understood). Everything that isn't a recognised
- * modifier becomes free text for full-text search.
+ * modifier becomes free text, matched against what messages say and against
+ * the names of the files attached to them.
  *
- *   from:@alice  in:#general  has:link  has:file  before:2026-01-31  after:2026-01-01
+ *   from:@alice  in:#general  has:link  has:file  type:pdf  before:2026-01-31  after:2026-01-01
  */
+
+/** The kinds of attachment `type:` can ask for. */
+export const FILE_TYPES = [
+  "image",
+  "video",
+  "audio",
+  "pdf",
+  "document",
+  "spreadsheet",
+  "presentation",
+  "archive",
+] as const;
+export type FileType = (typeof FILE_TYPES)[number];
+
+/**
+ * What makes a file one kind or another: its media type, as SQL LIKE patterns,
+ * or failing that the ending of its name, for a file sent as anything at all.
+ */
+export const FILE_TYPE_MATCH: Record<
+  FileType,
+  { mime: readonly string[]; ext: readonly string[] }
+> = {
+  image: { mime: ["image/%"], ext: [] },
+  video: { mime: ["video/%"], ext: [] },
+  audio: { mime: ["audio/%"], ext: [] },
+  pdf: { mime: ["application/pdf"], ext: ["pdf"] },
+  document: {
+    mime: [
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.%",
+      "application/vnd.oasis.opendocument.text",
+      "application/rtf",
+      "text/plain",
+      "text/markdown",
+    ],
+    ext: ["doc", "docx", "odt", "rtf", "txt", "md"],
+  },
+  spreadsheet: {
+    mime: [
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.%",
+      "application/vnd.oasis.opendocument.spreadsheet",
+      "text/csv",
+    ],
+    ext: ["xls", "xlsx", "ods", "csv", "tsv"],
+  },
+  presentation: {
+    mime: [
+      "application/vnd.ms-powerpoint",
+      "application/vnd.openxmlformats-officedocument.presentationml.%",
+      "application/vnd.oasis.opendocument.presentation",
+    ],
+    ext: ["ppt", "pptx", "odp", "key"],
+  },
+  archive: {
+    mime: [
+      "application/zip",
+      "application/x-7z-compressed",
+      "application/x-tar",
+      "application/gzip",
+      "application/vnd.rar",
+      "application/x-rar-compressed",
+    ],
+    ext: ["zip", "7z", "tar", "gz", "tgz", "rar"],
+  },
+};
+
+const isFileType = (value: string): value is FileType =>
+  (FILE_TYPES as readonly string[]).includes(value);
 export interface ParsedSearch {
   /** Words left over after modifiers are removed. */
   terms: string[];
@@ -13,6 +83,8 @@ export interface ParsedSearch {
   /** Channel names, without the leading #. */
   in: string[];
   has: ("link" | "file")[];
+  /** Kinds of attachment: a message must have a file of one of them. */
+  types: FileType[];
   /**
    * Epoch ms bounds, as Slack reads them: `before:` excludes the named day and
    * everything after it, `after:` excludes the named day and everything before.
@@ -36,7 +108,7 @@ export interface SearchQueryOptions {
   timeZone?: string;
 }
 
-const MODIFIER = /^(from|in|has|before|after):(.*)$/i;
+const MODIFIER = /^(from|in|has|type|before|after):(.*)$/i;
 
 /** A real calendar date written YYYY-MM-DD, or null. */
 function calendarDay(value: string): [year: number, month: number, day: number] | null {
@@ -154,6 +226,7 @@ export function parseSearchQuery(raw: string, options: SearchQueryOptions = {}):
     from: [],
     in: [],
     has: [],
+    types: [],
     before: null,
     after: null,
     beforeDay: null,
@@ -184,6 +257,13 @@ export function parseSearchQuery(raw: string, options: SearchQueryOptions = {}):
           result.has.push(value.toLowerCase() as "link" | "file");
         }
         break;
+      case "type": {
+        // As with has:, a kind there is no such thing as is left out, and the
+        // hints show it was not understood.
+        const type = value.toLowerCase();
+        if (isFileType(type) && !result.types.includes(type)) result.types.push(type);
+        break;
+      }
       case "before": {
         const day = calendarDay(value);
         if (!day) {
@@ -219,6 +299,7 @@ export function hasSearchCriteria(p: ParsedSearch): boolean {
     p.from.length > 0 ||
     p.in.length > 0 ||
     p.has.length > 0 ||
+    p.types.length > 0 ||
     p.before !== null ||
     p.after !== null
   );

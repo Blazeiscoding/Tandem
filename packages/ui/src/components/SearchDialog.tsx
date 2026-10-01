@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "@slackoss/client-core";
-import type { ID } from "@slackoss/protocol";
+import type { FileMeta, FileType, ID } from "@slackoss/protocol";
 import { parseSearchQuery } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { useRecentSearches, type RecentSearch } from "../lib/recentSearches.js";
-import { channelTitle, formatTime } from "../lib/format.js";
+import { channelTitle, formatBytes, formatTime } from "../lib/format.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { isImeKey } from "../lib/textInput.js";
@@ -17,9 +17,66 @@ const MODIFIER_HELP = [
   { token: "in:#channel", what: "in one channel" },
   { token: "has:link", what: "contains a link" },
   { token: "has:file", what: "has an attachment" },
+  { token: "type:pdf", what: "has one kind of file" },
   { token: "after:2026-01-01", what: "after a day" },
   { token: "before:2026-02-01", what: "before a day" },
 ];
+
+/** Each kind of file `type:` asks for, as the Contains choice and the hints name it. */
+const FILE_TYPE_LABELS: Record<FileType, string> = {
+  image: "Images",
+  video: "Videos",
+  audio: "Audio",
+  pdf: "PDFs",
+  document: "Documents",
+  spreadsheet: "Spreadsheets",
+  presentation: "Presentations",
+  archive: "Archives",
+};
+
+/** A file's name with the words searched for marked, as message text marks them. */
+function markTerms(value: string, terms: readonly string[]): ReactNode {
+  const words = [...new Set(terms.filter((term) => term.trim()))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (words.length === 0) return value;
+  const pattern = new RegExp(
+    words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "giu",
+  );
+  const parts: ReactNode[] = [];
+  let previous = 0;
+  for (const match of value.matchAll(pattern)) {
+    if (match.index > previous) parts.push(value.slice(previous, match.index));
+    parts.push(
+      <mark key={match.index} className="rounded bg-copper/25 text-ink">
+        {match[0]}
+      </mark>,
+    );
+    previous = match.index + match[0].length;
+  }
+  if (previous < value.length) parts.push(value.slice(previous));
+  return parts;
+}
+
+/** The files attached to a result, by name, so one found by its name shows why. */
+function Attachments({ files, terms }: { files: FileMeta[]; terms: readonly string[] }) {
+  if (files.length === 0) return null;
+  return (
+    <ul aria-label="Attachments" className="mt-2 flex flex-wrap gap-1.5">
+      {files.map((file) => (
+        <li
+          key={file.id}
+          className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-edge px-2 py-1 text-xs"
+        >
+          <Icon name="file" size={13} />
+          <span className="truncate">{markTerms(file.name, terms)}</span>
+          <span className="shrink-0 text-ink-faint">{formatBytes(file.size)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /** A YYYY-MM-DD day in the reader's own date style, without moving it a day. */
 function dayLabel(day: string): string {
@@ -36,6 +93,7 @@ function SearchHints({ query }: { query: string }) {
     ...parsed.from.map((h) => `from @${h}`),
     ...parsed.in.map((c) => `in #${c}`),
     ...parsed.has.map((h) => (h === "link" ? "has a link" : "has a file")),
+    ...parsed.types.map((type) => FILE_TYPE_LABELS[type].toLowerCase()),
     ...(parsed.afterDay ? [`after ${dayLabel(parsed.afterDay)}`] : []),
     ...(parsed.beforeDay ? [`before ${dayLabel(parsed.beforeDay)}`] : []),
   ];
@@ -72,7 +130,7 @@ function SearchHints({ query }: { query: string }) {
   );
 }
 
-/** Full-text message search over the workspace. */
+/** Full-text search over the workspace's messages and the names of their files. */
 export function SearchDialog(props: {
   onClose: () => void;
   onJump: (channelId: ID, messageId: ID) => void;
@@ -90,7 +148,8 @@ export function SearchDialog(props: {
   const [error, setError] = useState<string | null>(null);
   const [scope, setScope] = useState("");
   const [author, setAuthor] = useState("");
-  const [has, setHas] = useState("");
+  /** The Contains choice, as the modifier it adds: has:file, type:pdf and so on. */
+  const [contains, setContains] = useState("");
   const [after, setAfter] = useState("");
   const [before, setBefore] = useState("");
   const [submitted, setSubmitted] = useState<{ query: string; channelId?: ID } | null>(null);
@@ -106,7 +165,7 @@ export function SearchDialog(props: {
   const query = [
     q.trim(),
     author && `from:${author}`,
-    has && `has:${has}`,
+    contains,
     after && `after:${after}`,
     before && `before:${before}`,
   ]
@@ -164,7 +223,7 @@ export function SearchDialog(props: {
     setQ(entry.query);
     setScope(entry.channelId ?? "");
     setAuthor("");
-    setHas("");
+    setContains("");
     setAfter("");
     setBefore("");
     void search(entry, undefined, 0, [undefined]);
@@ -185,7 +244,7 @@ export function SearchDialog(props: {
               // search on the Enter that picked an input method's candidate.
               if (e.key === "Enter" && isImeKey(e.nativeEvent)) e.preventDefault();
             }}
-            placeholder="Search every channel you can see"
+            placeholder="Search messages and file names"
             className={inputCls}
           />
           <button
@@ -221,10 +280,19 @@ export function SearchDialog(props: {
           </label>
           <label className="text-xs text-ink-faint">
             Contains
-            <select className={inputCls} value={has} onChange={(e) => setHas(e.target.value)}>
+            <select
+              className={inputCls}
+              value={contains}
+              onChange={(e) => setContains(e.target.value)}
+            >
               <option value="">Anything</option>
-              <option value="file">Files</option>
-              <option value="link">Links</option>
+              <option value="has:file">Any file</option>
+              {(Object.entries(FILE_TYPE_LABELS) as [FileType, string][]).map(([type, label]) => (
+                <option key={type} value={`type:${type}`}>
+                  {label}
+                </option>
+              ))}
+              <option value="has:link">Links</option>
             </select>
           </label>
           <div className="flex items-end">
@@ -234,7 +302,7 @@ export function SearchDialog(props: {
               onClick={() => {
                 setScope("");
                 setAuthor("");
-                setHas("");
+                setContains("");
                 setAfter("");
                 setBefore("");
               }}
@@ -391,13 +459,9 @@ export function SearchDialog(props: {
                         highlightTerms={highlightTerms}
                       />
                     </div>
+                    <Attachments files={m.files} terms={highlightTerms} />
                     <div className="mt-2 flex items-center justify-between gap-2 text-xs text-ink-faint">
-                      <span>
-                        {m.threadRootId ? "Thread reply" : "Message"}
-                        {m.files.length > 0
-                          ? ` · ${m.files.length} attachment${m.files.length === 1 ? "" : "s"}`
-                          : ""}
-                      </span>
+                      <span>{m.threadRootId ? "Thread reply" : "Message"}</span>
                       <button
                         data-search-open
                         className="text-copper underline"
