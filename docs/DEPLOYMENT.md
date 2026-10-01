@@ -457,7 +457,8 @@ messages, how retention's last sweeps went, open connections, and how late the
 event loop ran over the last full minute. It is counts, sizes and times only:
 no message, file name, address, token or delivery error, so it can be pasted
 into a request for help. In the app, the owner and admins find the same figures
-at the end of **Diagnostics**, shown in full before they are copied.
+at the end of **Diagnostics**, shown in full before they are copied or saved
+as a file.
 
 Create the owner account before allowing public traffic, using an SSH tunnel if
 necessary. The supplied Compose configuration then requires invitations for new

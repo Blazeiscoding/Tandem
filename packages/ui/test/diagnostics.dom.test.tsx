@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiError, WorkspaceClient } from "@slackoss/client-core";
 import type { Message, ServerInfo, User, WorkspaceStatus } from "@slackoss/protocol";
 import { ClientContext, PlatformContext } from "../src/context.js";
 import { DiagnosticsDialog } from "../src/components/DiagnosticsDialog.js";
-import { diagnosticsReport } from "../src/lib/diagnostics.js";
+import { diagnosticsFileName, diagnosticsReport } from "../src/lib/diagnostics.js";
 import type { Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
 
@@ -294,5 +294,49 @@ describe("the diagnostics dialog", () => {
     );
     expect(status).not.toHaveBeenCalled();
     expect(screen.queryByText(/how the server is keeping up/)).toBeNull();
+  });
+
+  it("saves exactly the report shown as a text file, named for when it was taken", async () => {
+    const user = userEvent.setup();
+    const blobs = new Map<string, Blob>();
+    // jsdom has neither; the browser's are what the dialog uses.
+    const { createObjectURL, revokeObjectURL } = URL;
+    onTestFinished(() => {
+      Object.assign(URL, { createObjectURL, revokeObjectURL });
+    });
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      const url = `blob:report-${blobs.size}`;
+      blobs.set(url, blob);
+      return url;
+    });
+    URL.revokeObjectURL = vi.fn();
+    const clicks: { href: string; download: string }[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicks.push({ href: this.href, download: this.download });
+    });
+    open(sam);
+    const report = await screen.findByLabelText("Diagnostics report");
+    await user.click(screen.getByRole("button", { name: "Save as file" }));
+
+    expect(clicks).toHaveLength(1);
+    const [{ href, download }] = clicks as [{ href: string; download: string }];
+    expect(download).toMatch(/^gatherline-diagnostics-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\dZ\.txt$/);
+    expect(report).toHaveTextContent(`Taken: ${download.slice(23, 33)}`);
+    const blob = blobs.get(href)!;
+    expect(blob.type).toBe("text/plain;charset=utf-8");
+    expect(await blob.text()).toBe(report.textContent);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      `Handed to your browser or device as ${download}.`,
+    );
+  });
+});
+
+describe("a saved report's name", () => {
+  it("says when it was taken, and nothing else", () => {
+    expect(diagnosticsFileName(new Date("2026-09-26T12:03:04.567Z"))).toBe(
+      "gatherline-diagnostics-2026-09-26T12-03-04Z.txt",
+    );
   });
 });

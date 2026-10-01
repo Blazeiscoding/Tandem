@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ServerInfo, WorkspaceStatus } from "@slackoss/protocol";
 import { ApiError } from "@slackoss/client-core";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
-import { diagnosticsReport } from "../lib/diagnostics.js";
+import { diagnosticsFileName, diagnosticsReport } from "../lib/diagnostics.js";
 import { useCopy } from "../lib/useCopy.js";
 import { Dialog } from "./Dialog.js";
 import { buttonClass } from "./Button.js";
@@ -22,8 +22,22 @@ function statusFailure(err: unknown): Failed {
 }
 
 /**
+ * Hands the report to the browser or desktop app as a text file. Nothing is
+ * sent anywhere; where it goes from the downloads folder is up to the person.
+ */
+function saveReport(text: string, name: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  // Long enough for the download to have read it, in every browser.
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+/**
  * What to send whoever helps when something is wrong. It shows the whole
- * report before anything is copied, and the report holds versions, the
+ * report before anything is copied or saved, and the report holds versions, the
  * connection and the device, never what anybody wrote. For the owner and
  * admins it also says how the server is keeping up (OPS-10): sizes, queues
  * and timings, never what is in them.
@@ -32,7 +46,8 @@ export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
   const client = useClient();
   const platform = usePlatform();
   const admin = useWorkspace((s) => s.self?.role === "owner" || s.self?.role === "admin");
-  const [report, setReport] = useState<string | null>(null);
+  const [report, setReport] = useState<{ text: string; taken: Date } | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const { copy, label } = useCopy(2500);
 
   // One snapshot, taken when the server answers or fails to: what is shown is
@@ -41,8 +56,10 @@ export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
     let alive = true;
     const take = (server: ServerInfo | Failed, workspace?: WorkspaceStatus | Failed) => {
       const { status, huddle, pending } = client.state;
-      setReport(
-        diagnosticsReport({
+      const taken = new Date();
+      setReport({
+        taken,
+        text: diagnosticsReport({
           app: platform.kind,
           address: client.baseUrl,
           status,
@@ -61,9 +78,9 @@ export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
                 ? "not supported"
                 : Notification.permission,
           workspace,
-          now: new Date(),
+          now: taken,
         }),
-      );
+      });
     };
     void Promise.all([
       client.api.serverInfo().catch(failure),
@@ -88,18 +105,35 @@ export function DiagnosticsDialog({ onClose }: { onClose: () => void }) {
           tabIndex={0}
           className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-edge bg-ground p-3 font-mono text-xs text-ink-dim"
         >
-          {report}
+          {report.text}
         </pre>
       ) : (
         <p role="status" className="mt-3 text-sm text-ink-faint">
           {admin ? "Asking the server how it is doing…" : "Asking the server for its version…"}
         </p>
       )}
-      <div className="mt-4 flex justify-end">
+      {saved && (
+        <p role="status" className="mt-3 text-xs text-ink-dim">
+          Handed to your browser or device as {saved}. Check its downloads or save dialog.
+        </p>
+      )}
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          className={buttonClass("secondary")}
+          disabled={!report}
+          onClick={() => {
+            if (!report) return;
+            const name = diagnosticsFileName(report.taken);
+            saveReport(report.text, name);
+            setSaved(name);
+          }}
+        >
+          Save as file
+        </button>
         <button
           className={buttonClass("primary")}
           disabled={!report}
-          onClick={() => report && void copy(report)}
+          onClick={() => report && void copy(report.text)}
         >
           {label("Copy diagnostics", "Copied", "Could not copy. Select the text instead")}
         </button>
