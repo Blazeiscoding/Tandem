@@ -203,7 +203,23 @@ At 50,000 messages the old thread's newest page went from 25.73 / 38.64 to 2.30 
 
 **Gatherline:** FTS/query builders, reader-calendar filters, member/access filtering, `SearchDialog`. Preserve corrected date semantics and formatter LRU.
 
-- [ ] Profile selective/common/empty-term modifiers, date ranges, large channels, file filters and denied channels.
+**Status:** a common word is no longer read in full for one page; see the PR after #183. Every search took its matches from the full-text index, looked each one up, joined and filtered it, then sorted all of them for 20 rows. A word in 60% of 200,000 messages cost 122 ms a page. A word in up to 5,000 messages still starts from its matches; a cheap count that stops at 5,001 decides which kind it is. Above that, the newest 20,000 messages in the search's scope (its page and channel) are walked first. They are checked against only their own matches, bounded by the window's lowest rowid, which stays exact when rowids and ids disagree. If the window holds less than a page, the older messages are read from the matches as before. So a search costs at most the walk's few milliseconds more than it did.
+
+Measured with [`scripts/measure-search.mts`](../scripts/measure-search.mts) on `66cbe08` against the candidate: 200,000 messages over two years, 70% in #general, 20% in #random, 1% in each of five small channels, and 2.5% each in a private channel the reader is in and one they are not; 15 samples of one 21-row page each.
+
+| Query                                                   | Before, p50 | After, p50 |
+| ------------------------------------------------------- | ----------- | ---------- |
+| `the` (60% of messages)                                 | 122.0 ms    | 13.1 ms    |
+| `the`, second page                                      | 126.4 ms    | 13.6 ms    |
+| `the in:#small-3`                                       | 59.5 ms     | 14.4 ms    |
+| `deploy` (5%)                                           | 18.2 ms     | 5.0 ms     |
+| `deploy` in one channel                                 | 2.1 ms      | 3.1 ms     |
+| `zebra` (0.01%)                                         | 0.3 ms      | 0.4 ms     |
+| `classified` (2,500 matches, all in the hidden channel) | 3.9 ms      | 4.9 ms     |
+
+The last two rows and the in-channel row pay for the count. Searches without words are unchanged and are what is left: `before:` an old date walks every newer message (51 ms), `from:` a rare author 12 ms, `has:file` 5 ms; `messages` has no index on author or time. Limiting the full-text read to the window does not make the index decode less of a long word list (about 6–8 ms for `the`), so a word in most messages keeps that floor. `test/searchPlans.test.ts` pages through every query shape at one, seven and fifty a page, with a window and threshold small enough to cross, and holds each to one query over every match.
+
+- [x] Profile selective/common/empty-term modifiers, date ranges, large channels, file filters and denied channels. Measured above; common words fixed.
   - [ ] Inspect query plans and statement time before adding composite/partial indexes or changing FTS projections.
   - [ ] Keep access filtering inside the query; avoid hydrating many rows only to discard them later.
   - [ ] Add search admission/in-flight budget if expensive successful searches saturate the host; surface useful retry.

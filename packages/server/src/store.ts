@@ -3270,70 +3270,119 @@ export class Store {
     return this.memberIds(channelId).filter((id) => id !== exclude && (roomWide || direct.has(id)));
   }
 
+  /**
+   * Above this many matches, a search walks the newest messages first rather
+   * than starting from its matches (OPT-11). Starting from them costs about a
+   * microsecond each, and the walk a few milliseconds whatever it finds, so
+   * this is about where the walk starts to pay.
+   */
+  static SEARCH_FEW_MATCHES = 5000;
+  /** How many of the newest messages that walk covers before it gives up. */
+  static SEARCH_WINDOW = 20_000;
+
   searchMessages(
     userId: ID,
     query: ParsedSearch,
     limit: number,
     opts: { cursor?: ID; channelId?: ID } = {},
   ): Message[] {
-    const where: string[] = ["m.deleted_at IS NULL"];
-    const params: (string | number)[] = [];
-    if (opts.cursor) {
-      where.push("m.id < ?");
-      params.push(opts.cursor);
-    }
-    if (opts.channelId) {
-      where.push("m.channel_id = ?");
-      params.push(opts.channelId);
-    }
+    type Filter = [sql: string, ...values: (string | number)[]];
+    // Where the newest messages are counted from: the same page and channel.
+    const scope: Filter[] = [];
+    if (opts.cursor) scope.push(["m.id < ?", opts.cursor]);
+    if (opts.channelId) scope.push(["m.channel_id = ?", opts.channelId]);
+    const filters: Filter[] = [["m.deleted_at IS NULL"], ...scope];
 
-    if (query.terms.length > 0) {
-      // Quote every term so user input can never break FTS5 syntax.
-      const fts = query.terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" ");
-      where.push("m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)");
-      params.push(fts);
-    }
     if (query.from.length > 0) {
-      where.push(`u.handle IN (${query.from.map(() => "?").join(",")})`);
-      params.push(...query.from);
+      filters.push([`u.handle IN (${query.from.map(() => "?").join(",")})`, ...query.from]);
     }
     if (query.in.length > 0) {
-      where.push(`c.name IN (${query.in.map(() => "?").join(",")})`);
-      params.push(...query.in);
+      filters.push([`c.name IN (${query.in.map(() => "?").join(",")})`, ...query.in]);
     }
     if (query.has.includes("link")) {
       // Parenthesised: this sits inside an AND-joined list.
-      where.push("(m.text LIKE '%http://%' OR m.text LIKE '%https://%')");
+      filters.push(["(m.text LIKE '%http://%' OR m.text LIKE '%https://%')"]);
     }
     if (query.has.includes("file")) {
-      where.push("EXISTS (SELECT 1 FROM files f WHERE f.message_id = m.id)");
+      filters.push(["EXISTS (SELECT 1 FROM files f WHERE f.message_id = m.id)"]);
     }
-    if (query.before !== null) {
-      where.push("m.created_at < ?");
-      params.push(query.before);
-    }
-    if (query.after !== null) {
-      where.push("m.created_at >= ?");
-      params.push(query.after);
-    }
+    if (query.before !== null) filters.push(["m.created_at < ?", query.before]);
+    if (query.after !== null) filters.push(["m.created_at >= ?", query.after]);
 
     // Visibility is never optional, whatever the modifiers say.
-    where.push(
+    filters.push([
       `(c.type = 'public' OR EXISTS (
          SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?
        ))`,
-    );
-    params.push(userId);
+      userId,
+    ]);
 
-    const rows = this.db
+    const page = (more: Filter[], count: number) => {
+      const all = [...filters, ...more];
+      return this.db
+        .prepare(
+          `SELECT m.* FROM messages m
+           JOIN channels c ON c.id = m.channel_id
+           JOIN users u ON u.id = m.user_id
+           WHERE ${all.map(([sql]) => sql).join(" AND ")}
+           ORDER BY m.id DESC LIMIT ?`,
+        )
+        .all(...all.flatMap(([, ...values]) => values), count) as unknown as MessageRow[];
+    };
+    if (query.terms.length === 0) return this.hydrateMessages(page([], limit));
+
+    // Quote every term so user input can never break FTS5 syntax.
+    const fts = query.terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" ");
+    const matching: Filter = [
+      "m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)",
+      fts,
+    ];
+    const many =
+      (
+        this.db
+          .prepare(
+            "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          )
+          .get(fts, Store.SEARCH_FEW_MATCHES + 1) as { n: number }
+      ).n > Store.SEARCH_FEW_MATCHES;
+    // A word in few messages is found from its matches. A common one would
+    // have every match read, joined and sorted for one page: 120,000 of them
+    // for "the" in 200,000 messages. So the newest messages are walked first,
+    // checked against only their own matches, and the older ones are read
+    // from the matches only if the newest hold less than a page.
+    if (!many) return this.hydrateMessages(page([matching], limit));
+    const window = this.db
       .prepare(
-        `SELECT m.* FROM messages m
-         JOIN channels c ON c.id = m.channel_id
-         JOIN users u ON u.id = m.user_id
-         WHERE ${where.join(" AND ")}
-         ORDER BY m.id DESC LIMIT ?`,
+        `SELECT MIN(id) AS edge, MIN(position) AS low, COUNT(*) AS n FROM (
+           SELECT m.id, m.rowid AS position FROM messages m
+           ${scope.length > 0 ? `WHERE ${scope.map(([sql]) => sql).join(" AND ")}` : ""}
+           ORDER BY m.id DESC LIMIT ?
+         )`,
       )
-      .all(...params, limit) as unknown as MessageRow[];
-    return this.hydrateMessages(rows);
+      .get(...scope.flatMap(([, ...values]) => values), Store.SEARCH_WINDOW) as {
+      edge: ID | null;
+      low: number | null;
+      n: number;
+    };
+    if (window.edge === null || window.low === null) return [];
+    // Every message from the edge on has a rowid of at least `low`, whatever
+    // order rowids were given in, so no match in the window is missed. The
+    // unary plus keeps SQLite from starting at the matches instead.
+    const newest = page(
+      [
+        [
+          "+m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND rowid >= ?)",
+          fts,
+          window.low,
+        ],
+        ["m.id >= ?", window.edge],
+      ],
+      limit,
+    );
+    if (newest.length === limit || window.n < Store.SEARCH_WINDOW) {
+      return this.hydrateMessages(newest);
+    }
+    const older = page([matching, ["m.id < ?", window.edge]], limit - newest.length);
+    return this.hydrateMessages([...newest, ...older]);
   }
 }
