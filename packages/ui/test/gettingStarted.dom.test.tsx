@@ -136,6 +136,7 @@ describe("getting started, for whoever set the workspace up", () => {
           localCameraStream: null,
           localScreenStream: null,
           speaking: false,
+          micLost: false,
           peers: [],
         },
       }),

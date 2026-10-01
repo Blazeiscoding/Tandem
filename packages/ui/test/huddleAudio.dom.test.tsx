@@ -52,6 +52,7 @@ function bar() {
       localCameraStream: null,
       localScreenStream: null,
       speaking: false,
+      micLost: false,
       peers: [priya],
     },
   });

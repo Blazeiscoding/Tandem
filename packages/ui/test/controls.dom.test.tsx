@@ -66,6 +66,7 @@ describe("the huddle bar", () => {
         localCameraStream: null,
         localScreenStream: null,
         speaking: false,
+        micLost: false,
         peers: [
           {
             userId: "U_PRIYA",

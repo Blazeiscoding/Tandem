@@ -343,6 +343,81 @@ describe("HuddleSession", () => {
     session.destroy();
   });
 
+  describe("a microphone that stops mid-call (CALL-01)", () => {
+    type Track = { kind: string; enabled: boolean; stop: () => void; onended?: () => void };
+    const track = (): Track => ({ kind: "audio", enabled: true, stop: vi.fn() });
+    const stream = (t: Track) => new FakeMediaStream([t]) as unknown as MediaStream;
+    let listeners: Map<string, () => void>;
+
+    beforeEach(() => {
+      listeners = new Map();
+      Object.assign(navigator.mediaDevices, {
+        addEventListener: vi.fn((type: string, fn: () => void) => listeners.set(type, fn)),
+        removeEventListener: vi.fn((type: string) => listeners.delete(type)),
+      });
+    });
+
+    async function inCall(first: Track) {
+      const { session, sent } = makeSession("A");
+      const ask = vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(stream(first));
+      await session.startLocalAudio();
+      session.syncParticipants(["A", "B"]);
+      await flush();
+      return { session, sent, ask, pc: FakePeerConnection.instances[0]! };
+    }
+
+    it("sends everyone the system's microphone in its place, muted as it was", async () => {
+      const unplugged = track();
+      const { session, ask, pc } = await inCall(unplugged);
+      expect(pc.transceivers[0]!.sender.track).toBe(unplugged);
+      session.toggleMic();
+
+      const next = track();
+      ask.mockResolvedValueOnce(stream(next));
+      unplugged.onended!();
+      await flush();
+      await flush();
+      expect(ask).toHaveBeenCalledTimes(2);
+      expect(pc.transceivers[0]!.sender.track).toBe(next);
+      expect(next.enabled).toBe(false);
+      expect(session.state()).toMatchObject({ micMuted: true, micLost: false });
+      session.destroy();
+    });
+
+    it("says so when there is none, tells the others it is muted, and takes the next plugged in", async () => {
+      const unplugged = track();
+      const { session, sent, ask, pc } = await inCall(unplugged);
+      sent.length = 0;
+      ask.mockRejectedValueOnce(new DOMException("Requested device not found", "NotFoundError"));
+      unplugged.onended!();
+      await flush();
+      expect(session.state().micLost).toBe(true);
+      expect(sent.at(-1)!.signal).toMatchObject({ kind: "media", muted: true });
+
+      const plugged = track();
+      ask.mockResolvedValueOnce(stream(plugged));
+      listeners.get("devicechange")!();
+      await flush();
+      await flush();
+      expect(session.state()).toMatchObject({ micMuted: false, micLost: false });
+      expect(pc.transceivers[0]!.sender.track).toBe(plugged);
+      expect(sent.at(-1)!.signal).toMatchObject({ kind: "media", muted: false });
+      expect(listeners.has("devicechange")).toBe(false);
+      session.destroy();
+    });
+
+    it("stops listening for microphones once the huddle ends", async () => {
+      const unplugged = track();
+      const { session, ask } = await inCall(unplugged);
+      ask.mockRejectedValueOnce(new DOMException("Requested device not found", "NotFoundError"));
+      unplugged.onended!();
+      await flush();
+      expect(listeners.has("devicechange")).toBe(true);
+      session.destroy();
+      expect(listeners.has("devicechange")).toBe(false);
+    });
+  });
+
   it("takes a peer's word for whether they are muted", () => {
     const { session } = makeSession("A");
     session.syncParticipants(["A", "B"]);

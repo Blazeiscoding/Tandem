@@ -2295,6 +2295,11 @@ export class WorkspaceClient {
     this.session?.toggleMic();
   }
 
+  /** Asks for a microphone again after the huddle's stopped. */
+  retryMicrophone(): void {
+    void this.session?.recoverMicrophone();
+  }
+
   async toggleScreenShare(): Promise<void> {
     await this.session?.toggleScreenShare();
   }

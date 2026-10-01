@@ -97,6 +97,26 @@ export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
           Leave
         </button>
       </div>
+      {huddle.micLost && (
+        <p
+          role="alert"
+          className={`flex basis-full items-center justify-end gap-3 text-xs ${
+            overlay ? "mt-2 rounded-lg bg-black/60 px-3 py-2 text-white" : "text-alert"
+          }`}
+        >
+          <span>
+            Your microphone stopped, so nobody can hear you. Connect one, and it is used as soon as
+            it is found.
+          </span>
+          <button
+            type="button"
+            onClick={() => client.retryMicrophone()}
+            className="shrink-0 rounded-lg border border-current px-2 py-1 font-medium"
+          >
+            Try again
+          </button>
+        </p>
+      )}
       {failure && (
         <p
           role="alert"

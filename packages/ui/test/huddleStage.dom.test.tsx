@@ -66,6 +66,7 @@ function huddleClient(huddle: Partial<HuddleState>) {
       localCameraStream: null,
       localScreenStream: null,
       speaking: false,
+      micLost: false,
       peers: [peer("U_PRIYA")],
       ...huddle,
     },
