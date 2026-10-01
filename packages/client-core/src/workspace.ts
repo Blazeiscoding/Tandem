@@ -367,10 +367,14 @@ export function isMessageRead(
 ): boolean {
   const channelRead = state.memberships[message.channelId] ?? 0;
   if (!message.threadRootId) return message.seq <= channelRead;
-  const threadRead = state.threadFollows[message.threadRootId]?.lastReadSeq;
+  const follow = state.threadFollows[message.threadRootId];
+  const threadRead = follow?.lastReadSeq;
   // A server that reads replies with the channel's cursor too.
   if (!state.repliesRead) return message.seq <= Math.max(channelRead, threadRead ?? 0);
-  if (message.broadcast && message.seq <= channelRead) return true;
+  // Also sent to the channel, and read there; unless the thread was marked
+  // unread since the channel was last read past where it then stood.
+  const held = follow?.unreadHold !== undefined && channelRead <= follow.unreadHold;
+  if (message.broadcast && message.seq <= channelRead && !held) return true;
   return message.seq <= (threadRead ?? state.repliesRead[message.channelId] ?? 0);
 }
 
@@ -2362,6 +2366,7 @@ export class WorkspaceClient {
     const channelId = before?.channelId ?? this.threadRoot(rootId)?.channelId;
     if (!channelId) return;
     this.threadReadHold.add(rootId);
+    const channelRead = this.state.memberships[channelId];
     this.writeThreadFollow(
       {
         rootId,
@@ -2370,6 +2375,8 @@ export class WorkspaceClient {
         lastReadSeq: seq - 1,
         lastSeq: Math.max(before?.lastSeq ?? 0, this.threadTailSeq(rootId)),
         revision: (before?.revision ?? 0) + 1,
+        // As the server holds it: against the channel's cursor as it is now.
+        ...(channelRead === undefined ? {} : { unreadHold: channelRead }),
       },
       () => this.api.markThreadUnread(rootId, seq),
       () => this.threadReadHold.delete(rootId),

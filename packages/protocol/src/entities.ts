@@ -260,6 +260,13 @@ export interface ThreadFollow {
   lastSeq: number;
   /** Increases on every change, so a late echo cannot undo a newer one. */
   revision: number;
+  /**
+   * Set when the thread was marked unread: where the channel's read cursor
+   * stood then. Until the channel is read past it, a reply also sent to the
+   * channel is read only through the thread. Absent when there is no hold,
+   * and from servers older than it.
+   */
+  unreadHold?: number;
 }
 
 export interface FollowedThread {

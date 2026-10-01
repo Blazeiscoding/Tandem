@@ -507,6 +507,12 @@ const MIGRATIONS: string[] = [
   ) WITHOUT ROWID;
   CREATE INDEX idx_purged_message_requests_sent ON purged_message_requests(sent_at);
   `,
+  // v33 — marking a thread unread holds against the channel's cursor: where
+  // that cursor stood then. Until the channel is read past it, a reply also
+  // sent to the channel is read only through its thread. Null: no hold.
+  `
+  ALTER TABLE thread_follows ADD COLUMN unread_hold INTEGER;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

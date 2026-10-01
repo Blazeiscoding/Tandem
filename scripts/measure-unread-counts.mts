@@ -189,7 +189,9 @@ try {
            AND CASE WHEN m.thread_root_id IS NULL THEN m.seq > cm.last_read_seq
              ELSE m.seq > COALESCE((SELECT tf.last_read_seq FROM thread_follows tf
                WHERE tf.user_id = cm.user_id AND tf.root_id = m.thread_root_id), cm.replies_read_seq)
-             AND NOT (m.broadcast = 1 AND m.seq <= cm.last_read_seq) END`,
+             AND NOT (m.broadcast = 1 AND m.seq <= cm.last_read_seq
+               AND cm.last_read_seq > COALESCE((SELECT tf.unread_hold FROM thread_follows tf
+                 WHERE tf.user_id = cm.user_id AND tf.root_id = m.thread_root_id), -1)) END`,
       )
       .get(member, member, `<@${member}>`) as { n: number }
   ).n;
