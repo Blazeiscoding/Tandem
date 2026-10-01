@@ -41,6 +41,12 @@ const original: Message = {
 
 const draftKey = "C1:edit:M1";
 
+/** The edit as kept between sessions. */
+const kept = (client: WorkspaceClient) => {
+  const value = client.state.drafts[draftKey];
+  return value === undefined ? undefined : (JSON.parse(value) as { text: string; base: string });
+};
+
 function renderEditor(message = original) {
   const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
   client.store.setState({ self: sam, users: { [sam.id]: sam }, status: "online" });
@@ -70,10 +76,20 @@ describe("editing a message", () => {
     expect(box).toHaveFocus();
     await user.clear(box);
     await user.type(box, "  Ship it on Monday  ");
-    expect(client.state.drafts[draftKey]).toBe("  Ship it on Monday  ");
+    expect(kept(client)).toEqual({ text: "  Ship it on Monday  ", base: "Ship it on Friday" });
     await user.keyboard("{Enter}");
-    expect(edit).toHaveBeenCalledWith("M1", "Ship it on Monday");
+    // Saved over the words it started from, and only over those.
+    expect(edit).toHaveBeenCalledWith("M1", "Ship it on Monday", "Ship it on Friday");
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(client.state.drafts).not.toHaveProperty([draftKey]);
+  });
+
+  it("keeps nothing once the box is emptied, so the edit starts from the message again", async () => {
+    const user = userEvent.setup();
+    const { client, box } = renderEditor();
+    await user.type(box, "!");
+    expect(kept(client)?.text).toBe("Ship it on Friday!");
+    await user.clear(box);
     expect(client.state.drafts).not.toHaveProperty([draftKey]);
   });
 
@@ -117,7 +133,7 @@ describe("editing a message", () => {
     );
     expect(onClose).not.toHaveBeenCalled();
     expect(box).toHaveValue("Ship it on Monday");
-    expect(client.state.drafts[draftKey]).toBe("Ship it on Monday");
+    expect(kept(client)?.text).toBe("Ship it on Monday");
 
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
@@ -145,7 +161,7 @@ describe("editing a message", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("picks up a draft left from before, rather than the message's text", () => {
+  it("picks up a draft kept as plain text before edits remembered their start", () => {
     const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
     client.store.setState({ self: sam, users: { [sam.id]: sam } });
     client.setDraft(draftKey, "Half an edit");
@@ -168,6 +184,8 @@ describe("a message changed by someone else while it is being edited", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "This message changed while you were editing.",
     );
+    // With the newer words in view, so the choice is not made blind.
+    expect(screen.getByLabelText("Current message")).toHaveTextContent("Ship it on Thursday");
     await user.keyboard("{Enter}");
     expect(edit).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Save my version" })).toBeEnabled();
@@ -179,7 +197,8 @@ describe("a message changed by someone else while it is being edited", () => {
     await user.type(box, " (mine)");
     rerender({ ...original, text: "Ship it on Thursday" });
     await user.click(screen.getByRole("button", { name: "Save my version" }));
-    expect(edit).toHaveBeenCalledWith("M1", "Ship it on Friday (mine)");
+    // Over the version they were told of, not over anything newer.
+    expect(edit).toHaveBeenCalledWith("M1", "Ship it on Friday (mine)", "Ship it on Thursday");
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
@@ -194,6 +213,86 @@ describe("a message changed by someone else while it is being edited", () => {
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     await user.type(box, " at noon{Enter}");
-    expect(edit).toHaveBeenCalledWith("M1", "Ship it on Thursday at noon");
+    expect(edit).toHaveBeenCalledWith("M1", "Ship it on Thursday at noon", "Ship it on Thursday");
+  });
+});
+
+describe("an edit the server refuses because the message changed first", () => {
+  it("keeps the text, says nothing was overwritten, and stays open", async () => {
+    const user = userEvent.setup();
+    const { client, edit, onClose, box, rerender } = renderEditor();
+    edit.mockRejectedValueOnce(new ApiError(409, "message_changed"));
+    await user.type(box, " (mine){Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This message changed before your edit was saved. Your text is kept; nothing was overwritten.",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(box).toHaveValue("Ship it on Friday (mine)");
+    expect(kept(client)).toEqual({ text: "Ship it on Friday (mine)", base: "Ship it on Friday" });
+
+    // The newer edit arrives, and the author chooses between the two.
+    rerender({ ...original, text: "Ship it on Thursday" });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This message changed while you were editing.",
+    );
+    await user.click(screen.getByRole("button", { name: "Save my version" }));
+    expect(edit).toHaveBeenLastCalledWith("M1", "Ship it on Friday (mine)", "Ship it on Thursday");
+  });
+
+  it("is not a conflict when the change is this edit, saved though its answer was lost", async () => {
+    const user = userEvent.setup();
+    const { edit, onClose, box, rerender } = renderEditor();
+    edit.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await user.clear(box);
+    await user.type(box, "Ship it on Monday{Enter}");
+    await screen.findByRole("alert");
+    // It had gone through after all.
+    rerender({ ...original, text: "Ship it on Monday" });
+    expect(screen.queryByRole("status")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(edit).toHaveBeenCalledOnce();
+  });
+});
+
+describe("an edit picked up after a restart", () => {
+  function reopen(value: string, message: Message) {
+    const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
+    client.store.setState({ self: sam, users: { [sam.id]: sam }, status: "online" });
+    client.setDraft(draftKey, value);
+    const edit = vi
+      .spyOn(client.api, "editMessage")
+      .mockImplementation(async (_id, text) => ({ message: { ...message, text } }));
+    render(
+      <ClientContext.Provider value={client}>
+        <MessageEditor message={message} onClose={() => {}} />
+      </ClientContext.Provider>,
+    );
+    return { edit, box: screen.getByRole("textbox", { name: "Edit message" }) };
+  }
+
+  it("knows the message changed since it was started, though this window never saw the change", async () => {
+    const user = userEvent.setup();
+    const { edit, box } = reopen(
+      JSON.stringify({ text: "Ship it on Friday (mine)", base: "Ship it on Friday" }),
+      { ...original, text: "Ship it on Thursday" },
+    );
+    expect(box).toHaveValue("Ship it on Friday (mine)");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This message changed while you were editing.",
+    );
+    await user.keyboard("{Enter}");
+    expect(edit).not.toHaveBeenCalled();
+  });
+
+  it("saves as usual when the message is still what it started from", async () => {
+    const user = userEvent.setup();
+    const { edit } = reopen(
+      JSON.stringify({ text: "Ship it on Monday", base: "Ship it on Friday" }),
+      original,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(edit).toHaveBeenCalledWith("M1", "Ship it on Monday", "Ship it on Friday");
   });
 });

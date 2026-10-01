@@ -332,8 +332,14 @@ export class Api {
     return this.request("POST", `/api/channels/${channelId}/messages`, body);
   }
 
-  editMessage(id: ID, text: string): Promise<{ message: Message }> {
-    return this.request("PATCH", `/api/messages/${id}`, { text }, { timeoutMs: 10_000 });
+  /** With `expectedText`, refused as `message_changed` if the words are no longer those. */
+  editMessage(id: ID, text: string, expectedText?: string): Promise<{ message: Message }> {
+    return this.request(
+      "PATCH",
+      `/api/messages/${id}`,
+      { text, expectedText },
+      { timeoutMs: 10_000 },
+    );
   }
 
   deleteMessage(id: ID): Promise<{ ok: true }> {

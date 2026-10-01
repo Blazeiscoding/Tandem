@@ -221,6 +221,12 @@ export const runCommandBody = z.object({
 
 export const editMessageBody = z.object({
   text: z.string().min(1).max(12000),
+  /**
+   * The words the author is replacing, as their client last had them. A
+   * message changed since is refused rather than overwritten. Left out, an
+   * edit replaces whatever is there, as before this existed.
+   */
+  expectedText: z.string().max(12000).optional(),
 });
 
 export const markReadBody = z.object({

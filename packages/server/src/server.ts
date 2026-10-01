@@ -1847,6 +1847,18 @@ async function startWorkspaceServer(
     }
     if (existing.userId !== me.id) throw new HttpError(403, "not_your_message");
     const body = editMessageBody.parse(req.body);
+    // Words already the new ones are a retry whose answer was lost, not a conflict.
+    if (
+      body.expectedText !== undefined &&
+      existing.text !== body.expectedText &&
+      existing.text !== body.text
+    ) {
+      throw new HttpError(
+        409,
+        "message_changed",
+        "This message has changed. Choose which version to keep before saving.",
+      );
+    }
     return mutate((emit) => {
       const message = store.editMessage(existing.id, body.text);
       emit({ type: "message.updated", message }, message.channelId);

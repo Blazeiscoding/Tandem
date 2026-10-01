@@ -11,14 +11,45 @@ import {
 import { Mrkdwn } from "./Mrkdwn.js";
 import { isImeKey } from "../lib/textInput.js";
 
+/**
+ * An unsaved edit, kept with the words it started from so that one picked up
+ * after a restart can still tell the message has changed since. An edit kept
+ * before that was stored as its text alone, and starts from the message.
+ */
+interface EditDraft {
+  text: string;
+  base?: string;
+}
+
+function readEditDraft(value: string | undefined): EditDraft | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "text" in parsed &&
+      "base" in parsed &&
+      typeof parsed.text === "string" &&
+      typeof parsed.base === "string"
+    )
+      return { text: parsed.text, base: parsed.base };
+  } catch {
+    // An edit kept as plain text.
+  }
+  return { text: value };
+}
+
 export function MessageEditor({ message, onClose }: { message: Message; onClose: () => void }) {
   const client = useClient();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   const draftKey = `${message.channelId}:edit:${message.id}`;
   const savedDraft = useWorkspace((s) => s.drafts[draftKey]);
-  const [draft, setDraft] = useState(() => client.state.drafts[draftKey] ?? message.text);
-  const [baseline, setBaseline] = useState(message.text);
+  const [kept] = useState(() => readEditDraft(client.state.drafts[draftKey]));
+  const [draft, setDraft] = useState(kept?.text ?? message.text);
+  /** The words this edit started from. */
+  const [base, setBase] = useState(kept?.base ?? message.text);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
@@ -26,7 +57,9 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
   const alive = useRef(true);
   const saving = useRef(false);
   const touched = useRef(false);
-  const changedElsewhere = message.text !== baseline;
+  // Changed to what this edit would save, as when a save whose answer was lost
+  // went through, is no conflict.
+  const changedElsewhere = message.text !== base && message.text !== draft.trim();
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -34,13 +67,24 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
     };
   }, []);
   useEffect(() => {
-    if (!touched.current && savedDraft !== undefined) setDraft(savedDraft);
+    const other = readEditDraft(savedDraft);
+    if (touched.current || !other) return;
+    setDraft(other.text);
+    if (other.base !== undefined) setBase(other.base);
   }, [savedDraft]);
 
-  function change(text: string) {
+  function keep(text: string, from: string) {
+    // An emptied box keeps nothing, so the edit starts from the message again.
+    client.setDraft(
+      draftKey,
+      text.trim() ? JSON.stringify({ text, base: from } satisfies EditDraft) : "",
+    );
+  }
+
+  function change(text: string, from = base) {
     touched.current = true;
     setDraft(text);
-    client.setDraft(draftKey, text);
+    keep(text, from);
   }
 
   function select(text: string, start: number, end = start) {
@@ -80,9 +124,12 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
     saving.current = true;
     setBusy(true);
     setError(null);
-    client.setDraft(draftKey, draft);
+    keep(draft, base);
     try {
-      await client.api.editMessage(message.id, draft.trim());
+      // What this window has of the message: the words the edit started from,
+      // or, once the author has seen they changed and chosen to save anyway,
+      // the words they chose to replace. Anything newer is refused.
+      await client.api.editMessage(message.id, draft.trim(), message.text);
       if (!alive.current) return;
       client.setDraft(draftKey, "");
       onClose();
@@ -91,7 +138,9 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
         setError(
           failure instanceof ApiError && failure.status === 404
             ? "This message is no longer available. Your unsaved edit is kept."
-            : "Could not save this edit. Your text is kept; try again when connected.",
+            : failure instanceof ApiError && failure.code === "message_changed"
+              ? "This message changed before your edit was saved. Your text is kept; nothing was overwritten."
+              : "Could not save this edit. Your text is kept; try again when connected.",
         );
     } finally {
       saving.current = false;
@@ -108,14 +157,20 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
             disabled={busy}
             className="text-copper underline"
             onClick={() => {
-              change(message.text);
-              setBaseline(message.text);
+              setBase(message.text);
+              change(message.text, message.text);
               setError(null);
             }}
           >
             Use the current message
           </button>
           , or save your version below.
+          <blockquote
+            aria-label="Current message"
+            className="mt-1 line-clamp-3 border-l-2 border-edge pl-2 whitespace-pre-wrap text-ink"
+          >
+            {message.text}
+          </blockquote>
         </div>
       )}
       <fieldset
