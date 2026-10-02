@@ -46,6 +46,20 @@ belongs in a release workflow, on a tag, where somebody actually wants to
 download it. If an artifact genuinely helps diagnose a failure, upload it under
 `if: failure()` and set a short `retention-days`.
 
+Releases come from `.github/workflows/release.yml`, on a `v1.2.3` tag or a
+manual run naming the tag. It builds the server and the Windows installer from
+that one commit and runs the unit, browser and desktop suites on them. On
+Windows it also installs the installer silently, starts the app, checks it
+registers `gatherline://` and `slackoss://`, upgrades from the previous published
+release if there is one, and checks uninstalling keeps the person's data.
+`scripts/release-manifest.mjs` then refuses any file not built from that commit,
+or built from changed source, and writes `SHA256SUMS` and notes naming the
+revision. The result is a draft release; publishing it is a person's decision.
+Its files are release assets, so the clean-up below never touches them. The
+`release-*` artifacts that carry them between jobs are deleted by the release
+run itself. A pull request that changes the release workflow or its scripts
+runs every step except publishing.
+
 CI also deletes what it leaves behind. GitHub counts storage for every hour an
 artifact exists, and deleting one later does not give those hours back. So the
 browser report a failing run uploads expires after a day, and the next run

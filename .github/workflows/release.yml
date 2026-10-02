@@ -1,0 +1,206 @@
+name: Release
+# A release is built and tested from one commit, then published as a draft
+# with the SHA-256 of every file and the revision each was built from
+# (IMP-08). It runs on a version tag, or by hand with the tag to create.
+# Published files are release assets, not Actions artifacts, so the checks'
+# artifact clean-up (ci.yml) cannot delete them; the artifacts carrying them
+# between these jobs are named release-*, which the clean-up leaves alone.
+# A pull request that changes the release itself runs everything but the
+# publishing, so the gates are proved before a real release depends on them.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release (v1.2.3 or v1.2.3-rc.1), created at this commit when published
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "scripts/release-*"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - run: pnpm typecheck --concurrency=2
+      - run: pnpm test --concurrency=2
+        env:
+          VITEST_MAX_THREADS: "2"
+          VITEST_MAX_FORKS: "2"
+      - run: pnpm build --concurrency=2
+      - run: node scripts/check-web-bundle.mjs
+      - run: node scripts/check-web-precompressed.mjs apps/server-cli/dist/web
+      - run: pnpm exec playwright install --with-deps chromium
+      # The browser tests start these very builds; their setup refuses
+      # anything not built from this checkout.
+      - run: pnpm test:e2e
+      - name: Collect the server
+        run: |
+          version=$(node -p "require('./package.json').version")
+          mkdir -p release
+          tar -czf "release/gatherline-server-$version.tar.gz" -C apps/server-cli/dist .
+          cp apps/server-cli/dist/build.json release/server.build.json
+          cp apps/server-cli/dist/web/build.json release/web.build.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-server
+          path: release/
+          retention-days: 1
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Cache Electron and packaging tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-${{ runner.os }}-${{ runner.arch }}-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck:automation
+      - run: pnpm --filter @slackoss/desktop package --win
+      - run: node scripts/check-web-bundle.mjs apps/desktop/out/renderer
+      - run: node scripts/check-desktop-archive.mjs apps/desktop/release/win-unpacked/resources/app.asar
+      - run: node scripts/check-web-precompressed.mjs apps/desktop/release/win-unpacked/resources/web
+      - run: pnpm test:desktop
+      # The previous published release, if there is one, to upgrade from.
+      - name: Fetch the previous release
+        id: previous
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName'
+          if ($tag) {
+            gh release download $tag --pattern "*Setup*.exe" --dir previous
+            $installer = (Get-ChildItem "previous/*Setup*.exe" | Select-Object -First 1).FullName
+            "installer=$installer" >> $env:GITHUB_OUTPUT
+          }
+      - name: Install, upgrade and uninstall gates
+        shell: pwsh
+        env:
+          PREVIOUS: ${{ steps.previous.outputs.installer }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installer = (Get-ChildItem "apps/desktop/release/*Setup*.exe" | Select-Object -First 1).FullName
+          $previous = $env:PREVIOUS
+          if ($previous) {
+            ./scripts/release-install-gates.ps1 -Installer $installer -Version $version -Previous $previous
+          } else {
+            ./scripts/release-install-gates.ps1 -Installer $installer -Version $version
+          }
+      - name: Collect the installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item (Get-ChildItem "apps/desktop/release/*Setup*.exe" | Select-Object -First 1).FullName release/
+          node --input-type=module -e "import { readAsarFile } from './scripts/build-identity.mjs'; import { writeFileSync } from 'node:fs'; writeFileSync('release/desktop.build.json', readAsarFile('apps/desktop/release/win-unpacked/resources/app.asar', 'out/build.json'));"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-desktop
+          path: release/
+          retention-days: 1
+
+  # Checks every file was built from this commit and writes the hashes and
+  # notes; on a pull request it stops here.
+  manifest:
+    needs: [server, windows]
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - name: Choose the tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then tag="$INPUT_TAG"
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then tag="$GITHUB_REF_NAME"
+          else tag="v$(node -p "require('./package.json').version")-check"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - run: node --test scripts/release-manifest.test.mjs
+      - run: node scripts/release-manifest.mjs release --revision "$GITHUB_SHA" --tag "$TAG" --notes release/notes.md
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: |
+            release/SHA256SUMS
+            release/notes.md
+          retention-days: 1
+
+  publish:
+    needs: [manifest]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      # A draft: someone looks it over and publishes it, which creates the
+      # tag at this commit for a manual run.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.manifest.outputs.tag }}
+        run: |
+          mapfile -t files < <(find release -maxdepth 1 -type f ! -name '*.build.json' ! -name notes.md | sort)
+          prerelease=()
+          if [[ "$TAG" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft "${prerelease[@]}" \
+            --target "$GITHUB_SHA" --title "Gatherline $TAG" --notes-file release/notes.md "${files[@]}"
+
+  # The installer is about 100 MB of a half-gigabyte storage allowance, and
+  # ci.yml's clean-up leaves release-* alone, so this run deletes its own
+  # artifacts once nothing needs them, published or not.
+  clean-up:
+    needs: [manifest, publish]
+    if: ${{ always() && !github.event.pull_request.head.repo.fork }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete this run's artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].id'); do
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" && echo "Deleted artifact $id" \
+              || echo "::warning::Could not delete artifact $id"
+          done

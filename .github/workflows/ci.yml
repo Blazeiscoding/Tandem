@@ -58,6 +58,8 @@ jobs:
         run: node --test scripts/check-web-precompressed.test.mjs
       - name: Test the build identity check
         run: node --test scripts/build-identity.test.mjs
+      - name: Test the release manifest
+        run: node --test scripts/release-manifest.test.mjs
       # Turbo compares each task's input hash; the archive only transports
       # its local cache. PR caches are reusable by later runs of the same PR.
       - name: Restore task cache
@@ -108,7 +110,9 @@ jobs:
           # A day to look at the failure, or less if a later run deletes it.
           retention-days: 1
       # The clean-up job below deletes what this finds. If the lookup fails, a
-      # later run finds the same artifacts.
+      # later run finds the same artifacts. A release run's release-* artifacts
+      # carry its files between its jobs and expire in a day; they are left
+      # alone, so a check run cannot delete them mid-release (IMP-08).
       - name: Find artifacts that earlier runs left
         id: leftovers
         if: ${{ !cancelled() }}
@@ -117,7 +121,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq \
-            "[.artifacts[] | select(.workflow_run.id != $GITHUB_RUN_ID and (.expired | not)) | .id] | join(\" \")")
+            "[.artifacts[] | select(.workflow_run.id != $GITHUB_RUN_ID and (.expired | not) and (.name | startswith(\"release-\") | not)) | .id] | join(\" \")")
           echo "ids=$ids" >> "$GITHUB_OUTPUT"
   # Actions storage is counted for every hour an artifact exists, so each run
   # deletes what earlier runs left. Any job that starts counts as at least a

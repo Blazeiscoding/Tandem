@@ -5,6 +5,11 @@
 Build an installer with `pnpm --filter @slackoss/desktop package --win`.
 The output is `apps/desktop/release/Gatherline Setup 0.1.0.exe`. Local builds are
 unsigned unless you supply a signing certificate; Windows may show SmartScreen.
+A published release carries the installer, the server bundle and `SHA256SUMS`;
+check a download with `Get-FileHash -Algorithm SHA256 <file>` against that list.
+Its notes name the commit it was built and tested from, which Diagnostics in the
+app and `/api/server-info` on a server also report. Release installers are not
+code-signed yet.
 
 Install, choose **Host a workspace on this computer**, name it, and create the
 owner account. Allow incoming TCP on the displayed port through the host firewall.
