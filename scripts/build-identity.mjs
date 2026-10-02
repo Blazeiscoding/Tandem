@@ -67,10 +67,11 @@ const SKIPPED_DIRS = new Set([
   "test-results",
 ]);
 // Bundlers load a TypeScript config by writing it out as JavaScript beside
-// itself for a moment (`tsup.config.bundled_….mjs`, `….timestamp-….mjs`),
-// which is exactly when a build reads its own identity.
+// itself for a moment (`tsup.config.bundled_….mjs`, `vite.config.ts.timestamp-….mjs`,
+// `electron.vite.config.1790913675585.mjs`), which is exactly when a build
+// reads its own identity.
 const SKIPPED_FILE =
-  /\.(test|spec)\.[cm]?[jt]sx?$|\.tsbuildinfo$|^\.DS_Store$|\.bundled_[^/]*\.[cm]?js$|\.timestamp-[^/]*\.[cm]?js$/;
+  /\.(test|spec)\.[cm]?[jt]sx?$|\.tsbuildinfo$|^\.DS_Store$|\.bundled_[^/]*\.[cm]?js$|\.timestamp-[^/]*\.[cm]?js$|\.config\.\d+\.[cm]?js$/;
 
 function* files(dir) {
   if (!existsSync(dir)) return;
@@ -115,7 +116,16 @@ function git(args, root) {
 /** The identity an artifact built from `inputs` gets now. */
 export function buildIdentity(inputs, root = ROOT) {
   const revision = process.env.GITHUB_SHA || git(["rev-parse", "HEAD"], root);
-  const changed = git(["status", "--porcelain", "--", ...SHARED_INPUTS, ...inputs], root);
+  const status = git(["status", "--porcelain", "--", ...SHARED_INPUTS, ...inputs], root);
+  // What the hash leaves out, a bundler's config of the moment above all,
+  // is no change to the source either.
+  const changed =
+    status === null
+      ? null
+      : status
+          .split("\n")
+          .filter((line) => line && !SKIPPED_FILE.test(line.slice(3).split("/").at(-1) ?? ""))
+          .join("\n");
   return {
     version: JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version,
     revision: revision ?? "unknown",
