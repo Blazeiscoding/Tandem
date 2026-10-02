@@ -1,12 +1,10 @@
-import {
-  applyDraftChanges,
-  applyOutboxChanges,
-  applyRecordChanges,
-  type DraftChanges,
-  type OutboxChanges,
-  type RecordChanges,
-  type StoredOutbox,
+import type {
+  DraftChanges,
+  OutboxChanges,
+  RecordChanges,
+  StoredOutbox,
 } from "@slackoss/client-core";
+import { deviceStore } from "./lib/deviceStore.js";
 import { parseDeepLink } from "./lib/deeplink.js";
 
 /** A workspace server found on the local network via mDNS. */
@@ -175,7 +173,8 @@ export interface Platform {
      * Merges one window's outbox changes into what is stored under `key`, in
      * one step no other window's write can come between, and gives back the
      * outbox now stored. `enveloped` says the value is kept as
-     * `{ version: 1, value }`. Without it, a window merges within its own
+     * `{ version: 1, value }`. Merges asked for one after another are made,
+     * and answered, in that order. Without it, a window merges within its own
      * queue only; see `mergeWorkspaceOutbox`.
      */
     mergeOutbox?: (
@@ -317,52 +316,8 @@ export interface Platform {
 }
 
 /** Browser fallback platform — used by the web client and in dev. */
-/**
- * Reads, changes and writes one key with nothing awaited in between, so no
- * other script in this tab comes between. Another tab can, since each browser
- * process keeps its own copy of localStorage and hears of writes a moment
- * later; Web Locks would not order those copies, and plain-HTTP LAN addresses
- * do not have them. What covers it: every window watches the key and writes
- * its own changes again when another's write left them out.
- */
-function mergeInLocalStorage<T>(
-  key: string,
-  apply: (stored: unknown) => { value: unknown; result: T },
-): T {
-  const name = `slackoss:${key}`;
-  const raw = localStorage.getItem(name);
-  let stored: unknown = null;
-  try {
-    stored = raw === null ? null : JSON.parse(raw);
-  } catch {
-    // Unreadable: replaced by the merge.
-  }
-  const { value, result } = apply(stored);
-  const next = JSON.stringify(value);
-  // Writing the same value again would only wake every other tab.
-  if (next !== raw) localStorage.setItem(name, next);
-  return result;
-}
-
-/** Calls back with what another tab stored under `key`, each time it does. */
-function watchLocalStorage(key: string, cb: (stored: unknown) => void): () => void {
-  const name = `slackoss:${key}`;
-  const onStorage = (event: StorageEvent) => {
-    if (event.storageArea !== localStorage || event.key !== name) return;
-    let stored: unknown = null;
-    try {
-      stored = event.newValue === null ? null : JSON.parse(event.newValue);
-    } catch {
-      // Left as text, which nothing reads as its value: the watcher writes its own again.
-      stored = event.newValue;
-    }
-    cb(stored);
-  };
-  window.addEventListener("storage", onStorage);
-  return () => window.removeEventListener("storage", onStorage);
-}
-
 export function webPlatform(): Platform {
+  const device = deviceStore();
   return {
     kind: "web",
     downloadFile: async (url) => {
@@ -376,10 +331,12 @@ export function webPlatform(): Platform {
       document.body.append(frame);
       setTimeout(() => frame.remove(), 300_000);
     },
+    // One merge at a time for every tab of this site, in IndexedDB where the
+    // browser has it (F01); see `deviceStore`.
     storage: {
       get: async <T>(key: string, options?: { strict?: boolean }) => {
         try {
-          const raw = localStorage.getItem(`slackoss:${key}`);
+          const raw = await device.read(key);
           return raw === null ? null : (JSON.parse(raw) as T);
         } catch (error) {
           if (options?.strict) throw error;
@@ -387,31 +344,20 @@ export function webPlatform(): Platform {
         }
       },
       set: async (key, value) => {
-        localStorage.setItem(`slackoss:${key}`, JSON.stringify(value));
+        await device.apply(key, { kind: "set", value });
       },
-      initialize: async (key, value) =>
-        mergeInLocalStorage(key, (stored) => {
-          const now = stored ?? value;
-          return { value: now, result: now };
-        }),
-      mergeOutbox: async (key, changes, enveloped) =>
-        mergeInLocalStorage(key, (stored) => {
-          const { value, outbox } = applyOutboxChanges(stored, changes, enveloped);
-          return { value, result: outbox };
-        }),
-      watchOutbox: watchLocalStorage,
-      mergeDrafts: async (key, changes, enveloped) =>
-        mergeInLocalStorage(key, (stored) => {
-          const { value, drafts } = applyDraftChanges(stored, changes, enveloped);
-          return { value, result: drafts };
-        }),
-      watchDrafts: watchLocalStorage,
-      mergeRecord: async (key, changes) =>
-        mergeInLocalStorage(key, (stored) => {
-          const value = applyRecordChanges(stored, changes);
-          return { value, result: value };
-        }),
-      watchRecord: watchLocalStorage,
+      initialize: (key, value) => device.apply(key, { kind: "initialize", value }),
+      mergeOutbox: (key, changes, enveloped) =>
+        device.apply(key, { kind: "outbox", changes, enveloped }) as Promise<StoredOutbox>,
+      watchOutbox: (key, cb) => device.watch(key, cb),
+      mergeDrafts: (key, changes, enveloped) =>
+        device.apply(key, { kind: "drafts", changes, enveloped }) as Promise<
+          Record<string, string>
+        >,
+      watchDrafts: (key, cb) => device.watch(key, cb),
+      mergeRecord: (key, changes) =>
+        device.apply(key, { kind: "record", changes }) as Promise<Record<string, string>>,
+      watchRecord: (key, cb) => device.watch(key, cb),
     },
     notify: (title, body, onClick, options) => {
       if (typeof Notification === "undefined" || Notification.permission !== "granted") return;

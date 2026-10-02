@@ -12,6 +12,7 @@ import { useClient, useWorkspace } from "../context.js";
 import type { Platform } from "../platform.js";
 import {
   mergeWorkspaceDrafts,
+  mergeWorkspaceDraftsAtOnce,
   mergeWorkspaceOutbox,
   readWorkspaceDrafts,
   readWorkspaceOutbox,
@@ -59,6 +60,17 @@ function draftChanges(drafts: Record<string, string>, base: Record<string, strin
   return { put, remove, base: from };
 }
 
+/** The changes to the drafts `keep` accepts, and no others. */
+function draftChangesTo(changes: DraftChanges, keep: (key: string) => boolean): DraftChanges {
+  const only = <T,>(record: Record<string, T>) =>
+    Object.fromEntries(Object.entries(record).filter(([key]) => keep(key)));
+  return {
+    put: only(changes.put),
+    remove: changes.remove.filter(keep),
+    base: only(changes.base ?? {}),
+  };
+}
+
 /** How many times in a row a window writes its sends again after another's write left them out. */
 const REPAIRS = 3;
 
@@ -85,6 +97,10 @@ const REPAIRS = 3;
  * before it has succeeded, so a process that dies in between comes back with
  * the words in the composer rather than losing both. A write that fails says
  * so, keeps the draft as it was on disk, and is made again on Retry.
+ *
+ * A page that is hidden or closing writes at once, waiting for nothing, since
+ * it may not live to: its outbox, and each draft it changed except one a send
+ * not yet stored came from, which still waits for the outbox write (F01).
  *
  * Words sent before their draft was first saved have no saved draft to fall
  * back on. While outbox writes fail, the sends the outbox has not stored are
@@ -123,6 +139,22 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     // The drafts as this window last knew them stored. What differs from it
     // in memory is this window's own, not yet written; nothing else is.
     let baseDrafts: Record<string, string> = {};
+    // Draft changes asked for and not yet answered, oldest first. A write
+    // asked for at once does not wait for them, so it is made from what they
+    // will have stored, and so is every write asked for while it is out.
+    const unanswered: DraftChanges[] = [];
+    const expectedDrafts = () => {
+      const drafts = { ...baseDrafts };
+      for (const changes of unanswered) {
+        for (const key of changes.remove) delete drafts[key];
+        Object.assign(drafts, changes.put);
+      }
+      return drafts;
+    };
+    const answered = (changes: DraftChanges | null) => {
+      const at = changes ? unanswered.indexOf(changes) : -1;
+      if (at >= 0) unanswered.splice(at, 1);
+    };
     // This window's sends as it last wrote or took them on, and the ones it
     // saw leave. Every write carries all of them: the merge keeps the newest
     // of each, so writing one again changes nothing, and puts back one that
@@ -352,25 +384,77 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       if (changed) quietly(() => client.hydrateDrafts(next));
     };
 
+    // What a drafts write that came back stored, taken on.
+    const draftsWritten = (
+      merged: { changes: DraftChanges; drafts: Record<string, string> } | null,
+      bringing: Record<string, UnstoredSend>,
+    ) => {
+      if (merged && !disposed && loaded) takeOnDrafts(merged.drafts, merged.changes);
+      else if (merged) {
+        for (const key of merged.changes.remove) delete baseDrafts[key];
+        Object.assign(baseDrafts, merged.changes.put);
+      }
+      // The drafts now hold what came back; the unstored key need not.
+      if (carried === bringing && unanswered.length === 0) carried = {};
+    };
+
     // Writes the drafts this window changed, and only those, once the outbox
     // write before it has finished.
     const saveDrafts = (drafts: () => Record<string, string> = () => currentDrafts) => {
       const bringing = carried;
+      let asked: DraftChanges | null = null;
       return save(
         "drafts",
         outboxWrite
           .then(() =>
-            mergeWorkspaceDrafts(platform, draftKey, () => draftChanges(drafts(), baseDrafts)),
+            mergeWorkspaceDrafts(platform, draftKey, () => {
+              asked = draftChanges(drafts(), expectedDrafts());
+              // None to make: nothing is written, nor waited for.
+              if (Object.keys(asked.put).length || asked.remove.length) unanswered.push(asked);
+              return asked;
+            }),
           )
-          .then((merged) => {
-            if (merged && !disposed && loaded) takeOnDrafts(merged.drafts, merged.changes);
-            else if (merged) {
-              for (const key of merged.changes.remove) delete baseDrafts[key];
-              Object.assign(baseDrafts, merged.changes.put);
-            }
-            // The drafts now hold what came back; the unstored key need not.
-            if (carried === bringing) carried = {};
-          }),
+          .then(
+            (merged) => {
+              answered(asked);
+              draftsWritten(merged, bringing);
+            },
+            (error: unknown) => {
+              answered(asked);
+              throw error;
+            },
+          ),
+      );
+    };
+
+    // Writes the drafts this window changed now, waiting for no other write,
+    // for a page that may be closing (F01). A draft a send not yet stored came
+    // from is left to `saveDrafts`, after the outbox write: it may be the
+    // only copy of the send's words.
+    const saveDraftsAtOnce = () => {
+      const waiting = new Set<string>();
+      for (const [nonce, { entry }] of held) if (!stored.has(nonce)) waiting.add(composerOf(entry));
+      const changes = draftChangesTo(
+        draftChanges(currentDrafts, expectedDrafts()),
+        (key) => !waiting.has(key),
+      );
+      if (Object.keys(changes.put).length === 0 && changes.remove.length === 0) return;
+      const bringing = carried;
+      unanswered.push(changes);
+      void save(
+        "drafts",
+        mergeWorkspaceDraftsAtOnce(platform, draftKey, changes).then(
+          (drafts) => {
+            answered(changes);
+            draftsWritten({ changes, drafts }, bringing);
+          },
+          (error: unknown) => {
+            answered(changes);
+            // Not stored after all: written again in turn, if this page lives.
+            if (loaded && !disposed) void saveDrafts();
+            throw error;
+          },
+        ),
       );
     };
     const saveOutbox = () => {
@@ -411,6 +495,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       clearTimeout(timer);
       if (!loaded) return;
       void saveOutbox();
+      saveDraftsAtOnce();
       void saveDrafts();
     };
     const unsubscribe = client.store.subscribe((state, previous) => {

@@ -204,6 +204,55 @@ async function expectApart(a: Locator, b: Locator) {
 }
 
 /** Whether the modal layer has made `element` or anything around it inert. */
+/**
+ * What the web client keeps on this device, by key: in IndexedDB where the
+ * browser has it (F01), and what is left in localStorage. Read without
+ * creating the database, which the client would then not set up.
+ */
+async function deviceValues(page: Page) {
+  return page.evaluate(async () => {
+    const legacy: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const name = localStorage.key(i)!;
+      if (name.startsWith("slackoss:")) legacy[name.slice(9)] = localStorage.getItem(name)!;
+    }
+    const indexed = await new Promise<Record<string, string> | null>((resolve) => {
+      const open = indexedDB.open("tandem-device");
+      open.onupgradeneeded = () => open.transaction!.abort();
+      open.onerror = () => resolve(null);
+      open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction("values");
+        const keys = tx.objectStore("values").getAllKeys();
+        const raws = tx.objectStore("values").getAll();
+        tx.oncomplete = () => {
+          db.close();
+          resolve(
+            Object.fromEntries((keys.result as string[]).map((key, i) => [key, raws.result[i]])),
+          );
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      };
+    });
+    return { indexed, legacy };
+  });
+}
+
+/** The value the web client keeps under `key` on this device, or null. */
+async function deviceValue<T>(page: Page, key: string): Promise<T | null> {
+  const { indexed, legacy } = await deviceValues(page);
+  const raw = indexed?.[key] ?? legacy[key];
+  return raw === undefined ? null : (JSON.parse(raw) as T);
+}
+
+/** The token of the first workspace this browser is signed in to. */
+async function savedToken(page: Page) {
+  return (await deviceValue<{ token: string }[]>(page, "servers"))![0]!.token;
+}
+
 function isInert(element: Locator) {
   return element.evaluate((el) => el.closest("[inert]") !== null);
 }
@@ -406,11 +455,7 @@ test("scrolls back through a long channel without unbounded growth or losing its
   try {
     await register(page, "carol");
     // Far more history than the client keeps in memory, posted as the same user.
-    const token = await page.evaluate(
-      () =>
-        (JSON.parse(localStorage.getItem("slackoss:servers") ?? "[]") as { token: string }[])[0]!
-          .token,
-    );
+    const token = await savedToken(page);
     const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
     const channels = await (await fetch(`${base}/api/channels`, { headers: auth })).json();
     const general = channels.channels.find((c: { name: string }) => c.name === "general");
@@ -488,9 +533,7 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   await expect(page).toHaveTitle("Tandem");
   await page.screenshot({ path: info.outputPath("tandem-welcome.png") });
   await register(page, "smoothness");
-  const token = await page.evaluate(
-    () => JSON.parse(localStorage.getItem("slackoss:servers")!)[0].token,
-  );
+  const token = await savedToken(page);
   const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const response = await fetch(`${base}/api/channels`, {
     method: "POST",
@@ -715,14 +758,10 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   await composer.pressSequentially("A calmer space for our next big idea.", { delay: 12 });
   // Allow the debounced draft write, then verify a dialog round trip keeps it.
   await expect
-    .poll(() =>
-      page.evaluate(() =>
-        Object.keys(localStorage).some(
-          (key) =>
-            key.startsWith("slackoss:local:v1:") &&
-            key.endsWith(":drafts") &&
-            localStorage.getItem(key)?.includes("calmer space"),
-        ),
+    .poll(async () =>
+      Object.entries((await deviceValues(page)).indexed ?? {}).some(
+        ([key, raw]) =>
+          key.startsWith("local:v1:") && key.endsWith(":drafts") && raw.includes("calmer space"),
       ),
     )
     .toBe(true);
@@ -913,7 +952,12 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeFocused();
   await composer.fill("Sent from a small window");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await expect(page.getByText("Sent from a small window", { exact: true })).toBeInViewport();
+  // The composer keeps the words until the device has the send (GL-02), so
+  // look for the message itself, then for the composer to let them go.
+  await expect(
+    page.getByRole("article").filter({ hasText: "Sent from a small window" }),
+  ).toBeInViewport();
+  await expect(composer).toHaveValue("");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   // An image wider than a phone's column scales down instead of running off it.
@@ -973,6 +1017,55 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   await expect(page.getByRole("navigation")).toBeVisible();
   await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeHidden();
   expect(errors).toEqual([]);
+});
+
+test("unsent words outlast two tabs typing at once, and a tab closed straight after typing (F01)", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  try {
+    const composer = (page: Page) =>
+      page.getByRole("textbox", { name: "Message #general", exact: true });
+    const first = await context.newPage();
+    await register(first, "twotabs");
+    await expect(composer(first)).toBeVisible();
+    // Kept in IndexedDB, which takes every tab's change in turn; nothing is
+    // kept in localStorage but changes written down for a moment.
+    await expect
+      .poll(async () => Object.keys((await deviceValues(first)).indexed ?? {}))
+      .toContain("servers");
+    expect((await deviceValues(first)).legacy).toEqual({});
+
+    const second = await context.newPage();
+    await second.goto(base);
+    await expect(composer(second)).toBeVisible();
+    // Typed in both before either is saved: each change is made from the
+    // empty draft, so neither tab's words may be lost to the other's.
+    await composer(first).fill("Words from the first tab");
+    await composer(second).fill("Words from the second tab");
+    const both = /Words from the (first|second) tab\n\nWords from the (first|second) tab/;
+    await expect(composer(first)).toHaveValue(both);
+    await expect(composer(second)).toHaveValue(both);
+    // The tab whose change was made second says so.
+    const told = "Another window changed this draft too, so both versions are kept in it.";
+    await expect
+      .poll(
+        async () => (await first.getByText(told).count()) + (await second.getByText(told).count()),
+      )
+      .toBe(1);
+    await second.close();
+
+    // Typed, and the tab closed at once, inside the pauses before the
+    // composer hands its text on and before a draft is written.
+    await composer(first).fill("Written as the tab closed");
+    await first.close();
+
+    const reopened = await context.newPage();
+    await reopened.goto(base);
+    await expect(composer(reopened)).toHaveValue("Written as the tab closed");
+  } finally {
+    await context.close();
+  }
 });
 
 test("an app's button calls it back and rewrites the message it sits on", async ({
@@ -1400,9 +1493,7 @@ test("an invite code that got out can be revoked from the dialog that made it", 
     await expect(row.getByRole("button", { name: `Revoke invite ${code}` })).toHaveCount(0);
 
     // And the server agrees, rather than only the list.
-    const token = await page.evaluate(
-      () => JSON.parse(localStorage.getItem("slackoss:servers")!)[0].token,
-    );
+    const token = await savedToken(page);
     const { invites } = await (
       await fetch(`${base}/api/invites`, { headers: { authorization: `Bearer ${token}` } })
     ).json();
@@ -1666,9 +1757,7 @@ test("notifications are offered after sign-in, and one opens its message", async
     // nothing has to steal its focus first.
     const bobPage = await bobCtx.newPage();
     await signIn(bobPage, "bobby");
-    const token = await bobPage.evaluate(
-      () => JSON.parse(localStorage.getItem("slackoss:servers")!)[0].token,
-    );
+    const token = await savedToken(bobPage);
     const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
     const { users } = await (await fetch(`${base}/api/users`, { headers: auth })).json();
     const alice = users.find((u: { handle: string }) => u.handle === "alice");
@@ -2367,9 +2456,11 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     await expect(thread.getByRole("textbox", { name: "Reply…" })).toBeFocused();
     await page.keyboard.type("The line set");
     await page.keyboard.press("Enter");
-    await expect(thread.getByText("The line set", { exact: true })).toBeVisible();
-    // A thread is one Tab stop too, its newest reply, with the arrow keys up to the root.
+    // The composer keeps the words until the device has the send (GL-02).
     const threadReply = thread.getByRole("article").filter({ hasText: "The line set" });
+    await expect(threadReply).toBeVisible();
+    await expect(thread.getByRole("textbox", { name: "Reply…" })).toHaveValue("");
+    // A thread is one Tab stop too, its newest reply, with the arrow keys up to the root.
     const threadRoot = thread.getByRole("article").filter({ hasText: "Which icon set" });
     await expect(threadReply).toHaveAttribute("tabindex", "0");
     await expect(threadRoot).toHaveAttribute("tabindex", "-1");
