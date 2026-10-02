@@ -1,0 +1,81 @@
+{
+  "sourceRevision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32"
+  },
+  "scope": "Production hooks, webPlatform and components in jsdom. Distinct Platform instances model open windows; localStorage is one jsdom realm. No independent browser process, native durability, layout, OS notification or latency certification.",
+  "observations": [
+    {
+      "name": "notification_corrupt_browser_read",
+      "classification": "new confirmed failure",
+      "preview": "full",
+      "unreadable": false,
+      "error": null,
+      "emittedContent": {
+        "title": "Sam in #private",
+        "body": "synthetic private message"
+      },
+      "limitation": "Content helper is exercised; no actual OS notification is delivered."
+    },
+    {
+      "name": "notification_rejected_read_control",
+      "classification": "correct control",
+      "preview": "none",
+      "unreadable": true,
+      "errorShown": true,
+      "limitation": "Injected generic platform rejection, not Electron IPC."
+    },
+    {
+      "name": "notification_cross_window_lost_private_choice",
+      "classification": "new confirmed failure",
+      "acknowledgedA": {
+        "http://127.0.0.1:9 U1": "none"
+      },
+      "secondHeardA": null,
+      "persisted": {
+        "http://127.0.0.1:9 U2": "sender"
+      },
+      "reopenedA": "full",
+      "concurrencyRequired": false,
+      "limitation": "Sequential writes and a simulated browser storage event in one DOM realm; actual independent tabs still need acceptance."
+    },
+    {
+      "name": "notification_open_window_stale_privacy",
+      "classification": "new confirmed failure",
+      "firstPreview": "none",
+      "secondPreview": "full",
+      "persisted": {
+        "http://127.0.0.1:9 U1": "none"
+      },
+      "limitation": "Production hook and browser event in jsdom, not native notification deduplication."
+    },
+    {
+      "name": "notification_trusted_alias_scope",
+      "classification": "new confirmed behavior needing privacy-policy decision",
+      "workspaceId": "W1",
+      "aliasesExplicitlyTrusted": ["http://127.0.0.1:9", "http://localhost:9"],
+      "originalPreview": "none",
+      "aliasPreview": "full",
+      "limitation": "Authentic address-trust/storage helpers with synthetic identity; no live alias navigation. Settings UI says workspace/device, while preference key uses address/user."
+    },
+    {
+      "name": "same_draft_conflict_policy",
+      "classification": "inherited open GL-03 acceptance gap",
+      "persisted": {
+        "C1": "second competing text"
+      },
+      "firstTextRetained": false,
+      "conflictAlertShown": false,
+      "limitation": "Production DraftPersistence, serialized sharedDevice test double, not native Electron or independent browser processes."
+    },
+    {
+      "name": "fresh_send_acceptance_before_storage",
+      "classification": "inherited open GL-02 acceptance gap",
+      "composerCleared": true,
+      "durableTextAtClear": false,
+      "inMemoryPending": 1,
+      "limitation": "Held serialized storage test double and pending API; proves clear precedes acknowledgement, not actual process-death loss."
+    }
+  ]
+}

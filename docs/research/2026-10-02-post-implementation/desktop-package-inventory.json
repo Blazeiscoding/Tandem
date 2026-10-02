@@ -1,0 +1,64 @@
+{
+  "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "capturedAt": "2026-10-02T11:00:38.404Z",
+  "scope": "Fresh coordinated win-unpacked package, no installer/registry operations; archive paths/sizes and build manifests only",
+  "archiveBytes": 11166773,
+  "archive": {
+    "files": 1741,
+    "bytes": 10718697,
+    "dependencies": 55,
+    "largest": [
+      ["zod", 5429652],
+      ["ajv", 1004070],
+      ["fastify", 974259],
+      ["pino", 293871],
+      ["ws", 135179],
+      ["fast-json-stringify", 111237],
+      ["fast-uri", 98947],
+      ["find-my-way", 81109],
+      ["semver", 75083],
+      ["light-my-request", 68564]
+    ]
+  },
+  "forbidden": [],
+  "packagedIdentity": {
+    "version": "0.1.0",
+    "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+    "dirty": false,
+    "inputs": "1046ab1c74926881",
+    "builtAt": "2026-10-02T10:57:38.737Z"
+  },
+  "packagedWebIdentity": {
+    "version": "0.1.0",
+    "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+    "dirty": false,
+    "inputs": "1e55cf8702cc21ac",
+    "builtAt": "2026-10-02T10:57:33.097Z"
+  },
+  "sourceFreshnessProblems": [],
+  "worker": {
+    "modules": [
+      {
+        "path": "apps/desktop/out/main/backupWorker-BremQ-A5.js",
+        "bytes": 762,
+        "imports": ["node:worker_threads", "./backup-DbYoAU09.js"]
+      },
+      {
+        "path": "apps/desktop/out/main/backup-DbYoAU09.js",
+        "bytes": 43815,
+        "imports": [
+          "node:crypto",
+          "node:fs",
+          "node:fs/promises",
+          "node:path",
+          "node:sqlite",
+          "zod",
+          "node:url",
+          "node:os"
+        ]
+      }
+    ],
+    "bundledBytes": 44577,
+    "externalPackages": ["zod"]
+  }
+}

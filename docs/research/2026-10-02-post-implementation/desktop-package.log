@@ -1,0 +1,109 @@
+
+> @slackoss/desktop@0.1.0 package F:\personal\MaybeProducts\SlackOSS\apps\desktop
+> pnpm --filter @slackoss/web build && electron-vite build && electron-builder --config electron-builder.yml "--win" "--dir"
+
+
+> @slackoss/web@0.1.0 build F:\personal\MaybeProducts\SlackOSS\apps\web
+> vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js (330:0): A comment
+
+"// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
+
+in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js (70:0): A comment
+
+"/** Anchors a pattern source. The interpolation lives here rather than at the call site because
+ * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
+ * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
+
+in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+✓ 238 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                 0.64 kB │ gzip:   0.37 kB
+dist/assets/index-CkNslhu0.css                 51.12 kB │ gzip:   9.83 kB
+dist/assets/useTabs-CsTlXzuk.js                 0.75 kB │ gzip:   0.49 kB
+dist/assets/account-Dy_yinSQ.js                 1.65 kB │ gzip:   0.86 kB
+dist/assets/FriendsDialog-2-oMH97H.js           3.44 kB │ gzip:   1.54 kB
+dist/assets/ProfileDialog-BXlrT-Y5.js           4.75 kB │ gzip:   1.86 kB
+dist/assets/ActivityPanel-ZOAp8Xi0.js           5.44 kB │ gzip:   2.27 kB
+dist/assets/DiagnosticsDialog-BQ9kpkbl.js       5.72 kB │ gzip:   2.74 kB
+dist/assets/ScheduledPanel-ByboW3PR.js          9.28 kB │ gzip:   3.33 kB
+dist/assets/dialogs-DqMcCeEM.js                11.49 kB │ gzip:   3.96 kB
+dist/assets/HuddleStage-r-sU6YXL.js            11.95 kB │ gzip:   4.50 kB
+dist/assets/PeopleDialog-BUkbi0wP.js           13.37 kB │ gzip:   4.75 kB
+dist/assets/AppsDialog-Dfu1qvis.js             13.45 kB │ gzip:   4.26 kB
+dist/assets/SearchDialog-Byyexa1Q.js           13.73 kB │ gzip:   5.18 kB
+dist/assets/ChannelDetailsDialog-DhnzySIT.js   14.52 kB │ gzip:   4.59 kB
+dist/assets/AccountDialog-6JwRColC.js          19.56 kB │ gzip:   6.14 kB
+dist/assets/JoinScreen-C0e-_Uas.js             20.71 kB │ gzip:   6.44 kB
+dist/assets/HostDialog-D8cRbv9C.js             36.30 kB │ gzip:   9.55 kB
+dist/assets/rest-Cb9eBnwJ.js                   94.24 kB │ gzip:  26.22 kB
+dist/assets/index-C107CkCC.js                 479.83 kB │ gzip: 147.23 kB
+✓ built in 4.61s
+vite v7.3.6 building ssr environment for production...
+transforming...
+✓ 152 modules transformed.
+rendering chunks...
+out/main/backupWorker-BremQ-A5.js    0.76 kB
+out/main/backup-DbYoAU09.js         43.82 kB
+out/main/index.js                  780.38 kB
+✓ built in 1.43s
+vite v7.3.6 building ssr environment for production...
+transforming...
+✓ 1 modules transformed.
+rendering chunks...
+out/preload/index.cjs  3.97 kB
+✓ built in 21ms
+vite v7.3.6 building client environment for production...
+transforming...
+../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js (70:0): A comment
+
+"/** Anchors a pattern source. The interpolation lives here rather than at the call site because
+ * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
+ * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
+
+in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js (330:0): A comment
+
+"// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
+
+in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+✓ 238 modules transformed.
+rendering chunks...
+../../out/renderer/index.html                                 1.08 kB
+../../out/renderer/assets/index-CkNslhu0.css                 51.12 kB
+../../out/renderer/assets/useTabs-h7YDX_bz.js                 0.75 kB
+../../out/renderer/assets/account-sRkN-pFn.js                 1.65 kB
+../../out/renderer/assets/FriendsDialog-CW3WHvpd.js           3.44 kB
+../../out/renderer/assets/ProfileDialog-Cle_CHtv.js           4.75 kB
+../../out/renderer/assets/ActivityPanel-BN80S1aW.js           5.44 kB
+../../out/renderer/assets/DiagnosticsDialog-CUJSwSou.js       5.72 kB
+../../out/renderer/assets/ScheduledPanel-DDHJyTCA.js          9.28 kB
+../../out/renderer/assets/dialogs-g75JIFrR.js                11.49 kB
+../../out/renderer/assets/HuddleStage-6d53yLBg.js            11.95 kB
+../../out/renderer/assets/PeopleDialog-CteKftCj.js           13.37 kB
+../../out/renderer/assets/AppsDialog-CcOA-Wtg.js             13.45 kB
+../../out/renderer/assets/SearchDialog-3U0XHCph.js           13.73 kB
+../../out/renderer/assets/ChannelDetailsDialog-CXJtcnGU.js   14.52 kB
+../../out/renderer/assets/AccountDialog-CYCKPVk0.js          19.56 kB
+../../out/renderer/assets/JoinScreen-QqoAHso8.js             20.71 kB
+../../out/renderer/assets/HostDialog-D5-95KEx.js             36.30 kB
+../../out/renderer/assets/rest-Cb9eBnwJ.js                   94.24 kB
+../../out/renderer/assets/index-DzNe2Ms1.js                 481.51 kB
+✓ built in 2.35s
+  • electron-builder  version=26.15.3 os=10.0.26300
+  • loaded configuration  file=F:\personal\MaybeProducts\SlackOSS\apps\desktop\electron-builder.yml
+  • packageManager not detected by file, falling back to environment detection  resolvedPackageManager=pnpm detected=F:\personal\MaybeProducts\SlackOSS\apps\desktop
+  • executing @electron/rebuild  electronVersion=44.1.0 arch=x64 buildFromSource=false workspaceRoot=F:\personal\MaybeProducts\SlackOSS\apps\desktop projectDir=./ appDir=./
+  • installing native dependencies  arch=x64
+  • completed installing native dependencies
+  • packaging       platform=win32 arch=x64 electron=44.1.0 appOutDir=release\win-unpacked
+  • downloaded      label=electron progress=100%
+  • downloaded electron zip extracted successfully  output=F:\personal\MaybeProducts\SlackOSS\apps\desktop\release\win-unpacked
+  • searching for node modules  pm=pnpm searchDir=F:\personal\MaybeProducts\SlackOSS\apps\desktop
+  • updating asar integrity executable resource  executablePath=release\win-unpacked\Tandem.exe
+  • signing with signtool.exe  path=release\win-unpacked\Tandem.exe

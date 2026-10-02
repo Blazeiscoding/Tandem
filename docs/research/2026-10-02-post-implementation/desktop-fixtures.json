@@ -1,0 +1,216 @@
+{
+  "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "capturedAt": "2026-10-02T10:57:31.310Z",
+  "mode": "disposable-source-tooling-fixtures",
+  "cases": [
+    {
+      "name": "input-mutation",
+      "path": "pnpm-workspace.yaml",
+      "artifacts": [
+        {
+          "artifact": "web",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "server",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "desktop",
+          "changedHash": false,
+          "staleness": null
+        }
+      ]
+    },
+    {
+      "name": "input-mutation",
+      "path": ".npmrc",
+      "artifacts": [
+        {
+          "artifact": "web",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "server",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "desktop",
+          "changedHash": false,
+          "staleness": null
+        }
+      ]
+    },
+    {
+      "name": "input-mutation",
+      "path": ".pnpmfile.cjs",
+      "artifacts": [
+        {
+          "artifact": "web",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "server",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "desktop",
+          "changedHash": false,
+          "staleness": null
+        }
+      ]
+    },
+    {
+      "name": "input-mutation",
+      "path": "scripts/build-identity.mjs",
+      "artifacts": [
+        {
+          "artifact": "web",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "server",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "desktop",
+          "changedHash": false,
+          "staleness": null
+        }
+      ]
+    },
+    {
+      "name": "input-mutation",
+      "path": "pnpm-lock.yaml",
+      "artifacts": [
+        {
+          "artifact": "web",
+          "changedHash": true,
+          "staleness": "was built from other source (f07ce8436225, inputs cdcb55b8124d38f1; the checkout's are 14d70e23ac9eb43a): rebuild it with `pnpm --filter @slackoss/web build`"
+        },
+        {
+          "artifact": "server",
+          "changedHash": true,
+          "staleness": "was built from other source (f07ce8436225, inputs 206c27aa0b106683; the checkout's are 3eb2edc63b244db6): rebuild it with `pnpm --filter slackoss-server build`"
+        },
+        {
+          "artifact": "desktop",
+          "changedHash": true,
+          "staleness": "was built from other source (f07ce8436225, inputs 094886b89d5e8a1b; the checkout's are b71937fa4e452d4a): rebuild it with `pnpm --filter @slackoss/desktop build`"
+        }
+      ]
+    },
+    {
+      "name": "input-mutation",
+      "path": "apps/web/src/entry.ts",
+      "artifacts": [
+        {
+          "artifact": "web",
+          "changedHash": true,
+          "staleness": "was built from other source (f07ce8436225, inputs cdcb55b8124d38f1; the checkout's are 3bba1946052106fd): rebuild it with `pnpm --filter @slackoss/web build`"
+        },
+        {
+          "artifact": "server",
+          "changedHash": false,
+          "staleness": null
+        },
+        {
+          "artifact": "desktop",
+          "changedHash": false,
+          "staleness": null
+        }
+      ]
+    },
+    {
+      "name": "binary-crlf-normalization",
+      "actualByteHashesDiffer": true,
+      "sourceHashEqual": true
+    },
+    {
+      "name": "manifest-not-bound-to-output-bytes",
+      "problems": [],
+      "limitation": "Source freshness compares sidecar input metadata. This is not itself a promised artifact-integrity verifier; release provenance still needs explicit binding."
+    },
+    {
+      "name": "older-revision-same-inputs",
+      "staleness": null,
+      "interpretation": "Content-based source freshness permits another revision with identical artifact inputs; metadata accurately identifies the original build revision. Release identity uses a separate exact-revision check."
+    },
+    {
+      "name": "malformed-manifest-shape",
+      "text": "null",
+      "outcome": {
+        "throws": "TypeError",
+        "message": "Cannot read properties of null (reading 'inputs')"
+      }
+    },
+    {
+      "name": "malformed-manifest-shape",
+      "text": "1",
+      "outcome": {
+        "result": "was built from other source (undefined, inputs undefined; the checkout's are cdcb55b8124d38f1): rebuild it with `pnpm --filter @slackoss/web build`"
+      }
+    },
+    {
+      "name": "malformed-manifest-shape",
+      "text": "{\"inputs\":\"wrong\",\"revision\":1}",
+      "outcome": {
+        "throws": "TypeError",
+        "message": "built.revision?.slice is not a function"
+      }
+    },
+    {
+      "name": "release-sidecar-independent-of-asset",
+      "acceptedFiles": ["synthetic-installer.exe"],
+      "limitation": "Synthetic non-executable fixture: this proves prepareRelease trusts separate identities and does not validate a file-to-identity mapping; it is not a published-release exploit."
+    },
+    {
+      "name": "release-tool-repeat",
+      "firstFiles": ["synthetic-installer.exe"],
+      "secondFiles": ["notes.md", "synthetic-installer.exe"],
+      "sumsIncludesNotes": true,
+      "notesHashRecorded": "994e6aeceff9d80e1eb33e58518e72c2c322a0336576785f6b3523eb93cdfffd",
+      "rewrittenNotesHash": "b98db0953b361d2891cb54af5f3418c5d41675c5e63ed682d29f91910268ce08",
+      "noteChecksumStaysValid": false
+    },
+    {
+      "name": "archive-clean-and-canary-controls",
+      "clean": {
+        "files": 1,
+        "bytes": 27,
+        "dependencies": 0,
+        "largest": [],
+        "forbidden": []
+      },
+      "dirty": {
+        "files": 3,
+        "bytes": 69,
+        "dependencies": 0,
+        "largest": [],
+        "forbidden": [
+          {
+            "path": "data/files/attachment",
+            "size": 20,
+            "unpacked": false,
+            "why": "workspace attachments"
+          },
+          {
+            "path": "workspace.db-wal",
+            "size": 22,
+            "unpacked": false,
+            "why": "a database or its log"
+          }
+        ]
+      }
+    }
+  ],
+  "disposableDataCleaned": true
+}

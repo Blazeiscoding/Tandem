@@ -1,0 +1,108 @@
+{
+  "sourceRevision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32"
+  },
+  "scope": "Production WorkspaceClient, real loopback HTTP/WebSocket, owned temporary SQLite/files. Counts and reference checks only. Explicit gates or state seeding are identified per probe.",
+  "temporaryFixtures": [
+    {
+      "checkedOwnedPath": true,
+      "removed": true
+    },
+    {
+      "checkedOwnedPath": true,
+      "removed": true
+    },
+    {
+      "checkedOwnedPath": true,
+      "removed": true
+    },
+    {
+      "checkedOwnedPath": true,
+      "removed": true
+    },
+    {
+      "checkedOwnedPath": true,
+      "removed": true
+    },
+    {
+      "checkedOwnedPath": true,
+      "removed": true
+    },
+    {
+      "checkedOwnedPath": true,
+      "removed": true
+    }
+  ],
+  "observations": [
+    {
+      "name": "REV03_thread_references",
+      "classification": "corrected behavior verified",
+      "unrelated": [
+        {
+          "repliesSame": true,
+          "pageSame": true
+        },
+        {
+          "repliesSame": true,
+          "pageSame": true
+        }
+      ],
+      "affectedThreadOnlyChanged": true,
+      "transport": "real HTTP/WebSocket"
+    },
+    {
+      "name": "REV05_history_share_and_abort",
+      "classification": "corrected behavior verified",
+      "equivalentRequests": 1,
+      "callerSignalAborted": true,
+      "lateTimelineInstalled": false,
+      "limitation": "Response acquired before gate; caller abort and late-result rejection verified, not avoided body-transfer bytes."
+    },
+    {
+      "name": "REV11_choice_lifetime",
+      "classification": "corrected behavior verified",
+      "pinCallsFromOld": 1,
+      "queuedOrRepairUnpinCallsFromOld": 0,
+      "replacementPinned": true,
+      "limitation": "Pin path with real still-valid session, first request held before forwarding. Save/DND/permutation breadth is covered by repository regressions, not independently repeated here. Already-delivered writes remain outside local cancellation."
+    },
+    {
+      "name": "REV04_private_answer_bounds",
+      "classification": "corrected behavior verified",
+      "frames": 37,
+      "kept": 9,
+      "chars": 320427,
+      "repeatedRows": 1,
+      "droppedNoticeCount": 23,
+      "maxAnswerCharsIncludingCutNote": 40051,
+      "transport": "server gateway sends actual socket frames; synthetic command output bypasses command execution"
+    },
+    {
+      "name": "identical_forward_history_not_shared",
+      "classification": "new confirmed optimization gap",
+      "identicalRequests": 2,
+      "firstSignalAborted": true,
+      "duplicateInstalledRows": false,
+      "limitation": "Explicit client anchored-window seed with real message IDs and real HTTP responses. No rapid-click production UI journey or body-cost timing measured."
+    },
+    {
+      "name": "deleted_attachment_cache_retention",
+      "classification": "new confirmed cleanup gap",
+      "serverStatusAfterDelete": 404,
+      "messageRemovedFromTimeline": true,
+      "blobUrlRetained": true,
+      "cachedBytesStillReadable": true,
+      "limitation": "Downloaded bytes cannot be retroactively unrevealed; no authorization bypass or remote exploit. Cache entry remains resident and can be returned locally after the message's real deletion event."
+    },
+    {
+      "name": "revoked_channel_cache_without_history",
+      "classification": "new confirmed cleanup gap",
+      "serverStatusAfterRevocation": 404,
+      "channelRemovedFromState": true,
+      "cachedFileReturnedAfterRevocation": true,
+      "limitation": "History absence seeded directly to isolate real revocation/metadata dependency; actual 20-page eviction browser journey not repeated. Already-downloaded bytes are not a server authorization bypass."
+    }
+  ]
+}

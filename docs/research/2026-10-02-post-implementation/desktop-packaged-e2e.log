@@ -1,0 +1,22 @@
+
+> slackoss@0.1.0 test:desktop F:\personal\MaybeProducts\SlackOSS
+> playwright test --config playwright.desktop.config.ts
+
+
+Running 4 tests using 1 worker
+
+(node:24148) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Desktop process memory (KiB): [
+  { type: 'Browser', workingSetKB: 142208 },
+  { type: 'GPU', workingSetKB: 114912 },
+  { type: 'Utility', workingSetKB: 55840 },
+  { type: 'Tab', workingSetKB: 117760 },
+  { type: 'Utility', workingSetKB: 96140 }
+]
+  ok 1 tests\e2e\desktop.spec.ts:35:5 › packaged Windows app boots with sandbox, hosts a workspace, serves the web client, and keeps hosting only while asked to (22.3s)
+  ok 2 tests\e2e\desktop.spec.ts:257:5 › restarting offers to host the last workspace again instead of reconnecting (26.9s)
+  ok 3 tests\e2e\desktop.spec.ts:445:5 › a workspace chosen to start with Tandem starts when it opens, and at sign-in waits in the tray (17.3s)
+  ok 4 tests\e2e\desktop.spec.ts:600:5 › a window whose page crashes comes back by itself, and hosting carries on (REV-09) (2.9s)
+
+  4 passed (1.2m)
