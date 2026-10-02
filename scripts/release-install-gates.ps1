@@ -89,7 +89,10 @@ function Launch([string] $Exe, [switch] $Legacy) {
     Start-Sleep -Seconds 1
     if ($process.HasExited) { Fail "the app exited on its own with $($process.ExitCode)" }
     if (Test-Path $report) {
-      try { $said = Get-Content $report -Raw | ConvertFrom-Json } catch { $said = $null }
+      # Taken once Chromium has written the profile there too, which can be
+      # a moment after the app says where it is.
+      try { $told = Get-Content $report -Raw | ConvertFrom-Json } catch { $told = $null }
+      if ($told -and $told.userData -and (Test-Path (Join-Path $told.userData "Local State"))) { $said = $told }
     } elseif ($Legacy -and $i -ge 10) {
       $folder = $candidates | Where-Object { Test-Path (Join-Path $_ "Local State") } | Select-Object -First 1
       if ($folder) { $said = [pscustomobject]@{ userData = $folder; legacy = $true } }
