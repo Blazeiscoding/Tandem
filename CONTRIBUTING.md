@@ -155,6 +155,10 @@ process it hands back is that shell, and killing it leaves the app running.
 Docker checks: `docker build -f docker/Dockerfile -t slackoss:local .`, then
 `node tests/docker-smoke.mjs`. The smoke test starts an isolated container,
 tests restart persistence and 6,000 socket deliveries, and removes its test data.
+The image fetches its dependencies from the lockfile alone, before copying the
+source, so a rebuild after a source edit reuses that work; `node
+tests/docker-reuse.mjs` (needs `docker buildx`) checks that a source edit
+reuses it and a lockfile edit does not, putting both files back afterwards.
 
 Keep protocol changes compatible with existing clients where practical. Add a
 new SQLite migration instead of modifying one already shipped. Test access
