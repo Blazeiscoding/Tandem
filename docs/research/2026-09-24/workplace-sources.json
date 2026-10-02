@@ -129,7 +129,7 @@
     "accessed": "2026-09-24",
     "publishedOrUpdated": null,
     "claim": "Messages can move between topics while contextual permalinks redirect and whole-topic moves migrate mute state.",
-    "limitations": "Does not establish permission-safe cross-channel behavior; report proposes initially limiting Gatherline moves to the same channel."
+    "limitations": "Does not establish permission-safe cross-channel behavior; report proposes initially limiting Tandem moves to the same channel."
   },
   {
     "id": "W13",

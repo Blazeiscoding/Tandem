@@ -196,7 +196,7 @@ export function JoinScreen({
           <section className="join-story hidden flex-col justify-between p-10 lg:flex xl:p-12">
             <div className="flex items-center gap-3 text-xl font-semibold tracking-tight">
               <BrandMark size={38} />
-              Gatherline
+              Tandem
             </div>
             <div className="py-12">
               <h2 className="max-w-[380px] text-[52px] font-semibold leading-[1.06] tracking-[-0.045em]">
@@ -249,7 +249,7 @@ export function JoinScreen({
             <header className="mb-8">
               <div className="mb-6 flex items-center gap-2 text-lg font-semibold lg:hidden">
                 <BrandMark />
-                Gatherline
+                Tandem
               </div>
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-copper">
                 Make yourself at home

@@ -581,10 +581,10 @@ function NotificationSettings() {
             : permission === "granted"
               ? "Notifications are on in this browser."
               : permission === "denied"
-                ? "This browser blocks notifications from Gatherline. Allow them in the browser's site settings, then reload the page."
+                ? "This browser blocks notifications from Tandem. Allow them in the browser's site settings, then reload the page."
                 : permission === "unsupported"
                   ? "This browser cannot show notifications."
-                  : "Notifications are off in this browser. Turn them on to hear about mentions while Gatherline is in the background."}
+                  : "Notifications are off in this browser. Turn them on to hear about mentions while Tandem is in the background."}
         </p>
         {platform.kind !== "desktop" && permission === "default" && (
           <button
@@ -690,7 +690,7 @@ const THEME_LABELS: Record<Theme, { label: string; hint: string }> = {
   light: { label: "White", hint: "Clean and bright, for well-lit rooms" },
 };
 
-/** How Gatherline looks on this device: its theme, and how much it fits in. */
+/** How Tandem looks on this device: its theme, and how much it fits in. */
 function AppearanceSettings() {
   const appearance = useAppearance();
   return (

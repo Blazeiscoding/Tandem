@@ -14,14 +14,14 @@ describe("opening with the computer", () => {
   });
 
   it("knows a sign-in launch on Windows by its argument", () => {
-    expect(openedAtLogin("win32", ["Gatherline.exe", HIDDEN_ARG], {})).toBe(true);
-    expect(openedAtLogin("win32", ["Gatherline.exe"], { wasOpenedAtLogin: true })).toBe(false);
+    expect(openedAtLogin("win32", ["Tandem.exe", HIDDEN_ARG], {})).toBe(true);
+    expect(openedAtLogin("win32", ["Tandem.exe"], { wasOpenedAtLogin: true })).toBe(false);
   });
 
   it("knows a sign-in launch on macOS by what the OS says, with no argument", () => {
-    expect(openedAtLogin("darwin", ["Gatherline"], { wasOpenedAtLogin: true })).toBe(true);
-    expect(openedAtLogin("darwin", ["Gatherline"], { wasOpenedAtLogin: false })).toBe(false);
-    expect(openedAtLogin("darwin", ["Gatherline"], {})).toBe(false);
+    expect(openedAtLogin("darwin", ["Tandem"], { wasOpenedAtLogin: true })).toBe(true);
+    expect(openedAtLogin("darwin", ["Tandem"], { wasOpenedAtLogin: false })).toBe(false);
+    expect(openedAtLogin("darwin", ["Tandem"], {})).toBe(false);
   });
 
   it("says when a registration did not take, and why when macOS is waiting to be allowed", () => {

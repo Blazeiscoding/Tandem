@@ -122,7 +122,7 @@ function revision() {
   }
 }
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "gatherline-mixed-")));
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "tandem-mixed-")));
 let server: WorkspaceServer | undefined;
 const sockets: WebSocket[] = [];
 const measures = {
@@ -378,6 +378,6 @@ try {
   for (const ws of sockets) ws.close();
   await server?.stop().catch(() => {});
   // Only the folder this run made, under the system's temporary folder.
-  if (dir.startsWith(realpathSync(tmpdir()) + sep) && dir.includes("gatherline-mixed-"))
+  if (dir.startsWith(realpathSync(tmpdir()) + sep) && dir.includes("tandem-mixed-"))
     rmSync(dir, { recursive: true, force: true });
 }

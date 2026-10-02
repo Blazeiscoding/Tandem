@@ -1,4 +1,4 @@
-# Source register: deeper Gatherline product research
+# Source register: deeper Tandem product research
 
 Research and synthesis: **September 24–25, 2026**. The four ledgers contain **80 topic entries referencing 78 distinct URLs**. This is a breadth count, not a quality score or a set of independent observations. Several pages come from the same vendor; O04 and W23 describe the same Zulip billing policy on different hostnames. Two URLs occur in more than one topic ledger and are combined below.
 
@@ -107,4 +107,4 @@ The access column records the original read; “recheck” identifies selected p
 | R14      | [Export your data from Google Chat](https://support.google.com/chat/answer/10126829?hl=en) — Google                                                                                                                                                                          | Official documentation            | Not established                         | 2026-09-24                     |
 | R15      | [Learn about message history for conversations](https://support.google.com/chat/answer/16053860?hl=en-IN) — Google                                                                                                                                                           | Official documentation            | Not established                         | 2026-09-24                     |
 
-No external discussion participants were contacted. No market-share estimate, prevalence statistic, competitor performance benchmark or achieved Gatherline improvement metric is inferred from this register.
+No external discussion participants were contacted. No market-share estimate, prevalence statistic, competitor performance benchmark or achieved Tandem improvement metric is inferred from this register.

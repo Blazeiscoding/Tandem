@@ -3,7 +3,7 @@
 ## Windows and LAN
 
 Build an installer with `pnpm --filter @slackoss/desktop package --win`.
-The output is `apps/desktop/release/Gatherline Setup 0.1.0.exe`. Local builds are
+The output is `apps/desktop/release/Tandem Setup 0.1.0.exe`. Local builds are
 unsigned unless you supply a signing certificate; Windows may show SmartScreen.
 A published release carries the installer, the server bundle and `SHA256SUMS`;
 check a download with `Get-FileHash -Algorithm SHA256 <file>` against that list.
@@ -27,15 +27,15 @@ Each hosted workspace has its own folder under the app's user-data folder, in
 does not follow its name, so two workspaces may share a name and renaming one
 moves nothing; folders made by earlier versions, named after the workspace, are
 adopted as they are. **Manage hosting** shows the running workspace's data folder.
-Advanced deployments can set `GATHERLINE_USER_DATA_DIR` (`SLACKOSS_USER_DATA_DIR`
+Advanced deployments can set `TANDEM_USER_DATA_DIR` (`SLACKOSS_USER_DATA_DIR`
 still works) to choose the desktop profile location.
 
 ### Closing the window, and quitting
 
-While a workspace is hosted, or starting or stopping, closing Gatherline's window
+While a workspace is hosted, or starting or stopping, closing Tandem's window
 does not stop it. The window goes to the system tray, whose icon offers **Open
-Gatherline**, what is hosted and on which port, **Stop hosting…** and **Stop
-hosting and quit…**. Launching Gatherline again, or opening a `gatherline://`
+Tandem**, what is hosted and on which port, **Stop hosting…** and **Stop
+hosting and quit…**. Launching Tandem again, or opening a `tandem://`
 (or older `slackoss://`) link,
 also brings the window back. On a desktop with no tray, closing minimizes the
 window instead. With nothing hosted, closing the last window quits on Windows and
@@ -46,8 +46,8 @@ workspace's name, the addresses teammates connect to, its port and its data
 folder. Stopping, or quitting while hosting, asks first, because everyone
 connected is disconnected. Messages, files and accounts stay on disk. Quitting
 waits for a start already under way, and for the server to finish what it is
-doing. If stopping fails, Gatherline stays open and says so. If it fails while
-quitting, you can keep Gatherline open or quit anyway; quitting anyway ends at
+doing. If stopping fails, Tandem stays open and says so. If it fails while
+quitting, you can keep Tandem open or quit anyway; quitting anyway ends at
 once and may lose changes still being written, but never deletes workspace data.
 
 If the last-used hosting settings cannot be saved, the workspace keeps running and
@@ -63,15 +63,15 @@ creating a new one under the same name starts a separate, empty workspace, and
 the dialog says so.
 
 While a workspace is running, **When this computer starts** offers two choices:
-**Start hosting it when Gatherline opens**, and, where the system supports it,
-**Open Gatherline when you sign in to this computer**. With both on, the workspace
+**Start hosting it when Tandem opens**, and, where the system supports it,
+**Open Tandem when you sign in to this computer**. With both on, the workspace
 is back for teammates once the computer restarts and someone signs in, and
-Gatherline waits in the tray. Only one workspace can be chosen. Starting this way
+Tandem waits in the tray. Only one workspace can be chosen. Starting this way
 hosts on the network; a temporary **Open to all** link is never reopened by
 itself, since its address changes every time. When a stable address is set up (see
 below), a third choice appears: **Also reopen it when the workspace starts with
-Gatherline**. It is kept for that workspace and that address only. After starting,
-Gatherline opens the address the usual way, checking that it reaches this
+Tandem**. It is kept for that workspace and that address only. After starting,
+Tandem opens the address the usual way, checking that it reaches this
 workspace, and new accounts need an invite. If the address has changed, cannot be
 reached or fails the check, the workspace keeps running on the network and the
 reason is shown the next time the window is opened. A restored workspace still held
@@ -84,12 +84,12 @@ than moving to another port. A workspace left on the usual port moves to a free
 one and Manage hosting says where.
 
 While nothing is running, the same section appears above the list whenever a
-workspace is chosen to start, a start failed, or Gatherline opens at sign-in, so
-a workspace that cannot start can be taken off starting with Gatherline, and
-Gatherline off sign-in, without starting it first or removing it from the list.
+workspace is chosen to start, a start failed, or Tandem opens at sign-in, so
+a workspace that cannot start can be taken off starting with Tandem, and
+Tandem off sign-in, without starting it first or removing it from the list.
 
 Current limit: opening at sign-in has not been tried on an installed macOS system.
-If macOS holds the registration for approval, the dialog says to allow Gatherline
+If macOS holds the registration for approval, the dialog says to allow Tandem
 under Login Items in System Settings.
 
 ### Backing up from the desktop
@@ -109,8 +109,8 @@ older verified backups.
 **Restore from a backup…** checks a backup, then restores it as a hosted
 workspace without starting it; it will not restore over a workspace already
 hosted here. A restored workspace is held until you put it back in use, and the
-hold survives restarting Gatherline. While held, it is listed as "Restored, not
-in use yet", is taken off starting with Gatherline, and **Look inside** starts
+hold survives restarting Tandem. While held, it is listed as "Restored, not
+in use yet", is taken off starting with Tandem, and **Look inside** starts
 it on this computer only: nothing it had queued is sent, no app is called, it is
 not announced on the network and it cannot be opened to all. After restoring,
 the dialog says what the backup would bring back: sign-ins it still accepts,
@@ -126,7 +126,7 @@ run.
 
 ## Temporary internet sharing with Cloudflare Tunnel
 
-Gatherline's **Open to all** button creates a
+Tandem's **Open to all** button creates a
 [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
 from a random `https://…trycloudflare.com` address to the workspace on this
 computer. It needs no Cloudflare account, domain, inbound firewall rule, port
@@ -168,24 +168,24 @@ sudo apt-get update && sudo apt-get install cloudflared
 cloudflared --version
 ```
 
-If `cloudflared` is elsewhere, set `GATHERLINE_CLOUDFLARED` to its full path
-before starting Gatherline. The previous `SLACKOSS_CLOUDFLARED` name also works.
+If `cloudflared` is elsewhere, set `TANDEM_CLOUDFLARED` to its full path
+before starting Tandem. The previous `SLACKOSS_CLOUDFLARED` name also works.
 
 ### Open and share the desktop workspace
 
-1. In Gatherline, choose **Host a workspace on this computer**, open it, and
+1. In Tandem, choose **Host a workspace on this computer**, open it, and
    create its owner account while it is still local.
 2. Open **Manage hosting** and select **Open to all**. Leave **Require an invite
    link to create an account** selected unless everyone who learns the public
    address should be able to create an account.
-3. Wait for Gatherline to show the `https://…trycloudflare.com` address. The app
+3. Wait for Tandem to show the `https://…trycloudflare.com` address. The app
    starts and monitors `cloudflared`; a Cloudflare account is not required.
 4. Open **Workspace → Invite people**, generate an invite, then choose **Copy
    link** under **Browser link**. Send that complete link to a friend. It opens
    the browser client with the invite code filled in; the friend does not
    install `cloudflared`.
-5. Keep the host computer awake and keep Gatherline running. **Close public
-   link**, **Stop hosting**, or quitting Gatherline ends the connector and makes
+5. Keep the host computer awake and keep Tandem running. **Close public
+   link**, **Stop hosting**, or quitting Tandem ends the connector and makes
    that address unusable. Opening it again creates a different address, so send
    a new invite link.
 
@@ -202,25 +202,25 @@ link closes; LAN and other network peers cannot supply it.
 does not add a TURN relay. Chat and invites can work while audio, camera, or
 screen sharing fails between restrictive or symmetric NATs. A deployment that
 needs reliable internet huddles should supply its own TURN service through
-`GATHERLINE_ICE_SERVERS`, as described under [Voice and huddles](#voice-and-huddles).
+`TANDEM_ICE_SERVERS`, as described under [Voice and huddles](#voice-and-huddles).
 
 ### Use an address you already have
 
 A Quick Tunnel gives a different address every time it opens, so every invite
 link has to be sent again. If something already carries a public HTTPS address
-to this computer, give that address to Gatherline instead and **Open to all**
+to this computer, give that address to Tandem instead and **Open to all**
 verifies and uses the same one every time.
 
 Open **Manage hosting**, put the address under **Your own address**, and save.
-Gatherline starts no connector in this mode. It checks that the address reaches
+Tandem starts no connector in this mode. It checks that the address reaches
 this workspace, publishes it into browser, invite and message links, and keeps
-checking while the link is open. Gatherline itself needs no domain or Cloudflare
+checking while the link is open. Tandem itself needs no domain or Cloudflare
 account for this mode, although the outside service you choose can have its own
 account or domain requirements.
 
 The outside service remains in charge of public access. **Close public link**
-stops Gatherline from monitoring and putting the address into new links, but it
-cannot stop a Funnel, proxy, or tunnel that Gatherline did not start. As long as
+stops Tandem from monitoring and putting the address into new links, but it
+cannot stop a Funnel, proxy, or tunnel that Tandem did not start. As long as
 that service and the hosted workspace are running, the address remains
 reachable. Stop the outside service, or stop hosting, when the workspace must no
 longer be public. An old invite link keeps the stable base address, but its code
@@ -234,9 +234,9 @@ with a reverse tunnel, or another tunnel can do this. Use the actual port
 port was already occupied.
 
 Holding a port is not the same as owning it. On Windows a program already
-listening on `127.0.0.1:8543` does not stop Gatherline binding `0.0.0.0:8543`,
+listening on `127.0.0.1:8543` does not stop Tandem binding `0.0.0.0:8543`,
 and loopback requests then go to that program rather than the workspace, so a
-carrier forwarding there reaches the wrong thing. Gatherline checks this when
+carrier forwarding there reaches the wrong thing. Tandem checks this when
 hosting starts and says so in **Manage hosting**; stop the other program and
 start hosting again, or host on a different port. **Open to all** refuses
 either way, because the address has to answer as this workspace before it is
@@ -249,7 +249,7 @@ stable HTTPS name with a real certificate and no domain to buy. It is available
 on every Tailscale plan; Tailscale's Personal plan is free but is for
 non-commercial use, and caps how many people share a tailnet. That cap counts
 Tailscale accounts, not workspace members: a Funnel is open to the internet, so
-teammates join Gatherline through the address in a browser and need no Tailscale
+teammates join Tandem through the address in a browser and need no Tailscale
 account at all. Funnel is currently beta and has non-configurable bandwidth
 limits. It also needs
 MagicDNS, HTTPS certificates, and the Funnel node attribute in the tailnet
@@ -257,7 +257,7 @@ policy. The first command can open Tailscale's approval page to enable those
 settings; the person approving it needs the appropriate tailnet role.
 
 Install Tailscale and sign in. On Windows, open PowerShell as Administrator and
-run the command with the port shown by Gatherline (8543 is only the usual
+run the command with the port shown by Tandem (8543 is only the usual
 value):
 
 ```powershell
@@ -293,36 +293,36 @@ sudo tailscale funnel reset
 
 Funnel prints a name like `https://box.tail1234.ts.net`; paste it into **Your own
 address**. The public HTTPS listener can use only port 443 (the default), 8443,
-or 10000. The `8543` above is the local Gatherline target, not the public
+or 10000. The `8543` above is the local Tandem target, not the public
 listener. On macOS, forwarding a port needs one of the GUI builds — Tailscale
 documents the Standalone system extension for this, and the open-source
 `tailscaled` build is what its file-sharing rule is about, not ports. Check
 [which macOS variant you have](https://tailscale.com/docs/concepts/macos-variants)
 if `tailscale funnel` refuses the port.
 
-Gatherline does not sign in to Tailscale or change the tailnet policy. Those
+Tandem does not sign in to Tailscale or change the tailnet policy. Those
 steps belong to Tailscale's own client and approval page, and the Windows command
-needs Administrator rights. Gatherline takes only the finished public address;
+needs Administrator rights. Tandem takes only the finished public address;
 it never receives Tailscale account credentials.
 
 #### Setting it outside the app
 
-`GATHERLINE_PUBLIC_URL` sets the same address from the environment, for a
+`TANDEM_PUBLIC_URL` sets the same address from the environment, for a
 service or a scripted install. `SLACKOSS_PUBLIC_URL` works too. An address set
 that way is shown in **Manage hosting** but cannot be edited there, since the
 app does not own it. A saved address takes precedence over both, so an old
 variable in a shell cannot quietly replace one somebody typed into the app.
 
 The address has to be a public HTTPS origin, the same rule described below. If
-it stops answering as this workspace, Gatherline gives it up after several
+it stops answering as this workspace, Tandem gives it up after several
 checks in a row fail, removes it from new links, and says so in **Manage
 hosting**. A brief network blip does not invalidate the links you have sent.
 This does not shut down the outside carrier; use its own stop command when the
 address itself must stop accepting connections.
 
-### A stable address Gatherline runs for you
+### A stable address Tandem runs for you
 
-If you own a domain on Cloudflare, Gatherline can run the connector itself
+If you own a domain on Cloudflare, Tandem can run the connector itself
 rather than leaving it to you. Open to all then starts and stops a Cloudflare
 named tunnel with the workspace, at an address that does not change. This needs
 a domain; the section above needs none.
@@ -332,28 +332,28 @@ Create a **remotely managed** tunnel in Cloudflare's
 application route whose hostname is your public address and whose service URL is
 `http://127.0.0.1:8543`, replacing 8543 with the port **Manage hosting** shows.
 Do not use `cloudflared tunnel create` for this flow: that command creates a
-locally managed tunnel with a credentials JSON file, while Gatherline's
+locally managed tunnel with a credentials JSON file, while Tandem's
 `--token-file` flow requires a remotely managed tunnel.
 
 In the tunnel's dashboard page, choose **Add a replica** and copy the connector
 token (the `eyJ…` value in Cloudflare's installation command) into a file
-readable only by your account. Gatherline never reads its contents; it passes
+readable only by your account. Tandem never reads its contents; it passes
 the path to [`cloudflared --token-file`](https://developers.cloudflare.com/tunnel/reference/run-parameters/#token-file).
 That option requires `cloudflared` 2025.4.0 or later, so check
 `cloudflared --version` and update it first when needed.
 
-Environment variables belong to the process that starts Gatherline. On Windows,
+Environment variables belong to the process that starts Tandem. On Windows,
 set both in PowerShell and launch the installed app from that same window so it
 inherits them:
 
 ```powershell
-$env:GATHERLINE_TUNNEL_URL = "https://chat.example.org"
-$env:GATHERLINE_TUNNEL_TOKEN_FILE = "C:\Users\sam\.cloudflared\chat-token.txt"
-Start-Process "$env:LOCALAPPDATA\Programs\Gatherline\Gatherline.exe"
+$env:TANDEM_TUNNEL_URL = "https://chat.example.org"
+$env:TANDEM_TUNNEL_TOKEN_FILE = "C:\Users\sam\.cloudflared\chat-token.txt"
+Start-Process "$env:LOCALAPPDATA\Programs\Tandem\Tandem.exe"
 ```
 
-If Gatherline was installed elsewhere, replace the last path with the path to
-its `Gatherline.exe`. To launch it later from the Start menu, save the two values
+If Tandem was installed elsewhere, replace the last path with the path to
+its `Tandem.exe`. To launch it later from the Start menu, save the two values
 as user environment variables first, then sign out and back in so newly launched
 apps inherit them. The token itself stays in the protected file; the environment
 contains only its path.
@@ -361,9 +361,9 @@ contains only its path.
 On Linux, export the values and run the AppImage from that same shell:
 
 ```sh
-export GATHERLINE_TUNNEL_URL=https://chat.example.org
-export GATHERLINE_TUNNEL_TOKEN_FILE=/home/sam/.cloudflared/chat-token
-./Gatherline-0.1.0.AppImage
+export TANDEM_TUNNEL_URL=https://chat.example.org
+export TANDEM_TUNNEL_TOKEN_FILE=/home/sam/.cloudflared/chat-token
+./Tandem-0.1.0.AppImage
 ```
 
 The same inheritance rule applies on macOS: a GUI app opened from Finder or the
@@ -372,7 +372,7 @@ executable from the configured shell or provide the values through the service
 or launcher that owns the app process. macOS and Linux packages have not yet
 been validated for this project.
 
-`GATHERLINE_TUNNEL_URL` has to be a public HTTPS origin: a hostname with a dot,
+`TANDEM_TUNNEL_URL` has to be a public HTTPS origin: a hostname with a dot,
 and no path, query, credentials, or fragment. Loopback and private-network
 suffixes (`.local`, `.internal`, `.home`, `.lan`, `localhost`) and bare IP
 addresses are refused, and so is a trailing dot. An accented hostname is
@@ -382,7 +382,7 @@ for the alternate ports Cloudflare proxies. `SLACKOSS_TUNNEL_URL` and
 a token file that is not there, or giving an address that cannot be published
 is reported in **Manage hosting** and leaves **Open to all** unavailable, rather
 than quietly opening a temporary address nobody was given. Environment variables
-are read when the app launches, so fully quit and restart Gatherline from the
+are read when the app launches, so fully quit and restart Tandem from the
 correct environment after changing them. After installing `cloudflared` or
 creating a missing token file, reopen **Manage hosting** (or use **Check again**
 when shown) to refresh the status.
@@ -391,7 +391,7 @@ when shown) to refresh the status.
 address reaches _this_ running workspace before publishing it. If the address
 answers as something else — another workspace, or a route left pointing
 somewhere old — opening fails and says which Cloudflare route to correct. What
-the connector prints is kept out of Gatherline's messages and logs, because it
+the connector prints is kept out of Tandem's messages and logs, because it
 can quote the token it was given.
 
 Closing the public link or quitting stops the connector, and the address stops
@@ -421,14 +421,14 @@ set the STUN configuration and restart the same data directory with that exact
 address. On macOS or Linux:
 
 ```sh
-export GATHERLINE_ICE_SERVERS='[{"urls":"stun:stun.cloudflare.com:3478"}]'
+export TANDEM_ICE_SERVERS='[{"urls":"stun:stun.cloudflare.com:3478"}]'
 node apps/server-cli/dist/slackoss-server.js --data ./data --name "My Team" --host 127.0.0.1 --invite-only --public-url https://YOUR-RANDOM-NAME.trycloudflare.com
 ```
 
 Or in PowerShell:
 
 ```powershell
-$env:GATHERLINE_ICE_SERVERS='[{"urls":"stun:stun.cloudflare.com:3478"}]'
+$env:TANDEM_ICE_SERVERS='[{"urls":"stun:stun.cloudflare.com:3478"}]'
 node apps/server-cli/dist/slackoss-server.js --data ./data --name "My Team" --host 127.0.0.1 --invite-only --public-url https://YOUR-RANDOM-NAME.trycloudflare.com
 ```
 
@@ -441,7 +441,7 @@ limitation described above.
 
 Cloudflare describes Quick Tunnels as a testing and development feature. They
 have no SLA, give a random address for the life of the process, and are limited
-to 200 concurrent in-flight requests. WebSockets work, which is what Gatherline
+to 200 concurrent in-flight requests. WebSockets work, which is what Tandem
 chat uses, but Server-Sent Events do not. See Cloudflare's
 [Quick Tunnel documentation](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
 and [Tunnel FAQ](https://developers.cloudflare.com/cloudflare-one/faq/cloudflare-tunnels-faq/)
@@ -519,11 +519,11 @@ chat.example.org {
 
 By default no third-party ICE server is contacted. LAN peers connect directly.
 For people on different networks, provide your own STUN/TURN configuration through
-`GATHERLINE_ICE_SERVERS` (previously `SLACKOSS_ICE_SERVERS`). Compose reads it
+`TANDEM_ICE_SERVERS` (previously `SLACKOSS_ICE_SERVERS`). Compose reads it
 from the environment or `docker/.env`, under either name:
 
 ```dotenv
-GATHERLINE_ICE_SERVERS=[{"urls":"stun:turn.example.org:3478"},{"urls":"turn:turn.example.org:3478","username":"workspace","credential":"replace-with-a-strong-secret"}]
+TANDEM_ICE_SERVERS=[{"urls":"stun:turn.example.org:3478"},{"urls":"turn:turn.example.org:3478","username":"workspace","credential":"replace-with-a-strong-secret"}]
 ```
 
 The authenticated `/api/rtc-config` endpoint supplies it to members. Static TURN
@@ -542,7 +542,7 @@ reduce processing and bandwidth but do not guarantee a fixed RAM budget.
 
 Attachments are unlimited unless you say otherwise, which on a small disk means
 one enthusiastic upload can fill it. Cap the workspace with `--storage-limit-mb`,
-or `GATHERLINE_STORAGE_LIMIT_MB` (`SLACKOSS_STORAGE_LIMIT_MB` still works) for
+or `TANDEM_STORAGE_LIMIT_MB` (`SLACKOSS_STORAGE_LIMIT_MB` still works) for
 Compose:
 
 ```sh
@@ -560,7 +560,7 @@ per-file maximum. `0` means unlimited, which is the default.
 
 An attachment chosen and then thought better of would otherwise hold its bytes
 forever. Uploads never attached to a message are freed after 24 hours, tunable
-with `--abandoned-upload-hours` or `GATHERLINE_ABANDONED_UPLOAD_HOURS`
+with `--abandoned-upload-hours` or `TANDEM_ABANDONED_UPLOAD_HOURS`
 (`SLACKOSS_ABANDONED_UPLOAD_HOURS` still works). Files a
 scheduled message is still waiting to send are never swept, however old they
 are. The window has to outlast the gap between choosing a file and sending it,
@@ -624,7 +624,7 @@ restoring a real workspace, ask people to look at their signed-in devices and
 end any they had already ended.
 Settings given on the command line or in the environment are not in a backup:
 `--public-url`, `--retention-days`, `--storage-limit-mb`, `--allow-private-hooks`,
-`--trust-proxy`, `GATHERLINE_ICE_SERVERS`, and any proxy or certificate in front
+`--trust-proxy`, `TANDEM_ICE_SERVERS`, and any proxy or certificate in front
 of the server. Note them where you keep the backup.
 
 `restore` verifies the backup, stages and re-verifies it beside the target, and only then swaps
@@ -755,7 +755,7 @@ slackoss-server --data ./data --retention-days 365
 ```
 
 Off by default: a workspace that quietly started discarding history would be
-worse than one that grows. Also settable with `GATHERLINE_RETENTION_DAYS`
+worse than one that grows. Also settable with `TANDEM_RETENTION_DAYS`
 (`SLACKOSS_RETENTION_DAYS` still works). The
 server prints the window on every start, because a setting that deletes things
 is one to be reminded of.
@@ -911,7 +911,7 @@ The allowances are held in memory, so a restart grants one fresh burst. Buckets
 are dropped once they refill, which keeps the bookkeeping proportional to who is
 active rather than to everyone who has ever connected.
 
-`--no-rate-limits`, or `GATHERLINE_RATE_LIMITS=off` (`SLACKOSS_RATE_LIMITS=off`
+`--no-rate-limits`, or `TANDEM_RATE_LIMITS=off` (`SLACKOSS_RATE_LIMITS=off`
 still works), turns all of this off. That is reasonable on a network where
 everyone is already trusted and unreasonable anywhere reachable from outside it.
 Bulk imports and seeding scripts are the usual reason to want it; prefer running
@@ -945,7 +945,7 @@ desktop settings file can be retried without restarting the app.
 
 ## Desktop saved sign-ins
 
-Gatherline encrypts the desktop app's saved sign-ins using Electron's
+Tandem encrypts the desktop app's saved sign-ins using Electron's
 [OS-backed safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
 Windows uses the current OS account's protection; macOS uses Keychain and Linux
 needs a supported secret store. Linux's `basic_text` fallback is refused. On

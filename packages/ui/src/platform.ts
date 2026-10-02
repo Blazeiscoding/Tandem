@@ -82,7 +82,7 @@ export interface HostedWorkspaces {
     running: boolean;
     /** Its folder is gone, so it cannot start. */
     missing: boolean;
-    /** Chosen to start when Gatherline opens. Absent from apps that cannot. */
+    /** Chosen to start when Tandem opens. Absent from apps that cannot. */
     startsOnLaunch?: boolean;
     /** Backed up by itself on a schedule. Absent from apps that cannot. */
     autoBackup?: AutoBackup | null;
@@ -121,16 +121,16 @@ export interface HostingStatus {
   publicAddressSetting?: string;
   /** Whether the environment set the address, so this app cannot change it. */
   publicAddressLocked?: boolean;
-  /** Whether Gatherline runs the connector for it, rather than something else. */
+  /** Whether Tandem runs the connector for it, rather than something else. */
   publicAddressManaged?: boolean;
   /** Safe setup instructions when the stable address configuration cannot be used. */
   publicAddressError?: string;
   /** Whether new accounts need an invite code. */
   inviteOnly?: boolean;
-  /** The running workspace is the one chosen to start when Gatherline opens. */
+  /** The running workspace is the one chosen to start when Tandem opens. */
   startsOnLaunch?: boolean;
   /**
-   * What did not happen when Gatherline opened: the workspace chosen to start
+   * What did not happen when Tandem opened: the workspace chosen to start
    * with it did not start, or started without reopening its stable address.
    * Kept until that part recovers or the host dismisses it.
    */
@@ -146,7 +146,7 @@ export interface HostingStatus {
    * app is called, and only this computer can reach it.
    */
   isolated?: boolean;
-  /** The running workspace reopens its stable public address when it starts with Gatherline. */
+  /** The running workspace reopens its stable public address when it starts with Tandem. */
   reopensPublicOnLaunch?: boolean;
 }
 
@@ -199,7 +199,7 @@ export interface Platform {
   /** Subscribe to LAN server discovery. Returns unsubscribe. Desktop only. */
   discoverLan?: (cb: (servers: DiscoveredServer[]) => void) => () => void;
   /**
-   * Links to join a workspace or open a message: gatherline:// ones (the
+   * Links to join a workspace or open a message: tandem:// ones (the
    * previous slackoss:// form still reads) in the desktop app, and the
    * address a browser was opened at.
    */
@@ -246,17 +246,17 @@ export interface Platform {
     /** Shows a hosted workspace's folder in the system's file manager. */
     openFolder?: (folder: string) => Promise<void>;
     /**
-     * Chooses the workspace, by its folder, to start whenever Gatherline
+     * Chooses the workspace, by its folder, to start whenever Tandem
      * opens, or none. Rejects, saying why, a workspace not in the list.
      */
     setStartOnLaunch?: (folder: string | null) => Promise<void>;
     /**
      * Whether the running workspace also reopens its stable public address
-     * when it starts with Gatherline. Rejects, saying why, without a stable
+     * when it starts with Tandem. Rejects, saying why, without a stable
      * address or while nothing is running.
      */
     setReopenPublicOnLaunch?: (reopen: boolean) => Promise<boolean>;
-    /** Stops showing what did not happen when Gatherline opened. */
+    /** Stops showing what did not happen when Tandem opened. */
     dismissLaunchError?: () => Promise<void>;
     /**
      * Changes the port a stopped workspace starts on. Rejects, saying why,
@@ -279,7 +279,7 @@ export interface Platform {
      */
     retryBackups?: () => Promise<void>;
     /**
-     * Whether the OS opens Gatherline when someone signs in to this computer.
+     * Whether the OS opens Tandem when someone signs in to this computer.
      * `get` resolves to null where it cannot, such as a copy run from source.
      */
     openAtLogin?: {

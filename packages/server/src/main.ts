@@ -80,22 +80,22 @@ Usage: slackoss-server [options]
   --no-mdns         Do not advertise on the local network
   --storage-limit-mb <n>
                     Attachment storage cap in MiB; 0 is unlimited (default).
-                    Also settable with GATHERLINE_STORAGE_LIMIT_MB
-                    (previously SLACKOSS_STORAGE_LIMIT_MB).
+                    Also settable with TANDEM_STORAGE_LIMIT_MB
+                    (the older GATHERLINE_ and SLACKOSS_ names still work).
   --abandoned-upload-hours <n>
                     How long an upload may sit unattached before it is freed
                     (default 24). Attachments a scheduled message still needs
                     are never swept, however old they are. Also settable with
-                    GATHERLINE_ABANDONED_UPLOAD_HOURS
-                    (previously SLACKOSS_ABANDONED_UPLOAD_HOURS).
+                    TANDEM_ABANDONED_UPLOAD_HOURS
+                    (the older GATHERLINE_ and SLACKOSS_ names still work).
   --retention-days <n>
                     Discard conversation older than this many days; 0 keeps
                     everything (default). What it removes is removed from the
                     database, not hidden: getting it back means restoring a
                     backup taken before the sweep ran. A thread goes as one
                     thing, once its newest reply is past the window too. Also
-                    settable with GATHERLINE_RETENTION_DAYS
-                    (previously SLACKOSS_RETENTION_DAYS).
+                    settable with TANDEM_RETENTION_DAYS
+                    (the older GATHERLINE_ and SLACKOSS_ names still work).
   --web <dir>       Serve the browser client from this directory
   --public-url <u>  How others reach this server, e.g. https://chat.team.dev
                     (set it behind a reverse proxy; used in URLs given to apps)
@@ -112,8 +112,8 @@ Usage: slackoss-server [options]
                     there is one, so a whole office behind a single address
                     does not share one person's allowance. Turn this off only
                     on a network where everyone is already trusted. Also
-                    settable with GATHERLINE_RATE_LIMITS=off
-                    (previously SLACKOSS_RATE_LIMITS=off).
+                    settable with TANDEM_RATE_LIMITS=off
+                    (the older GATHERLINE_ and SLACKOSS_ names still work).
 
   --skip-upgrade-backup
                     Do not copy the workspace before upgrading it to a newer
@@ -233,7 +233,7 @@ if (command === "verify-backup" || command === "restore") {
       console.log(`
   Not in any backup, so set them again where it is restored: --public-url,
   --retention-days, --storage-limit-mb, --allow-private-hooks, --trust-proxy,
-  GATHERLINE_ICE_SERVERS, and any proxy or certificate in front of the server.
+  TANDEM_ICE_SERVERS, and any proxy or certificate in front of the server.
 
   To look inside it first, restore it into a new directory and start that
   with --isolated. Its apps and scheduled messages wait until it is started
@@ -403,7 +403,7 @@ const server = await createWorkspaceServer({
   iceServers: parseIceServers(envSetting("ICE_SERVERS")),
 }).catch((err: unknown) => refuse(describeStartupError(err, { port, host })));
 
-console.log(`\n  Gatherline server v${SERVER_VERSION} is running`);
+console.log(`\n  Tandem server v${SERVER_VERSION} is running`);
 console.log(`  Data: ${resolve(values.data)}`);
 if (server.upgradeBackup) {
   console.log(`  Upgraded this workspace; the copy from before is at ${server.upgradeBackup}`);

@@ -18,8 +18,8 @@ import { buttonClass } from "./Button.js";
 type Hosting = NonNullable<Platform["hosting"]>;
 
 /**
- * Whether the running workspace starts when Gatherline opens, and whether the
- * OS opens Gatherline when someone signs in. With both on, a workspace comes
+ * Whether the running workspace starts when Tandem opens, and whether the
+ * OS opens Tandem when someone signs in. With both on, a workspace comes
  * back by itself after the computer restarts.
  */
 function StartWithComputer(props: {
@@ -29,7 +29,7 @@ function StartWithComputer(props: {
   startsOnLaunch: boolean;
   /** The stable public address set up for hosting, if there is one. */
   publicAddress?: string;
-  /** It is reopened when this workspace starts with Gatherline. */
+  /** It is reopened when this workspace starts with Tandem. */
   reopensPublic: boolean;
   disabled: boolean;
   /** What went wrong saving a choice, or null to clear it. */
@@ -98,7 +98,7 @@ function StartWithComputer(props: {
             );
           }}
         />
-        <span>Start hosting {props.name} when Gatherline opens</span>
+        <span>Start hosting {props.name} when Tandem opens</span>
       </label>
       {login && atLogin !== null && (
         <label className="flex items-start gap-2 text-ink">
@@ -115,7 +115,7 @@ function StartWithComputer(props: {
               );
             }}
           />
-          <span>Open Gatherline when you sign in to this computer</span>
+          <span>Open Tandem when you sign in to this computer</span>
         </label>
       )}
       {reopen && props.publicAddress && (
@@ -135,22 +135,22 @@ function StartWithComputer(props: {
             }}
           />
           <span>
-            Also reopen {props.publicAddress} when {props.name} starts with Gatherline, once it is
+            Also reopen {props.publicAddress} when {props.name} starts with Tandem, once it is
             checked to reach this workspace. New accounts need an invite.
           </span>
         </label>
       )}
       <p className="text-xs text-ink-faint">
         {atLogin === null
-          ? `${props.name} starts once Gatherline is opened.`
-          : `With both on, ${props.name} is back for teammates once this computer restarts and someone signs in. Gatherline then waits in the tray.`}
+          ? `${props.name} starts once Tandem is opened.`
+          : `With both on, ${props.name} is back for teammates once this computer restarts and someone signs in. Tandem then waits in the tray.`}
       </p>
     </fieldset>
   );
 }
 
 /**
- * What did not happen when Gatherline opened, shown whether or not anything
+ * What did not happen when Tandem opened, shown whether or not anything
  * hosts now. A workspace can be live on this network while its public address
  * failed to reopen, and that is exactly the failure a host would otherwise
  * never see. It stays until that part recovers or the host dismisses it.
@@ -214,14 +214,14 @@ function LaunchProblem(props: {
 
 /**
  * The same choices while nothing is running, so a workspace that fails to
- * start with Gatherline can be taken off it, and Gatherline off sign-in,
+ * start with Tandem can be taken off it, and Tandem off sign-in,
  * without having to start it first. Nothing here removes it from the list.
  */
 function StartupWhileStopped(props: {
   hosting: Hosting;
-  /** The workspace chosen to start with Gatherline, if it is listed. */
+  /** The workspace chosen to start with Tandem, if it is listed. */
   chosen: { folder: string; name: string } | null;
-  /** Why starting with Gatherline did not happen, if it did not. */
+  /** Why starting with Tandem did not happen, if it did not. */
   launchError: string | undefined;
   disabled: boolean;
   onChanged: () => void;
@@ -270,14 +270,14 @@ function StartupWhileStopped(props: {
       </h3>
       {props.chosen ? (
         <p className="text-ink-dim">
-          {props.chosen.name} starts hosting when Gatherline opens.{" "}
+          {props.chosen.name} starts hosting when Tandem opens.{" "}
           <button
             type="button"
             disabled={props.disabled || saving}
             className={linkBtnCls}
             onClick={() => void save(() => setStart(null))}
           >
-            Don’t start {props.chosen.name} with Gatherline
+            Don’t start {props.chosen.name} with Tandem
           </button>
         </p>
       ) : (
@@ -289,7 +289,7 @@ function StartupWhileStopped(props: {
               className={linkBtnCls}
               onClick={() => void save(() => setStart(null))}
             >
-              Start nothing when Gatherline opens
+              Start nothing when Tandem opens
             </button>
           </p>
         )
@@ -314,7 +314,7 @@ function StartupWhileStopped(props: {
               });
             }}
           />
-          <span>Open Gatherline when you sign in to this computer</span>
+          <span>Open Tandem when you sign in to this computer</span>
         </label>
       )}
     </section>
@@ -703,13 +703,13 @@ function hostedListError(reason: unknown): string {
   // Electron prefixes errors from main-process IPC, so match the fixed
   // registry messages inside the wrapper rather than showing its raw text.
   const message = reason instanceof Error ? reason.message : "";
-  if (message.includes("The hosted workspace list was saved by a newer version of Gatherline."))
-    return "The hosted workspace list was saved by a newer version of Gatherline. Update Gatherline to open it; the list was not changed.";
-  if (message.includes("The hosted workspace list has a version this Gatherline cannot read."))
-    return "The hosted workspace list has a version this Gatherline cannot read. Use a compatible version; the list was not changed.";
+  if (message.includes("The hosted workspace list was saved by a newer version of Tandem."))
+    return "The hosted workspace list was saved by a newer version of Tandem. Update Tandem to open it; the list was not changed.";
+  if (message.includes("The hosted workspace list has a version this Tandem cannot read."))
+    return "The hosted workspace list has a version this Tandem cannot read. Use a compatible version; the list was not changed.";
   if (message.includes("The hosted workspace list in settings is invalid."))
     return "The hosted workspace list in settings is invalid. Restore or repair the settings file before hosting; the list was not changed.";
-  return "Could not read the list of workspaces hosted on this computer, so none can start. Check that Gatherline’s settings file can be read, then open this again.";
+  return "Could not read the list of workspaces hosted on this computer, so none can start. Check that Tandem’s settings file can be read, then open this again.";
 }
 
 /**
@@ -1028,7 +1028,7 @@ export function HostDialog(props: {
     } catch {
       setError({
         message:
-          "The workspace could not be stopped. Check its current status; Quit Gatherline offers recovery options if stopping keeps failing.",
+          "The workspace could not be stopped. Check its current status; Quit Tandem offers recovery options if stopping keeps failing.",
       });
     } finally {
       await refresh();
@@ -1077,8 +1077,8 @@ export function HostDialog(props: {
       setError({
         tunnel: true,
         message: externallyCarried
-          ? "Gatherline could not stop publishing this address. Try again, then stop its external tunnel or proxy separately."
-          : "Gatherline’s Cloudflare connection could not be closed cleanly. Try again before quitting Gatherline.",
+          ? "Tandem could not stop publishing this address. Try again, then stop its external tunnel or proxy separately."
+          : "Tandem’s Cloudflare connection could not be closed cleanly. Try again before quitting Tandem.",
       });
     } finally {
       await refresh();
@@ -1219,10 +1219,10 @@ export function HostDialog(props: {
           {status.running && phase !== "stopping" && (
             <p className="text-ink-dim">
               {status.backgroundAvailable === true
-                ? "Closing this window keeps the workspace running in the system tray. Use the tray to reopen Gatherline or stop hosting."
+                ? "Closing this window keeps the workspace running in the system tray. Use the tray to reopen Tandem or stop hosting."
                 : status.backgroundAvailable === false
-                  ? "Closing this window minimizes Gatherline while hosting. Keep the app running so teammates can stay connected."
-                  : "Keep Gatherline running so teammates can stay connected."}
+                  ? "Closing this window minimizes Tandem while hosting. Keep the app running so teammates can stay connected."
+                  : "Keep Tandem running so teammates can stay connected."}
             </p>
           )}
           {!!status.lanUrls?.length && (
@@ -1332,10 +1332,10 @@ export function HostDialog(props: {
                 <>
                   <p className="mb-2 text-xs text-ink-dim">
                     {!status.publicAddress
-                      ? "This temporary address works from anywhere while Gatherline and cloudflared stay running."
+                      ? "This temporary address works from anywhere while Tandem and cloudflared stay running."
                       : status.publicAddressManaged
-                        ? "This configured address stays the same when you reopen the public link. Keep Gatherline and its Cloudflare connector running so teammates can connect."
-                        : "This configured address stays the same when you reopen it. Gatherline can stop publishing the address, but only you can stop its external tunnel or proxy and make it unreachable."}
+                        ? "This configured address stays the same when you reopen the public link. Keep Tandem and its Cloudflare connector running so teammates can connect."
+                        : "This configured address stays the same when you reopen it. Tandem can stop publishing the address, but only you can stop its external tunnel or proxy and make it unreachable."}
                   </p>
                   <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-raised p-2">
                     <a
@@ -1401,11 +1401,11 @@ export function HostDialog(props: {
                           .
                         </p>
                       )}
-                      <p>Keep Gatherline running so teammates can connect.</p>
+                      <p>Keep Tandem running so teammates can connect.</p>
                       {externallyCarried && (
                         <p>
                           Its external tunnel or proxy may already make this workspace reachable.
-                          Gatherline requires invites when you save the address; stop the carrier
+                          Tandem requires invites when you save the address; stop the carrier
                           separately when you want the address itself to become unreachable.
                         </p>
                       )}
@@ -1606,8 +1606,8 @@ export function HostDialog(props: {
       ) : !loading && !statusError && status ? (
         <>
           <p className="mb-4 text-sm text-ink-dim">
-            Your computer becomes the server. Teammates on your network can connect while Gatherline
-            is running. Messages, files and accounts are stored on this machine.
+            Your computer becomes the server. Teammates on your network can connect while Tandem is
+            running. Messages, files and accounts are stored on this machine.
           </p>
           <LaunchProblem
             hosting={props.hosting}
@@ -1671,7 +1671,7 @@ export function HostDialog(props: {
                           <p className="text-xs text-ink-dim">
                             {w.missing
                               ? "Its folder is missing, so it cannot start"
-                              : `${w.restored ? "Restored, not in use yet · " : ""}Port ${w.port}${w.startsOnLaunch ? " · Starts with Gatherline" : ""}${
+                              : `${w.restored ? "Restored, not in use yet · " : ""}Port ${w.port}${w.startsOnLaunch ? " · Starts with Tandem" : ""}${
                                   w.autoBackup
                                     ? `${w.autoBackup.everyDays === 1 ? " · Backs up daily" : " · Backs up weekly"}${
                                         w.restored ? " once back in use" : ""

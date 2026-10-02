@@ -576,11 +576,11 @@ async function child(mode: Mode, directory: string) {
 }
 
 async function run() {
-  const root = resolve(mkdtempSync(join(tmpdir(), "gatherline-server-deep-")));
+  const root = resolve(mkdtempSync(join(tmpdir(), "tandem-server-deep-")));
   const temp = resolve(tmpdir());
   const ownership = randomUUID();
   check(
-    inside(temp, root) && basename(root).startsWith("gatherline-server-deep-"),
+    inside(temp, root) && basename(root).startsWith("tandem-server-deep-"),
     "temporary root verified before use",
   );
   writeFileSync(join(root, ".server-probe-owned"), ownership);
@@ -680,7 +680,7 @@ async function run() {
     const finalTarget = resolve(root);
     check(
       inside(temp, finalTarget) &&
-        basename(finalTarget).startsWith("gatherline-server-deep-") &&
+        basename(finalTarget).startsWith("tandem-server-deep-") &&
         readFileSync(join(finalTarget, ".server-probe-owned"), "utf8") === ownership,
       "recursive cleanup target and ownership verified",
     );

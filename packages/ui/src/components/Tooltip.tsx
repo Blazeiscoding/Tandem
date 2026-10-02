@@ -79,7 +79,7 @@ function portalHost(trigger: HTMLElement): HTMLElement {
   const fullscreen = document.fullscreenElement;
   if (fullscreen instanceof HTMLElement && fullscreen.contains(trigger)) return fullscreen;
   return (
-    trigger.closest<HTMLElement>('[role="dialog"], main, nav, aside, [data-gatherline-modal]') ??
+    trigger.closest<HTMLElement>('[role="dialog"], main, nav, aside, [data-tandem-modal]') ??
     document.body
   );
 }

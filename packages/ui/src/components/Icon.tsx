@@ -116,7 +116,7 @@ export function BrandMark({ size = 32 }: { size?: number }) {
     >
       <rect width="40" height="40" rx="12" fill="currentColor" className="text-copper" />
       <path
-        d="M12 13h16M12 20h11M12 27h16M28 20v7"
+        d="M12 13h16M20 13v14"
         stroke="var(--color-ground)"
         strokeWidth="3"
         strokeLinecap="round"

@@ -1,4 +1,4 @@
-# Gatherline project review — 1 October 2026
+# Tandem project review — 1 October 2026
 
 This is the historical review at `dfd6cd7`. Subsequent `origin/main` fixes and implementation on `fix/october-plan-followups` are tracked in the [current implementation record](../IMPLEMENTATION-PLAN-2026-10-01.md); findings below describe the reviewed baseline.
 
@@ -72,4 +72,4 @@ The full dependency audit found esbuild 0.27.7 through tsup and Vitest/@vitest/m
 4. Mention refresh on edits/retention and explicit unread precedence.
 5. Shared retry lifetime, serialized settings/toggles, huddle admission, toolchain/CI and operational evidence.
 
-Local reproduction harnesses were retained under `.git/client-ui-review/`, `.git/review-20261001-desktop/` and the Windows temporary directory. Check logs are `%TEMP%/gatherline-review-{typecheck,tests,build,e2e}.log`; dependency results are `%TEMP%/gatherline-review-audit-{prod,all}.json`. These local artifacts are supplementary; this document records their normalized observations so the findings remain reviewable without them.
+Local reproduction harnesses were retained under `.git/client-ui-review/`, `.git/review-20261001-desktop/` and the Windows temporary directory. Check logs are `%TEMP%/tandem-review-{typecheck,tests,build,e2e}.log`; dependency results are `%TEMP%/tandem-review-audit-{prod,all}.json`. These local artifacts are supplementary; this document records their normalized observations so the findings remain reviewable without them.

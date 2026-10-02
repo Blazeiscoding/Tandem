@@ -294,7 +294,7 @@
           "accessed": "2026-09-24",
           "publishedOrUpdated": null,
           "claim": "Messages can move between topics while contextual permalinks redirect and whole-topic moves migrate mute state.",
-          "limitations": "Does not establish permission-safe cross-channel behavior; report proposes initially limiting Gatherline moves to the same channel.",
+          "limitations": "Does not establish permission-safe cross-channel behavior; report proposes initially limiting Tandem moves to the same channel.",
           "ledger": "workplace-sources.json"
         }
       ],
@@ -1132,7 +1132,7 @@
           "accessed": "2026-09-24",
           "publishedOrUpdated": null,
           "claim": "Service-worker registration requires trustworthy origins and same-origin script/scope/referrer relationships.",
-          "limitations": "Normative browser model; installed-PWA address-migration implications are our inference, not a Gatherline implementation test.",
+          "limitations": "Normative browser model; installed-PWA address-migration implications are our inference, not a Tandem implementation test.",
           "ledger": "operations-sources.json"
         }
       ],
@@ -1154,7 +1154,7 @@
           "accessed": "2026-09-24",
           "publishedOrUpdated": null,
           "claim": "Matrix server-name identity is chosen before install and cannot be changed without resetting the database; deployment needs explicit domain and certificate planning.",
-          "limitations": "ESS Pro requirements are not minimum requirements for every Matrix deployment or for Gatherline.",
+          "limitations": "ESS Pro requirements are not minimum requirements for every Matrix deployment or for Tandem.",
           "ledger": "operations-sources.json"
         }
       ],
@@ -1264,7 +1264,7 @@
           "accessed": "2026-09-24",
           "publishedOrUpdated": null,
           "claim": "Upgrade-time memory can exceed runtime needs; simple rollback is intended for minor releases and schema downgrades require more care.",
-          "limitations": "Development documentation and installation-path-specific guidance, not a measured Gatherline resource requirement.",
+          "limitations": "Development documentation and installation-path-specific guidance, not a measured Tandem resource requirement.",
           "ledger": "operations-sources.json"
         }
       ],
@@ -1330,7 +1330,7 @@
           "accessed": "2026-09-24",
           "publishedOrUpdated": null,
           "claim": "Signalling and media have separate network requirements; TURN is fallback; integrated and dedicated media deployments have different prerequisites.",
-          "limitations": "Current edition/licensing choices are vendor-specific and do not define Gatherline architectural limits.",
+          "limitations": "Current edition/licensing choices are vendor-specific and do not define Tandem architectural limits.",
           "ledger": "operations-sources.json"
         }
       ],
@@ -1461,7 +1461,7 @@
           "type": "primary-study",
           "publishedOrUpdated": "2010-02",
           "claim": "A two-week workplace email study found varied effects when notifications were removed, including more self-checking for some users.",
-          "limitations": "Older email study; not a trial of Gatherline, Slack or a universal notification default.",
+          "limitations": "Older email study; not a trial of Tandem, Slack or a universal notification default.",
           "accessed": "2026-09-24",
           "ledger": "crosscutting-sources.json"
         }
@@ -1637,7 +1637,7 @@
           "type": "official-doc",
           "publishedOrUpdated": null,
           "claim": "Provides testable accessibility criteria including focus visibility, target size, reflow, authentication and media alternatives.",
-          "limitations": "Standard used as a design target; this research does not establish legal compliance or certify Gatherline.",
+          "limitations": "Standard used as a design target; this research does not establish legal compliance or certify Tandem.",
           "accessed": "2026-09-24",
           "ledger": "crosscutting-sources.json"
         }
@@ -1659,7 +1659,7 @@
           "type": "official-doc",
           "publishedOrUpdated": null,
           "claim": "Official integration groups issue and pull-request updates in threads and maintains current context.",
-          "limitations": "Documents GitHub's Slack app; does not establish compatibility with Gatherline's partial Slack API.",
+          "limitations": "Documents GitHub's Slack app; does not establish compatibility with Tandem's partial Slack API.",
           "accessed": "2026-09-24",
           "ledger": "crosscutting-sources.json"
         }
@@ -1747,7 +1747,7 @@
           "type": "official-doc",
           "publishedOrUpdated": null,
           "claim": "Personal and organization exports have different coverage, including exclusions for certain work/school or external spaces.",
-          "limitations": "An export's existence does not imply complete source history or a ready Gatherline import adapter.",
+          "limitations": "An export's existence does not imply complete source history or a ready Tandem import adapter.",
           "accessed": "2026-09-24",
           "ledger": "crosscutting-sources.json"
         }

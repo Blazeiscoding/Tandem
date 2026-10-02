@@ -50,13 +50,15 @@ import {
 } from "./tunnel.js";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
-/** Gatherline name first, previous SLACKOSS_ name still read. */
+/** Tandem name first, previous GATHERLINE_ and SLACKOSS_ names still read. */
 const appEnv = (name: string): string | undefined =>
-  process.env[`GATHERLINE_${name}`] ?? process.env[`SLACKOSS_${name}`];
+  process.env[`TANDEM_${name}`] ??
+  process.env[`GATHERLINE_${name}`] ??
+  process.env[`SLACKOSS_${name}`];
 const isTest = appEnv("TEST") === "1";
 // Branding must not move existing settings, credentials, or hosted databases.
 const legacyUserData = app.getPath("userData");
-app.setName("Gatherline");
+app.setName("Tandem");
 app.setPath("userData", appEnv("USER_DATA_DIR") ?? legacyUserData);
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -105,7 +107,7 @@ if ((isDev || isTest) && appEnv("TEST_MEDIA") === "1") {
   app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
 }
 
-// ---------- gatherline:// deep links (slackoss:// still opens) ----------
+// ---------- tandem:// deep links (gatherline:// and slackoss:// still open) ----------
 
 /** Held until a window exists to receive it (cold start via a link). */
 let pendingDeepLink: string | null = null;
@@ -345,7 +347,7 @@ function publicAddressStatus(): {
     ...(setting && fromEnvironment ? { locked: true } : {}),
     ...(config && "error" in config ? { error: config.error } : {}),
     ...(config && !("error" in config)
-      ? { url: config.publicUrl, ...(config.carrier === "gatherline" ? { managed: true } : {}) }
+      ? { url: config.publicUrl, ...(config.carrier === "tandem" ? { managed: true } : {}) }
       : {}),
   };
 }
@@ -447,7 +449,7 @@ const hosting = createHostingController({
       // Filesystem errors can contain the Windows account name and profile
       // path. Give the renderer a useful message without leaking either.
       throw new Error(
-        "Gatherline could not save the public address. Check that its settings folder is writable, then try again.",
+        "Tandem could not save the public address. Check that its settings folder is writable, then try again.",
       );
     }
     savedPublicAddress = address;
@@ -493,7 +495,7 @@ handle("hosting:setPort", (_e, request: unknown) => hosting.setPort(request));
 handle(
   "hosting:setAutoBackup",
   async (event, folder: unknown, schedule: unknown, chooseFolder: unknown) => {
-    if (quitting) throw new Error("Gatherline is shutting down.");
+    if (quitting) throw new Error("Tandem is shutting down.");
     if (schedule === null) return hosting.setAutoBackup({ folder, schedule: null });
     const { everyDays, keep } = (schedule ?? {}) as Record<string, unknown>;
     let destination: string | undefined;
@@ -554,7 +556,7 @@ handle("hosting:setOpenAtLogin", (_e, open: unknown) => {
   if (typeof open !== "boolean")
     throw new Error("Say whether to open at sign-in with true or false.");
   if (!loginItemAvailable)
-    throw new Error("Opening at sign-in needs Gatherline installed on Windows or macOS.");
+    throw new Error("Opening at sign-in needs Tandem installed on Windows or macOS.");
   if (isTest) {
     testOpenAtLogin = open;
     return openAtLogin();
@@ -591,7 +593,7 @@ function followNetworkChanges(): void {
   }, 10_000).unref();
 }
 handle("hosting:restore", async (event) => {
-  if (quitting) throw new Error("Gatherline is shutting down.");
+  if (quitting) throw new Error("Tandem is shutting down.");
   const owner = BrowserWindow.fromWebContents(event.sender);
   const options = {
     title: "Choose the folder of a backup to restore",
@@ -605,7 +607,7 @@ handle("hosting:restore", async (event) => {
   return hosting.restore({ backupDir: choice.filePaths[0] });
 });
 handle("hosting:backup", async (event, folder: unknown) => {
-  if (quitting) throw new Error("Gatherline is shutting down.");
+  if (quitting) throw new Error("Tandem is shutting down.");
   const owner = BrowserWindow.fromWebContents(event.sender);
   const options = {
     title: "Choose where to save the backup",
@@ -620,7 +622,7 @@ handle("hosting:backup", async (event, folder: unknown) => {
   return hosting.backup({ folder, destination: choice.filePaths[0] });
 });
 handle("hosting:start", async (_e, opts: unknown) => {
-  if (quitting) throw new Error("Gatherline is shutting down. Try again after reopening it.");
+  if (quitting) throw new Error("Tandem is shutting down. Try again after reopening it.");
   if (trayStopPending)
     throw new Error("Finish the stop-hosting confirmation before starting a workspace.");
   await hosting.start(opts);
@@ -628,7 +630,7 @@ handle("hosting:start", async (_e, opts: unknown) => {
 });
 handle("hosting:stop", () => hosting.stop());
 handle("hosting:openToAll", async (_e, opts: unknown) => {
-  if (quitting) throw new Error("Gatherline is shutting down.");
+  if (quitting) throw new Error("Tandem is shutting down.");
   await hosting.openToAll(opts);
   return hostingStatus();
 });
@@ -675,9 +677,7 @@ async function confirmStop(forQuit: boolean): Promise<boolean> {
   const choice = await dialog.showMessageBox({
     type: "question",
     title: forQuit ? "Stop hosting and quit?" : "Stop hosting?",
-    message: forQuit
-      ? "Quit Gatherline and stop the hosted workspace?"
-      : "Stop the hosted workspace?",
+    message: forQuit ? "Quit Tandem and stop the hosted workspace?" : "Stop the hosted workspace?",
     detail:
       "Teammates will be disconnected until you start hosting again. Stored messages and files stay on this computer.",
     buttons: ["Cancel", forQuit ? "Stop hosting and quit" : "Stop hosting"],
@@ -719,16 +719,16 @@ function updateTray(): void {
               status.connected !== undefined ? ` · ${status.connected} connected` : ""
             }`
           : "Not hosting";
-  // Hosting can be running while part of starting with Gatherline failed, or
+  // Hosting can be running while part of starting with Tandem failed, or
   // a scheduled backup keep failing; the tray is often all there is to see at
   // sign-in, so it says so too.
   const backups = backupTrayItems(hosting.backupAttention());
   const attention = status.launchError || backups.length ? " · needs attention" : "";
-  tray.setToolTip(`Gatherline — ${label}${attention}`.slice(0, 127));
+  tray.setToolTip(`Tandem — ${label}${attention}`.slice(0, 127));
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: "Open Gatherline",
+        label: "Open Tandem",
         click: () => {
           showMainWindow();
         },
@@ -740,7 +740,7 @@ function updateTray(): void {
               label:
                 status.launchErrorPart === "public-address"
                   ? "Public address not reopened: see why…"
-                  : "Did not start with Gatherline: see why…",
+                  : "Did not start with Tandem: see why…",
               click: () => {
                 showMainWindow();
               },
@@ -764,7 +764,7 @@ function updateTray(): void {
       },
       { type: "separator" },
       {
-        label: status.phase === "stopped" ? "Quit Gatherline" : "Stop hosting and quit…",
+        label: status.phase === "stopped" ? "Quit Tandem" : "Stop hosting and quit…",
         enabled: !quitting && !trayStopPending,
         click: () => app.quit(),
       },
@@ -922,10 +922,10 @@ function createWindow(): void {
     }
     const { response } = await dialog.showMessageBox(win, {
       type: "error",
-      title: "Gatherline",
-      message: "Gatherline's window keeps stopping.",
+      title: "Tandem",
+      message: "Tandem's window keeps stopping.",
       detail: `${what} A hosted workspace keeps running, and messages saved on this computer come back with the window.`,
-      buttons: ["Try again", "Quit Gatherline"],
+      buttons: ["Try again", "Quit Tandem"],
       defaultId: 0,
       cancelId: 0,
     });
@@ -939,12 +939,12 @@ function createWindow(): void {
   };
   win.webContents.on("render-process-gone", (_event, details) => {
     if (details.reason === "clean-exit") return;
-    console.error(`Gatherline: the window's page stopped (${details.reason}).`);
+    console.error(`Tandem: the window's page stopped (${details.reason}).`);
     void recover("The window stopped unexpectedly.", false);
   });
   win.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
     if (!isRendererLoadFailure(code, isMainFrame)) return;
-    console.error(`Gatherline: the window could not load (${description}).`);
+    console.error(`Tandem: the window could not load (${description}).`);
     void recover(`The window could not load (${description}).`, true);
   });
 
@@ -979,7 +979,7 @@ void app.whenReady().then(async () => {
   setTimeout(() => void hosting.runDueBackups(), 60_000).unref();
   setInterval(() => void hosting.runDueBackups(), 15 * 60_000).unref();
   // Opened by the OS at sign-in, with a workspace hosting and a tray to reach
-  // it by, Gatherline stays out of the way, unless part of what it was asked
+  // it by, Tandem stays out of the way, unless part of what it was asked
   // to do at sign-in did not happen: hosting on this network while the public
   // address failed to reopen is a failure nobody would otherwise see. Without
   // a sign-in the window opens, and hosting starts meanwhile: it enters
@@ -1029,7 +1029,7 @@ app.on("before-quit", (event) => {
       const choice = await dialog.showMessageBox({
         type: "error",
         title: "The workspace could not finish stopping",
-        message: "Keep Gatherline open, or quit without waiting for the remaining work?",
+        message: "Keep Tandem open, or quit without waiting for the remaining work?",
         detail:
           "Shutdown failed. Quitting anyway ends the process immediately and may lose unfinished changes. Existing workspace data is not deleted.",
         buttons: ["Keep open", "Quit anyway"],

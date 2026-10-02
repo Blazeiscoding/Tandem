@@ -108,7 +108,7 @@ describe("a dialog open over a place", () => {
     const server = "http://10.0.0.5:8543";
     const address = { hash: "", origin: location.origin };
     const entry = (dialog: unknown) => ({
-      gatherline: { server, channelId: "C_OPS", threadRootId: null, dialog },
+      tandem: { server, channelId: "C_OPS", threadRootId: null, dialog },
     });
     expect(currentRoute(server, address, entry({ name: "account", section: "devices" }))).toEqual({
       channelId: "C_OPS",
@@ -166,7 +166,7 @@ describe("the phone's drawer", () => {
     const server = "http://10.0.0.5:8543";
     const address = { hash: "", origin: location.origin };
     for (const drawer of ["yes", 1, null]) {
-      const entry = { gatherline: { server, channelId: "C_OPS", threadRootId: null, drawer } };
+      const entry = { tandem: { server, channelId: "C_OPS", threadRootId: null, drawer } };
       expect(currentRoute(server, address, entry)).not.toHaveProperty("drawer");
     }
   });
@@ -210,7 +210,7 @@ describe("where a conversation was being read", () => {
       "M_OK",
     ]) {
       window.history.replaceState(
-        { gatherline: { server, channelId: "C_GENERAL", threadRootId: null, scroll } },
+        { tandem: { server, channelId: "C_GENERAL", threadRootId: null, scroll } },
         "",
         "/#/c/C_GENERAL",
       );
@@ -226,7 +226,7 @@ describe("the place a history entry remembers", () => {
 
   it("belongs to one workspace, whatever the address says", () => {
     const state = {
-      gatherline: { server: "http://10.0.0.5:8543", channelId: "C_OPS", threadRootId: null },
+      tandem: { server: "http://10.0.0.5:8543", channelId: "C_OPS", threadRootId: null },
     };
     const address = { hash: "#/c/C_DESIGN", origin: here() };
     expect(currentRoute("http://10.0.0.5:8543", address, state)).toEqual({
@@ -241,7 +241,7 @@ describe("the place a history entry remembers", () => {
     const server = "http://10.0.0.5:8543";
     const address = { hash: "", origin: here() };
     const entry = (view: unknown, threadRootId: string | null = null) => ({
-      gatherline: { server, channelId: "C_OPS", threadRootId, view },
+      tandem: { server, channelId: "C_OPS", threadRootId, view },
     });
     expect(currentRoute(server, address, entry("activity"))).toEqual({
       channelId: "C_OPS",

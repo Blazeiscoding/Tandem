@@ -1,5 +1,5 @@
 appId: dev.slackoss.desktop
-productName: Gatherline
+productName: Tandem
 directories:
   output: release
 files:
@@ -31,7 +31,8 @@ linux:
     - deb
   category: Network
 protocols:
-  - name: Gatherline
+  - name: Tandem
     schemes:
+      - tandem
       - gatherline
       - slackoss

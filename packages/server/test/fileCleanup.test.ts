@@ -56,7 +56,7 @@ async function attachedMessage() {
   return { message: body.message, fileId: file.id, path: join(directory, "files", file.id) };
 }
 beforeEach(async () => {
-  directory = mkdtempSync(join(tmpdir(), "gatherline-cleanup-"));
+  directory = mkdtempSync(join(tmpdir(), "tandem-cleanup-"));
   await start();
   token = (
     await request("/api/auth/register", "POST", {

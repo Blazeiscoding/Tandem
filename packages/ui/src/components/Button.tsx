@@ -23,7 +23,7 @@ export function buttonClass(variant: ButtonVariant = "secondary", extra?: string
 }
 
 /**
- * Gatherline's button. It keeps a native button's default type, so one in a
+ * Tandem's button. It keeps a native button's default type, so one in a
  * form still submits it unless told `type="button"`.
  */
 export function Button({

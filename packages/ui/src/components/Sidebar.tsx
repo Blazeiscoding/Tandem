@@ -335,7 +335,7 @@ function NavRow(props: {
 }
 
 /**
- * Discord's rail of servers, for Gatherline's workspaces: this one on top,
+ * Discord's rail of servers, for Tandem's workspaces: this one on top,
  * marked as current, then this device's other saved sign-ins, then a way to
  * add one. The same choices as the menu on the workspace's name.
  */

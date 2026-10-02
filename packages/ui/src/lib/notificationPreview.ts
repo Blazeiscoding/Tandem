@@ -29,7 +29,7 @@ export function notificationContent(
   preview: NotificationPreview,
   message: { from: string; channelName?: string; body: string },
 ): { title: string; body: string } {
-  if (preview === "none") return { title: "New message", body: "Open Gatherline to read it." };
+  if (preview === "none") return { title: "New message", body: "Open Tandem to read it." };
   const title = `${message.from}${message.channelName ? ` in #${message.channelName}` : ""}`;
   return { title, body: preview === "full" ? message.body : "New message" };
 }
@@ -44,7 +44,7 @@ export function catchUpContent(
   missed: { count: number; conversations: number; channelName?: string; senders: string },
 ): { title: string; body: string } {
   const count = `${missed.count} new messages`;
-  if (preview === "none") return { title: count, body: "Open Gatherline to read them." };
+  if (preview === "none") return { title: count, body: "Open Tandem to read them." };
   const where =
     missed.conversations > 1
       ? ` in ${missed.conversations} conversations`

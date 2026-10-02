@@ -2,7 +2,7 @@
   "recordedAt": "2026-09-25T05:12:42.753Z",
   "node": "v24.16.0",
   "sqlite": "3.53.0",
-  "scope": "Synthetic in-memory FTS5 tokenization probe; not the Gatherline API, a language-quality evaluation, or a performance benchmark.",
+  "scope": "Synthetic in-memory FTS5 tokenization probe; not the Tandem API, a language-quality evaluation, or a performance benchmark.",
   "results": [
     {
       "label": "English word",

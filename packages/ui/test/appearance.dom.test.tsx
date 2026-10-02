@@ -63,7 +63,7 @@ function appearance(saved: unknown, options: { failSave?: boolean } = {}) {
 
 const root = () => document.documentElement.dataset;
 
-describe("how Gatherline looks on this device", () => {
+describe("how Tandem looks on this device", () => {
   it("applies what was saved, and offers every theme and density", async () => {
     const { panel } = appearance({ theme: "light", density: "compact" });
     await waitFor(() => expect(root().theme).toBe("light"));
@@ -110,7 +110,7 @@ describe("how Gatherline looks on this device", () => {
     await waitFor(() => expect(within(panel).getByRole("radio", { name: /^Onyx/ })).toBeEnabled());
     await user.click(within(panel).getByRole("radio", { name: /^White/ }));
     expect(await within(panel).findByRole("alert")).toHaveTextContent(
-      "Could not save how Gatherline looks on this device.",
+      "Could not save how Tandem looks on this device.",
     );
     expect(root().theme).toBe("dark");
     expect(within(panel).getByRole("radio", { name: /^Onyx/ })).toBeChecked();

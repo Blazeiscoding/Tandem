@@ -20,7 +20,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode; fallback?: R
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("Gatherline hit a rendering error", error, info.componentStack);
+    console.error("Tandem hit a rendering error", error, info.componentStack);
   }
 
   render() {

@@ -105,7 +105,7 @@ export function WorkspaceStorageGate({
   const asking = current?.phase === "approval" || current?.phase === "saving";
   const waiting =
     status === "protocol_mismatch"
-      ? "Server version incompatible. Update Gatherline to connect."
+      ? "Server version incompatible. Update Tandem to connect."
       : signedOut
         ? "Returning to sign in…"
         : userId

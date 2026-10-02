@@ -56,7 +56,7 @@ function assertDisposable(directory) {
     !within ||
     within.startsWith("..") ||
     isAbsolute(within) ||
-    !target.includes("gatherline-desktop-audit-")
+    !target.includes("tandem-desktop-audit-")
   )
     throw new Error("Refusing cleanup outside the owned temporary directory");
 }
@@ -262,7 +262,7 @@ if (mode === "runtime") {
   const { _electron } = require("@playwright/test");
   const executablePath = join(await installedPackage("electron@", "electron"), "dist/electron.exe");
   const { ELECTRON_RUN_AS_NODE: ignored, ...inherited } = process.env;
-  const directory = await mkdtemp(join(tmpdir(), "gatherline-desktop-audit-"));
+  const directory = await mkdtemp(join(tmpdir(), "tandem-desktop-audit-"));
   assertDisposable(directory);
   const bootstrap = join(directory, "bootstrap.cjs");
   const mainModule = pathToFileURL(resolve(root, "apps/desktop/out/main/index.js")).href;
@@ -290,7 +290,7 @@ if (mode === "runtime") {
       executablePath,
       args: [bootstrap],
       timeout: 20000,
-      env: { ...inherited, GATHERLINE_TEST: "1", GATHERLINE_USER_DATA_DIR: userData, ...extraEnv },
+      env: { ...inherited, TANDEM_TEST: "1", TANDEM_USER_DATA_DIR: userData, ...extraEnv },
     });
     allApps.push(app);
     processes.set(app, app.process());
@@ -388,7 +388,7 @@ if (mode === "runtime") {
     const stored = JSON.parse(await readFile(join(directory, "ipc/settings.json"), "utf8"));
     report.probes.push({
       name: "credential-at-rest-control",
-      encrypted: stored.servers?.kind === "gatherline.saved-servers",
+      encrypted: stored.servers?.kind === "tandem.saved-servers",
       plaintextTokenPresent: JSON.stringify(stored).includes("desktop-audit-not-a-secret"),
     });
     await page.evaluate(() => {

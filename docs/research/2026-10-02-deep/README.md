@@ -1,4 +1,4 @@
-# Gatherline deep investigation — 2 October 2026
+# Tandem deep investigation — 2 October 2026
 
 **Reviewed application revision:** `a285ee6c8a67e93db01ef2d9046493ea0572a34c`. **Outcome:** a stronger evidence base and an updated [implementation plan](../../IMPROVEMENT-PLAN-2026-10-02.md). Application source and existing tests are unchanged. The scripts here are disposable research harnesses; several deliberately assert undesirable current behavior and therefore passing them does not demonstrate a fix.
 
@@ -16,7 +16,7 @@ The investigation covered server mutation/publication boundaries, native backgro
 | Production dependency collection can include workspace data                                            | An existing unstamped archive contains DB/WAL/SHM, an attachment and test logs by path metadata. An isolated Electron Builder canary includes all five synthetic equivalents under a linked production dependency.                           | REV-12: inventory clean artifact contents and reject workspace data before release.                       |
 | Healthy attachment deletion is starved by a page of failing paths                                      | A real 21-byte upload remains behind 100 unlink failures through three flushes and restart; repair plus two turns releases it and its accounted bytes.                                                                                       | REV-02: stable eligible ordering, per-entry backoff and bounded continuation.                             |
 
-The injected storage failures establish failure-boundary behavior, not the frequency of physical disk failures. The packaging canary establishes current dependency collector behavior; it is not a newly built full Gatherline installer. These distinctions determine the acceptance checks in the plan.
+The injected storage failures establish failure-boundary behavior, not the frequency of physical disk failures. The packaging canary establishes current dependency collector behavior; it is not a newly built full Tandem installer. These distinctions determine the acceptance checks in the plan.
 
 ## Measured optimization opportunities
 

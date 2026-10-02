@@ -1,4 +1,4 @@
-# Gatherline: complete update and optimization plan
+# Tandem: complete update and optimization plan
 
 **30 September 2026 · latest full recheck: `origin/main` at `6a95898` · original research baseline: `7d91fd3` · implementation status: proposed unless explicitly marked implemented/merged.**
 
@@ -51,7 +51,7 @@ Validation of the merged result, on the head of #158 (which held all eight), Lin
 
 ## 2. Priority and execution rules
 
-- **P1:** address next because of message integrity, recovery, privacy, missed communication, or a declared deployment requirement. An upstream advisory is a triage/patch priority; its presence alone does not prove an exploitable Gatherline path.
+- **P1:** address next because of message integrity, recovery, privacy, missed communication, or a declared deployment requirement. An upstream advisory is a triage/patch priority; its presence alone does not prove an exploitable Tandem path.
 - **P2:** improve ordinary use and maintainability after the integrity work, or promote when it blocks a named pilot.
 - **Conditional:** requires a demonstrated audience need, an architecture decision and an operating owner. It is not promised for the first release.
 - **Small** means a bounded local change; **medium** spans a domain; **large** requires multiple reviewable PRs. These are scope bands, not delivery dates.
@@ -219,7 +219,7 @@ Limits: an explicit thread mark-unread made before the upgrade, under a channel 
 
 ### FIX-10 · P1 triage · Patch and monitor the dependency/runtime advisory inventory
 
-**Evidence:** fresh `pnpm audit --prod --json` reports four high entries representing two `fast-uri` advisories affecting lockfile versions 3.1.6 and 4.1.3. All-dependency audit reports 20 entries: seven high, eight moderate, five low, representing 14 unique advisories. This includes build/test dependencies. No Gatherline exploit was demonstrated. [Audit summary and upstream sources](research/2026-09-30/research-and-code-evidence.md).
+**Evidence:** fresh `pnpm audit --prod --json` reports four high entries representing two `fast-uri` advisories affecting lockfile versions 3.1.6 and 4.1.3. All-dependency audit reports 20 entries: seven high, eight moderate, five low, representing 14 unique advisories. This includes build/test dependencies. No Tandem exploit was demonstrated. [Audit summary and upstream sources](research/2026-09-30/research-and-code-evidence.md).
 
 **Status:** merged in #158 (`a3bf98a`). A fresh audit had grown since this plan: production also reported two more fast-uri advisories and brace-expansion 5.0.9 (through `@fastify/static`). fast-uri, brace-expansion and undici were updated within their declared ranges; the production audit is empty. esbuild (through tsup, build only) and vitest 3 (tests only) need major upgrades and are deferred with their reasoning in the [post-fix summary](research/2026-09-30/dependency-audit-after-fix-10.json).
 
@@ -353,7 +353,7 @@ Existing controls to preserve: 300 messages per timeline/thread window, 20 total
   - [ ] Report disk/freshness, schema, queue depth/age/failure, event-loop delay, socket pressure and hosting/connector state.
   - [ ] Account for physical disk occupied by SQLite, WAL, attachments, temporary files and backups separately from the existing attachment quota; define reserve thresholds, cleanup ownership and graceful low-disk failure.
   - [ ] Bound labels and history; redact sessions, signing keys, invite/token URLs and message contents.
-  - [x] Add a downloadable sanitized support bundle with user preview and no automatic external upload. **Done; see the PR after #195.** Diagnostics' **Save as file** hands exactly the report on screen to the browser or desktop app as `gatherline-diagnostics-<time taken>Z.txt`; nothing is sent anywhere. It holds what the report holds (versions, connection, device, and the server's status for the owner and admins), not server logs.
+  - [x] Add a downloadable sanitized support bundle with user preview and no automatic external upload. **Done; see the PR after #195.** Diagnostics' **Save as file** hands exactly the report on screen to the browser or desktop app as `tandem-diagnostics-<time taken>Z.txt`; nothing is sent anywhere. It holds what the report holds (versions, connection, device, and the server's status for the owner and admins), not server logs.
   - [ ] Set practical warning thresholds from OPT-01 measurements and provide an operator runbook. **Runbook done; see the PR after #202.** [Reading the workspace status](DEPLOYMENT.md#reading-the-workspace-status) says, line by line, what is ordinary, when to look into it and what to do, pointing at the sections that cover each fix. It names no fixed thresholds, only trends and the existing 100 ms main-loop target, since OPT-01 has not measured reference hardware yet.
 
 **Done:** operators can diagnose a failed backup, stuck queue or unreachable route without opening the database or exposing private conversations.

@@ -23,7 +23,7 @@ const running: HostingStatus = {
   workspaceName: "Rocket Team",
   port: 8543,
   lanUrls: ["192.168.1.20:8543"],
-  dataDir: "C:\\Users\\sam\\AppData\\Roaming\\Gatherline\\hosted\\rocket-team",
+  dataDir: "C:\\Users\\sam\\AppData\\Roaming\\Tandem\\hosted\\rocket-team",
   backgroundAvailable: true,
 };
 
@@ -434,14 +434,14 @@ describe("hosting a workspace from the host dialog", () => {
     const { hosting } = fakeHosting(stopped, { workspaces: [], unreadable: [] });
     hosting.list!.mockRejectedValueOnce(
       new Error(
-        "Error invoking remote method 'hosting:list': Error: The hosted workspace list was saved by a newer version of Gatherline. Update Gatherline to open it; the list was not changed.",
+        "Error invoking remote method 'hosting:list': Error: The hosted workspace list was saved by a newer version of Tandem. Update Tandem to open it; the list was not changed.",
       ),
     );
     render(<Harness hosting={hosting} />);
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/newer version of Gatherline/);
-    expect(alert).toHaveTextContent(/Update Gatherline/);
+    expect(alert).toHaveTextContent(/newer version of Tandem/);
+    expect(alert).toHaveTextContent(/Update Tandem/);
     expect(alert).not.toHaveTextContent(/settings file can be read/);
   });
 
@@ -809,16 +809,16 @@ describe("starting with the computer", () => {
     return { hosting, push: fake.push };
   }
 
-  it("starts the running workspace with Gatherline, and opens Gatherline at sign-in, when asked", async () => {
+  it("starts the running workspace with Tandem, and opens Tandem at sign-in, when asked", async () => {
     const user = userEvent.setup();
     const { hosting } = withLaunch({ ...running, folder: "team-a" });
     render(<Harness hosting={hosting} />);
     const group = await screen.findByRole("group", { name: "When this computer starts" });
     const start = within(group).getByRole("checkbox", {
-      name: "Start hosting Rocket Team when Gatherline opens",
+      name: "Start hosting Rocket Team when Tandem opens",
     });
     const login = await within(group).findByRole("checkbox", {
-      name: "Open Gatherline when you sign in to this computer",
+      name: "Open Tandem when you sign in to this computer",
     });
     expect(start).not.toBeChecked();
     expect(login).not.toBeChecked();
@@ -837,7 +837,7 @@ describe("starting with the computer", () => {
     await waitFor(() => expect(start).not.toBeChecked());
   });
 
-  it("reopens a stable address with the workspace only once it starts with Gatherline", async () => {
+  it("reopens a stable address with the workspace only once it starts with Tandem", async () => {
     const user = userEvent.setup();
     const status = {
       ...running,
@@ -856,7 +856,7 @@ describe("starting with the computer", () => {
     render(<Harness hosting={withReopen} />);
     const group = await screen.findByRole("group", { name: "When this computer starts" });
     const reopen = within(group).getByRole("checkbox", {
-      name: /Also reopen https:\/\/chat\.example\.org when Rocket Team starts with Gatherline/,
+      name: /Also reopen https:\/\/chat\.example\.org when Rocket Team starts with Tandem/,
     });
     expect(reopen).toBeDisabled();
 
@@ -881,7 +881,7 @@ describe("starting with the computer", () => {
     const group = await screen.findByRole("group", { name: "When this computer starts" });
     await waitFor(() => expect(hosting.openAtLogin.get).toHaveBeenCalled());
     expect(within(group).queryByRole("checkbox", { name: /sign in/ })).toBeNull();
-    expect(group).toHaveTextContent("Rocket Team starts once Gatherline is opened.");
+    expect(group).toHaveTextContent("Rocket Team starts once Tandem is opened.");
   });
 
   it("says why a choice could not be saved", async () => {
@@ -889,16 +889,16 @@ describe("starting with the computer", () => {
     const { hosting } = withLaunch({ ...running, folder: "team-a" });
     hosting.setStartOnLaunch.mockRejectedValueOnce(
       new Error(
-        "Gatherline could not save that choice. Check that its settings folder is writable, then try again.",
+        "Tandem could not save that choice. Check that its settings folder is writable, then try again.",
       ),
     );
     render(<Harness hosting={hosting} />);
     const start = await screen.findByRole("checkbox", {
-      name: "Start hosting Rocket Team when Gatherline opens",
+      name: "Start hosting Rocket Team when Tandem opens",
     });
     await user.click(start);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Gatherline could not save that choice. Check that its settings folder is writable, then try again.",
+      "Tandem could not save that choice. Check that its settings folder is writable, then try again.",
     );
     // Nothing was saved, so the box goes back to what is so.
     expect(start).not.toBeChecked();
@@ -909,20 +909,20 @@ describe("starting with the computer", () => {
       {
         ...stopped,
         launchError:
-          "Gatherline did not start hosting Rocket Team when it opened. Its folder is missing.",
+          "Tandem did not start hosting Rocket Team when it opened. Its folder is missing.",
       },
       { workspaces: [{ ...teamA, startsOnLaunch: true }], unreadable: [] },
     );
     render(<Harness hosting={fake.hosting} />);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Gatherline did not start hosting Rocket Team when it opened. Its folder is missing.",
+      "Tandem did not start hosting Rocket Team when it opened. Its folder is missing.",
     );
     const list = await screen.findByRole("region", { name: "Hosted on this computer" });
-    expect(list).toHaveTextContent("Port 8543 · Starts with Gatherline");
+    expect(list).toHaveTextContent("Port 8543 · Starts with Tandem");
   });
 });
 
-describe("what did not happen when Gatherline opened, while hosting runs", () => {
+describe("what did not happen when Tandem opened, while hosting runs", () => {
   const launched: HostingStatus = {
     ...running,
     folder: "team-a",
@@ -1090,23 +1090,23 @@ describe("starting with the computer, while nothing is running", () => {
     return hosting;
   }
 
-  it("takes a workspace that failed to start off starting with Gatherline, and Gatherline off sign-in", async () => {
+  it("takes a workspace that failed to start off starting with Tandem, and Tandem off sign-in", async () => {
     const user = userEvent.setup();
     const hosting = stoppedWith(
       true,
-      "Gatherline did not start hosting Rocket Team when it opened. Its database is unreadable.",
+      "Tandem did not start hosting Rocket Team when it opened. Its database is unreadable.",
       true,
     );
     render(<Harness hosting={hosting} />);
     const section = await screen.findByRole("region", { name: "When this computer starts" });
-    expect(section).toHaveTextContent("Rocket Team starts hosting when Gatherline opens.");
+    expect(section).toHaveTextContent("Rocket Team starts hosting when Tandem opens.");
     await user.click(
-      within(section).getByRole("button", { name: "Don’t start Rocket Team with Gatherline" }),
+      within(section).getByRole("button", { name: "Don’t start Rocket Team with Tandem" }),
     );
     expect(hosting.setStartOnLaunch).toHaveBeenCalledWith(null);
 
     const login = await within(section).findByRole("checkbox", {
-      name: "Open Gatherline when you sign in to this computer",
+      name: "Open Tandem when you sign in to this computer",
     });
     expect(login).toBeChecked();
     await user.click(login);
@@ -1121,13 +1121,13 @@ describe("starting with the computer, while nothing is running", () => {
     const user = userEvent.setup();
     const hosting = stoppedWith(
       false,
-      "Gatherline did not start hosting when it opened, because it could not read which workspace to start.",
+      "Tandem did not start hosting when it opened, because it could not read which workspace to start.",
       false,
     );
     render(<Harness hosting={hosting} />);
     const section = await screen.findByRole("region", { name: "When this computer starts" });
     await user.click(
-      within(section).getByRole("button", { name: "Start nothing when Gatherline opens" }),
+      within(section).getByRole("button", { name: "Start nothing when Tandem opens" }),
     );
     expect(hosting.setStartOnLaunch).toHaveBeenCalledWith(null);
   });
@@ -1221,7 +1221,7 @@ describe("who is connected, and which port", () => {
     const { hosting } = fakeHosting(stopped, { workspaces: [teamA], unreadable: [] });
     hosting.setPort!.mockRejectedValueOnce(
       new Error(
-        "Gatherline could not save the new port. Check that its settings folder is writable, then try again.",
+        "Tandem could not save the new port. Check that its settings folder is writable, then try again.",
       ),
     );
     render(<Harness hosting={hosting} onClose={onClose} />);
@@ -1238,7 +1238,7 @@ describe("who is connected, and which port", () => {
     await user.clear(field);
     await user.type(field, "9100{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Gatherline could not save the new port. Check that its settings folder is writable, then try again.",
+      "Tandem could not save the new port. Check that its settings folder is writable, then try again.",
     );
     expect(field).toHaveValue("9100");
   });
@@ -1503,12 +1503,12 @@ describe("a stable public address configured for the desktop app", () => {
     const { hosting } = fakeHosting({
       ...running,
       tunnelAvailable: true,
-      publicAddressError: "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE.",
+      publicAddressError: "Set both TANDEM_TUNNEL_URL and TANDEM_TUNNEL_TOKEN_FILE.",
     });
     render(<Harness hosting={hosting} />);
 
     const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
-    expect(within(dialog).getByRole("alert")).toHaveTextContent(/Set both GATHERLINE_TUNNEL_URL/);
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(/Set both TANDEM_TUNNEL_URL/);
     const open = within(dialog).getByRole("button", { name: "Open to all" });
     expect(open).toBeDisabled();
 

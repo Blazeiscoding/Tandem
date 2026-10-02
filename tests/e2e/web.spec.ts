@@ -474,7 +474,7 @@ test("scrolls back through a long channel without unbounded growth or losing its
   }
 });
 
-test("Gatherline keeps a capped live timeline pinned and supports keyboard and narrow-window chat", async ({
+test("Tandem keeps a capped live timeline pinned and supports keyboard and narrow-window chat", async ({
   page,
 }, info) => {
   const errors: string[] = [];
@@ -485,8 +485,8 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
     if (m.text().includes("Content Security Policy")) errors.push(m.text());
   });
   await page.goto(base);
-  await expect(page).toHaveTitle("Gatherline");
-  await page.screenshot({ path: info.outputPath("gatherline-welcome.png") });
+  await expect(page).toHaveTitle("Tandem");
+  await page.screenshot({ path: info.outputPath("tandem-welcome.png") });
   await register(page, "smoothness");
   const token = await page.evaluate(
     () => JSON.parse(localStorage.getItem("slackoss:servers")!)[0].token,
@@ -586,7 +586,7 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(pinnedTooltip).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(pinnedToggle).toHaveAttribute("aria-pressed", "false");
-  await page.screenshot({ path: info.outputPath("gatherline-conversation.png") });
+  await page.screenshot({ path: info.outputPath("tandem-conversation.png") });
   const latestArticle = page.getByRole("article").last();
   await latestArticle.hover();
   const reply = page.getByRole("button", { name: "Reply in thread", exact: true }).last();
@@ -825,7 +825,7 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(
     page.getByText("A calmer space for our next big idea.", { exact: true }),
   ).toBeInViewport();
-  await page.screenshot({ path: info.outputPath("gatherline-workspace.png") });
+  await page.screenshot({ path: info.outputPath("tandem-workspace.png") });
   const timings = await page.evaluate(() =>
     ((window as any).inputFrames as number[]).sort((a, b) => a - b),
   );
@@ -942,7 +942,7 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   const previewBox = await preview.boundingBox();
   expect(previewBox!.x + previewBox!.width).toBeLessThanOrEqual(390);
   expect(await history.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("gatherline-narrow.png") });
+  await page.screenshot({ path: info.outputPath("tandem-narrow.png") });
 
   // A phone on its side is wide enough for the sidebar but too short for it:
   // it becomes the same drawer, and the header gives some height back.
@@ -952,7 +952,7 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
   await expect(composerField).toBeInViewport();
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   await expect(page.getByRole("navigation")).toBeVisible();
-  await page.screenshot({ path: info.outputPath("gatherline-short-landscape.png") });
+  await page.screenshot({ path: info.outputPath("tandem-short-landscape.png") });
   // The drawer scrolls as one column, so its channels come into view with it.
   const channelRow = page
     .getByRole("navigation")
@@ -963,7 +963,7 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
     row.closest("nav")!.scrollBy(0, row.getBoundingClientRect().bottom - innerHeight + 40),
   );
   await expect(channelRow).toBeInViewport();
-  await page.screenshot({ path: info.outputPath("gatherline-short-landscape-scrolled.png") });
+  await page.screenshot({ path: info.outputPath("tandem-short-landscape-scrolled.png") });
   await channelRow.click();
   await expect(page.getByRole("navigation")).not.toBeVisible();
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
@@ -1512,7 +1512,7 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     const inviteLink = `${origin}/#/join/${code}`;
     await expect(dialog.getByText(inviteLink, { exact: true })).toBeVisible();
     await expect(
-      dialog.getByText(`gatherline://join?host=127.0.0.1:${port}&code=${code}`, { exact: true }),
+      dialog.getByText(`tandem://join?host=127.0.0.1:${port}&code=${code}`, { exact: true }),
     ).toBeVisible();
     await expect(dialog.getByText(/reaches only this computer/)).toBeVisible();
     await dialog.getByRole("button", { name: "Copy link", exact: true }).click();
@@ -1530,7 +1530,7 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     await dialog.getByRole("button", { name: "Copy desktop link", exact: true }).click();
     await expect(dialog.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
     expect(await hostPage.evaluate(() => navigator.clipboard.readText())).toBe(
-      `gatherline://join?host=127.0.0.1:${port}&code=${code}`,
+      `tandem://join?host=127.0.0.1:${port}&code=${code}`,
     );
     await hostPage.evaluate(() =>
       (window as unknown as { restoreClipboard: () => void }).restoreClipboard(),
@@ -1788,7 +1788,7 @@ test("the demo seed fills a new workspace with something to try, and leaves one 
     await page.getByLabel("Password", { exact: true }).fill("password123");
     await page.getByLabel("Password", { exact: true }).press("Enter");
     const sidebar = page.getByRole("navigation");
-    await expect(page.getByText(/^Welcome to Gatherline, everyone!/)).toBeVisible();
+    await expect(page.getByText(/^Welcome to Tandem, everyone!/)).toBeVisible();
     // Read as who reacted, not only as an emoji and a number.
     await expect(page.getByRole("button", { name: /^🎉 3 reactions, from .+/ })).toBeVisible();
 
@@ -2118,7 +2118,7 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     expect(reading).not.toBeNull();
     // Noted as it scrolls, a moment later.
     await expect
-      .poll(() => page.evaluate(() => history.state?.gatherline?.scroll?.messageId))
+      .poll(() => page.evaluate(() => history.state?.tandem?.scroll?.messageId))
       .toBe(reading!.id);
 
     await nav.getByRole("button", { name: /^#\s*design\b/ }).click();

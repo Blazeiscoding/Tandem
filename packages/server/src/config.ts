@@ -12,12 +12,16 @@
 export class ConfigError extends Error {}
 
 /**
- * Reads a setting from the environment under its Gatherline name, falling
- * back to the previous SLACKOSS_ name so existing deployments keep working.
- * Where both are set, the Gatherline one wins.
+ * Reads a setting from the environment under its Tandem name, falling
+ * back to the previous GATHERLINE_ and then SLACKOSS_ names so existing
+ * deployments keep working. Where more than one is set, the newest wins.
  */
 export function envSetting(name: string): string | undefined {
-  return process.env[`GATHERLINE_${name}`] ?? process.env[`SLACKOSS_${name}`];
+  return (
+    process.env[`TANDEM_${name}`] ??
+    process.env[`GATHERLINE_${name}`] ??
+    process.env[`SLACKOSS_${name}`]
+  );
 }
 
 /** A TCP port: a whole number from 0 (any free port) to 65535. */

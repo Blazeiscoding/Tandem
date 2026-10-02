@@ -45,7 +45,7 @@ export function diagnosticsReport(input: DiagnosticsInput): string {
       `${input.huddle.peers.filter((peer) => peer.connected).length} connected`
     : "not in a call";
   return [
-    "Gatherline diagnostics",
+    "Tandem diagnostics",
     `Taken: ${input.now.toISOString()}`,
     `App: ${input.app === "desktop" ? "desktop app" : "browser"}, protocol ${PROTOCOL_VERSION}, build ${describeBuild(input.appBuild === undefined ? APP_BUILD : input.appBuild)}`,
     `Server: ${server}`,
@@ -65,7 +65,7 @@ export function diagnosticsReport(input: DiagnosticsInput): string {
  * side sort by time, with nothing about the workspace or person in it.
  */
 export function diagnosticsFileName(taken: Date): string {
-  return `gatherline-diagnostics-${taken.toISOString().slice(0, 19).replaceAll(":", "-")}Z.txt`;
+  return `tandem-diagnostics-${taken.toISOString().slice(0, 19).replaceAll(":", "-")}Z.txt`;
 }
 
 /** A span of time, roughly: "45 s", "12 min", "3 h 5 min", "2 d 4 h". */

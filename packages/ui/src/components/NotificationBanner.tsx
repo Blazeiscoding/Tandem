@@ -71,7 +71,7 @@ export function NotificationBanner({
       className="flex shrink-0 items-center gap-3 border-b border-edge bg-raised px-4 py-2 text-sm text-ink"
     >
       <span className="min-w-0 flex-1 text-ink-dim">
-        Turn on notifications to hear about mentions while Gatherline is in the background.
+        Turn on notifications to hear about mentions while Tandem is in the background.
       </span>
       <button
         type="button"

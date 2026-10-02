@@ -34,6 +34,6 @@ export function loginItemProblem(
 ): string | null {
   if (!wanted || settings.openAtLogin) return null;
   if (platform === "darwin" && settings.status === "requires-approval")
-    return "macOS is waiting for your approval. Allow Gatherline in System Settings, General, Login Items, then turn this on again.";
-  return "The system did not add Gatherline to the apps that open when you sign in. Try again, or add it in the system's own settings.";
+    return "macOS is waiting for your approval. Allow Tandem in System Settings, General, Login Items, then turn this on again.";
+  return "The system did not add Tandem to the apps that open when you sign in. Try again, or add it in the system's own settings.";
 }

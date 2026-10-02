@@ -33,18 +33,18 @@ async function api(path, token, body, method = body ? "POST" : "GET") {
   assert(response.ok, `${path}: ${response.status}`);
   return response.json();
 }
-// Compose hands the server its ICE servers under their Gatherline name. A
+// Compose hands the server its ICE servers under their Tandem name. A
 // value still set under the previous name has to arrive, rather than the
 // default being passed in its place.
 const composeFile = fileURLToPath(new URL("../docker/docker-compose.yml", import.meta.url));
-const scratch = mkdtempSync(join(tmpdir(), "gatherline-compose-"));
+const scratch = mkdtempSync(join(tmpdir(), "tandem-compose-"));
 try {
   // An empty settings file, so a docker/.env on this machine changes nothing.
   const envFile = join(scratch, "empty.env");
   writeFileSync(envFile, "");
   const composed = (settings) => {
     const env = { ...process.env, ...settings };
-    for (const key of ["GATHERLINE_ICE_SERVERS", "SLACKOSS_ICE_SERVERS"])
+    for (const key of ["TANDEM_ICE_SERVERS", "GATHERLINE_ICE_SERVERS", "SLACKOSS_ICE_SERVERS"])
       if (!(key in settings)) delete env[key];
     const config = execFileSync(
       "docker",
@@ -54,16 +54,24 @@ try {
     return JSON.parse(config).services.slackoss.environment;
   };
   const stun = (host) => JSON.stringify([{ urls: `stun:${host}:3478` }]);
-  assert.deepEqual(composed({}), { GATHERLINE_ICE_SERVERS: "[]" });
+  assert.deepEqual(composed({}), { TANDEM_ICE_SERVERS: "[]" });
   assert.deepEqual(composed({ SLACKOSS_ICE_SERVERS: stun("old.example.org") }), {
-    GATHERLINE_ICE_SERVERS: stun("old.example.org"),
+    TANDEM_ICE_SERVERS: stun("old.example.org"),
   });
   assert.deepEqual(
     composed({
       SLACKOSS_ICE_SERVERS: stun("old.example.org"),
-      GATHERLINE_ICE_SERVERS: stun("new.example.org"),
+      GATHERLINE_ICE_SERVERS: stun("newer.example.org"),
     }),
-    { GATHERLINE_ICE_SERVERS: stun("new.example.org") },
+    { TANDEM_ICE_SERVERS: stun("newer.example.org") },
+  );
+  assert.deepEqual(
+    composed({
+      SLACKOSS_ICE_SERVERS: stun("old.example.org"),
+      GATHERLINE_ICE_SERVERS: stun("newer.example.org"),
+      TANDEM_ICE_SERVERS: stun("new.example.org"),
+    }),
+    { TANDEM_ICE_SERVERS: stun("new.example.org") },
   );
 } finally {
   rmSync(scratch, { recursive: true, force: true });

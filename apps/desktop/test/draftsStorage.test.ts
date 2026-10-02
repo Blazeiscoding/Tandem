@@ -25,7 +25,7 @@ let dir: string;
 let settings: SettingsStorage;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "gatherline-drafts-"));
+  dir = mkdtempSync(join(tmpdir(), "tandem-drafts-"));
   settings = createSettingsStorage(join(dir, "settings.json"), keys);
 });
 

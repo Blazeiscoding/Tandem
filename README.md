@@ -1,8 +1,8 @@
-# Gatherline
+# Tandem
 
 Your people. Your place. Your server. Previously named SlackOSS.
 
-The product and Windows executable are now **Gatherline**. Existing `@slackoss/*`
+The product and Windows executable are now **Tandem**. Existing `@slackoss/*`
 package names, `SLACKOSS_*` settings, data locations, application ID, Docker volume
 names and `slackoss://` links are intentionally retained for compatibility. No data
 migration is needed. The working name has not been trademark-cleared.
@@ -11,7 +11,7 @@ The refreshed interface includes a slate-and-periwinkle theme, drawn line icons
 where controls once used emoji, an original vector mark,
 keyboard-accessible controls, narrow-window navigation, and a capped live
 timeline that follows new messages without growing indefinitely. See
-[frontend checks and measurements](docs/VALIDATION.md#gatherline-frontend-refresh).
+[frontend checks and measurements](docs/VALIDATION.md#tandem-frontend-refresh).
 To regenerate the checked-in desktop icons from the SVG, install Playwright's
 Chromium and run `node scripts/generate-icons.mjs`. Normal packaging uses the
 checked-in assets and does not need this step.
@@ -48,7 +48,7 @@ Node 24+ and pnpm 10:
   ```
 
 - **In the desktop app** on Windows: `pnpm --filter @slackoss/desktop package --win`,
-  install `apps/desktop/release/Gatherline Setup 0.1.0.exe`, and choose
+  install `apps/desktop/release/Tandem Setup 0.1.0.exe`, and choose
   **Host a workspace on this computer**.
 - **With Docker**: `docker compose -f docker/docker-compose.yml up -d --build`.
 
@@ -86,7 +86,7 @@ Then open `http://localhost:8543`, sign in as `maya`, and try:
 - **Direct connect** — type `192.168.1.42:8543` or `chat.yourteam.dev`.
 - **Invite links** — `http://host:8543/#/join/<code>` opens the workspace in any
   browser with the invite code filled in. The desktop app has its own form of the
-  same link, `gatherline://join?host=...&code=...` (older `slackoss://` links
+  same link, `tandem://join?host=...&code=...` (older `slackoss://` links
   still open).
 - **No app?** — the server also serves a full browser client at `http://host:8543/`.
 
@@ -102,7 +102,7 @@ VPS unchanged.
 
 To share that workspace outside your network without changing router settings,
 install Cloudflare's `cloudflared`, create the owner account, then open
-**Manage hosting → Open to all**. Gatherline starts a temporary Cloudflare Quick
+**Manage hosting → Open to all**. Tandem starts a temporary Cloudflare Quick
 Tunnel and shows an HTTPS address. Leave **Require an invite link to create an
 account** selected (the default), then use
 **Workspace → Invite people** to generate and copy a browser invite link. Send
@@ -110,7 +110,7 @@ that link to the people you want to join.
 
 The host opens the tunnel before sending the link. A visitor's click reaches the
 already-running tunnel; it does not start one on the visitor's computer. Keep
-Gatherline running until everyone is finished. Closing the public link, stopping
+Tandem running until everyone is finished. Closing the public link, stopping
 hosting, or quitting invalidates the temporary address. See the
 [Cloudflare Tunnel setup and commands](docs/DEPLOYMENT.md#temporary-internet-sharing-with-cloudflare-tunnel).
 
@@ -118,15 +118,15 @@ For an address that does not change, put one you already have under **Your own
 address** in Manage hosting: a Tailscale Funnel, a reverse proxy, or any tunnel
 of your own that forwards HTTP and WebSockets to the port shown there. **Open to
 all** verifies that it reaches this workspace and uses it in new links.
-Gatherline does not start or stop that outside connector, so **Close public
+Tandem does not start or stop that outside connector, so **Close public
 link** does not take the address off the internet; stop the Funnel, proxy, or
 tunnel yourself, or stop hosting. Existing invite links keep the same address,
 but their codes still expire or run out of uses normally. See
 [Use an address you already have](docs/DEPLOYMENT.md#use-an-address-you-already-have).
 
-If you own a domain on Cloudflare, Gatherline can run a remotely managed
+If you own a domain on Cloudflare, Tandem can run a remotely managed
 Cloudflare connector for you instead. See
-[A stable address Gatherline runs for you](docs/DEPLOYMENT.md#a-stable-address-gatherline-runs-for-you).
+[A stable address Tandem runs for you](docs/DEPLOYMENT.md#a-stable-address-tandem-runs-for-you).
 
 ### Standalone (VPS, spare machine)
 
@@ -204,7 +204,7 @@ Search hits, pins and saved items open the channel scrolled to that exact
 message, with the surrounding history loaded around it. Every message has a
 link, `http://host:8543/#/c/<channel>/m/<message>`, that opens it in a browser,
 waits through signing in if it has to, and opens it in place when clicked inside
-a message. `gatherline://` links open the desktop app directly — an invite link
+a message. `tandem://` links open the desktop app directly — an invite link
 lands on the join screen with the code filled in. Older `slackoss://` links
 open the same way.
 

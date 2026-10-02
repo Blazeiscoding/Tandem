@@ -1,4 +1,4 @@
-# Gatherline implementation and improvement plan — 1 October 2026
+# Tandem implementation and improvement plan — 1 October 2026
 
 **Review baseline:** `dfd6cd73e708aab2a5e93d61baca58bd4a41967d`. **Initial implementation baseline:** `18906999c3e2663ee3eb313af7c7fa131de22549`, pulled with `git pull --ff-only origin main` on 1 October. **Final integration baseline:** `6197c06c7e932bd15e2531c0c9abb5a0c7c83a23`. **Status:** first implementation batch integrated with current `main`; remaining acceptance gates and improvement slices are open. Local review documents were preserved before pulling. **Initial target:** dependable small-team chat through Windows desktop and supported browsers, with portable SQLite hosting.
 

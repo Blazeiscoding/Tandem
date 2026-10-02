@@ -1,23 +1,23 @@
-# Gatherline: deeper research and revised product direction
+# Tandem: deeper research and revised product direction
 
 **Research period: September 24–25, 2026. Audience: friends, families, communities, students, teams and organizations.**
 
-Gatherline's next step should be **dependable everyday communication that ordinary people can join and someone can confidently operate**. A larger feature catalogue alone will not establish that. The strongest near-term investments connect the features already present: invitation → first conversation → reliable return → useful retrieval → recovery when a device or host changes.
+Tandem's next step should be **dependable everyday communication that ordinary people can join and someone can confidently operate**. A larger feature catalogue alone will not establish that. The strongest near-term investments connect the features already present: invitation → first conversation → reliable return → useful retrieval → recovery when a device or host changes.
 
 This is the decision document. The [revised delivery roadmap](PRODUCT-ROADMAP-2026-09-24.md) contains backlog IDs, acceptance criteria and sequencing. The [product audit](PRODUCT-AUDIT-2026-09-24.md) records inspected code, the browser walkthrough and screenshots. Supporting studies cover [workplace workflows](research/2026-09-24/workplace-research.md), [personal/community use](research/2026-09-24/community-research.md) and [hosting/operations](research/2026-09-24/operations-research.md). The [source register](research/2026-09-24/SOURCE-REGISTER.md) records provenance and limitations for the deeper review.
 
 ## 1. What this research establishes
 
-The review combines current Gatherline source, a seeded local browser walkthrough, primary competitor documentation, public first-hand discussions, maintainer issue threads and research on attention and voice communication. The deeper source register contains **80 topic entries across 78 distinct URLs**, including 15 first-hand discussions/issues, four empirical studies and a separate research/design position. Those URLs are not independent observations; several share a vendor or policy. The review compares complete tasks across workplace, social and self-hosted products. Sources were selected for relevance and counterexamples, rather than agreement with a proposed feature.
+The review combines current Tandem source, a seeded local browser walkthrough, primary competitor documentation, public first-hand discussions, maintainer issue threads and research on attention and voice communication. The deeper source register contains **80 topic entries across 78 distinct URLs**, including 15 first-hand discussions/issues, four empirical studies and a separate research/design position. Those URLs are not independent observations; several share a vendor or policy. The review compares complete tasks across workplace, social and self-hosted products. Sources were selected for relevance and counterexamples, rather than agreement with a proposed feature.
 
 Four evidence levels must stay separate:
 
-| Evidence                                | What it supports                                               | What it cannot establish                                          |
-| --------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Gatherline runtime observation          | A particular flow worked or failed in the reviewed environment | Every device, network, release or workload behaves the same       |
-| Gatherline source inspection            | A code path, supported contract or absent inspected mechanism  | Frequency of failures or whether users find it confusing          |
-| Official external documentation         | Published product behavior, limits and design choices          | Independent reliability, usability or superiority                 |
-| First-hand reports and research studies | Concrete problems, counterarguments and hypotheses             | Representative market demand or guaranteed benefit for Gatherline |
+| Evidence                                | What it supports                                               | What it cannot establish                                      |
+| --------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------- |
+| Tandem runtime observation              | A particular flow worked or failed in the reviewed environment | Every device, network, release or workload behaves the same   |
+| Tandem source inspection                | A code path, supported contract or absent inspected mechanism  | Frequency of failures or whether users find it confusing      |
+| Official external documentation         | Published product behavior, limits and design choices          | Independent reliability, usability or superiority             |
+| First-hand reports and research studies | Concrete problems, counterarguments and hypotheses             | Representative market demand or guaranteed benefit for Tandem |
 
 The first pass actually exercised sign-in, conversations, replies, attachments, search, attention views, people, invitations, apps, account/device settings and single-person huddle controls. It reproduced navigation losing the selected channel after reload. `pnpm build` passed with cache hits, and the existing browser suite passed **12 scenarios in 38.6 seconds**. Those are September 24 results, not additional tests from this document-only research pass.
 
@@ -42,7 +42,7 @@ The revised roadmap incorporates these changes. They supersede the initial seque
 
 These are documented workflow references, not an overall quality ranking. The linked memos carry fuller counterevidence and source IDs.
 
-| Product or family        | Useful lesson                                                                                    | Boundary for Gatherline                                                                                                                                                                                                |
+| Product or family        | Useful lesson                                                                                    | Boundary for Tandem                                                                                                                                                                                                    |
 | ------------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Slack                    | Later, search, thread subscriptions and Lists already cover many proposed ideas                  | Better follow-through is parity until task trials show a meaningful advantage. [Workplace W01–W07](research/2026-09-24/workplace-research.md)                                                                          |
 | Microsoft Teams          | Following a conversation and receiving an interruption are separate policies                     | Clear state explanations matter as much as an inbox. Cross-organization access has administrative dependencies. [W08–W09, W14](research/2026-09-24/workplace-research.md)                                              |
@@ -59,7 +59,7 @@ These are documented workflow references, not an overall quality ranking. The li
 | Matrix / Element         | Cross-server relationships and encrypted history require identity and recovery design            | Federation and E2EE are separate projects with participant-facing consequences. [C13–C14, C18](research/2026-09-24/community-research.md)                                                                              |
 | Stoat                    | Delivery and return journeys determine whether a switch lasts                                    | February complaints must be qualified by its later July release; stale feature comparisons mislead. [C16–C17](research/2026-09-24/community-research.md)                                                               |
 | Mattermost / Rocket.Chat | Mobile distribution, service limits and release support are product obligations                  | State exactly which dependencies the host and participant inherit. [Operations O01–O03, O14, O18](research/2026-09-24/operations-research.md)                                                                          |
-| Colanode                 | Local persistent data and synchronization are a stronger contract than optimistic sending        | Gatherline can test bounded offline history without committing to a CRDT rewrite. [R07: repository](https://github.com/colanode/colanode)                                                                              |
+| Colanode                 | Local persistent data and synchronization are a stronger contract than optimistic sending        | Tandem can test bounded offline history without committing to a CRDT rewrite. [R07: repository](https://github.com/colanode/colanode)                                                                                  |
 | Google Chat              | Export coverage and externally hosted conversations can have different ownership boundaries      | Show what can be exported and which host controls retention. [R14: export](https://support.google.com/chat/answer/10126829?hl=en), [R15: external retention](https://support.google.com/chat/answer/16053860?hl=en-IN) |
 
 The defensible positioning hypothesis is: **a welcoming place to talk, with understandable attention controls and practical control over your group's history**. Its differentiators must be demonstrated by easier joining, clearer return paths and successful recovery. “Unlimited history,” “free Slack” and “self-hosted” are insufficient on their own.
@@ -74,7 +74,7 @@ The defensible positioning hypothesis is: **a welcoming place to talk, with unde
 
 **Lock-in:** partner conversations, useful integrations and historical attachments are switching costs. First-hand discussion describes keeping Slack for those reasons even when alternatives appeal. Rehearse one project before an organization-wide cutover; partial Slack API support is not ecosystem compatibility. [R04: adoption discussion](https://news.ycombinator.com/item?id=46671952), [R10: official GitHub integration workflow](https://docs.github.com/en/integrations/how-tos/slack/use-github-in-slack)
 
-**Trust:** Slack already offers a hide-person control, with stated exceptions; hiding content is different from refusing contact. Its native AI documentation also states access and training protections. Avoid blanket assertions that it has no personal boundaries or that every AI feature trains on private messages. Gatherline must document its own host access, provider behavior and permission enforcement. [R11: hiding people](https://slack.com/intl/en-gb/help/articles/16905395872019-Hide-a-person-in-Slack), [R12: native AI security](https://slack.com/intl/en-gb/help/articles/28310650165907-Security-for-Slack-AI)
+**Trust:** Slack already offers a hide-person control, with stated exceptions; hiding content is different from refusing contact. Its native AI documentation also states access and training protections. Avoid blanket assertions that it has no personal boundaries or that every AI feature trains on private messages. Tandem must document its own host access, provider behavior and permission enforcement. [R11: hiding people](https://slack.com/intl/en-gb/help/articles/16905395872019-Hide-a-person-in-Slack), [R12: native AI security](https://slack.com/intl/en-gb/help/articles/28310650165907-Security-for-Slack-AI)
 
 ## 5. Ten coherent improvement packages
 
@@ -102,7 +102,7 @@ The inspected protocol supports huddle membership and signaling; the UI waits fo
 
 Use three independent states: unread, personally unfinished and subscribed. Define what revives a completed item and what quiet hours suppress. Expose a small “why this appeared” explanation and preview notification settings with example events.
 
-Gatherline already returns notification decision reasons in [notify.ts](../packages/client-core/src/notify.ts). Its followed-thread state is separate, and the foreground UI suppresses notifications for the active channel. Evaluate unseen replies within that channel and replies to followed threads without a mention; those are source-derived test cases, not reproduced incidents. **First slice:** clarify the contract and add done/reopen to Saved. **Acceptance:** fewer missed asks in comparable tasks, without making casual users process every conversation.
+Tandem already returns notification decision reasons in [notify.ts](../packages/client-core/src/notify.ts). Its followed-thread state is separate, and the foreground UI suppresses notifications for the active channel. Evaluate unseen replies within that channel and replies to followed threads without a mention; those are source-derived test cases, not reproduced incidents. **First slice:** clarify the contract and add done/reopen to Saved. **Acceptance:** fewer missed asks in comparable tasks, without making casual users process every conversation.
 
 ### 5. Keep replies easy; add structure when useful — A8, B4, B6, B8
 
@@ -174,6 +174,6 @@ Recruit 6–8 whole pilot groups across the four cohorts, with different technic
 
 Retain negative evidence. If people ignore completion controls, simplify them. If a group needs dependable photos and events more than structured discussions, change its sequence. If a missing external integration prevents migration, improving colors will not resolve it. If nobody wants to host, test assisted deployment before constructing a business model around an assumed volunteer operator.
 
-The operating-cost worksheet should use actual provider quotes and observed workloads: compute/power, domain/connectivity, attachments and backup growth, media relay traffic, push service, release distribution and operator/support hours. Keep one-time setup separate from recurring cost. Software license price alone is not total cost, and a competitor's capacity table is not a Gatherline benchmark.
+The operating-cost worksheet should use actual provider quotes and observed workloads: compute/power, domain/connectivity, attachments and backup growth, media relay traffic, push service, release distribution and operator/support hours. Keep one-time setup separate from recurring cost. Software license price alone is not total cost, and a competitor's capacity table is not a Tandem benchmark.
 
 **Recommended next commitment:** deliver and measure one trustworthy join/return/recover experience across several kinds of group, then expand retrieval and coordination from observed needs. This is broad in audience and deliberately bounded in each release.

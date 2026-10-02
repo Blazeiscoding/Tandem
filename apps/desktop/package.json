@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
-  "description": "Gatherline \u2014 self-hosted team chat",
-  "author": "Gatherline contributors",
+  "description": "Tandem \u2014 self-hosted team chat",
+  "author": "Tandem contributors",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

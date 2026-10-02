@@ -8,7 +8,7 @@ The strongest next step is to make attention states explainable and retrieval me
 
 Microsoft Teams separates following threads from the controls that generate Activity entries and banners. Its documentation explicitly distinguishes following all new threads from receiving Activity notifications. That supports separate delivery and discovery concepts; it does not prove Microsoft's interface is easier to understand. [K01: Teams channel notifications](https://support.microsoft.com/en-us/teams/teams-channels/manage-channel-notifications-in-microsoft-teams)
 
-Slack Later separates items being worked on, archived reference material and completed items, with reminders and movement back into progress. Gatherline's proposed follow-up work is therefore established functionality elsewhere. Its opportunity is a smaller, clearer personal workflow that remains useful in a casual group. Do not make a family photo someone saves acquire a task deadline or a badge to clear. [K02: Slack Later](https://slack.com/help/articles/360042650274-Save-messages-and-files-for-later)
+Slack Later separates items being worked on, archived reference material and completed items, with reminders and movement back into progress. Tandem's proposed follow-up work is therefore established functionality elsewhere. Its opportunity is a smaller, clearer personal workflow that remains useful in a casual group. Do not make a family photo someone saves acquire a task deadline or a badge to clear. [K02: Slack Later](https://slack.com/help/articles/360042650274-Save-messages-and-files-for-later)
 
 Zulip's topic mute is more than silencing banners: it changes unread counts and some feeds, with mention exceptions. Its resolved-topic documentation explicitly permits further replies, including thanks. These are useful counterexamples to two draft assumptions: that muting should retain every unread count and that every reply must reopen a resolved discussion. Neither alternative is a universal rule. [K03: topic mute](https://zulip.com/help/mute-a-topic), [K04: resolved topics](https://zulip.com/help/resolve-a-topic)
 
@@ -61,9 +61,9 @@ Source inspection found:
 - That function permits public channels and private conversations through membership. New guest policy will require revisiting what “public” means; this is not evidence of an existing private-channel leak.
 - Filenames are not indexed as separate fields in this FTS table. An attachment filter is not equivalent to filename search.
 
-SQLite's FTS5 documentation describes the default tokenizer, BM25 relevance ordering, external-content index maintenance, and trigram substring matching. Trigram full-text queries shorter than three Unicode characters do not match; index design also changes normalization behavior. These capabilities support an experiment within the current storage architecture. They do not establish the right multilingual tokenizer or ranking for Gatherline. [K06: SQLite FTS5](https://www.sqlite.org/fts5.html)
+SQLite's FTS5 documentation describes the default tokenizer, BM25 relevance ordering, external-content index maintenance, and trigram substring matching. Trigram full-text queries shorter than three Unicode characters do not match; index design also changes normalization behavior. These capabilities support an experiment within the current storage architecture. They do not establish the right multilingual tokenizer or ranking for Tandem. [K06: SQLite FTS5](https://www.sqlite.org/fts5.html)
 
-An isolated run of [retrieval-probe.mjs](retrieval-probe.mjs) on Node `v24.16.0`, SQLite `3.53.0`, saved [these results](retrieval-probe-results.json). It used six synthetic texts and 14 text/query pairs in an in-memory database. It opened no workspace files and did not exercise the Gatherline API, permissions, throughput or an end-user task.
+An isolated run of [retrieval-probe.mjs](retrieval-probe.mjs) on Node `v24.16.0`, SQLite `3.53.0`, saved [these results](retrieval-probe-results.json). It used six synthetic texts and 14 text/query pairs in an in-memory database. It opened no workspace files and did not exercise the Tandem API, permissions, throughput or an end-user task.
 
 | Text and query                                | Default FTS5 matched? | Plain trigram FTS5 matched? | Interpretation of this fixture only                                           |
 | --------------------------------------------- | --------------------- | --------------------------- | ----------------------------------------------------------------------------- |
@@ -78,13 +78,13 @@ An isolated run of [retrieval-probe.mjs](retrieval-probe.mjs) on Node `v24.16.0`
 
 The full unspaced Chinese/Japanese strings also match under both configurations. A decomposed-accent fixture is included in the JSON. The result is narrower than “Unicode search is broken”: the current default configuration has a demonstrated segmentation boundary on these inputs, while a simple replacement creates other tradeoffs. Test meaningful queries with speakers of the pilot languages before selecting a design.
 
-Zulip documents an English-oriented default search setup and an experimental PGroonga path for multilingual self-hosted deployments. Even an established product treats language retrieval as an operational choice. Gatherline should keep deployment simplicity in the comparison rather than adding another service before measurement. [K07: Zulip multilingual search](https://zulip.com/help/configure-multi-language-search)
+Zulip documents an English-oriented default search setup and an experimental PGroonga path for multilingual self-hosted deployments. Even an established product treats language retrieval as an operational choice. Tandem should keep deployment simplicity in the comparison rather than adding another service before measurement. [K07: Zulip multilingual search](https://zulip.com/help/configure-multi-language-search)
 
 ### A separate diagnostic observation
 
 While developing the fixture, a direct FTS virtual-table query combining `rowid = ?` and `MATCH ?` returned both matching rows when the row ID was bound as a JavaScript number. Binding the same value as a bigint/string or using an integer cast returned the intended row. The minimal diagnostic and output are preserved in the probe. The tokenization comparison therefore checks returned IDs in JavaScript, independently of that constraint.
 
-This is an observed local query/binding anomaly with an unestablished cause. Gatherline's inspected search uses an outer ordinary-table `m.rowid IN (...)` predicate instead of that direct virtual-table constraint. No production access-control or corruption claim follows. Recheck this diagnostic against each release's actual embedded engine before reusing the direct query pattern.
+This is an observed local query/binding anomaly with an unestablished cause. Tandem's inspected search uses an outer ordinary-table `m.rowid IN (...)` predicate instead of that direct virtual-table constraint. No production access-control or corruption claim follows. Recheck this diagnostic against each release's actual embedded engine before reusing the direct query pattern.
 
 ## 4. A search evaluation that can choose an implementation
 
@@ -108,9 +108,9 @@ Ranking changes also change pagination. A descending-ID cursor is not automatica
 
 ## 5. Optional AI: verify answers before selling saved time
 
-QMSum introduces query-focused meeting summaries rather than assuming one summary meets every reader's needs. It contains 1,808 query-summary pairs over 232 meetings. This is a benchmark and task-design reference, not a current model comparison or evidence that meeting transcripts behave like Gatherline chats. Its useful implication is to test concrete questions such as what was decided and what remains unresolved. [K09: QMSum](https://aclanthology.org/2021.naacl-main.472/)
+QMSum introduces query-focused meeting summaries rather than assuming one summary meets every reader's needs. It contains 1,808 query-summary pairs over 232 meetings. This is a benchmark and task-design reference, not a current model comparison or evidence that meeting transcripts behave like Tandem chats. Its useful implication is to test concrete questions such as what was decided and what remains unresolved. [K09: QMSum](https://aclanthology.org/2021.naacl-main.472/)
 
-Lee and colleagues surveyed 319 knowledge workers who supplied 936 examples of AI use. Their findings connect confidence in AI with self-reported critical-thinking effort and describe verification work. This is not proof that AI causes cognitive decline or that Gatherline users will overtrust summaries. It supports measuring verification burden alongside time saved. [K10: CHI 2025 study](https://www.microsoft.com/en-us/research/publication/the-impact-of-generative-ai-on-critical-thinking-self-reported-reductions-in-cognitive-effort-and-confidence-effects-from-a-survey-of-knowledge-workers/)
+Lee and colleagues surveyed 319 knowledge workers who supplied 936 examples of AI use. Their findings connect confidence in AI with self-reported critical-thinking effort and describe verification work. This is not proof that AI causes cognitive decline or that Tandem users will overtrust summaries. It supports measuring verification burden alongside time saved. [K10: CHI 2025 study](https://www.microsoft.com/en-us/research/publication/the-impact-of-generative-ai-on-critical-thinking-self-reported-reductions-in-cognitive-effort-and-confidence-effects-from-a-survey-of-knowledge-workers/)
 
 If a named pilot needs summaries, start with a read-only, explicitly requested answer that cites accessible message spans and can say evidence is insufficient. Evaluate these cases before changing priority:
 
@@ -121,7 +121,7 @@ If a named pilot needs summaries, start with a read-only, explicitly requested a
 - An instruction embedded in a chat message asking the assistant to reveal other conversations or contact someone.
 - A summary reopened after relevant messages were edited; freshness must be clear.
 
-OWASP's RAG guidance calls out permission checks at retrieval time, poisoned source material and independently authorized tool actions. These are architecture requirements for the proposed feature, not evidence that existing Gatherline contains an AI vulnerability. Local inference also does not automatically solve authorization or malicious source text. [K11: OWASP RAG guidance](https://cheatsheetseries.owasp.org/cheatsheets/RAG_Security_Cheat_Sheet.html)
+OWASP's RAG guidance calls out permission checks at retrieval time, poisoned source material and independently authorized tool actions. These are architecture requirements for the proposed feature, not evidence that existing Tandem contains an AI vulnerability. Local inference also does not automatically solve authorization or malicious source text. [K11: OWASP RAG guidance](https://cheatsheetseries.owasp.org/cheatsheets/RAG_Security_Cheat_Sheet.html)
 
 Compare plain catch-up, lexical search and the candidate summary using equivalent histories. Score factual correctness, attribution, omitted obligations, verification time and abstention. Human spot-checks remain necessary. Never automatically resolve a discussion, assign another person a task, or send a message solely because generated text inferred intent.
 

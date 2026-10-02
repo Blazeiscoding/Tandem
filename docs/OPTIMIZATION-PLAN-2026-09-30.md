@@ -1,8 +1,8 @@
-# Gatherline optimization plan: Electron, chat and server
+# Tandem optimization plan: Electron, chat and server
 
-**30 September 2026 · Gatherline `7d91fd3` · proposed experiments, not performance claims.** This expands the [complete update plan](UPDATE-PLAN-2026-09-30.md) following the request to study [T3 Code](https://github.com/pingdotgg/t3code/tree/ff1db030b179ef712cacc0098366d976e2877f45) and similar chat applications. Every experiment must preserve access, event order, accepted-message integrity, recovery and usable keyboard/touch interaction.
+**30 September 2026 · Tandem `7d91fd3` · proposed experiments, not performance claims.** This expands the [complete update plan](UPDATE-PLAN-2026-09-30.md) following the request to study [T3 Code](https://github.com/pingdotgg/t3code/tree/ff1db030b179ef712cacc0098366d976e2877f45) and similar chat applications. Every experiment must preserve access, event order, accepted-message integrity, recovery and usable keyboard/touch interaction.
 
-Inspected references: T3 Code `ff1db030…`, Signal Desktop `abe80d32…`, Zulip `7a921db6…`, Mattermost `cc0611f2…`, Element in the [additional chat report](research/2026-09-30/additional-chat-comparison.md), and Rocket.Chat `aa73c68a…` / Electron `d3d3f165…` in the [Rocket.Chat comparison](research/2026-09-30/rocket-chat-comparison.md). The Rocket.Chat follow-up was reconciled against Gatherline `7d70dac`, preserving #151–#165's merged work. Pinned paths, source mechanisms and caveats are in the [Electron](research/2026-09-30/electron-comparison.md), [client](research/2026-09-30/chat-client-comparison.md), and [server](research/2026-09-30/server-comparison.md) reports. Source inspection demonstrates a technique exists; none of these applications was benchmarked against Gatherline.
+Inspected references: T3 Code `ff1db030…`, Signal Desktop `abe80d32…`, Zulip `7a921db6…`, Mattermost `cc0611f2…`, Element in the [additional chat report](research/2026-09-30/additional-chat-comparison.md), and Rocket.Chat `aa73c68a…` / Electron `d3d3f165…` in the [Rocket.Chat comparison](research/2026-09-30/rocket-chat-comparison.md). The Rocket.Chat follow-up was reconciled against Tandem `7d70dac`, preserving #151–#165's merged work. Pinned paths, source mechanisms and caveats are in the [Electron](research/2026-09-30/electron-comparison.md), [client](research/2026-09-30/chat-client-comparison.md), and [server](research/2026-09-30/server-comparison.md) reports. Source inspection demonstrates a technique exists; none of these applications was benchmarked against Tandem.
 
 ## 1. Preserve optimizations already present
 
@@ -50,7 +50,7 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 
 ### OPT-02 · Small/medium experiment · Enable compilation cache before loading main
 
-**Reference:** T3's [early compile-cache bootstrap](https://github.com/pingdotgg/t3code/blob/ff1db030b179ef712cacc0098366d976e2877f45/apps/desktop/src/boot.ts). **Gatherline:** `apps/desktop/package.json`, `src/main/index.ts`, Electron build entry.
+**Reference:** T3's [early compile-cache bootstrap](https://github.com/pingdotgg/t3code/blob/ff1db030b179ef712cacc0098366d976e2877f45/apps/desktop/src/boot.ts). **Tandem:** `apps/desktop/package.json`, `src/main/index.ts`, Electron build entry.
 
 - [ ] Prototype a small entry that enables the packaged runtime's supported compile cache before importing the real main bundle.
   - [ ] Use a private per-user cache, optional/fail-open behavior, expiry/size limits and version/architecture separation.
@@ -61,7 +61,7 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 
 ### OPT-03 · Medium experiment · Reduce packaged dependency duplication
 
-**Reference:** T3's shared runtime-external policy and packaging closure in the Electron report. **Gatherline:** `electron.vite.config.ts`, builder configuration and runtime dependency tree.
+**Reference:** T3's shared runtime-external policy and packaging closure in the Electron report. **Tandem:** `electron.vite.config.ts`, builder configuration and runtime dependency tree.
 
 - [ ] Inventory installer/ASAR/unpacked files and determine which code is both bundled and shipped as external packages.
   - [ ] Bundle compatible ordinary JavaScript once; preserve native/filesystem-dependent packages and required assets as externals.
@@ -73,7 +73,7 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 
 ### OPT-04 · Large spike · Isolate the embedded server when measured stalls require it
 
-**References:** T3 supervised backend, Signal SQL worker ownership. **Gatherline:** `index.ts` server construction, hosting controller, backup worker and CLI bundle.
+**References:** T3 supervised backend, Signal SQL worker ownership. **Tandem:** `index.ts` server construction, hosting controller, backup worker and CLI bundle.
 
 - [ ] Compare the smallest isolated-backend boundary using a worker, `utilityProcess`, or supervised child, without changing participant REST/WebSocket contracts.
   - [ ] Preserve #153's directory ownership when moving the backend. Keep queues, discovery, route, port and hold state owned by one run, including the remaining recovery-boundary limitations recorded under FIX-11.
@@ -87,7 +87,7 @@ Suggested fixtures: small fresh workspace; 50,000 and 200,000 messages with real
 
 ### OPT-05 · Small first change · Narrow message-row subscriptions and keep references stable
 
-**References:** Mattermost per-post selector factories; T3 stable row projection. **Gatherline:** `MessageItem.tsx`, `MessageTimeline.tsx`, `context.ts`, replica updates.
+**References:** Mattermost per-post selector factories; T3 stable row projection. **Tandem:** `MessageItem.tsx`, `MessageTimeline.tsx`, `context.ts`, replica updates.
 
 **Status:** merged in #164 (`e02d2ac`). `MessageItem` subscribed to the whole `users` and `channels` maps and to `self`, so any profile edit, channel update (including someone joining another channel) or change to your own status rendered every row on screen, in the timeline and the thread panel alike. Each row now subscribes to what it shows: its author, the people it names or who reacted to it, the channels it names or links a message in (`useMessageReferences`, `src/lib/messageReferences.ts`), and your own ID and role as two primitives. Each of those selectors does nothing while its map is the same object, which is most updates, and hands back the same object until an entry it shows changes.
 
@@ -113,7 +113,7 @@ The cost is the selectors: every replica change now runs two per row, about 0.1 
 
 ### OPT-06 · Medium spike · Separate the rendered window from loaded history
 
-**References:** T3 LegendList with stable row keys; Zulip bounded DOM/selected-row anchoring; Mattermost measured variable-height list. **Gatherline:** `MessageTimeline`, `ThreadPanel`, `useRovingMessages`.
+**References:** T3 LegendList with stable row keys; Zulip bounded DOM/selected-row anchoring; Mattermost measured variable-height list. **Tandem:** `MessageTimeline`, `ThreadPanel`, `useRovingMessages`.
 
 - [ ] Compare current bounded 300-row DOM, CSS rendering containment where safe, and a smaller/windowed DOM on realistic histories.
   - [ ] Measure variable rows after image load, edits, wrapping, thread summaries and menu opening.
@@ -122,17 +122,17 @@ The cost is the selectors: every replica change now runs two per row, about 0.1 
   - [ ] Bound any keep-mounted exception for focused/playing media. [Rocket.Chat RC-1](research/2026-09-30/rocket-chat-comparison.md#rc-1-window-rendering-without-retaining-every-media-row) shows why retaining every attachment/preview row can defeat windowing; compare redecode/reload cost and preserve accessible list/reading-position behavior.
   - [ ] Measure scroll/frame/commit cost, memory and library/entry-size overhead; include touch and real browser geometry.
 
-**Done:** windowing beats the existing cap in a relevant task without lost anchors or inaccessible history. T3/Zulip overscan and height constants are not Gatherline defaults; reject the dependency if the current DOM is already cheap enough.
+**Done:** windowing beats the existing cap in a relevant task without lost anchors or inaccessible history. T3/Zulip overscan and height constants are not Tandem defaults; reject the dependency if the current DOM is already cheap enough.
 
 ### OPT-07 · Medium · Batch replica publication during catch-up while retaining event order
 
-**Reference:** chat fetch/event batching patterns in the client/server reports. **Gatherline:** `WorkspaceClient.applyEvent`, WebSocket reconnect/replay, store publication.
+**Reference:** chat fetch/event batching patterns in the client/server reports. **Tandem:** `WorkspaceClient.applyEvent`, WebSocket reconnect/replay, store publication.
 
 - [ ] Separate ordered event reduction from React/store notification where a burst currently causes repeated work.
   - [ ] Keep durable outbox mutations/persistence and notification/access hooks independent of delayed visual publication. `DraftPersistence` currently observes store changes; blanket subscription batching must not reopen #147's delayed-persistence gap.
   - [ ] Bound visual latency and provide a hidden-window fallback for frame-based work. Apply Element's incremental sidebar ordering and frame-coalesced visual emissions only after measuring current full-sort cost; see [ELM-1](research/2026-09-30/additional-chat-comparison.md#elm-1-batch-visual-room-list-publication-and-update-the-affected-entry).
   - [ ] Yield large replay work at bounded units and publish coherent snapshots without skipping seq/nonce reconciliation.
-  - [ ] Check loaded, protected inactive and evicted history through edits/deletes/root removal and later refetch. [Rocket.Chat RC-2/3](research/2026-09-30/rocket-chat-comparison.md#rc-2-stable-selection-is-separate-from-selection-cost) refines derivation/catch-up profiling; keep Gatherline's sequence authority rather than introducing timestamp sync.
+  - [ ] Check loaded, protected inactive and evicted history through edits/deletes/root removal and later refetch. [Rocket.Chat RC-2/3](research/2026-09-30/rocket-chat-comparison.md#rc-2-stable-selection-is-separate-from-selection-cost) refines derivation/catch-up profiling; keep Tandem's sequence authority rather than introducing timestamp sync.
   - [ ] Apply deactivation/membership/access invalidation promptly; do not leave forbidden previews rendered until a long batch ends.
   - [ ] Deduplicate replaceable typing/presence work when safe, while retaining durable read/unread and mutation order.
   - [ ] Measure 100/1,000/10,000-event reconnect bursts within configured replay limits, interaction delay and resync bytes.
@@ -141,7 +141,7 @@ The cost is the selectors: every replica change now runs two per row, about 0.1 
 
 ### OPT-08 · Small/medium · Memoize expensive derived rendering under explicit cache limits
 
-**Reference:** T3 separates stable rows and caches code highlighting by count/bytes. **Gatherline:** `Mrkdwn`, grouping/day labels, mention/reaction lists, search highlighting and Composer suggestions.
+**Reference:** T3 separates stable rows and caches code highlighting by count/bytes. **Tandem:** `Mrkdwn`, grouping/day labels, mention/reaction lists, search highlighting and Composer suggestions.
 
 - [ ] Profile expensive parsing/lookup/formatting before introducing caches.
   - [ ] Key cached derivations by immutable text/revision plus relevant entity/theme inputs and clear them on account change.
@@ -149,11 +149,11 @@ The cost is the selectors: every replica change now runs two per row, about 0.1 
   - [ ] Keep escaping/link safety and IME/selection behavior; do not add a heavyweight syntax highlighter for a micro-optimization.
   - [ ] Measure long code messages, repeated paging, burst reactions and suggestion typing with/without the cache.
 
-**Done:** saved CPU exceeds cache overhead and memory remains bounded. T3's 50 MiB highlighting cache is a reference mechanism, not a proposed Gatherline size.
+**Done:** saved CPU exceeds cache overhead and memory remains bounded. T3's 50 MiB highlighting cache is a reference mechanism, not a proposed Tandem size.
 
 ### OPT-09 · Medium · Budget active/decoded media and history bytes
 
-**References:** T3 count-and-byte LRU, Zulip derived thumbnails. **Gatherline:** history LRU, `FileCache`, `Attachments` and lightbox.
+**References:** T3 count-and-byte LRU, Zulip derived thumbnails. **Tandem:** history LRU, `FileCache`, `Attachments` and lightbox.
 
 - [ ] Measure compressed blobs, active references, decoded pixel dimensions and retained message metadata separately.
   - [ ] Assign one derivative-media owner/artifact shared with OPT-16; renderer memory and server transfer experiments must use the same access, dimensions and cleanup contract.
@@ -201,7 +201,7 @@ At 50,000 messages the old thread's newest page went from 25.73 / 38.64 to 2.30 
 
 ### OPT-11 · Medium · Optimize search from query plans and successful workload
 
-**Gatherline:** FTS/query builders, reader-calendar filters, member/access filtering, `SearchDialog`. Preserve corrected date semantics and formatter LRU.
+**Tandem:** FTS/query builders, reader-calendar filters, member/access filtering, `SearchDialog`. Preserve corrected date semantics and formatter LRU.
 
 **Status:** a common word is no longer read in full for one page; see the PR after #183. Every search took its matches from the full-text index, looked each one up, joined and filtered it, then sorted all of them for 20 rows. A word in 60% of 200,000 messages cost 122 ms a page. A word in up to 5,000 messages still starts from its matches; a cheap count that stops at 5,001 decides which kind it is. Above that, the newest 20,000 messages in the search's scope (its page and channel) are walked first. They are checked against only their own matches, bounded by the window's lowest rowid, which stays exact when rowids and ids disagree. If the window holds less than a page, the older messages are read from the matches as before. So a search costs at most the walk's few milliseconds more than it did.
 
@@ -229,7 +229,7 @@ The last two rows and the in-channel row pay for the count. Searches without wor
 
 ### OPT-12 · Medium · Reduce hydration and unread/thread aggregation work
 
-**Gatherline:** `Store.hydrateMessages`, thread summaries, unread/mention/Activity counts and server snapshot.
+**Tandem:** `Store.hydrateMessages`, thread summaries, unread/mention/Activity counts and server snapshot.
 
 **Status:** mention counts merged in #165 (`7d70dac`). Counting one account's unread mentions read every message in each of its channels, and a message naming the whole room, or a deletion, recounts every member of the channel, one scan each. Schema v31 adds `message_mentions` (message, channel, who it names; `'!'` for the whole room), filled by the migration from every message's text and kept by `Store` on send, edit and delete, with retention's purge cascading through the foreign key. Unread mention counts and the Activity mentions list start from it and apply FIX-08's read rule to each candidate, so they cost what this account's mentions cost. Nothing is cached: every count is still computed from the rows, under the same rule as `MENTIONS_ME`.
 
@@ -269,7 +269,7 @@ Sending costs about 7% more, for the scan of each message's text and a row for e
 
 ### OPT-13 · Medium · Bound snapshots and large administration lists
 
-**References:** Zulip anchor-aware fetches, Mattermost deterministic bounded queries. **Gatherline:** initial/resync snapshot, People, Apps, members and thread summaries.
+**References:** Zulip anchor-aware fetches, Mattermost deterministic bounded queries. **Tandem:** initial/resync snapshot, People, Apps, members and thread summaries.
 
 **Status:** the handshake snapshot is measured, and its two costs that grew with the workspace are removed; see the PR after #182. Every connect and reconnect builds one, so after a restart every client asks at once.
 
@@ -299,7 +299,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-14 · Medium · Extend socket admission and observe backpressure
 
-**Reference:** Mattermost bounded queues/deadlines and load counters. **Gatherline:** Fastify reception, `Gateway`, existing 2 MiB cutoff and bounded database replay.
+**Reference:** Mattermost bounded queues/deadlines and load counters. **Tandem:** Fastify reception, `Gateway`, existing 2 MiB cutoff and bounded database replay.
 
 - [ ] Define aggregate socket/account/IP/unauthenticated connection ceilings and request-reception deadlines.
   - [ ] Measure fanout serialization and repeated authorization work; retain one serialized durable payload where already present.
@@ -311,7 +311,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-15 · Medium · Give scheduled, retention and delivery work fair bounded turns
 
-**References:** Zulip row-aware retention, Mattermost bounded bulk operations. **Gatherline:** due schedules, retention, file-deletion ledger and event delivery queues.
+**References:** Zulip row-aware retention, Mattermost bounded bulk operations. **Tandem:** due schedules, retention, file-deletion ledger and event delivery queues.
 
 - [ ] Measure work by actual dependent rows/bytes/time in addition to item count.
   - [ ] Preserve #151's table-based purge and caught/yielding passes; measure large whole-thread work before selecting smaller safe transaction boundaries.
@@ -324,7 +324,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-16 · Medium · Optimize file transfer and derived-media processing
 
-**Gatherline:** streaming uploads/downloads, `StorageBudget`, file cache and server dimension/hash handling.
+**Tandem:** streaming uploads/downloads, `StorageBudget`, file cache and server dimension/hash handling.
 
 - [ ] Profile server disk/hash work, chunk size/backpressure, renderer copies and the native large-download handoff.
   - [ ] Share derivative-media generation, access and cleanup ownership with OPT-09; do not create competing thumbnail formats or workers in separate PRs.
@@ -339,7 +339,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-17 · Small/medium · Reduce idle/offscreen CPU and wakeups
 
-**Reference:** T3 [shared visible-animation observer](https://github.com/pingdotgg/t3code/blob/ff1db030b179ef712cacc0098366d976e2877f45/apps/web/src/lib/visibleAnimation.ts), adaptive telemetry. **Gatherline:** typing/read retries, animations, presence and huddle stats.
+**Reference:** T3 [shared visible-animation observer](https://github.com/pingdotgg/t3code/blob/ff1db030b179ef712cacc0098366d976e2877f45/apps/web/src/lib/visibleAnimation.ts), adaptive telemetry. **Tandem:** typing/read retries, animations, presence and huddle stats.
 
 - [ ] Inventory interval/observer/listener work with no conversation activity, with a hidden window and closed-to-tray hosting.
   - [ ] Pause visual animations and unnecessary renderer sampling offscreen/hidden, honoring reduced motion.
@@ -351,7 +351,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-18 · Medium · Reduce IPC/status churn through narrow contracts
 
-**Reference:** T3 typed IPC/built-preload verification and bounded replaceable status snapshots. **Gatherline:** preload/platform storage and hosting status notifications.
+**Reference:** T3 typed IPC/built-preload verification and bounded replaceable status snapshots. **Tandem:** preload/platform storage and hosting status notifications.
 
 - [ ] Measure IPC call/event frequency, payload bytes and settings/status serialization under connect/disconnect/presence/backup progress.
   - [ ] Send narrow changed fields or coalesced replaceable status snapshots if full updates dominate work.
@@ -363,7 +363,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-19 · Medium · Improve first usable paint and bounded renderer recovery
 
-**Reference:** T3 hidden-boot unthrottling only until reveal and bounded `render-process-gone` recovery. **Gatherline:** BrowserWindow creation, persisted appearance and durable client rehydration.
+**Reference:** T3 hidden-boot unthrottling only until reveal and bounded `render-process-gone` recovery. **Tandem:** BrowserWindow creation, persisted appearance and durable client rehydration.
 
 - [ ] Eliminate avoidable wrong-theme flash through a minimal trusted appearance bootstrap or a measured reveal policy.
   - [ ] If hiding until ready helps, enforce a load-error/deadline fallback and restore background throttling after startup.
@@ -376,7 +376,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-20 · Small/medium · Keep performance diagnostics cheap and private
 
-**References:** T3 demand/power-aware bounded samples, Signal named SQL timings, Mattermost named journey metrics. **Gatherline:** existing user-previewed diagnostics and health route.
+**References:** T3 demand/power-aware bounded samples, Signal named SQL timings, Mattermost named journey metrics. **Tandem:** existing user-previewed diagnostics and health route.
 
 - [ ] Add bounded named timings for startup, channel switch, thread load, search, reconnect and backup.
   - [ ] Separate queue, SQLite, serialization, transport/IPC and rendering stages in local experiments.
@@ -389,7 +389,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-21 · Medium/large spike · Measure startup maintenance, WAL and database topology
 
-**Reference:** SQLite WAL/backup contracts; Signal one write owner plus measured reads. **Gatherline:** startup inventory/orphans, pre-upgrade backup, migrations and checkpoints.
+**Reference:** SQLite WAL/backup contracts; Signal one write owner plus measured reads. **Tandem:** startup inventory/orphans, pre-upgrade backup, migrations and checkpoints.
 
 - [ ] Time startup stages on large message/blob sets and separate mandatory integrity work from deferrable safe cleanup.
   - [ ] Preserve #152's current rollback-copy protection and #153's directory ownership before changing startup order.
@@ -403,7 +403,7 @@ What is left is the account list itself: every account, 2.1 MB and 39 ms at 10,0
 
 ### OPT-22 · Medium empirical gate · Publish a measured small-call envelope
 
-**Gatherline:** existing microphone/camera/screen transceivers and mesh peers. No competitor's participant count is evidence of Gatherline capacity.
+**Tandem:** existing microphone/camera/screen transceivers and mesh peers. No competitor's participant count is evidence of Tandem capacity.
 
 - [ ] Measure 2/4/6/8 participants where feasible: audio, camera, screen and relay-only paths.
   - [ ] Record sender uplink, decode CPU, frames/loss/RTT, memory and device thermal/battery behavior on stated hardware.
@@ -448,4 +448,4 @@ Do not adopt another app's entire framework, database/service topology, cache si
 
 ## 9. Per-PR completion record
 
-For each completed experiment add: owner, baseline/candidate SHA, source pattern, actual code change, fixture/platform/runtime, before/after samples, correctness checks, cost/regression, and keep/reject decision. Link its PR/merge and update the main plan. An upstream implementation reference is useful provenance; measured Gatherline behavior decides whether the adaptation ships.
+For each completed experiment add: owner, baseline/candidate SHA, source pattern, actual code change, fixture/platform/runtime, before/after samples, correctness checks, cost/regression, and keep/reject decision. Link its PR/merge and update the main plan. An upstream implementation reference is useful provenance; measured Tandem behavior decides whether the adaptation ships.

@@ -135,6 +135,8 @@ function countRows(db: DatabaseSync): Record<string, number> {
   return counts;
 }
 
+// Names from when the app was called Gatherline, kept so a capture an earlier
+// version left behind is still found and finished.
 const CAPTURE_PREFIX = ".gatherline-backup-";
 const CAPTURE_RECORD = "operation.json";
 const captureSchema = z

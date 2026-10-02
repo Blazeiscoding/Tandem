@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Gatherline — User-Visible First Improvement Plan</title>
+    <title>Tandem — User-Visible First Improvement Plan</title>
     <style>
       :root {
         color-scheme: dark;
@@ -102,19 +102,19 @@
   <body>
     <main>
       <p>
-        <span class="badge">Gatherline</span><span class="badge">user-visible first</span
+        <span class="badge">Tandem</span><span class="badge">user-visible first</span
         ><span class="badge">scale configurable</span
         ><span class="badge">sign + update + demo last</span>
       </p>
-      <h1>Gatherline — Improvement Plan</h1>
+      <h1>Tandem — Improvement Plan</h1>
       <p class="dim">
         Source: <code>packages/server</code>, <code>client-core</code>, <code>protocol</code>,
         <code>ui</code>, <code>apps/web|desktop|server-cli</code>,
-        <code>docs/REMAINING-WORK-2026-09.md</code>. Priorities: user-visible → Gatherline brand →
+        <code>docs/REMAINING-WORK-2026-09.md</code>. Priorities: user-visible → Tandem brand →
         configurable scale → signing/auto-update/demo.
       </p>
       <p class="dim">
-        Status: living plan. Stage 1 in progress. Merged: 1.2 Gatherline brand (links + env) and 1.3
+        Status: living plan. Stage 1 in progress. Merged: 1.2 Tandem brand (links + env) and 1.3
         shared Menu + People menu + sidebar workspace menu in PR #54; the notification banner,
         desktop notifications and hosting resume in PR #55. Updated 2026-09-17.
       </p>
@@ -173,19 +173,19 @@
         </p>
       </section>
       <section class="card">
-        <h3>1.2 Gatherline brand <span class="faint">M, 1 week — deep links DONE</span></h3>
+        <h3>1.2 Tandem brand <span class="faint">M, 1 week — deep links DONE</span></h3>
         <ul>
           <li>
             UI, installer (<code>electron-builder.yml</code>), icons
-            (<code>scripts/generate-icons.mjs</code>), docs → Gatherline.
+            (<code>scripts/generate-icons.mjs</code>), docs → Tandem.
           </li>
           <li>
-            DONE: accept <code>gatherline://join</code> + <code>gatherline://c/…</code>, keep
+            DONE: accept <code>tandem://join</code> + <code>tandem://c/…</code>, keep
             <code>slackoss://</code> parsing forever in <code>lib/deeplink.ts</code>. Desktop
-            registers both schemes; invite dialog and e2e show <code>gatherline://</code>.
+            registers both schemes; invite dialog and e2e show <code>tandem://</code>.
           </li>
           <li>
-            Accept <code>GATHERLINE_*</code> env alias, keep <code>SLACKOSS_*</code> legacy. No
+            Accept <code>TANDEM_*</code> env alias, keep <code>SLACKOSS_*</code> legacy. No
             data/volume migration.
           </li>
           <li>
@@ -317,7 +317,7 @@
       <ol>
         <li>modal focus + links + re-pin + image fit</li>
         <li>ui-primitives</li>
-        <li>gatherline-brand</li>
+        <li>tandem-brand</li>
         <li>keyboard-a11y + navigation-responsive</li>
         <li>onboarding + chat completeness</li>
         <li>lint/split/knobs alongside</li>
