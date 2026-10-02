@@ -532,6 +532,14 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_pending_file_deletions_due
     ON pending_file_deletions(next_attempt_at, file_id) WHERE rejected = 0;
   `,
+  // v36 — an administrator's retry of an endpoint's failed app events waits
+  // for room in its queue instead of overfilling it (REV-15): a failed row
+  // asked to go again keeps its place until a slot frees up.
+  `
+  ALTER TABLE event_deliveries ADD COLUMN retry_requested INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX idx_event_deliveries_retry
+    ON event_deliveries(subscription_id, event_seq, id) WHERE retry_requested = 1;
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

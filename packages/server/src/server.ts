@@ -821,6 +821,8 @@ async function startWorkspaceServer(
     if (opts.isolated) return Promise.resolve();
     if (eventDeliveryFlush) return eventDeliveryFlush;
     eventDeliveryFlush = (async () => {
+      // Retries waiting for room take any that has freed up (REV-15).
+      store.promoteAllEventRetries();
       let remaining = 50;
       while (remaining > 0 && !closing) {
         const due = store.dueEventDeliveries(Date.now(), Math.min(10, remaining));
@@ -3728,8 +3730,8 @@ async function startWorkspaceServer(
     const me = requireAdmin(req);
     const subscription = store.getSubscription(req.params.id);
     if (!subscription) throw new HttpError(404, "not_found");
-    const retried = store.transaction(() => {
-      const count = store.retryFailedEventDeliveries(subscription.id);
+    const { retried, waiting } = store.transaction(() => {
+      const result = store.retryFailedEventDeliveries(subscription.id);
       store.recordAudit({
         actorId: me.id,
         action: "subscription.retried",
@@ -3738,13 +3740,14 @@ async function startWorkspaceServer(
         details: {
           appId: subscription.appId,
           name: store.getApp(subscription.appId)?.name ?? null,
-          retried: count,
+          retried: result.retried,
+          waiting: result.waiting,
         },
       });
-      return count;
+      return result;
     });
     inBackground("event deliveries", flushEventDeliveries);
-    return { ok: true, retried };
+    return { ok: true, retried, waiting };
   });
 
   // ---------- scheduled messages ----------

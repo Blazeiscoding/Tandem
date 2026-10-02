@@ -453,7 +453,9 @@ export interface EventSubscription {
   delivery?: {
     pending: number;
     failed: number;
-    /** Events never queued because the endpoint's backlog was already full. */
+    /** Given-up events asked to go again, waiting for room in the queue (REV-15). */
+    retrying?: number;
+    /** Events never queued because the endpoint's backlog was full, or given up on past the kept history. */
     dropped: number;
     lastError: string | null;
     lastFailedAt: number | null;

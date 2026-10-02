@@ -489,9 +489,11 @@ const EVENT_TYPES = [
 function DeliveryStatus({ delivery }: { delivery: EventSubscription["delivery"] }) {
   if (!delivery) return null;
   const { pending, failed, dropped, lastError } = delivery;
-  if (pending === 0 && failed === 0 && dropped === 0) return null;
+  const retrying = delivery.retrying ?? 0;
+  if (pending === 0 && failed === 0 && dropped === 0 && retrying === 0) return null;
   const parts = [
     pending > 0 ? `${pending} waiting` : null,
+    retrying > 0 ? `${retrying} to retry as room frees up` : null,
     failed > 0 ? `${failed} given up on` : null,
     dropped > 0 ? `${dropped} dropped while behind` : null,
     failed > 0 && lastError ? lastError : null,
