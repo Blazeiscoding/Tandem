@@ -79,25 +79,37 @@ describe("a count of whole units", () => {
 });
 
 describe("settings from the environment", () => {
-  const NAMES = ["GATHERLINE_RETENTION_DAYS_TEST", "SLACKOSS_RETENTION_DAYS_TEST"] as const;
+  const NAMES = [
+    "TANDEM_RETENTION_DAYS_TEST",
+    "GATHERLINE_RETENTION_DAYS_TEST",
+    "SLACKOSS_RETENTION_DAYS_TEST",
+  ] as const;
   afterEach(() => {
     for (const name of NAMES) delete process.env[name];
   });
 
-  it("reads the Gatherline name", () => {
+  it("reads the Tandem name", () => {
+    process.env.TANDEM_RETENTION_DAYS_TEST = "30";
+    expect(envSetting("RETENTION_DAYS_TEST")).toBe("30");
+  });
+
+  it("still reads the previous GATHERLINE_ name", () => {
     process.env.GATHERLINE_RETENTION_DAYS_TEST = "30";
     expect(envSetting("RETENTION_DAYS_TEST")).toBe("30");
   });
 
-  it("still reads the previous SLACKOSS_ name", () => {
+  it("still reads the first SLACKOSS_ name", () => {
     process.env.SLACKOSS_RETENTION_DAYS_TEST = "30";
     expect(envSetting("RETENTION_DAYS_TEST")).toBe("30");
   });
 
-  it("prefers the Gatherline name when both are set", () => {
-    process.env.GATHERLINE_RETENTION_DAYS_TEST = "30";
+  it("prefers the Tandem name, then the Gatherline one, when more than one is set", () => {
+    process.env.TANDEM_RETENTION_DAYS_TEST = "30";
+    process.env.GATHERLINE_RETENTION_DAYS_TEST = "14";
     process.env.SLACKOSS_RETENTION_DAYS_TEST = "7";
     expect(envSetting("RETENTION_DAYS_TEST")).toBe("30");
+    delete process.env.TANDEM_RETENTION_DAYS_TEST;
+    expect(envSetting("RETENTION_DAYS_TEST")).toBe("14");
   });
 
   it("is undefined when neither is set", () => {

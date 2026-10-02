@@ -5,11 +5,11 @@ import { chromium } from "@playwright/test";
 import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
 
 const root = new URL("../", import.meta.url);
-const source = new URL("apps/web/public/gatherline.svg", root);
+const source = new URL("apps/web/public/tandem.svg", root);
 const destination = new URL("apps/desktop/build/", root);
 await mkdir(destination, { recursive: true });
 await mkdir(new URL("apps/desktop/src/renderer/public/", root), { recursive: true });
-await copyFile(source, new URL("apps/desktop/src/renderer/public/gatherline.svg", root));
+await copyFile(source, new URL("apps/desktop/src/renderer/public/tandem.svg", root));
 const browser = await chromium.launch();
 try {
   const page = await browser.newPage({

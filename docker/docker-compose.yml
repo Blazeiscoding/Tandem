@@ -18,7 +18,7 @@ services:
     environment:
       # The previous name is still read, but only when the new one is not set:
       # passing both would hand the server a default that hides it.
-      GATHERLINE_ICE_SERVERS: ${GATHERLINE_ICE_SERVERS:-${SLACKOSS_ICE_SERVERS:-[]}}
+      TANDEM_ICE_SERVERS: ${TANDEM_ICE_SERVERS:-${GATHERLINE_ICE_SERVERS:-${SLACKOSS_ICE_SERVERS:-[]}}}
 
 volumes:
   slackoss-data:

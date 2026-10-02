@@ -14,6 +14,10 @@ export interface SavedCredentialServer {
 }
 
 export interface ProtectedServers {
+  /**
+   * The file format's name, from when the app was called Gatherline. Kept, so
+   * credentials saved by earlier versions still read.
+   */
   kind: "gatherline.saved-servers";
   version: 1;
   ciphertext: string;

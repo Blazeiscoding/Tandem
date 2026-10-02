@@ -199,7 +199,7 @@ export function WorkspaceScreen({
       <div className="flex h-full min-h-0 flex-col">
         {platform.kind === "desktop" && (
           <div className="titlebar-drag flex h-10 shrink-0 items-center border-b border-edge px-4 text-[11px] text-ink-faint">
-            Gatherline · Your workspace
+            Tandem · Your workspace
           </div>
         )}
         <div className="min-h-0 flex-1">
@@ -794,7 +794,7 @@ function WorkspaceInner({
         : status === "auth_failed"
           ? "signed out"
           : status === "protocol_mismatch"
-            ? "Server version incompatible — update Gatherline"
+            ? "Server version incompatible — update Tandem"
             : status === "password_change_required"
               ? "Choose a new password to carry on"
               : "offline";

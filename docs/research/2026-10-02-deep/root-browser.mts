@@ -8,7 +8,7 @@ import { createWorkspaceServer } from "../../../packages/server/src/server.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const temporaryRoot = resolve(tmpdir());
-const dataDir = mkdtempSync(join(temporaryRoot, "gatherline-deep-browser-"));
+const dataDir = mkdtempSync(join(temporaryRoot, "tandem-deep-browser-"));
 const inside = relative(temporaryRoot, resolve(dataDir));
 if (
   !inside ||
@@ -38,7 +38,7 @@ async function stop() {
   const target = resolve(dataDir);
   if (
     dirname(target) !== temporaryRoot ||
-    !target.startsWith(join(temporaryRoot, "gatherline-deep-browser-"))
+    !target.startsWith(join(temporaryRoot, "tandem-deep-browser-"))
   )
     throw new Error("Refusing to remove an unexpected fixture directory");
   rmSync(target, { recursive: true, force: true });

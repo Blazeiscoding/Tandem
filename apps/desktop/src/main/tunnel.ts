@@ -15,7 +15,8 @@ export function findCloudflared(
   exists: (path: string) => boolean = existsSync,
   platform: NodeJS.Platform = process.platform,
 ): string | null {
-  const configured = env.GATHERLINE_CLOUDFLARED ?? env.SLACKOSS_CLOUDFLARED;
+  const configured =
+    env.TANDEM_CLOUDFLARED ?? env.GATHERLINE_CLOUDFLARED ?? env.SLACKOSS_CLOUDFLARED;
   if (configured) return exists(configured) ? configured : null;
   const windows = platform === "win32";
   const file = windows ? "cloudflared.exe" : "cloudflared";
@@ -138,7 +139,7 @@ export async function probeHealth(
   let response: Response;
   try {
     const address = new URL(url);
-    address.searchParams.set("_gatherline", randomUUID());
+    address.searchParams.set("_tandem", randomUUID());
     response = await fetch(address, {
       signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
       cache: "no-store",
@@ -163,7 +164,7 @@ export async function probeHealth(
   }
 }
 
-export async function gatherlineIsReachable(
+export async function tandemIsReachable(
   url: string,
   signal: AbortSignal,
   instanceId?: string,
@@ -227,20 +228,23 @@ export function readNamedTunnelConfig(
   env: NodeJS.ProcessEnv = process.env,
   exists: (path: string) => boolean = existsSync,
 ): { publicUrl: string; tokenFile: string } | { error: string } | null {
-  const publicUrl = env.GATHERLINE_TUNNEL_URL ?? env.SLACKOSS_TUNNEL_URL;
-  const tokenFile = env.GATHERLINE_TUNNEL_TOKEN_FILE ?? env.SLACKOSS_TUNNEL_TOKEN_FILE;
+  const publicUrl = env.TANDEM_TUNNEL_URL ?? env.GATHERLINE_TUNNEL_URL ?? env.SLACKOSS_TUNNEL_URL;
+  const tokenFile =
+    env.TANDEM_TUNNEL_TOKEN_FILE ??
+    env.GATHERLINE_TUNNEL_TOKEN_FILE ??
+    env.SLACKOSS_TUNNEL_TOKEN_FILE;
   if (!publicUrl && !tokenFile) return null;
   try {
     if (!publicUrl || !tokenFile)
       throw new Error(
-        "Set both GATHERLINE_TUNNEL_URL and GATHERLINE_TUNNEL_TOKEN_FILE to publish a stable address.",
+        "Set both TANDEM_TUNNEL_URL and TANDEM_TUNNEL_TOKEN_FILE to publish a stable address.",
       );
     const config = validateNamedTunnelConfig(publicUrl, tokenFile);
     // The file is never read here. Only its presence is checked, so a missing
     // one is corrected before opening rather than reported as a tunnel failure.
     if (!exists(config.tokenFile))
       throw new Error(
-        "The Cloudflare tunnel token file is not where GATHERLINE_TUNNEL_TOKEN_FILE points.",
+        "The Cloudflare tunnel token file is not where TANDEM_TUNNEL_TOKEN_FILE points.",
       );
     return config;
   } catch (error) {
@@ -250,8 +254,8 @@ export function readNamedTunnelConfig(
 
 /** How a workspace reaches the internet at an address that does not change. */
 export type PublicAddressConfig =
-  /** Gatherline runs Cloudflare's connector for it. */
-  | { carrier: "gatherline"; publicUrl: string; tokenFile: string }
+  /** Tandem runs Cloudflare's connector for it. */
+  | { carrier: "tandem"; publicUrl: string; tokenFile: string }
   /** Something else already carries it here: a funnel, a proxy, a tunnel run by hand. */
   | { carrier: "elsewhere"; publicUrl: string }
   | { error: string }
@@ -271,7 +275,7 @@ export function resolvePublicAddress(
   const carried =
     configured !== undefined && configured !== null && configured !== ""
       ? configured
-      : (env.GATHERLINE_PUBLIC_URL ?? env.SLACKOSS_PUBLIC_URL);
+      : (env.TANDEM_PUBLIC_URL ?? env.GATHERLINE_PUBLIC_URL ?? env.SLACKOSS_PUBLIC_URL);
   if (carried) {
     try {
       return { carrier: "elsewhere", publicUrl: validatePublicAddress(carried) };
@@ -281,7 +285,7 @@ export function resolvePublicAddress(
   }
   const named = readNamedTunnelConfig(env, exists);
   if (!named || "error" in named) return named;
-  return { carrier: "gatherline", ...named };
+  return { carrier: "tandem", ...named };
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -314,7 +318,7 @@ interface TunnelOptions {
   /** Confirms that the public hostname reaches this running server, not another workspace. */
   instanceId?: string;
   launch?: (command: string, args: string[]) => ChildProcess;
-  /** Replaced in tests; the default checks Gatherline's health endpoint through Cloudflare. */
+  /** Replaced in tests; the default checks Tandem's health endpoint through Cloudflare. */
   healthProbe?: (url: string, signal: AbortSignal, instanceId?: string) => Promise<boolean>;
 }
 
@@ -350,7 +354,7 @@ function validateInstanceId(instanceId: unknown): void {
 
 /**
  * Publishes an address something else already carries to this workspace: a
- * Tailscale Funnel, a reverse proxy, a tunnel started by hand. Gatherline runs
+ * Tailscale Funnel, a reverse proxy, a tunnel started by hand. Tandem runs
  * no connector here, so there is no process to watch. It watches the address
  * instead, and gives it up once it stops answering as this workspace.
  */
@@ -372,7 +376,7 @@ export async function openConfiguredAddress(options: {
   validateInstanceId(options.instanceId);
   if (options.signal?.aborted) throw new Error("Opening to all was cancelled.");
 
-  const probe = options.healthProbe ?? gatherlineIsReachable;
+  const probe = options.healthProbe ?? tandemIsReachable;
   const health = `${address}/api/health`;
   // A blip on the way to Cloudflare or Tailscale must not invalidate everyone's
   // links, so an open address is given up only after several checks in a row.
@@ -458,7 +462,7 @@ function openTunnel(
   // what the desktop button does.
   let configDir: string;
   try {
-    configDir = mkdtempSync(join(tmpdir(), "gatherline-cloudflared-"));
+    configDir = mkdtempSync(join(tmpdir(), "tandem-cloudflared-"));
   } catch {
     return Promise.reject(new Error("Could not create a temporary Cloudflare configuration."));
   }
@@ -558,7 +562,7 @@ function openTunnel(
       }
       cleanupConfig();
       if (!didExit && child.pid !== undefined)
-        throw new Error("cloudflared did not stop after Gatherline closed the public link.");
+        throw new Error("cloudflared did not stop after Tandem closed the public link.");
     })();
     terminating = attempt.catch((error: unknown) => {
       terminating = null;
@@ -571,7 +575,7 @@ function openTunnel(
 
   return new Promise<Tunnel>((resolve, reject) => {
     let probeStarted = false;
-    const healthProbe = options.healthProbe ?? gatherlineIsReachable;
+    const healthProbe = options.healthProbe ?? tandemIsReachable;
     const onAbort = () => fail("Opening to all was cancelled.");
     const cleanupOpening = () => {
       clearTimeout(timer);

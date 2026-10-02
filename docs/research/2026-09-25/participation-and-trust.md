@@ -1,10 +1,10 @@
-# Gatherline: phone participation, accessibility and personal trust
+# Tandem: phone participation, accessibility and personal trust
 
 **Research and source access: September 25, 2026.** This extends the [product decision document](../../PRODUCT-RESEARCH-2026-09-25.md), [community research](../2026-09-24/community-research.md), [operations research](../2026-09-24/operations-research.md) and [roadmap](../../PRODUCT-ROADMAP-2026-09-24.md). It adds 25 registered sources, mostly platform documentation and standards, alongside a maintainer issue summary, a first-hand platform bug and a primary qualitative study. Some sources revisit standards already cited in the earlier review. Twenty-five URLs are not twenty-five independent observations.
 
 **Main recommendation:** keep the PWA feasibility path, but measure installation, return, notification privacy and interrupted work as one phone journey. Bring accessible reading and multilingual composition into that slice. Define blocking across message requests, group invitations, notifications, calls and shared rooms before implementing individual controls. Native mobile remains conditional on an observed, important platform gap, particularly incoming-call behavior.
 
-This is research and source inspection only. No real phones, assistive technologies, network fault tests, competitor applications or Gatherline runtime flows were exercised in this pass. Proposed thresholds below are acceptance hypotheses chosen for an engineering pilot; they are not published platform guarantees, measured Gatherline results, legal requirements or evidence of accessibility conformance. Existing draft state tables remain proposals and were not edited.
+This is research and source inspection only. No real phones, assistive technologies, network fault tests, competitor applications or Tandem runtime flows were exercised in this pass. Proposed thresholds below are acceptance hypotheses chosen for an engineering pilot; they are not published platform guarantees, measured Tandem results, legal requirements or evidence of accessibility conformance. Existing draft state tables remain proposals and were not edited.
 
 ## 1. What the current source establishes
 
@@ -26,7 +26,7 @@ Inspection was limited to the named paths. Absence from one file is not a whole-
 
 The earlier review correctly identified iOS/iPadOS 16.4 Home Screen web push as the baseline platform path. Newer documentation changes two details. Safari 26's shipped release notes say websites added to the Home Screen open as web apps by default, with an “Open as Web App” choice. A manifest remains useful. Installation instructions must therefore be version-aware and should verify the resulting app mode rather than infer success merely from an icon. [P03: Safari 26 release](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/)
 
-Apple also documents Declarative Web Push for Home Screen apps on iOS/iPadOS 18.4 and Safari 18.5 on macOS. A browser can render a valid notification description and navigate from it without a service worker; optional worker processing can refine it. Apple describes fallback when that processing cannot run. This is an implementation option for a compatibility spike, not evidence that Gatherline notifications are dependable. [P02: Apple WWDC25 session](https://developer.apple.com/videos/play/wwdc2025/235/)
+Apple also documents Declarative Web Push for Home Screen apps on iOS/iPadOS 18.4 and Safari 18.5 on macOS. A browser can render a valid notification description and navigate from it without a service worker; optional worker processing can refine it. Apple describes fallback when that processing cannot run. This is an implementation option for a compatibility spike, not evidence that Tandem notifications are dependable. [P02: Apple WWDC25 session](https://developer.apple.com/videos/play/wwdc2025/235/)
 
 WebKit still requires visible notifications for push; it does not permit silent push as an unrestricted synchronization channel. Its declarative design can fall back to the original description when optional processing fails. **Design consequence:** that original title/body must already satisfy the participant's privacy setting. Do not put sensitive message text in a fallback and depend on worker code to remove it. Do not use push events to silently maintain every workspace's unread count. [P01: WebKit design and behavior](https://webkit.org/blog/16535/meet-declarative-web-push/)
 
@@ -34,7 +34,7 @@ WebKit still requires visible notifications for push; it does not permit silent 
 
 RFC 8030 defines retention, urgency, replacement and subscription expiration. A service can shorten retention or expire a subscription; its acceptance of a push request cannot establish that a notification was seen. [P04: HTTP Web Push protocol](https://www.rfc-editor.org/rfc/rfc8030)
 
-Proposed Gatherline diagnostic states:
+Proposed Tandem diagnostic states:
 
 1. The workspace accepted the message.
 2. A notification decision was made for a particular account/device.
@@ -48,7 +48,7 @@ Choose different expiry semantics for content classes. A persistent message can 
 
 ### Historical bug reports are test inputs, not present-tense verdicts
 
-Firebase maintainers list iOS PWA reports involving restart, subscription state and click routing, and explicitly say they could not reproduce some reports. This is useful first-party maintenance evidence of debugging complexity; it does not establish that Firebase, a specific browser release or Gatherline currently fails in those ways. [P06: Firebase known issues](https://github.com/firebase/firebase-js-sdk/wiki/Known-Issues)
+Firebase maintainers list iOS PWA reports involving restart, subscription state and click routing, and explicitly say they could not reproduce some reports. This is useful first-party maintenance evidence of debugging complexity; it does not establish that Firebase, a specific browser release or Tandem currently fails in those ways. [P06: Firebase known issues](https://github.com/firebase/firebase-js-sdk/wiki/Known-Issues)
 
 WebKit bug 263687 reports cold notification taps opening the root instead of the intended URL on iOS 17.0.3. A later comment reports inability to reproduce on iOS 26.0, although the issue remains marked NEW. Preserve both observations. Test the exact release in the pilot; issue status is not a substitute for reproduction. [P07: report and later counterevidence](https://bugs.webkit.org/show_bug.cgi?id=263687)
 
@@ -72,7 +72,7 @@ An adoption decision needs a named operating owner for signing, distribution, up
 
 ### Avoid two opposite storage overclaims
 
-WebKit documents origin/overall quotas, possible eviction under storage pressure, and heuristic decisions about persistent storage requests. Its percentages are ceilings, not usable-space guarantees. Gatherline should request persistence where appropriate, observe the result and handle write failure regardless of the reported quota. [P08: storage policy](https://webkit.org/blog/14403/updates-to-storage-policy/)
+WebKit documents origin/overall quotas, possible eviction under storage pressure, and heuristic decisions about persistent storage requests. Its percentages are ceilings, not usable-space guarantees. Tandem should request persistence where appropriate, observe the result and handle write failure regardless of the reported quota. [P08: storage policy](https://webkit.org/blog/14403/updates-to-storage-policy/)
 
 Conversely, it is inaccurate to claim that all installed iOS PWAs lose their data after seven days. WebKit's tracking-prevention documentation explicitly exempts Home Screen app first-party domains from that seven-day script-writeable-storage cap and describes their isolation from Safari data. That exemption does not remove the separate storage-pressure and user-deletion questions. [P09: Home Screen exception](https://webkit.org/tracking-prevention/)
 
@@ -89,7 +89,7 @@ Recommended cache contract for D9:
 
 Workbox documents browser-managed retry where Background Sync exists and a worker-start fallback elsewhere. Its default plugin handles thrown network failures, not ordinary 4xx/5xx responses. A generic queue therefore does not solve expired credentials, forbidden sends, permanent validation errors or application-specific conflict resolution. [P10: Workbox Background Sync](https://developer.chrome.com/docs/workbox/modules/workbox-background-sync)
 
-Retain Gatherline's existing request-identity and attachment-recovery work. Define the following cases before expanding background delivery:
+Retain Tandem's existing request-identity and attachment-recovery work. Define the following cases before expanding background delivery:
 
 | Interruption                                             | Required user-visible outcome                                                                                                          |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -139,7 +139,7 @@ Voice notes broaden participation only if listeners can also use them. Retain th
 
 ### Preserve language input and recipient selection
 
-UI Events specifies composition events and `KeyboardEvent.isComposing`; its publication status is a specification draft, not proof that every keyboard/browser sequence is identical. Gatherline already has a composition guard. Preserve it and test actual Japanese/Chinese/Korean candidate confirmation, mobile dictation, Indic input, paste, undo and switching input methods while a draft is open. [P17: UI Events](https://www.w3.org/TR/uievents/)
+UI Events specifies composition events and `KeyboardEvent.isComposing`; its publication status is a specification draft, not proof that every keyboard/browser sequence is identical. Tandem already has a composition guard. Preserve it and test actual Japanese/Chinese/Korean candidate confirmation, mobile dictation, Indic input, paste, undo and switching input methods while a draft is open. [P17: UI Events](https://www.w3.org/TR/uievents/)
 
 A more concrete current-source question is mention discovery. With the inspected ASCII mention-query parser, a participant may be unable to narrow autocomplete by typing a non-Latin display name after `@`, despite those names being considered by candidate filtering. Validate a person with an Arabic, Devanagari and Japanese display name; show stable recipient identity when selecting a suggestion. A generic ASCII handle fallback does not automatically make discovery easy for a group using another script.
 
@@ -161,9 +161,9 @@ Translation readiness should also include plural forms, incomplete translations,
 
 Use distinct concepts: **mute** controls interruption, **hide** controls local presentation, **block contact** refuses specified personal interactions, **leave** changes membership, and **report** shares selected evidence with authorized reviewers. Each action should explain its effect on shared spaces. A block cannot remove copies another person already obtained.
 
-Signal's documentation is a useful counterexample to an overly simple “blocking means invisibility” claim. It describes asymmetric shared-group visibility, confusion caused by hidden messages, and no replay of blocked messages when unblocked. Gatherline should choose and describe its own behavior rather than copy a button with unstated semantics. [P21: Signal block behavior](https://support.signal.org/hc/en-us/articles/360007060072-Block-numbers-usernames-or-groups)
+Signal's documentation is a useful counterexample to an overly simple “blocking means invisibility” claim. It describes asymmetric shared-group visibility, confusion caused by hidden messages, and no replay of blocked messages when unblocked. Tandem should choose and describe its own behavior rather than copy a button with unstated semantics. [P21: Signal block behavior](https://support.signal.org/hc/en-us/articles/360007060072-Block-numbers-usernames-or-groups)
 
-W3C's Privacy Principles emphasize minimizing personal data and respecting contextual identity. They are design principles, not a legal certification. For Gatherline, joining a workspace should not implicitly grant discoverability across other workspaces, unrestricted personal calls or notification previews on shared devices. [P22: W3C Privacy Principles](https://www.w3.org/TR/privacy-principles/)
+W3C's Privacy Principles emphasize minimizing personal data and respecting contextual identity. They are design principles, not a legal certification. For Tandem, joining a workspace should not implicitly grant discoverability across other workspaces, unrestricted personal calls or notification previews on shared devices. [P22: W3C Privacy Principles](https://www.w3.org/TR/privacy-principles/)
 
 ### Resolve these cases in the contact-policy prototype
 
@@ -180,7 +180,7 @@ W3C's Privacy Principles emphasize minimizing personal data and respecting conte
 | Multiple devices / stale client                       | Server authorization decides the outcome. A restored outbox, notification action or old client must not bypass a block applied elsewhere.                                                                                                     |
 | Report evidence                                       | Preview what messages/attachments and identity will be shared, who can review it, and whether the reported host/admin is among them. Avoid automatically attaching a whole private conversation.                                              |
 
-These are proposed design choices to validate; they are not represented as competitor features or completed Gatherline safeguards.
+These are proposed design choices to validate; they are not represented as competitor features or completed Tandem safeguards.
 
 ### Calls expose more than a ringtone
 
@@ -192,13 +192,13 @@ Consequently, a blanket rule allowing a blocked participant to join any shared-c
 
 ### Account control and support are part of trust
 
-A USENIX study conducted five focus groups with 17 IPV professionals and four with 11 customer-support practitioners. It recommends trauma-informed support and cautions against promises to solve participants' problems. Its qualitative setting does not estimate the prevalence of abuse in Gatherline or validate any proposed block policy. [P23: Zou and colleagues, 2021](https://www.usenix.org/conference/usenixsecurity21/presentation/zou)
+A USENIX study conducted five focus groups with 17 IPV professionals and four with 11 customer-support practitioners. It recommends trauma-informed support and cautions against promises to solve participants' problems. Its qualitative setting does not estimate the prevalence of abuse in Tandem or validate any proposed block policy. [P23: Zou and colleagues, 2021](https://www.usenix.org/conference/usenixsecurity21/presentation/zou)
 
 Design implications, to validate with appropriate expertise: make session review and revocation understandable, separate the participant's needs from the workspace operator's, and let people inspect the consequences of reporting or changing credentials before acting. A host may be part of the problem; “ask your administrator” is not always a complete support path. Do not promise that one click makes an unsafe household or device safe. Research recruitment should not require survivors to disclose private histories merely to test ordinary controls; start with synthetic scenarios and expert review.
 
 Push confidentiality also needs precise language. RFC 8291 encrypts the payload between the application server and user agent through a push service. That protects a transport segment; it is not participant-to-participant message E2EE against the workspace host. [P05: Web Push encryption](https://www.rfc-editor.org/rfc/rfc8291)
 
-Before enrolling a device, show preview choices such as generic notification, sender-only, or message text, with a sample. Explain the host, any Gatherline-operated relay and browser/OS push provider in plain language. Subscription cleanup after sign-out, account removal and device revocation belongs in the same slice as subscription creation. Minimize information in URLs, fallback notifications and diagnostic exports.
+Before enrolling a device, show preview choices such as generic notification, sender-only, or message text, with a sample. Explain the host, any Tandem-operated relay and browser/OS push provider in plain language. Subscription cleanup after sign-out, account removal and device revocation belongs in the same slice as subscription creation. Minimize information in URLs, fallback notifications and diagnostic exports.
 
 ## 7. Exact validation gates for the next slice
 
@@ -233,12 +233,12 @@ Remaining unknowns: actual target-device distribution, required OS support horiz
 
 ## 9. Compact provenance register
 
-**All sources accessed September 25, 2026.** Dates below are publication/version dates where verified, not crawl dates. “Undated” means a publication date was not established. Primary documentation describes an intended/published contract; issue reports describe particular observations; neither measures Gatherline. Source-derived descriptions are paraphrased and kept compact; the gates and policy recommendations are this memo's synthesis.
+**All sources accessed September 25, 2026.** Dates below are publication/version dates where verified, not crawl dates. “Undated” means a publication date was not established. Primary documentation describes an intended/published contract; issue reports describe particular observations; neither measures Tandem. Source-derived descriptions are paraphrased and kept compact; the gates and policy recommendations are this memo's synthesis.
 
 | ID  | Organization / author; type; publication or version date                                     | Source and use / limitation                                                                                                                                                                                    |
 | --- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P01 | WebKit / Brady Eidson; platform engineering article; 2025-03-27                              | [Meet Declarative Web Push](https://webkit.org/blog/16535/meet-declarative-web-push/). Visible fallback and silent-push constraints; platform design claims are not independently measured reliability.        |
-| P02 | Apple / Brady Eidson; official WWDC25 session; June 2025                                     | [Learn more about Declarative Web Push](https://developer.apple.com/videos/play/wwdc2025/235/). Shipping versions and processing model; no Gatherline integration tested.                                      |
+| P02 | Apple / Brady Eidson; official WWDC25 session; June 2025                                     | [Learn more about Declarative Web Push](https://developer.apple.com/videos/play/wwdc2025/235/). Shipping versions and processing model; no Tandem integration tested.                                          |
 | P03 | WebKit / Jen Simmons and colleagues; release notes; 2025-09-15                               | [Safari 26.0](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/). Home Screen mode change; used final release notes rather than beta announcement.                                                 |
 | P04 | IETF / M. Thomson, E. Damaggio, B. Raymor; Standards Track RFC; December 2016                | [RFC 8030](https://www.rfc-editor.org/rfc/rfc8030). TTL/expiration/receipt semantics; protocol does not establish end-user delivery rates.                                                                     |
 | P05 | IETF / M. Thomson; Standards Track RFC; November 2017                                        | [RFC 8291](https://www.rfc-editor.org/rfc/rfc8291). Encryption endpoint distinction; not message E2EE against the app server.                                                                                  |
@@ -259,6 +259,6 @@ Remaining unknowns: actual target-device distribution, required OS support horiz
 | P20 | Unicode Consortium / Josh Hadley, Roozbeh Pournader; UTS #39, revision 34; 2026-08-27        | [Security Mechanisms](https://www.unicode.org/reports/tr39/). Identifier-confusability mechanisms; avoid broad language bans.                                                                                  |
 | P21 | Signal; official support documentation; undated                                              | [Block numbers, usernames or groups](https://support.signal.org/hc/en-us/articles/360007060072-Block-numbers-usernames-or-groups). Explicit shared-group limits; a reference policy, not proof of superiority. |
 | P22 | W3C TAG / Robin Berjon, Jeffrey Yasskin; W3C Statement; 2025-05-15                           | [Privacy Principles](https://www.w3.org/TR/privacy-principles/). Data/context guidance; not a compliance assessment.                                                                                           |
-| P23 | Yixin Zou and seven coauthors; peer-reviewed qualitative study, USENIX Security; August 2021 | [Support and IPV](https://www.usenix.org/conference/usenixsecurity21/presentation/zou). Practitioner focus groups; not population prevalence or validation of Gatherline.                                      |
+| P23 | Yixin Zou and seven coauthors; peer-reviewed qualitative study, USENIX Security; August 2021 | [Support and IPV](https://www.usenix.org/conference/usenixsecurity21/presentation/zou). Practitioner focus groups; not population prevalence or validation of Tandem.                                          |
 | P24 | W3C WebRTC Working Group; Recommendation; 2025-03-13                                         | [WebRTC privacy/security](https://www.w3.org/TR/webrtc/#privacy-and-security-considerations). Peer address disclosure and relay policy; no traffic capture performed here.                                     |
 | P25 | IETF / J. Uberti, G. Shieh; Standards Track RFC; January 2021                                | [RFC 8828](https://www.rfc-editor.org/rfc/rfc8828.html). IP handling tradeoffs; depends on browser/network policy.                                                                                             |

@@ -202,10 +202,10 @@ if (process.argv.includes("--child")) {
   process.stdout.write(`AUDIT ${JSON.stringify(result)}\n`);
 } else {
   const temp = resolve(tmpdir()),
-    root = resolve(mkdtempSync(join(temp, "gatherline-server-gap-"))),
+    root = resolve(mkdtempSync(join(temp, "tandem-server-gap-"))),
     ownership = randomUUID();
   check(
-    inside(temp, root) && basename(root).startsWith("gatherline-server-gap-"),
+    inside(temp, root) && basename(root).startsWith("tandem-server-gap-"),
     "owned root location checked",
   );
   writeFileSync(join(root, ".owned"), ownership);
@@ -287,7 +287,7 @@ if (process.argv.includes("--child")) {
     const target = resolve(root);
     check(
       inside(temp, target) &&
-        basename(target).startsWith("gatherline-server-gap-") &&
+        basename(target).startsWith("tandem-server-gap-") &&
         readFileSync(join(target, ".owned"), "utf8") === ownership,
       "resolved recursive cleanup and ownership checked",
     );

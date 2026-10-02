@@ -41,7 +41,7 @@ export interface SlackossBridge {
   hostingSetInviteOnly: (inviteOnly: boolean) => Promise<unknown>;
   hostingSetPublicAddress: (address: string) => Promise<unknown>;
   onHostingStatus: (cb: (status: unknown) => void) => () => void;
-  /** A gatherline:// (or legacy slackoss://) link that launched the app, if any. */
+  /** A tandem:// (or legacy slackoss://) link that launched the app, if any. */
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
   /** Shows the window again, restored and in front. */

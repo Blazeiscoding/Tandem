@@ -63,7 +63,7 @@ function usableIn(layer: Layer, element: HTMLElement | null): element is HTMLEle
 
 /** Child autoFocus can run before the new portal's layout effect registers it. */
 function enteringHigherLayer(element: HTMLElement | null, current: Layer): boolean {
-  const root = element?.closest<HTMLElement>("[data-gatherline-modal]");
+  const root = element?.closest<HTMLElement>("[data-tandem-modal]");
   return !!root && root.parentElement === document.body && follows(root, current.root);
 }
 
@@ -110,7 +110,7 @@ function isolate(layer: Layer | null) {
     // Notices report what happened elsewhere, including while this dialog has
     // been open. They compete with nothing on it, so they stay readable and
     // stay in the accessibility tree rather than going inert behind it.
-    if (element.hasAttribute("data-gatherline-toasts")) continue;
+    if (element.hasAttribute("data-tandem-toasts")) continue;
     if (!originalInert.has(element)) originalInert.set(element, element.getAttribute("inert"));
     if (!element.hasAttribute("inert")) element.setAttribute("inert", "");
   }
@@ -309,7 +309,7 @@ export function Modal({
   return createPortal(
     <div
       ref={root}
-      data-gatherline-modal=""
+      data-tandem-modal=""
       className={"fixed inset-0 z-[60] " + backdropClassName}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && activeLayer() === layer.current)

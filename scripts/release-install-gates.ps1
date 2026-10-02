@@ -1,8 +1,9 @@
 # The release gates a Windows installer passes before it is published (IMP-08):
 # it installs silently for the current user and says what version it
-# installed, the installed app starts and registers the gatherline:// and
-# slackoss:// links, installing over the previous release keeps that release's
-# data, and uninstalling removes the app but keeps the person's data.
+# installed, the installed app starts and registers the tandem://,
+# gatherline:// and slackoss:// links, installing over the previous release
+# keeps that release's data, and uninstalling removes the app but keeps the
+# person's data.
 #
 #   ./scripts/release-install-gates.ps1 -Installer <new Setup.exe> -Version <x.y.z> [-Previous <old Setup.exe>]
 #
@@ -26,7 +27,8 @@ function Installed {
   $keys = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue
   foreach ($key in $keys) {
     $entry = Get-ItemProperty $key.PSPath
-    if ($entry.DisplayName -like "Gatherline*") { return $entry }
+    # A previous release may still carry the Gatherline name.
+    if ($entry.DisplayName -like "Tandem*" -or $entry.DisplayName -like "Gatherline*") { return $entry }
   }
   return $null
 }
@@ -51,8 +53,8 @@ function Install([string] $Path, [string] $Expected) {
     Fail "installed version is $($entry.DisplayVersion), expected $Expected"
   }
   $folder = InstallDirectory $entry
-  $exe = Join-Path $folder "Gatherline.exe"
-  if (-not (Test-Path $exe)) { Fail "no Gatherline.exe in $folder" }
+  $exe = @("Tandem.exe", "Gatherline.exe") | ForEach-Object { Join-Path $folder $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $exe) { Fail "no Tandem.exe in $folder" }
   Write-Host "Installed $($entry.DisplayVersion) at $folder"
   return $exe
 }
@@ -62,7 +64,7 @@ function Install([string] $Path, [string] $Expected) {
 function Launch([string] $Exe) {
   Write-Host "Starting $Exe"
   $process = Start-Process -FilePath $Exe -PassThru
-  $candidates = @((Join-Path $env:APPDATA "Gatherline"), (Join-Path $env:APPDATA "@slackoss\desktop"))
+  $candidates = @((Join-Path $env:APPDATA "@slackoss\desktop"), (Join-Path $env:APPDATA "Tandem"), (Join-Path $env:APPDATA "Gatherline"))
   $data = $null
   $registered = $false
   for ($i = 0; $i -lt 60 -and -not ($data -and $registered); $i++) {
@@ -70,14 +72,14 @@ function Launch([string] $Exe) {
     if ($process.HasExited) { Fail "the app exited on its own with $($process.ExitCode)" }
     $data = $candidates | Where-Object { Test-Path (Join-Path $_ "Local State") } | Select-Object -First 1
     $registered = $true
-    foreach ($scheme in "gatherline", "slackoss") {
+    foreach ($scheme in "tandem", "gatherline", "slackoss") {
       $command = (Get-ItemProperty "HKCU:\Software\Classes\$scheme\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
       if (-not $command -or $command -notlike "*$Exe*") { $registered = $false }
     }
   }
-  Get-Process -Name "Gatherline" -ErrorAction SilentlyContinue | Stop-Process -Force
+  Get-Process -Name "Tandem", "Gatherline" -ErrorAction SilentlyContinue | Stop-Process -Force
   Start-Sleep -Seconds 2
-  if (-not $registered) { Fail "the app did not register gatherline:// and slackoss:// to $Exe" }
+  if (-not $registered) { Fail "the app did not register tandem://, gatherline:// and slackoss:// to $Exe" }
   if (-not $data) { Fail "the app created no data folder in $($candidates -join ' or ')" }
   Write-Host "Links registered; data in $data"
   return $data

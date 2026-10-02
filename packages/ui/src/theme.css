@@ -1,5 +1,5 @@
 /*
- * Gatherline's look: Discord's shape with Slack's order. A rail of
+ * Tandem's look: Discord's shape with Slack's order. A rail of
  * workspaces on the far left, the workspace's channels beside it, the
  * conversation in the middle and threads, members or a panel on the right.
  * Two themes for now, each a full set of the tokens below: Onyx, near-black
@@ -46,11 +46,12 @@
   --color-ink-dim: #c6c6d0; /* secondary text */
   --color-ink-faint: #9b9ba8; /* tertiary text, timestamps */
   /* Keep the token name compatible with existing integration components. */
-  --color-copper: #a8a2ff; /* accent: unread, selected, links, primary actions */
-  --color-copper-deep: #948dff; /* accent, pressed and hovered */
+  /* The accent is ChaiCode's orange (dsa.chaicode.com), exactly in Onyx. */
+  --color-copper: #ff8b3d; /* accent: unread, selected, links, primary actions */
+  --color-copper-deep: #eb8038; /* accent, pressed and hovered */
   --color-online: #4ade80; /* present, live huddles */
   --color-alert: #ff7b72; /* errors, leaving and mention counts */
-  --color-mention: rgba(168, 162, 255, 0.1); /* a message that names you */
+  --color-mention: rgba(255, 139, 61, 0.1); /* a message that names you */
 
   --font-sans:
     "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
@@ -73,11 +74,12 @@
   --color-ink: #0f0f14;
   --color-ink-dim: #3b3b47;
   --color-ink-faint: #5c5c6a;
-  --color-copper: #5146d6;
-  --color-copper-deep: #4339c2;
+  /* ChaiCode's light orange (#dd6412), deepened until it reads at 4.5:1 here. */
+  --color-copper: #ac4e0e;
+  --color-copper-deep: #9b460d;
   --color-online: #116b34;
   --color-alert: #c42b30;
-  --color-mention: rgba(81, 70, 214, 0.08);
+  --color-mention: rgba(172, 78, 14, 0.08);
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"] {
@@ -90,11 +92,12 @@
     --color-ink: #0f0f14;
     --color-ink-dim: #3b3b47;
     --color-ink-faint: #5c5c6a;
-    --color-copper: #5146d6;
-    --color-copper-deep: #4339c2;
+    /* ChaiCode's light orange (#dd6412), deepened until it reads at 4.5:1 here. */
+    --color-copper: #ac4e0e;
+    --color-copper-deep: #9b460d;
     --color-online: #116b34;
     --color-alert: #c42b30;
-    --color-mention: rgba(81, 70, 214, 0.08);
+    --color-mention: rgba(172, 78, 14, 0.08);
   }
 }
 

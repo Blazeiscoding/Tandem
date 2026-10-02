@@ -60,7 +60,7 @@ try {
       };
     }),
   );
-  // Separate diagnostic discovered while developing the fixture. Gatherline's
+  // Separate diagnostic discovered while developing the fixture. Tandem's
   // current search uses an outer ordinary-table rowid IN subquery, not this shape.
   db.exec(
     "CREATE VIRTUAL TABLE binding_probe USING fts5(text); INSERT INTO binding_probe(rowid,text) VALUES(4,'cafe'),(6,'cafe');",
@@ -94,7 +94,7 @@ try {
         node: process.version,
         sqlite: db.prepare("SELECT sqlite_version() AS version").get().version,
         scope:
-          "Synthetic in-memory FTS5 tokenization probe; not the Gatherline API, a language-quality evaluation, or a performance benchmark.",
+          "Synthetic in-memory FTS5 tokenization probe; not the Tandem API, a language-quality evaluation, or a performance benchmark.",
         results,
         bindingProbe: {
           expectedRowidsForEachCase: [4],

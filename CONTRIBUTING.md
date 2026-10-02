@@ -50,7 +50,7 @@ Releases come from `.github/workflows/release.yml`, on a `v1.2.3` tag or a
 manual run naming the tag. It builds the server and the Windows installer from
 that one commit and runs the unit, browser and desktop suites on them. On
 Windows it also installs the installer silently, starts the app, checks it
-registers `gatherline://` and `slackoss://`, upgrades from the previous published
+registers `tandem://` and `slackoss://`, upgrades from the previous published
 release if there is one, and checks uninstalling keeps the person's data.
 `scripts/release-manifest.mjs` then refuses any file not built from that commit,
 or built from changed source, and writes `SHA256SUMS` and notes naming the
@@ -84,7 +84,7 @@ Requests are rationed by default, keyed on the account where there is one. A
 test or script that seeds history by posting hundreds of messages in a loop is
 indistinguishable from the flooding those limits exist to refuse, so start its
 server with `rateLimits: false` (or `--no-rate-limits` for the CLI, or
-`GATHERLINE_RATE_LIMITS=off` for a container) rather than raising the limits for
+`TANDEM_RATE_LIMITS=off` for a container) rather than raising the limits for
 everybody. Rationing has its own suite, where it is the subject rather than a
 background condition every other case has to work around.
 
@@ -138,7 +138,7 @@ journey does by removing `writeText`.
 
 A renamed setting has to fall back to its previous name everywhere it is passed
 along, not only where the code reads it. The Compose file once passed
-`GATHERLINE_ICE_SERVERS` with a default beside `SLACKOSS_ICE_SERVERS`, and that
+`TANDEM_ICE_SERVERS` with a default beside `SLACKOSS_ICE_SERVERS`, and that
 default hid a value still set under the old name.
 
 `pnpm test` runs every package at once, and the server tests allow five seconds

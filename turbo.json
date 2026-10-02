@@ -38,9 +38,9 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/desktop/src/main/index.ts",
         "$TURBO_ROOT$/apps/desktop/src/renderer/index.html",
-        "$TURBO_ROOT$/apps/desktop/src/renderer/public/gatherline.svg",
+        "$TURBO_ROOT$/apps/desktop/src/renderer/public/tandem.svg",
         "$TURBO_ROOT$/apps/web/index.html",
-        "$TURBO_ROOT$/apps/web/public/gatherline.svg"
+        "$TURBO_ROOT$/apps/web/public/tandem.svg"
       ]
     },
     "dev": {

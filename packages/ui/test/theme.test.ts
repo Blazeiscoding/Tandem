@@ -210,8 +210,8 @@ describe("colours written outside the stylesheet", () => {
       expect(hexes(read(page)), page).toEqual([tokens.ground]);
     // The mark the favicon and the desktop icons are drawn from, as BrandMark draws it.
     for (const icon of [
-      "apps/web/public/gatherline.svg",
-      "apps/desktop/src/renderer/public/gatherline.svg",
+      "apps/web/public/tandem.svg",
+      "apps/desktop/src/renderer/public/tandem.svg",
     ])
       expect(hexes(read(icon)), icon).toEqual([tokens.copper, tokens.ground]);
   });

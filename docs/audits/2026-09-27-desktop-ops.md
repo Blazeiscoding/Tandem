@@ -162,7 +162,7 @@ Cloudflare connector or adopting an externally carried address is a separate
 `openToAll` action
 ([hosting.ts](../../apps/desktop/src/main/hosting.ts#L1018)). Thus an
 OS-login restart can resume LAN hosting while a saved stable public link
-remains unpublished inside Gatherline. For an app-managed named tunnel the
+remains unpublished inside Tandem. For an app-managed named tunnel the
 connector is absent; for an external route, direct traffic may arrive but
 generated links still lack the public URL. The current host status can say
 “running” without explaining that a remote participant's stable address is

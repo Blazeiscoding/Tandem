@@ -17,7 +17,7 @@ const asar = desktopRequire(
   resolve(root, "node_modules/.pnpm", asarName, "node_modules/@electron/asar"),
 );
 const electronDist = dirname(desktopRequire("electron"));
-const directory = await mkdtemp(join(tmpdir(), "gatherline-desktop-package-audit-"));
+const directory = await mkdtemp(join(tmpdir(), "tandem-desktop-package-audit-"));
 const project = join(directory, "project");
 const dependency = join(directory, "workspace-server");
 const summary = {
@@ -28,7 +28,7 @@ const summary = {
     encoding: "utf8",
   }).trim(),
   scope:
-    "Minimal synthetic desktop fixture with the current files:[out/**,package.json] policy and a linked workspace production dependency. No actual workspace data or source is copied. This validates collector behavior, not a fresh full Gatherline package.",
+    "Minimal synthetic desktop fixture with the current files:[out/**,package.json] policy and a linked workspace production dependency. No actual workspace data or source is copied. This validates collector behavior, not a fresh full Tandem package.",
   electronBuilderVersion: desktopRequire("electron-builder/package.json").version,
   electronVersion: desktopRequire("electron/package.json").version,
 };
@@ -38,7 +38,7 @@ function assertOwned() {
     !within ||
     within.startsWith("..") ||
     isAbsolute(within) ||
-    !directory.includes("gatherline-desktop-package-audit-")
+    !directory.includes("tandem-desktop-package-audit-")
   )
     throw new Error("Unsafe disposable directory");
 }

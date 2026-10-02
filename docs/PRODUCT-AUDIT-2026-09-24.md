@@ -1,4 +1,4 @@
-# Gatherline product audit — September 24, 2026
+# Tandem product audit — September 24, 2026
 
 This audit examines the current source, rather than treating the README or previous improvement plans as proof of implementation. It covers the shared web/desktop interface, client behavior, relevant protocol shapes and hosting foundations. Source references identify the implementation inspected; they are not claims that every behavior was exercised in a running app. The browser walkthrough and test results are recorded separately below. No application source or pre-existing documentation was changed for this review.
 
@@ -134,7 +134,7 @@ The scripted walkthrough surfaced no uncaught page errors in its recorded surfac
 
 The ordinary workspace already has a consistent visual identity and a clear conversation/composer structure. The next pass should improve use of space and interaction, retaining that foundation.
 
-![Seeded Gatherline workspace at 1440 by 900](review-assets/2026-09-24/workspace.png)
+![Seeded Tandem workspace at 1440 by 900](review-assets/2026-09-24/workspace.png)
 
 Search already includes structured filters, query help, highlighting and conversation context. Relevance and file discovery are the additions to prioritize.
 
@@ -142,7 +142,7 @@ Search already includes structured filters, query help, highlighting and convers
 
 The short landscape layout retains a full desktop sidebar. This supports using available height and input method, as well as width, when refining navigation.
 
-![Gatherline at 844 by 390 showing limited sidebar space](review-assets/2026-09-24/short-landscape.png)
+![Tandem at 844 by 390 showing limited sidebar space](review-assets/2026-09-24/short-landscape.png)
 
 The narrow thread view makes effective use of the screen. Its next validation step is a real phone with the software keyboard, touch actions and Back navigation.
 

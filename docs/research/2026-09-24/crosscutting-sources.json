@@ -7,7 +7,7 @@
     "type": "primary-study",
     "publishedOrUpdated": "2010-02",
     "claim": "A two-week workplace email study found varied effects when notifications were removed, including more self-checking for some users.",
-    "limitations": "Older email study; not a trial of Gatherline, Slack or a universal notification default.",
+    "limitations": "Older email study; not a trial of Tandem, Slack or a universal notification default.",
     "accessed": "2026-09-24"
   },
   {
@@ -95,7 +95,7 @@
     "type": "official-doc",
     "publishedOrUpdated": null,
     "claim": "Provides testable accessibility criteria including focus visibility, target size, reflow, authentication and media alternatives.",
-    "limitations": "Standard used as a design target; this research does not establish legal compliance or certify Gatherline.",
+    "limitations": "Standard used as a design target; this research does not establish legal compliance or certify Tandem.",
     "accessed": "2026-09-24"
   },
   {
@@ -106,7 +106,7 @@
     "type": "official-doc",
     "publishedOrUpdated": null,
     "claim": "Official integration groups issue and pull-request updates in threads and maintains current context.",
-    "limitations": "Documents GitHub's Slack app; does not establish compatibility with Gatherline's partial Slack API.",
+    "limitations": "Documents GitHub's Slack app; does not establish compatibility with Tandem's partial Slack API.",
     "accessed": "2026-09-24"
   },
   {
@@ -150,7 +150,7 @@
     "type": "official-doc",
     "publishedOrUpdated": null,
     "claim": "Personal and organization exports have different coverage, including exclusions for certain work/school or external spaces.",
-    "limitations": "An export's existence does not imply complete source history or a ready Gatherline import adapter.",
+    "limitations": "An export's existence does not imply complete source history or a ready Tandem import adapter.",
     "accessed": "2026-09-24"
   },
   {

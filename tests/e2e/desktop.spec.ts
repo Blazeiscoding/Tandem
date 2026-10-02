@@ -38,7 +38,7 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   // the app into plain Node: launch then fails with "bad option".
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
   const app = await electron.launch({
-    executablePath: resolve("apps/desktop/release/win-unpacked/Gatherline.exe"),
+    executablePath: resolve("apps/desktop/release/win-unpacked/Tandem.exe"),
     env: {
       ...inherited,
       SLACKOSS_TEST: "1",
@@ -49,9 +49,9 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   launched = { app, data };
 
   const page = await app.firstWindow();
-  expect(await app.evaluate(({ app }) => app.getName())).toBe("Gatherline");
+  expect(await app.evaluate(({ app }) => app.getName())).toBe("Tandem");
   expect(await app.evaluate(({ app }) => app.getPath("userData"))).toBe(data);
-  await expect(page).toHaveTitle("Gatherline");
+  await expect(page).toHaveTitle("Tandem");
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
   await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
@@ -98,7 +98,7 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   expect(await page.evaluate(() => Notification.permission)).toBe("granted");
   await expect(page.getByRole("region", { name: "Notifications" })).toHaveCount(0);
   await expect.poll(trayMenu).toEqual([
-    { label: "Open Gatherline", enabled: true },
+    { label: "Open Tandem", enabled: true },
     { label: `Hosting Desktop Test · port ${status.port} · 1 connected`, enabled: false },
     { label: "Stop hosting…", enabled: true },
     { label: "Stop hosting and quit…", enabled: true },
@@ -239,10 +239,10 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
     )
     .toBe("down");
   await expect.poll(trayMenu).toEqual([
-    { label: "Open Gatherline", enabled: true },
+    { label: "Open Tandem", enabled: true },
     { label: "Not hosting", enabled: false },
     { label: "Stop hosting…", enabled: false },
-    { label: "Quit Gatherline", enabled: true },
+    { label: "Quit Tandem", enabled: true },
   ]);
   expect(errors).toEqual([]);
 
@@ -263,7 +263,7 @@ test("restarting offers to host the last workspace again instead of reconnecting
     SLACKOSS_TEST_MEDIA: "1",
     SLACKOSS_USER_DATA_DIR: data,
   };
-  const executablePath = resolve("apps/desktop/release/win-unpacked/Gatherline.exe");
+  const executablePath = resolve("apps/desktop/release/win-unpacked/Tandem.exe");
   let app = await electron.launch({ executablePath, env });
   const killTree = () => {
     const pid = app.process().pid;
@@ -442,7 +442,7 @@ test("restarting offers to host the last workspace again instead of reconnecting
   }
 });
 
-test("a workspace chosen to start with Gatherline starts when it opens, and at sign-in waits in the tray", async () => {
+test("a workspace chosen to start with Tandem starts when it opens, and at sign-in waits in the tray", async () => {
   const data = mkdtempSync(join(tmpdir(), "slackoss-desktop-launch-"));
   const scheduledBackups = mkdtempSync(join(tmpdir(), "slackoss-desktop-scheduled-"));
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
@@ -452,7 +452,7 @@ test("a workspace chosen to start with Gatherline starts when it opens, and at s
     SLACKOSS_TEST_MEDIA: "1",
     SLACKOSS_USER_DATA_DIR: data,
   };
-  const executablePath = resolve("apps/desktop/release/win-unpacked/Gatherline.exe");
+  const executablePath = resolve("apps/desktop/release/win-unpacked/Tandem.exe");
   let app = await electron.launch({ executablePath, env });
   const killTree = () => {
     const pid = app.process().pid;
@@ -494,12 +494,12 @@ test("a workspace chosen to start with Gatherline starts when it opens, and at s
     await expect(live).toContainText("Connected now: 1 person");
     const choices = live.getByRole("group", { name: "When this computer starts" });
     const withApp = choices.getByRole("checkbox", {
-      name: "Start hosting Launch Test when Gatherline opens",
+      name: "Start hosting Launch Test when Tandem opens",
     });
     await withApp.check();
     await expect(withApp).toBeChecked();
     const atSignIn = choices.getByRole("checkbox", {
-      name: "Open Gatherline when you sign in to this computer",
+      name: "Open Tandem when you sign in to this computer",
     });
     await atSignIn.check();
     await expect(atSignIn).toBeChecked();
@@ -601,7 +601,7 @@ test("a window whose page crashes comes back by itself, and hosting carries on (
   const data = mkdtempSync(join(tmpdir(), "slackoss-desktop-crash-"));
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
   const app = await electron.launch({
-    executablePath: resolve("apps/desktop/release/win-unpacked/Gatherline.exe"),
+    executablePath: resolve("apps/desktop/release/win-unpacked/Tandem.exe"),
     env: {
       ...inherited,
       SLACKOSS_TEST: "1",

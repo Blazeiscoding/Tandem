@@ -62,7 +62,7 @@ export interface WorkspaceRoute {
 const TOKEN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The key this app's part of a history entry's state sits under. */
-const KEY = "gatherline";
+const KEY = "tandem";
 
 interface RouteState {
   server: string;

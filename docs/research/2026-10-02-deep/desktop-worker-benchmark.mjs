@@ -18,13 +18,13 @@ const revision = execFileSync("git", ["rev-parse", "HEAD"], {
   windowsHide: true,
   encoding: "utf8",
 }).trim();
-const directory = await mkdtemp(join(tmpdir(), "gatherline-desktop-worker-audit-"));
+const directory = await mkdtemp(join(tmpdir(), "tandem-desktop-worker-audit-"));
 const verified = relative(resolve(tmpdir()), resolve(directory));
 if (
   !verified ||
   verified.startsWith("..") ||
   isAbsolute(verified) ||
-  !directory.includes("gatherline-desktop-worker-audit-")
+  !directory.includes("tandem-desktop-worker-audit-")
 )
   throw new Error("Unexpected disposable directory");
 const main = resolve(root, "apps/desktop/out/main");

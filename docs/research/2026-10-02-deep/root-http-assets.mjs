@@ -25,7 +25,7 @@ if (!liveBase || new URL(liveBase).hostname !== "127.0.0.1")
   throw new Error("Pass --base=http://127.0.0.1:<disposable-workspace-port>");
 const bytesHash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const root = resolve(tmpdir());
-const directory = mkdtempSync(join(root, "gatherline-deep-assets-"));
+const directory = mkdtempSync(join(root, "tandem-deep-assets-"));
 function owned() {
   const inside = relative(root, resolve(directory));
   if (
@@ -33,7 +33,7 @@ function owned() {
     inside.startsWith("..") ||
     isAbsolute(inside) ||
     dirname(resolve(directory)) !== root ||
-    !directory.startsWith(join(root, "gatherline-deep-assets-"))
+    !directory.startsWith(join(root, "tandem-deep-assets-"))
   )
     throw new Error("Unexpected disposable static directory");
 }

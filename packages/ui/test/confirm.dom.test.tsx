@@ -92,7 +92,7 @@ describe("shared confirmations", () => {
           onClick={() =>
             void confirm({
               title: "Reconnect now?",
-              body: "Gatherline will try the connection again.",
+              body: "Tandem will try the connection again.",
               confirmLabel: "Reconnect",
             })
           }

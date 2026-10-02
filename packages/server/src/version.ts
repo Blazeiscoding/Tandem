@@ -6,12 +6,12 @@
 export const SERVER_VERSION = "0.1.0";
 
 /** Stamped in by the build (IMP-08); not defined when the server runs from source. */
-declare const __GATHERLINE_BUILD__:
+declare const __TANDEM_BUILD__:
   | { version: string; revision: string; dirty: boolean | null; inputs: string; builtAt: string }
   | undefined;
 
 /** Which source this server was built from, or null when it runs from source. */
 export const SERVER_BUILD =
-  typeof __GATHERLINE_BUILD__ === "undefined"
+  typeof __TANDEM_BUILD__ === "undefined"
     ? null
-    : { revision: __GATHERLINE_BUILD__.revision, dirty: __GATHERLINE_BUILD__.dirty };
+    : { revision: __TANDEM_BUILD__.revision, dirty: __TANDEM_BUILD__.dirty };

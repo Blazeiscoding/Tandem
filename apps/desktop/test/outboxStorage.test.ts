@@ -42,7 +42,7 @@ let dir: string;
 let settings: SettingsStorage;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "gatherline-outbox-"));
+  dir = mkdtempSync(join(tmpdir(), "tandem-outbox-"));
   settings = createSettingsStorage(join(dir, "settings.json"), keys);
 });
 

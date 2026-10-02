@@ -96,7 +96,7 @@
     "accessed": "2026-09-24",
     "publishedOrUpdated": null,
     "claim": "Service-worker registration requires trustworthy origins and same-origin script/scope/referrer relationships.",
-    "limitations": "Normative browser model; installed-PWA address-migration implications are our inference, not a Gatherline implementation test."
+    "limitations": "Normative browser model; installed-PWA address-migration implications are our inference, not a Tandem implementation test."
   },
   {
     "id": "O10",
@@ -107,7 +107,7 @@
     "accessed": "2026-09-24",
     "publishedOrUpdated": null,
     "claim": "Matrix server-name identity is chosen before install and cannot be changed without resetting the database; deployment needs explicit domain and certificate planning.",
-    "limitations": "ESS Pro requirements are not minimum requirements for every Matrix deployment or for Gatherline."
+    "limitations": "ESS Pro requirements are not minimum requirements for every Matrix deployment or for Tandem."
   },
   {
     "id": "O11",
@@ -162,7 +162,7 @@
     "accessed": "2026-09-24",
     "publishedOrUpdated": null,
     "claim": "Upgrade-time memory can exceed runtime needs; simple rollback is intended for minor releases and schema downgrades require more care.",
-    "limitations": "Development documentation and installation-path-specific guidance, not a measured Gatherline resource requirement."
+    "limitations": "Development documentation and installation-path-specific guidance, not a measured Tandem resource requirement."
   },
   {
     "id": "O16",
@@ -195,7 +195,7 @@
     "accessed": "2026-09-24",
     "publishedOrUpdated": null,
     "claim": "Signalling and media have separate network requirements; TURN is fallback; integrated and dedicated media deployments have different prerequisites.",
-    "limitations": "Current edition/licensing choices are vendor-specific and do not define Gatherline architectural limits."
+    "limitations": "Current edition/licensing choices are vendor-specific and do not define Tandem architectural limits."
   },
   {
     "id": "O19",

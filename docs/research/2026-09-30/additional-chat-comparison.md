@@ -1,8 +1,8 @@
 # Additional chat optimization comparisons, 30 September 2026
 
-Gatherline source baseline: `7d91fd3ff676fa88641b7f45f1353d1fd043d441` (`origin/main`, after #149). These are source-supported experiment candidates. No dependencies were installed, no upstream application was run, and no comparative speed or memory result was measured.
+Tandem source baseline: `7d91fd3ff676fa88641b7f45f1353d1fd043d441` (`origin/main`, after #149). These are source-supported experiment candidates. No dependencies were installed, no upstream application was run, and no comparative speed or memory result was measured.
 
-The requested [Rocket.Chat follow-up](rocket-chat-comparison.md) inspects its chat/server and Electron repositories and reconciles recommendations against Gatherline `7d70dac`. This Element report retains its original dated baseline.
+The requested [Rocket.Chat follow-up](rocket-chat-comparison.md) inspects its chat/server and Electron repositories and reconciles recommendations against Tandem `7d70dac`. This Element report retains its original dated baseline.
 
 ## Pinned upstream snapshots
 
@@ -11,13 +11,13 @@ The requested [Rocket.Chat follow-up](rocket-chat-comparison.md) inspects its ch
 | [Element Web](https://github.com/element-hq/element-web/tree/37d17a9bce859d4e10e027bace43cb67d10240fb)         | `37d17a9bce859d4e10e027bace43cb67d10240fb` | Room-list updates, thumbnail generation, worker-backed storage and background indexing |
 | [Element Desktop](https://github.com/element-hq/element-desktop/tree/264c591b9cbec73782fc6c95aa94b4dc9ac32754) | `264c591b9cbec73782fc6c95aa94b4dc9ac32754` | Optional local search-index initialization, IPC, recovery and shutdown                 |
 
-The inspected files declare `AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial`; both repositories contain the corresponding license files. Gatherline currently uses [MIT](../../../LICENSE). The plan below adapts mechanisms through an independent implementation. Reusing Element code or adding its native indexing dependency requires a separate dependency/license decision; source availability does not make the code MIT licensed.
+The inspected files declare `AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial`; both repositories contain the corresponding license files. Tandem currently uses [MIT](../../../LICENSE). The plan below adapts mechanisms through an independent implementation. Reusing Element code or adding its native indexing dependency requires a separate dependency/license decision; source availability does not make the code MIT licensed.
 
 ## ELM-1: batch visual room-list publication and update the affected entry
 
 **Observed mechanism.** Element's [RoomListStoreV3](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/stores/room-list-v3/RoomListStoreV3.ts#L458) uses a pending flag and `requestAnimationFrame` to emit one list update for rapid changes within a frame. Its adjacent `addRoomAndEmit` reinserts the affected room into its sorted structure before scheduling the emission. Backfilled timeline events are excluded from the live room-recency update path.
 
-**Gatherline fit.** [context.ts](../../../packages/ui/src/context.ts) already uses Zustand selector subscriptions. This is not a missing basic subscription mechanism. However, [Sidebar.tsx](../../../packages/ui/src/components/Sidebar.tsx#L78) scans channels and sorts the complete DM list whenever `channels`, `memberships` or `channelLastSeq` changes. [workspace.ts](../../../packages/client-core/src/workspace.ts#L702) applies each event separately. A busy reconnect or several active channels may therefore repeatedly invalidate derived navigation work; the cost needs a trace.
+**Tandem fit.** [context.ts](../../../packages/ui/src/context.ts) already uses Zustand selector subscriptions. This is not a missing basic subscription mechanism. However, [Sidebar.tsx](../../../packages/ui/src/components/Sidebar.tsx#L78) scans channels and sorts the complete DM list whenever `channels`, `memberships` or `channelLastSeq` changes. [workspace.ts](../../../packages/client-core/src/workspace.ts#L702) applies each event separately. A busy reconnect or several active channels may therefore repeatedly invalidate derived navigation work; the cost needs a trace.
 
 - [ ] Record event application, sidebar derivation and React commit counts for ordinary traffic and reconnect bursts.
   - [ ] Compare 50, 500 and 2,000 joined channels/DMs with 1,000 ordered mixed events; include membership changes, backfill, unread changes and currently open threads.
@@ -32,7 +32,7 @@ The inspected files declare `AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element
 
 **Observed mechanism.** Element's [image-media.ts](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/utils/image-media.ts#L22) generates an aspect-preserving thumbnail within 800 × 600 using canvas and asynchronous blob conversion. [ContentMessages.ts](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/ContentMessages.ts#L138) uploads the thumbnail separately, gates ordinary images on size savings, and retains compatibility fallbacks. [MediaEventHelper](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/utils/MediaEventHelper.ts#L25) keeps source and thumbnail resources lazy and revokes generated object URLs on destruction.
 
-**Gatherline fit.** [Attachments.tsx](../../../packages/ui/src/components/Attachments.tsx#L47) already loads images near the viewport, reserves their dimensions and requests asynchronous decoding. [FileCache](../../../packages/client-core/src/fileCache.ts) already deduplicates transfers, limits them to four, cancels released work and caps idle blobs at 32 MiB. The remaining distinction is that an inline preview fetches the original file, even though it is displayed within 380 × 300. The 8 MiB inline cutoff limits compressed bytes, not decoded pixels or active retained resources. A 4,000 × 3,000 RGBA bitmap represents approximately 45.8 MiB of pixel data; that calculation is illustrative, not an observed Chromium allocation.
+**Tandem fit.** [Attachments.tsx](../../../packages/ui/src/components/Attachments.tsx#L47) already loads images near the viewport, reserves their dimensions and requests asynchronous decoding. [FileCache](../../../packages/client-core/src/fileCache.ts) already deduplicates transfers, limits them to four, cancels released work and caps idle blobs at 32 MiB. The remaining distinction is that an inline preview fetches the original file, even though it is displayed within 380 × 300. The 8 MiB inline cutoff limits compressed bytes, not decoded pixels or active retained resources. A 4,000 × 3,000 RGBA bitmap represents approximately 45.8 MiB of pixel data; that calculation is illustrative, not an observed Chromium allocation.
 
 - [ ] Profile image-heavy channels for transfer bytes, decode time, renderer/GPU memory and frame time before adding derivatives.
   - [ ] Use a fixture with large-dimension, small-compressed images, ordinary phone photos, animated images and corrupt files; scroll in both directions and open the lightbox.
@@ -43,13 +43,13 @@ The inspected files declare `AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element
   - [ ] Include derivative bytes in quota, garbage collection, backup/restore and retention accounting, and avoid duplicates for files that gain little from resizing.
   - [ ] Treat remote avatars as a future user-profile feature: current [Avatar.tsx](../../../packages/ui/src/components/Avatar.tsx) renders initials and does not download avatar images.
 
-**Decision evidence:** lower network/decode cost and bounded decoded-media memory on target hardware, with acceptable generation/storage overhead and no preview authorization bypass. Element's dimensions and thresholds are reference choices; set Gatherline's values from display size, device-pixel ratio and measurements.
+**Decision evidence:** lower network/decode cost and bounded decoded-media memory on target hardware, with acceptable generation/storage overhead and no preview authorization bypass. Element's dimensions and thresholds are reference choices; set Tandem's values from display size, device-pixel ratio and measurements.
 
 ## ELM-3: put a growing local replica in asynchronous storage behind an explicit contract
 
 **Observed mechanism.** Element's [createMatrixClient.ts](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/utils/createMatrixClient.ts#L191) configures `IndexedDBStore` with a worker factory when browser storage is available. Its [factory](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/workers/indexeddbWorkerFactory.ts#L9) creates a separate worker entry; the [worker](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/workers/indexeddb.worker.ts#L9) delegates requests to the Matrix SDK storage backend. [MatrixClientPeg](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/MatrixClientPeg.ts#L243) awaits store startup and can fall back to an in-memory store if initialization fails.
 
-**Gatherline fit.** Browser [platform.ts](../../../packages/ui/src/platform.ts#L252) currently reads/writes JSON in `localStorage`; desktop uses an IPC-backed settings store. [workspaceStorage.ts](../../../packages/ui/src/lib/workspaceStorage.ts) serializes per-key operations and scopes them to account/workspace identity. These choices serve relatively small local work, not a persisted entire message archive. A larger offline replica would make asynchronous indexed storage relevant, but replacing small settings does not establish a performance win.
+**Tandem fit.** Browser [platform.ts](../../../packages/ui/src/platform.ts#L252) currently reads/writes JSON in `localStorage`; desktop uses an IPC-backed settings store. [workspaceStorage.ts](../../../packages/ui/src/lib/workspaceStorage.ts) serializes per-key operations and scopes them to account/workspace identity. These choices serve relatively small local work, not a persisted entire message archive. A larger offline replica would make asynchronous indexed storage relevant, but replacing small settings does not establish a performance win.
 
 - [ ] Measure present draft/outbox serialization and storage latency during typing and large accepted-send queues.
   - [ ] Keep the accepted-send durability repair ahead of storage optimization; acknowledge a send only under the selected durable-write contract.
@@ -66,7 +66,7 @@ The inspected files declare `AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element
 
 **Observed mechanism.** Element Desktop's [seshat.ts](https://github.com/element-hq/element-desktop/blob/264c591b9cbec73782fc6c95aa94b4dc9ac32754/src/seshat.ts#L23) dynamically loads an optional native event index and exposes initialization, live commit, historical batch, search, checkpoint and shutdown operations. Web [EventIndex.ts](https://github.com/element-hq/element-web/blob/37d17a9bce859d4e10e027bace43cb67d10240fb/apps/web/src/indexing/EventIndex.ts#L450) drives a cancellable round-robin crawler. It fetches at most 100 events per crawl, yields at a configurable delay with a 100 ms floor, waits five seconds when idle, and advances persisted checkpoints alongside historical insertion.
 
-**Gatherline fit.** [SearchDialog.tsx](../../../packages/ui/src/components/SearchDialog.tsx) calls the server's paginated search API; Gatherline already has server-side SQLite FTS. Element's local index primarily supports searching data that its server cannot search in plaintext. Gatherline's present architecture does not need a second search engine merely to match Element. The transferable technique is resumable bounded indexing if an offline-history or encrypted-search requirement is adopted.
+**Tandem fit.** [SearchDialog.tsx](../../../packages/ui/src/components/SearchDialog.tsx) calls the server's paginated search API; Tandem already has server-side SQLite FTS. Element's local index primarily supports searching data that its server cannot search in plaintext. Tandem's present architecture does not need a second search engine merely to match Element. The transferable technique is resumable bounded indexing if an offline-history or encrypted-search requirement is adopted.
 
 - [ ] Establish whether a target cohort needs offline search and how much history it expects to keep locally.
   - [ ] Start from the scoped local-replica decision above; define permitted history, disk budget, eviction, device revocation and account cleanup.
@@ -88,7 +88,7 @@ The inspected files declare `AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element
   - [ ] Change one mechanism at a time and compare the same deterministic fixture with tracing disabled and enabled.
   - [ ] Set acceptance budgets before the production PR and retain a disable/fallback path for optional experiments.
 
-Treat the upstream source as a design reference, and Gatherline's measured before/after result as the evidence for adopting it. A benchmark harness alone does not complete the corresponding production task.
+Treat the upstream source as a design reference, and Tandem's measured before/after result as the evidence for adopting it. A benchmark harness alone does not complete the corresponding production task.
 
 ## Recommended placement in the main execution plan
 

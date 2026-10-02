@@ -25,8 +25,8 @@ function release(identities = { server: identity(), desktop: identity() }) {
   const dir = mkdtempSync(join(tmpdir(), "release-manifest-"));
   for (const [name, value] of Object.entries(identities))
     writeFileSync(join(dir, `${name}.build.json`), JSON.stringify(value));
-  writeFileSync(join(dir, "Gatherline Setup 0.2.0.exe"), "installer bytes");
-  writeFileSync(join(dir, "gatherline-server-0.2.0.tar.gz"), "server bytes");
+  writeFileSync(join(dir, "Tandem Setup 0.2.0.exe"), "installer bytes");
+  writeFileSync(join(dir, "tandem-server-0.2.0.tar.gz"), "server bytes");
   return dir;
 }
 
@@ -42,7 +42,7 @@ test("every published file is hashed, and the notes name the tested revision", (
   const dir = release();
   try {
     const { sums, notes, files } = prepareRelease({ dir, revision: REVISION, tag: "v0.2.0" });
-    assert.deepEqual(files, ["Gatherline Setup 0.2.0.exe", "gatherline-server-0.2.0.tar.gz"]);
+    assert.deepEqual(files, ["Tandem Setup 0.2.0.exe", "tandem-server-0.2.0.tar.gz"]);
     assert.equal(
       sums,
       `${sha256(join(dir, files[0]))}  ${files[0]}\n${sha256(join(dir, files[1]))}  ${files[1]}\n`,

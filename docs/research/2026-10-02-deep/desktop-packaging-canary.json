@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-10-01T21:50:34.444Z",
   "sourceRevision": "a285ee6c8a67e93db01ef2d9046493ea0572a34c",
-  "scope": "Minimal synthetic desktop fixture with the current files:[out/**,package.json] policy and a linked workspace production dependency. No actual workspace data or source is copied. This validates collector behavior, not a fresh full Gatherline package.",
+  "scope": "Minimal synthetic desktop fixture with the current files:[out/**,package.json] policy and a linked workspace production dependency. No actual workspace data or source is copied. This validates collector behavior, not a fresh full Tandem package.",
   "electronBuilderVersion": "26.15.3",
   "electronVersion": "44.1.0",
   "syntheticFileResults": [

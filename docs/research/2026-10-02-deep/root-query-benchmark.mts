@@ -196,7 +196,7 @@ try {
   for (const count of counts) {
     deadline();
     const tempRoot = realpathSync(tmpdir());
-    const fixtureDir = mkdtempSync(join(tempRoot, "gatherline-query-diag-"));
+    const fixtureDir = mkdtempSync(join(tempRoot, "tandem-query-diag-"));
     const ownedDir = realpathSync(fixtureDir);
     const dbPath = join(ownedDir, "workspace.db");
     const db = openDb(dbPath);
@@ -362,7 +362,7 @@ try {
       if (
         !isAbsolute(resolvedTarget) ||
         dirname(resolvedTarget) !== tempRoot ||
-        !basename(resolvedTarget).startsWith("gatherline-query-diag-") ||
+        !basename(resolvedTarget).startsWith("tandem-query-diag-") ||
         rel === "" ||
         rel === ".." ||
         rel.startsWith(`..${sep}`) ||

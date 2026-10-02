@@ -39,7 +39,7 @@ const percentile = (values: number[], p: number) => {
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]!;
 };
 
-const dir = mkdtempSync(join(tmpdir(), "gatherline-search-"));
+const dir = mkdtempSync(join(tmpdir(), "tandem-search-"));
 const db = openDb(join(dir, "workspace.db"));
 const store = new Store(db);
 try {

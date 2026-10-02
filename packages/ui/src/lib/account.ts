@@ -27,7 +27,7 @@ export function accountError(error: unknown): string {
 
 export function deviceLabel(agent: string): string {
   const browser = /Electron/i.test(agent)
-    ? "Gatherline desktop"
+    ? "Tandem desktop"
     : /Edg\//.test(agent)
       ? "Edge"
       : /Firefox\//.test(agent)

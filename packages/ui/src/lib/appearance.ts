@@ -46,7 +46,7 @@ function createAppearance(platform: Platform) {
         store.setState({
           theme: before.theme,
           density: before.density,
-          error: "Could not save how Gatherline looks on this device. Please try again.",
+          error: "Could not save how Tandem looks on this device. Please try again.",
         });
       }
     },
@@ -69,7 +69,7 @@ function createAppearance(platform: Platform) {
   return store;
 }
 
-/** How Gatherline looks on this device, across workspaces. */
+/** How Tandem looks on this device, across workspaces. */
 export function useAppearance() {
   const platform = usePlatform();
   let store = stores.get(platform);

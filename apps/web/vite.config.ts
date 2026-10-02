@@ -10,7 +10,7 @@ import { ARTIFACTS, buildIdentity } from "../../scripts/build-identity.mjs";
 // beside the build so tests can refuse a client older than the checkout.
 const identity = buildIdentity(ARTIFACTS.web.inputs);
 const stampBuild: Plugin = {
-  name: "gatherline-build-identity",
+  name: "tandem-build-identity",
   apply: "build",
   writeBundle(options) {
     writeFileSync(join(options.dir!, "build.json"), JSON.stringify(identity, null, 2) + "\n");
@@ -18,6 +18,6 @@ const stampBuild: Plugin = {
 };
 
 export default defineConfig({
-  define: { __GATHERLINE_BUILD__: JSON.stringify(identity) },
+  define: { __TANDEM_BUILD__: JSON.stringify(identity) },
   plugins: [react(), tailwindcss(), stampBuild, precompress()],
 });
