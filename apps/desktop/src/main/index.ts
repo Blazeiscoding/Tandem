@@ -32,7 +32,12 @@ import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
 import { appRecipients, guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
-import { RENDERER_RECOVERY, RendererRecovery, isRendererLoadFailure } from "./rendererRecovery.js";
+import {
+  PlaceCheckpoint,
+  RENDERER_RECOVERY,
+  RendererRecovery,
+  isRendererLoadFailure,
+} from "./rendererRecovery.js";
 import { pickScreen } from "./screenPicker.js";
 import { mergeOutboxSetting } from "./outboxStorage.js";
 import { mergeDraftsSetting } from "./draftsStorage.js";
@@ -173,6 +178,13 @@ if (!isTest && isDev && process.platform === "win32") {
 handle("window:reveal", () => {
   showMainWindow();
 });
+
+// Where the page is, kept here so a recovery can put it back (F08).
+let place = new PlaceCheckpoint(trustedRenderer);
+handle("window:rememberPlace", (_event, url: unknown, state: unknown) => {
+  place.remember(url, state);
+});
+handle("window:takePlace", () => place.take());
 
 handle("deeplink:consume", () => {
   rendererReady = true;
@@ -813,6 +825,8 @@ function createTray(): void {
 // ---------- window ----------
 
 function createWindow(): void {
+  // A new window starts where the app starts, not where a closed one was.
+  place = new PlaceCheckpoint(trustedRenderer);
   mainWindow = new BrowserWindow({
     show: !isTest,
     width: 1280,
@@ -918,11 +932,12 @@ function createWindow(): void {
   const recover = async (what: string, fresh: boolean) => {
     if (win.isDestroyed() || quitting) return;
     rendererReady = false;
-    // A page that ran loads again where it was, its place kept in the address;
-    // one that never loaded starts again from the app's own page. Loading the
-    // address anew rather than reloading: a crashed page may have nothing to
-    // reload.
-    const where = win.webContents.getURL();
+    // A page that ran loads again where it was: the address it last reported,
+    // and its history entry handed back (F08). One that never loaded starts
+    // again from the app's own page, still given the place to return to.
+    // Loading the address anew rather than reloading: a crashed page may have
+    // nothing to reload.
+    const where = place.recover() ?? win.webContents.getURL();
     const reopen = () =>
       fresh || !trustedRenderer(where)
         ? loadRenderer(win)
@@ -948,7 +963,9 @@ function createWindow(): void {
       return;
     }
     recovery.reset();
-    loadRenderer(win);
+    // Trying again returns to the same place an automatic reload would.
+    place.recover();
+    reopen();
   };
   win.webContents.on("render-process-gone", (_event, details) => {
     if (details.reason === "clean-exit") return;

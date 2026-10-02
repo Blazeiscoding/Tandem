@@ -69,6 +69,8 @@ interface SlackossBridge {
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
   revealWindow: () => Promise<void>;
+  rememberPlace: (url: string, state: unknown) => Promise<void>;
+  takePlace: () => Promise<unknown>;
 }
 
 declare global {
@@ -171,4 +173,40 @@ export function electronPlatform(): Platform {
       subscribe: (cb) => bridge.onHostingStatus(cb),
     },
   };
+}
+
+/**
+ * Keeps the main process told where this page is, so a page that crashes or
+ * fails to load comes back to the same place, side panel, thread, dialog and
+ * reading position included (F08). The history entry holds all of that, and
+ * a reload keeps the address but not the entry. Reports are gathered for a
+ * moment, since reading position changes as someone scrolls.
+ */
+export async function followPlace(
+  bridge: Pick<SlackossBridge, "rememberPlace" | "takePlace">,
+  delayMs = 250,
+): Promise<void> {
+  // A recovered page starts from the entry it had; the app checks that entry
+  // belongs to the workspace it opens before using it.
+  const recovered = await bridge.takePlace().catch(() => null);
+  if (recovered && window.history.state == null)
+    window.history.replaceState(recovered, "", window.location.href);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const report = () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      void bridge.rememberPlace(window.location.href, window.history.state).catch(() => {});
+    }, delayMs);
+  };
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = window.history[method].bind(window.history);
+    window.history[method] = (...args: Parameters<History["pushState"]>) => {
+      original(...args);
+      report();
+    };
+  }
+  window.addEventListener("popstate", report);
+  window.addEventListener("hashchange", report);
+  report();
 }

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { electronPlatform } from "../src/renderer/src/platform.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { electronPlatform, followPlace } from "../src/renderer/src/platform.js";
 
 type Bridge = Window["slackoss"];
 
@@ -179,5 +179,69 @@ describe("the drafts every window shares", () => {
     stop();
     notify("drafts-key", "after stopping");
     expect(heard).toEqual(["stored now"]);
+  });
+});
+
+/** The page reports where it is, and starts from where it was after a crash (F08). */
+describe("following the page's place", () => {
+  function page(state: unknown = null) {
+    const listeners = new Map<string, () => void>();
+    const history = {
+      state,
+      pushState(next: unknown, _unused: string, url?: string) {
+        history.state = next;
+        if (url) location.href = url;
+      },
+      replaceState(next: unknown, _unused: string, url?: string) {
+        history.state = next;
+        if (url) location.href = url;
+      },
+    };
+    const location = { href: "file:///app/index.html#/c/C1" };
+    (globalThis as { window?: unknown }).window = {
+      history,
+      location,
+      addEventListener: (name: string, cb: () => void) => listeners.set(name, cb),
+    };
+    return { history, location, listeners };
+  }
+
+  it("starts a recovered page from its entry, then reports each change once it settles", async () => {
+    vi.useFakeTimers();
+    const { history, location, listeners } = page();
+    const recovered = { tandem: { server: "http://a", channelId: "C1", view: "saved" } };
+    const rememberPlace = vi.fn(async () => {});
+    await followPlace({ rememberPlace, takePlace: async () => recovered });
+    expect(history.state).toEqual(recovered);
+
+    history.pushState(
+      { tandem: { server: "http://a", channelId: "C2" } },
+      "",
+      "file:///app/index.html#/c/C2",
+    );
+    history.replaceState({ tandem: { server: "http://a", channelId: "C2", scroll: 1 } }, "");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(rememberPlace).toHaveBeenLastCalledWith(location.href, history.state);
+    const calls = rememberPlace.mock.calls.length;
+    listeners.get("popstate")!();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(rememberPlace.mock.calls.length).toBe(calls + 1);
+    vi.useRealTimers();
+  });
+
+  it("leaves an entry the page already has, and carries on when the main process refuses", async () => {
+    const { history } = page({ tandem: { server: "http://a", channelId: "C9" } });
+    await followPlace({
+      rememberPlace: async () => {},
+      takePlace: async () => ({ tandem: { server: "http://a", channelId: "C1" } }),
+    });
+    expect(history.state).toEqual({ tandem: { server: "http://a", channelId: "C9" } });
+    page();
+    await expect(
+      followPlace({
+        rememberPlace: async () => {},
+        takePlace: () => Promise.reject(new Error("no")),
+      }),
+    ).resolves.toBeUndefined();
   });
 });

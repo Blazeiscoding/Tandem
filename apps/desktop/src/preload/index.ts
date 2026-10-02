@@ -48,6 +48,10 @@ export interface SlackossBridge {
   onDeepLink: (cb: (url: string) => void) => () => void;
   /** Shows the window again, restored and in front. */
   revealWindow: () => Promise<void>;
+  /** Tells the main process where the page is, for recovery to return to. */
+  rememberPlace: (url: string, state: unknown) => Promise<void>;
+  /** The history entry a recovered page starts from, if this load is one. */
+  takePlace: () => Promise<unknown>;
 }
 
 const bridge: SlackossBridge = {
@@ -116,6 +120,8 @@ const bridge: SlackossBridge = {
     return () => ipcRenderer.removeListener("deeplink", listener);
   },
   revealWindow: () => ipcRenderer.invoke("window:reveal"),
+  rememberPlace: (url, state) => ipcRenderer.invoke("window:rememberPlace", url, state),
+  takePlace: () => ipcRenderer.invoke("window:takePlace"),
 };
 
 contextBridge.exposeInMainWorld("slackoss", bridge);
