@@ -146,6 +146,64 @@ describe("device storage in IndexedDB (F01)", () => {
     });
   });
 
+  it("never makes a change again over a newer one, when another tab finds it still written down", async () => {
+    const tab = deviceStore();
+    await tab.backend;
+    // What a tab starting meanwhile could find: the first change written
+    // down, its transaction not yet finished.
+    let found: [string, string][] = [];
+    const first = tab.apply("servers", { kind: "set", value: ["a sign-in"] });
+    found = Object.keys(localStorage)
+      .filter((name) => name.startsWith(JOURNAL_PREFIX))
+      .map((name) => [name, localStorage.getItem(name)!]);
+    await first;
+    // Forgotten since, in the same tab.
+    await tab.apply("servers", { kind: "set", value: [] });
+    for (const [name, entry] of found) localStorage.setItem(name, entry);
+
+    const starting = deviceStore();
+    expect(await value(starting, "servers")).toEqual([]);
+    expect(Object.keys(localStorage).filter((k) => k.startsWith(JOURNAL_PREFIX))).toEqual([]);
+  });
+
+  it("does not make a change again in its own tab once a starting tab has made it", async () => {
+    // Written down by tab t1, still being made there, when another tab starts.
+    const typed = draftsOp({ C1: "typed" }, { C1: null });
+    localStorage.setItem(
+      `${JOURNAL_PREFIX}t1:1`,
+      JSON.stringify({ key: "drafts:k", op: typed, at: Date.now(), seq: 1 }),
+    );
+    const starting = deviceStore();
+    await starting.backend;
+    await starting.apply("drafts:k", draftsOp({ C1: "edited" }, { C1: "typed" }));
+    // Its own transaction comes after: made already, so it is told what is
+    // stored, and the draft is not doubled.
+    const t1 = deviceStore({ tab: "t1" });
+    expect(await t1.apply("drafts:k", typed)).toEqual({ C1: "edited" });
+    expect(await value(t1, "drafts:k")).toEqual({ C1: "edited" });
+  });
+
+  it("keeps what a database from an earlier client holds when it adds what it lacks", async () => {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open("tandem-device", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("values");
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction("values", "readwrite");
+        tx.objectStore("values").put(JSON.stringify({ C1: "kept" }), "drafts:k");
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+      };
+      request.onerror = () => reject(request.error);
+    });
+    const tab = deviceStore();
+    expect(await tab.backend).toBe("indexeddb");
+    await tab.apply("drafts:k", draftsOp({ C2: "added" }));
+    expect(await value(tab, "drafts:k")).toEqual({ C1: "kept", C2: "added" });
+  });
+
   it("tells other tabs what was stored, and not the tab that stored it", async () => {
     const first = deviceStore();
     const second = deviceStore();

@@ -217,7 +217,7 @@ async function deviceValues(page: Page) {
       if (name.startsWith("slackoss:")) legacy[name.slice(9)] = localStorage.getItem(name)!;
     }
     const indexed = await new Promise<Record<string, string> | null>((resolve) => {
-      const open = indexedDB.open("tandem-device", 1);
+      const open = indexedDB.open("tandem-device");
       open.onupgradeneeded = () => open.transaction!.abort();
       open.onerror = () => resolve(null);
       open.onsuccess = () => {
