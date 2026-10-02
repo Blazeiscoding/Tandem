@@ -1044,6 +1044,9 @@ async function launchProfile(profile: string) {
       "--no-default-browser-check",
       `--user-data-dir=${profile}`,
       "--remote-debugging-port=0",
+      // The size every other journey runs at: a browser's own default can
+      // be narrow enough to fold the sidebar away.
+      "--window-size=1280,820",
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
@@ -1063,7 +1066,13 @@ async function launchProfile(profile: string) {
     process_.kill("SIGKILL");
     await gone;
   };
-  return { browser, context: browser.contexts()[0]!, kill };
+  const context = browser.contexts()[0]!;
+  const open = async () => {
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 1280, height: 820 });
+    return page;
+  };
+  return { browser, context, open, kill };
 }
 
 test("a send the composer let go of, and the drafts saved, outlast the browser being killed (F01)", async () => {
@@ -1071,7 +1080,7 @@ test("a send the composer let go of, and the drafts saved, outlast the browser b
   let running: Awaited<ReturnType<typeof launchProfile>> | null = null;
   try {
     running = await launchProfile(profile);
-    const first = await running.context.newPage();
+    const first = await running.open();
     await register(first, "crashed");
     const token = await savedToken(first);
     const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
@@ -1086,7 +1095,7 @@ test("a send the composer let go of, and the drafts saved, outlast the browser b
       page.getByRole("textbox", { name: `Message #${channel}`, exact: true });
 
     // Two tabs change one draft at once; both texts are stored.
-    const second = await running.context.newPage();
+    const second = await running.open();
     await second.goto(base);
     await composer(first, "general").fill("Words from the first tab");
     await composer(second, "general").fill("Words from the second tab");
@@ -1111,7 +1120,7 @@ test("a send the composer let go of, and the drafts saved, outlast the browser b
     running = null;
 
     running = await launchProfile(profile);
-    const reopened = await running.context.newPage();
+    const reopened = await running.open();
     await reopened.goto(base);
     await reopened
       .getByRole("navigation")
