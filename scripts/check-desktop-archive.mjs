@@ -28,6 +28,10 @@ export const FORBIDDEN = [
   { pattern: /(^|\/)data\/files\//, why: "workspace attachments" },
   { pattern: /(^|\/)pre-upgrade\//, why: "a workspace's pre-upgrade copy" },
   { pattern: /(^|\/)\.env(\.[^/]*)?$/, why: "an environment file" },
+  {
+    pattern: /(^|\/)node_modules\/.*\.[cm]?ts$/,
+    why: "a dependency's TypeScript source or declarations, which nothing loads at runtime (F15)",
+  },
 ];
 
 /**
