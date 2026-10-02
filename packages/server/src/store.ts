@@ -3325,16 +3325,19 @@ export class Store {
 
   /**
    * Members of a channel this text mentions, so only they have to be told
-   * their counts changed.
+   * their counts changed. Most text names nobody and costs no query; text
+   * naming people checks just them, and only a room-wide mention in a room
+   * reads every member (REV-06).
    */
   mentionedMemberIds(channelId: ID, text: string, exclude: ID): ID[] {
+    const direct = new Set([...text.matchAll(/<@([^>]+)>/g)].map((m) => m[1]!));
+    const roomWideToken = /<!(channel|here|everyone)>/.test(text);
+    if (direct.size === 0 && !roomWideToken) return [];
     const channel = this.getChannel(channelId);
     if (!channel) return [];
-    const roomWide =
-      (channel.type === "public" || channel.type === "private") &&
-      /<!(channel|here|everyone)>/.test(text);
-    const direct = new Set([...text.matchAll(/<@([^>]+)>/g)].map((m) => m[1]!));
-    return this.memberIds(channelId).filter((id) => id !== exclude && (roomWide || direct.has(id)));
+    if (roomWideToken && (channel.type === "public" || channel.type === "private"))
+      return this.memberIds(channelId).filter((id) => id !== exclude);
+    return [...direct].filter((id) => id !== exclude && this.isMember(channelId, id));
   }
 
   /**

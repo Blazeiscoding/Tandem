@@ -130,6 +130,11 @@ export class Gateway {
     return !this.limiter || this.limiter.take("ephemeral", userId).ok;
   }
 
+  /** Whether this account has a socket here now, so is told about changes as they happen. */
+  isOnline(userId: ID): boolean {
+    return this.byUser.has(userId);
+  }
+
   onlineUserIds(): ID[] {
     return [...this.byUser.keys()];
   }

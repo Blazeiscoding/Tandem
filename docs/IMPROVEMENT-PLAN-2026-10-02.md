@@ -268,7 +268,7 @@ Each package names its owner when work starts and its PR when it merges. One ent
 
 - **REV-05** · Unassigned · Not started.
 
-- **REV-06** · Unassigned · Not started.
+- **REV-06** · Claude session · Slice A implemented (the PR after #222); slice B (authorizing once per session within a publication) not started. Text naming nobody now costs no member read; text naming people checks only them (`isMember` each), and only a room-wide mention in a room reads every member. Mention counts and thread-follow states are computed only for accounts with a socket now (`Gateway.isOnline`); anyone else gets them from the handshake, which reads the committed rows. Within one committed change, each person is recounted once and a channel's members are read once, however many of its events touched them, while every durable event is still published first and REV-10's containment is unchanged. Counted with spies on a 50-member channel: a plain message 1 → 0 member reads; `<!channel>` with nobody else connected 49 → 0 recounts; deleting a 21-message thread with nobody connected 1,050 → 0 recounts (21 → 0 member reads), and with two members connected 1,050 → 2 recounts (21 → 1 member read). Server tests pin those counts, that connected members receive correct counts and a late connection gets its count from the handshake; the full server suite passes unchanged.
 
 - **REV-15** · Unassigned · Not started.
 
