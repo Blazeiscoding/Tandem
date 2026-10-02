@@ -169,22 +169,22 @@ export const MessageItem = memo(function MessageItem({
       role="article"
       aria-label={`Message from ${author?.displayName ?? "unknown"}`}
       tabIndex={0}
-      className={`message-row group relative px-5 py-0.5 transition-colors hover:bg-raised/60 ${
-        compact ? "" : "mt-2.5"
-      } ${mentionsMe ? "border-l-2 border-copper bg-mention hover:bg-mention" : ""} ${
-        highlighted ? "bg-copper/15 hover:bg-copper/15" : ""
-      }`}
+      className={`message-row group relative py-0.5 pl-4 pr-12 transition-colors hover:bg-deep/40 ${
+        compact ? "" : "mt-4"
+      } ${
+        mentionsMe ? "bg-mention shadow-[inset_2px_0_var(--color-copper)] hover:bg-mention" : ""
+      } ${highlighted ? "bg-copper/15 hover:bg-copper/15" : ""}`}
     >
-      <div className="flex gap-2.5">
-        <div className="relative w-9 shrink-0 pt-0.5">
+      <div className="flex gap-4">
+        <div className="relative w-10 shrink-0 pt-0.5">
           {!compact && (
             <Tooltip label={profileLabel}>
               <button
                 aria-label={profileLabel}
                 onClick={() => onOpenProfile?.(message.userId)}
-                className="rounded-lg transition-opacity hover:opacity-80"
+                className="rounded-full transition-opacity hover:opacity-80"
               >
-                <Avatar user={author} size={36} />
+                <Avatar user={author} size={40} />
               </button>
             </Tooltip>
           )}
@@ -196,7 +196,7 @@ export const MessageItem = memo(function MessageItem({
             <time
               dateTime={new Date(message.createdAt).toISOString()}
               title={formatFull(message.createdAt)}
-              className="absolute right-0 top-0.5 hidden select-none whitespace-nowrap pt-1 font-mono text-[10px] text-ink-faint group-hover:block"
+              className="absolute right-0 top-0.5 hidden select-none whitespace-nowrap pt-1 text-[10px] text-ink-faint group-hover:block"
             >
               {formatTime(message.createdAt)}
             </time>
@@ -223,7 +223,7 @@ export const MessageItem = memo(function MessageItem({
             <div className="flex items-baseline gap-2">
               <button
                 onClick={() => onOpenProfile?.(message.userId)}
-                className="font-bold hover:underline"
+                className="text-[15px] font-semibold hover:underline"
               >
                 {author?.displayName ?? "unknown"}
               </button>
@@ -235,7 +235,7 @@ export const MessageItem = memo(function MessageItem({
               <time
                 dateTime={new Date(message.createdAt).toISOString()}
                 title={formatFull(message.createdAt)}
-                className="font-mono text-[11px] text-ink-faint"
+                className="text-[12px] text-ink-faint"
               >
                 {formatTime(message.createdAt)}
               </time>
@@ -246,7 +246,7 @@ export const MessageItem = memo(function MessageItem({
           ) : (
             <>
               {message.text && (
-                <div className="message-text text-[15px]">
+                <div className="message-text text-[15px] leading-[1.4] text-ink/90">
                   <Mrkdwn
                     text={message.text}
                     users={users}
@@ -290,14 +290,18 @@ export const MessageItem = memo(function MessageItem({
                     aria-label={`${g.emoji} ${count} ${count === 1 ? "reaction" : "reactions"}, from ${names}`}
                     aria-pressed={reacted}
                     onClick={() => react(g.emoji)}
-                    className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[13px] transition-colors ${
+                    className={`flex items-center gap-1.5 rounded-lg border px-1.5 py-0.5 text-[13px] transition-colors ${
                       reacted
-                        ? "border-copper/60 bg-copper/15"
-                        : "border-edge bg-raised hover:border-ink-faint"
+                        ? "border-copper bg-copper/15"
+                        : "border-transparent bg-lifted hover:border-edge"
                     }`}
                   >
                     <span>{g.emoji}</span>
-                    <span className="font-mono text-[11px] text-ink-dim">{g.userIds.length}</span>
+                    <span
+                      className={`text-[12px] font-semibold ${reacted ? "text-copper" : "text-ink-dim"}`}
+                    >
+                      {g.userIds.length}
+                    </span>
                   </button>
                 );
               })}
@@ -307,7 +311,7 @@ export const MessageItem = memo(function MessageItem({
           {!inThread && message.threadRootId && (
             <button
               onClick={() => onOpenThread?.(message.threadRootId!)}
-              className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] text-ink-faint transition-colors hover:border-edge hover:bg-raised hover:text-ink"
+              className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] text-ink-faint transition-colors hover:border-edge hover:bg-lifted hover:text-ink"
             >
               Also sent to the channel from a thread
               <span className="inline-flex items-center gap-1 text-copper">
@@ -320,7 +324,7 @@ export const MessageItem = memo(function MessageItem({
           {!inThread && message.replyCount > 0 && (
             <button
               onClick={() => onOpenThread?.(message.id)}
-              className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] font-medium text-copper transition-colors hover:border-edge hover:bg-raised"
+              className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] font-semibold text-copper transition-colors hover:border-edge hover:bg-lifted"
             >
               {message.replyCount} {message.replyCount === 1 ? "reply" : "replies"}
               <Icon name="arrow" size={13} className="text-ink-faint" />
@@ -330,7 +334,7 @@ export const MessageItem = memo(function MessageItem({
       </div>
 
       {!editing && (
-        <div className="message-toolbar absolute -top-3.5 right-4 hidden max-w-[calc(100%-32px)] items-center overflow-x-auto rounded-lg border border-edge bg-lifted shadow-lg group-hover:flex group-focus-within:flex">
+        <div className="message-toolbar absolute -top-4 right-4 hidden max-w-[calc(100%-32px)] items-center overflow-x-auto rounded-lg border border-edge bg-raised shadow-lg group-hover:flex group-focus-within:flex">
           {QUICK_REACTIONS.map((e) => (
             <ToolbarButton key={e} label={e} onClick={() => react(e)} />
           ))}
@@ -419,7 +423,7 @@ function ToolbarButton(props: {
       onClick={props.onClick}
       disabled={props.disabled}
       aria-label={props.title}
-      className={`flex items-center justify-center px-2 py-1.5 text-sm transition-colors hover:bg-copper/20 disabled:opacity-40 ${
+      className={`flex items-center justify-center px-2 py-1.5 text-sm transition-colors hover:bg-lifted disabled:opacity-40 ${
         props.active ? "bg-copper/25" : ""
       }`}
     >

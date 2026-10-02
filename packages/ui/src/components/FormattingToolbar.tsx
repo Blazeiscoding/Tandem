@@ -68,7 +68,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
       <div
         role="group"
         aria-label="Message formatting"
-        className="flex flex-wrap items-center gap-0.5 border-b border-edge px-2 py-1 text-sm text-ink-dim"
+        className="flex flex-wrap items-center gap-0.5 border-b border-edge/60 px-2 py-1 text-sm text-ink-dim"
       >
         <Tooltip label={expanded ? "Hide formatting" : "Formatting"}>
           <button
@@ -78,7 +78,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
             aria-controls={buttonsId}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setExpanded((v) => !v)}
-            className="formatting-toggle items-center rounded px-2 py-1 text-xs font-semibold hover:bg-lifted"
+            className="formatting-toggle items-center rounded px-2 py-1 text-xs font-semibold hover:bg-raised"
           >
             Aa
           </button>
@@ -106,7 +106,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
                 aria-label={item.label}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onFormat(item.marker, "text")}
-                className={`rounded px-2 py-1 hover:bg-lifted ${item.style}`}
+                className={`rounded px-2 py-1 hover:bg-raised ${item.style}`}
               >
                 {item.symbol}
               </button>
@@ -118,7 +118,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
               aria-label="Code block"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onFormat("```", "code", true)}
-              className="rounded px-2 py-1 font-mono text-xs hover:bg-lifted"
+              className="rounded px-2 py-1 font-mono text-xs hover:bg-raised"
             >
               {"{ }"}
             </button>
@@ -135,7 +135,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
               setOpen((v) => !v);
               setQuery("");
             }}
-            className="flex items-center rounded px-2 py-1 hover:bg-lifted"
+            className="flex items-center rounded px-2 py-1 hover:bg-raised"
           >
             <Icon name="smile" size={15} />
           </button>
@@ -144,7 +144,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
           type="button"
           aria-pressed={preview}
           onClick={onTogglePreview}
-          className="ml-auto rounded px-2 py-1 text-xs hover:bg-lifted"
+          className="ml-auto rounded px-2 py-1 text-xs hover:bg-raised"
         >
           Preview
         </button>
@@ -153,7 +153,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
         <div
           role="group"
           aria-label="Choose an emoji"
-          className="border-b border-edge p-2"
+          className="border-b border-edge/60 p-2"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
@@ -195,7 +195,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
                 aria-label={label}
                 title={label}
                 onClick={() => insert(emoji)}
-                className={`cursor-pointer rounded p-1 text-center text-xl hover:bg-lifted ${
+                className={`cursor-pointer rounded p-1 text-center text-xl hover:bg-raised ${
                   i === list.active ? "bg-copper/15" : ""
                 }`}
               >

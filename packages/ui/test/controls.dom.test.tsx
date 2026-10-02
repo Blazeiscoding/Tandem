@@ -314,6 +314,7 @@ describe("channel rows", () => {
     expect(
       within(nav).getByRole("button", { name: /^Private channel ?leads ?Muted$/ }),
     ).toBeVisible();
+    // A public channel's mark is a drawn #, so its name is the channel's alone.
     expect(
       within(nav).getByRole("button", { name: /^# ?general ?Huddle in progress$/ }),
     ).toBeVisible();

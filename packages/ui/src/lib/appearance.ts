@@ -4,8 +4,12 @@ import { createStore } from "zustand/vanilla";
 import { usePlatform } from "../context.js";
 import type { Platform } from "../platform.js";
 
-/** "system" follows what the device prefers, light or dark. */
-export const THEMES = ["system", "dark", "light", "contrast"] as const;
+/**
+ * Onyx ("dark") and White ("light"); "system" follows what the device
+ * prefers. More themes are to come; the high-contrast one that was here folds
+ * into Onyx until then.
+ */
+export const THEMES = ["system", "dark", "light"] as const;
 export type Theme = (typeof THEMES)[number];
 export const DENSITIES = ["comfortable", "compact"] as const;
 export type Density = (typeof DENSITIES)[number];
@@ -23,7 +27,7 @@ const stores = new WeakMap<Platform, ReturnType<typeof createAppearance>>();
 
 function createAppearance(platform: Platform) {
   const store = createStore<Appearance>(() => ({
-    // Dark was the only look before there was a choice, so it stays the default.
+    // Onyx, the dark theme, is the default.
     theme: "dark",
     density: "comfortable",
     loaded: false,
@@ -53,7 +57,8 @@ function createAppearance(platform: Platform) {
       store.setState({
         theme: (THEMES as readonly unknown[]).includes(saved?.theme)
           ? (saved!.theme as Theme)
-          : "dark",
+          : // Whatever this device chose before, Onyx is the nearest now.
+            "dark",
         density: (DENSITIES as readonly unknown[]).includes(saved?.density)
           ? (saved!.density as Density)
           : "comfortable",

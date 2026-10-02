@@ -685,10 +685,9 @@ function PreviewSettings() {
 }
 
 const THEME_LABELS: Record<Theme, { label: string; hint: string }> = {
-  system: { label: "Match this device", hint: "Light or dark, as the device is set" },
-  dark: { label: "Dark", hint: "Slate, as Gatherline has always looked" },
-  light: { label: "Light", hint: "For bright rooms" },
-  contrast: { label: "High contrast", hint: "Dark, with the strongest text and borders" },
+  system: { label: "Match this device", hint: "Onyx or White, as the device is set" },
+  dark: { label: "Onyx", hint: "Near-black, easy on the eyes" },
+  light: { label: "White", hint: "Clean and bright, for well-lit rooms" },
 };
 
 /** How Gatherline looks on this device: its theme, and how much it fits in. */
@@ -699,23 +698,35 @@ function AppearanceSettings() {
       <fieldset disabled={!appearance.loaded}>
         <legend className="font-semibold">Theme</legend>
         <p className="mt-1 text-sm text-ink-dim">Applies to every workspace on this device.</p>
-        <div className="mt-3 space-y-2">
-          {THEMES.map((theme) => (
-            <label key={theme} className="flex items-start gap-2 text-sm">
-              <input
-                type="radio"
-                name="theme"
-                className="mt-1"
-                checked={appearance.theme === theme}
-                onChange={() => void appearance.set({ theme })}
-              />
-              <span>
-                {THEME_LABELS[theme].label}
-                <span className="block text-xs text-ink-faint">{THEME_LABELS[theme].hint}</span>
-              </span>
-            </label>
-          ))}
+        <div className="mt-3 grid grid-cols-3 gap-3">
+          {THEMES.map((theme) => {
+            const chosen = appearance.theme === theme;
+            return (
+              <label
+                key={theme}
+                className={`cursor-pointer overflow-hidden rounded-xl border-2 text-sm transition-colors ${
+                  chosen ? "border-copper" : "border-edge hover:border-ink-faint"
+                }`}
+              >
+                <span aria-hidden="true" className="theme-swatch" data-swatch={theme} />
+                <span className="flex items-start gap-2 bg-raised p-2.5">
+                  <input
+                    type="radio"
+                    name="theme"
+                    className="mt-1 accent-[var(--color-copper)]"
+                    checked={chosen}
+                    onChange={() => void appearance.set({ theme })}
+                  />
+                  <span>
+                    <span className="font-semibold">{THEME_LABELS[theme].label}</span>
+                    <span className="block text-xs text-ink-faint">{THEME_LABELS[theme].hint}</span>
+                  </span>
+                </span>
+              </label>
+            );
+          })}
         </div>
+        <p className="mt-2 text-xs text-ink-faint">More themes are on the way.</p>
       </fieldset>
       <fieldset disabled={!appearance.loaded} className="mt-6 border-t border-edge pt-5">
         <legend className="float-left w-full font-semibold">Density</legend>

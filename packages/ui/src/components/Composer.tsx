@@ -607,7 +607,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   return (
     <div
-      className="composer-shell relative shrink-0 px-5 pb-5"
+      className="composer-shell relative shrink-0 px-4 pb-5"
       onDragEnter={(e) => {
         if (![...e.dataTransfer.types].includes("Files")) return;
         dragDepth.current++;
@@ -769,8 +769,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       )}
       <fieldset
         disabled={archived || scheduling || recoveryBlocksSend}
-        className={`min-w-0 rounded-xl border bg-raised shadow-[0_4px_20px_#0002] transition-colors ${
-          dragging ? "border-copper bg-copper/5" : "border-edge focus-within:border-copper/60"
+        className={`min-w-0 rounded-xl border bg-lifted transition-colors ${
+          dragging
+            ? "border-copper bg-copper/5"
+            : "border-transparent focus-within:border-copper/50"
         }`}
       >
         <FormattingToolbar
@@ -783,7 +785,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         {preview && (
           <div
             aria-label="Message preview"
-            className="max-h-36 overflow-y-auto border-b border-edge px-4 py-3 text-sm"
+            className="max-h-36 overflow-y-auto border-b border-edge/60 px-4 py-3 text-sm"
           >
             {text.trim() ? (
               <Mrkdwn text={text} users={users} channels={channels} selfId={selfId} />
@@ -793,7 +795,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           </div>
         )}
         {attached.length > 0 && (
-          <ul className="flex flex-wrap gap-2 border-b border-edge p-2.5">
+          <ul className="flex flex-wrap gap-2 border-b border-edge/60 p-2.5">
             {attached.map((f, i) => (
               <li
                 key={`${f.name}-${i}`}
@@ -876,7 +878,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
               <button
                 onClick={() => filePicker.current?.click()}
                 aria-label="Attach a file"
-                className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+                className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-raised hover:text-ink"
               >
                 <Icon name="attach" />
               </button>
@@ -886,7 +888,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                 <button
                   onClick={() => setScheduleOpen((v) => !v)}
                   aria-label="Send later"
-                  className={`rounded-lg px-2 py-1 transition-colors hover:bg-lifted hover:text-ink ${
+                  className={`rounded-lg px-2 py-1 transition-colors hover:bg-raised hover:text-ink ${
                     scheduleOpen ? "text-copper" : "text-ink-faint"
                   }`}
                 >
@@ -921,7 +923,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
               }}
               disabled={(!text.trim() && attached.length === 0) || text.length > MESSAGE_LIMIT}
               aria-label="Send message"
-              className="flex items-center gap-2 rounded-lg bg-copper px-3 py-1.5 text-ground hover:bg-copper-deep disabled:bg-lifted disabled:text-ink-faint"
+              className="flex items-center gap-2 rounded-lg bg-copper px-3 py-1.5 text-ground transition-colors hover:bg-copper-deep disabled:bg-transparent disabled:text-ink-faint"
             >
               <Icon name="send" size={16} />
             </button>

@@ -360,7 +360,7 @@ export const MessageTimeline = memo(function MessageTimeline({
     >
       <div ref={content} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown}>
         <ListStatus
-          className="px-5"
+          className="px-4"
           // A cached conversation refreshing on open says nothing; paging
           // through history, or a conversation not seen yet, does.
           loading={
@@ -382,7 +382,7 @@ export const MessageTimeline = memo(function MessageTimeline({
         />
         {timeline?.hasMore && (
           <button
-            className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"
+            className="w-full px-4 py-2 text-xs text-copper disabled:opacity-40"
             disabled={loadingHistory !== null}
             onClick={() => void requestHistory("older")}
           >
@@ -410,11 +410,10 @@ export const MessageTimeline = memo(function MessageTimeline({
                 <div
                   role="separator"
                   aria-label="New messages"
-                  className="my-3 flex items-center gap-3 px-5 text-xs font-medium text-copper"
+                  className="relative my-2 flex items-center pl-4 pr-4 text-[10px] font-bold uppercase tracking-[0.06em] text-alert"
                 >
-                  <span className="h-px flex-1 bg-copper/40" />
-                  New messages
-                  <span className="h-px flex-1 bg-copper/40" />
+                  <span className="h-px flex-1 bg-alert/70" />
+                  <span className="rounded bg-alert px-1.5 py-px text-ground">New</span>
                 </div>
               )}
               <MessageItem
@@ -431,7 +430,7 @@ export const MessageTimeline = memo(function MessageTimeline({
         })}
         {timeline?.hasMoreNewer && (
           <button
-            className="w-full px-5 py-2 text-xs text-copper disabled:opacity-40"
+            className="w-full px-4 py-2 text-xs text-copper disabled:opacity-40"
             disabled={loadingHistory !== null}
             onClick={() => void requestHistory("newer")}
           >
@@ -447,7 +446,7 @@ export const MessageTimeline = memo(function MessageTimeline({
         {(ephemerals ?? []).map((e) => (
           <EphemeralRow key={e.id} message={e} channelId={channelId} />
         ))}
-        <div className="h-5 px-5 pt-1 text-[12px] italic text-ink-faint">
+        <div className="h-5 px-4 pt-1 text-[12px] font-medium text-ink-faint">
           {typers.length > 0 &&
             `${typers.slice(0, 3).join(", ")} ${typers.length === 1 ? "is" : "are"} typing…`}
         </div>
@@ -467,8 +466,8 @@ function EphemeralRow({ message, channelId }: { message: EphemeralMessage; chann
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   return (
-    <div className="group flex gap-3 px-5 py-1.5">
-      <div className="w-9 shrink-0" />
+    <div className="group flex gap-4 py-1.5 pl-4 pr-12">
+      <div className="w-10 shrink-0" />
       <div className="min-w-0 flex-1 rounded-lg border border-dashed border-edge bg-raised/60 px-3 py-2">
         <div className="mb-0.5 flex items-center gap-2">
           {author && <span className="text-[13px] font-semibold">{author.displayName}</span>}
@@ -500,8 +499,8 @@ function EphemeralRow({ message, channelId }: { message: EphemeralMessage; chann
 function DroppedEphemeralsNotice({ channelId, count }: { channelId: ID; count: number }) {
   const client = useClient();
   return (
-    <div className="flex gap-3 px-5 py-1">
-      <div className="w-9 shrink-0" />
+    <div className="flex gap-4 py-1 pl-4 pr-12">
+      <div className="w-10 shrink-0" />
       <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 text-[13px] text-ink-faint">
         <span className="font-mono text-[10px] uppercase tracking-widest">Only visible to you</span>
         <span>
@@ -587,11 +586,9 @@ export function JumpToLatestBar({ channelId, onJump }: { channelId: ID; onJump?:
 
 function DayDivider({ ts }: { ts: number }) {
   return (
-    <div className="relative my-3 flex items-center px-5" role="separator">
+    <div className="relative my-4 flex items-center px-4" role="separator">
       <div className="h-px flex-1 bg-edge" />
-      <span className="rounded-full border border-edge bg-raised px-3 py-0.5 text-[11px] font-medium text-ink-dim">
-        {formatDay(ts)}
-      </span>
+      <span className="px-2 text-[12px] font-semibold text-ink-faint">{formatDay(ts)}</span>
       <div className="h-px flex-1 bg-edge" />
     </div>
   );
@@ -604,14 +601,14 @@ function ChannelIntro({ channelId }: { channelId: ID }) {
   if (!channel) return null;
   const isRoom = channel.type === "public" || channel.type === "private";
   return (
-    <div className="px-6 pb-5 pt-9">
-      <div className="mb-4 flex size-12 items-center justify-center rounded-2xl border border-edge bg-raised text-copper">
-        <Icon name={isRoom ? "hash" : "friends"} size={26} />
+    <div className="px-4 pb-4 pt-10">
+      <div className="mb-3 flex size-[68px] items-center justify-center rounded-full bg-lifted text-ink">
+        <Icon name={isRoom ? "hash" : "friends"} size={38} />
       </div>
       <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-copper">
         {isRoom ? "Your shared space" : "A little more personal"}
       </p>
-      <h2 className="text-2xl font-semibold tracking-tight">
+      <h2 className="text-3xl font-bold tracking-tight">
         {isRoom
           ? `#${channel.name}`
           : (channel.memberIds ?? [])
@@ -619,7 +616,7 @@ function ChannelIntro({ channelId }: { channelId: ID }) {
               .map((id) => users[id]?.displayName ?? "unknown")
               .join(", ") || "Just you"}
       </h2>
-      <p className="mt-1 text-sm text-ink-dim">
+      <p className="mt-1 text-[15px] text-ink-dim">
         {isRoom
           ? channel.description ||
             `This is the very beginning of #${channel.name}. Say something to get it going.`
@@ -634,9 +631,9 @@ function PendingRow({ pending }: { pending: PendingMessage }) {
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   return (
-    <div className="px-5 py-0.5 opacity-60">
-      <div className="flex gap-2.5">
-        <div className="w-9 shrink-0" />
+    <div className="py-0.5 pl-4 pr-12 opacity-60">
+      <div className="flex gap-4">
+        <div className="w-10 shrink-0" />
         <div className="min-w-0 flex-1 text-[15px]">
           {pending.text && <Mrkdwn text={pending.text} users={users} channels={channels} />}
           <PendingAttachments attachments={pending.attachments} progress={pending.uploadProgress} />

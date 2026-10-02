@@ -14,6 +14,7 @@ import { Sidebar, type OtherWorkspace } from "../components/Sidebar.js";
 import { JumpToLatestBar, MessageTimeline } from "../components/MessageTimeline.js";
 import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
+import { MembersPanel } from "../components/MembersPanel.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
 import { CatchUpSummary, namesList } from "../lib/catchUp.js";
@@ -34,7 +35,7 @@ import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { GettingStarted } from "../components/GettingStarted.js";
 import { LazyDialog, LazyPanel } from "../components/LazyView.js";
 import { ViewModal } from "../components/ViewModal.js";
-import { Icon } from "../components/Icon.js";
+import { Icon, type IconName } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
 import { NotificationBanner } from "../components/NotificationBanner.js";
 import { useMessageAnnouncer } from "../components/MessageAnnouncer.js";
@@ -181,7 +182,8 @@ type SidePanel =
   | { kind: "saved" }
   | { kind: "threads" }
   | { kind: "scheduled" }
-  | { kind: "activity" };
+  | { kind: "activity" }
+  | { kind: "members" };
 
 export function WorkspaceScreen({
   client,
@@ -315,7 +317,12 @@ function WorkspaceInner({
     if (!sidebarOpen) return;
     const nav = document.querySelector<HTMLElement>('[aria-label="Workspace navigation"]');
     const previous = document.activeElement as HTMLElement | null;
-    nav?.querySelector<HTMLElement>("button")?.focus();
+    // Jump to…, not the first button: the rail's buttons show a tooltip on
+    // focus, which would take the Escape meant to close the drawer.
+    (
+      nav?.querySelector<HTMLElement>("[data-drawer-focus]") ??
+      nav?.querySelector<HTMLElement>("button")
+    )?.focus();
     const onTab = (event: KeyboardEvent) => {
       if (event.defaultPrevented || hasOpenModal() || event.key !== "Tab") return;
       const buttons = [
@@ -886,7 +893,7 @@ function WorkspaceInner({
             </button>
           </div>
         )}
-        <header className="channel-header titlebar-drag flex h-[76px] shrink-0 items-center gap-3 border-b border-edge px-5">
+        <header className="channel-header titlebar-drag flex h-14 shrink-0 items-center gap-1 border-b border-edge px-3 shadow-[0_1px_0_var(--color-deep)]">
           <button
             id="open-navigation"
             className="mobile-nav-toggle rounded-lg p-2 text-ink-dim hover:bg-lifted"
@@ -898,73 +905,70 @@ function WorkspaceInner({
           </button>
           <button
             onClick={() => activeChannelId && setDialog({ kind: "channel-details" })}
-            className="min-w-0 flex-1 rounded-lg px-2 py-1 text-left transition-colors hover:bg-lifted"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-lifted/60"
           >
-            <h2 className="truncate text-[17px] font-semibold leading-tight">
-              {isRoom ? `#${title}` : title || "…"}
+            <h2 className="shrink-0 truncate text-[16px] font-semibold leading-tight">
+              {isRoom ? (
+                <>
+                  <span className="mr-1 font-normal text-ink-faint">#</span>
+                  {title}
+                </>
+              ) : (
+                title || "…"
+              )}
             </h2>
-            <p className="channel-topic mt-1 truncate text-xs text-ink-faint">
+            <span aria-hidden="true" className="channel-topic h-5 w-px shrink-0 bg-edge" />
+            <p className="channel-topic min-w-0 truncate text-[13px] text-ink-faint">
               {activeChannel?.topic ||
                 (isRoom ? "A space to keep the conversation moving" : "Your private conversation")}
             </p>
           </button>
           {activeChannelId && <HuddleButton channelId={activeChannelId} />}
-          <Tooltip label="Pinned messages">
-            <button
+          <HeaderToggle
+            label="Pinned messages"
+            icon="pin"
+            pressed={panel.kind === "pins"}
+            onClick={() =>
+              setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
+            }
+          />
+          <HeaderToggle
+            label="Saved messages"
+            icon="bookmark"
+            secondary
+            pressed={panel.kind === "saved"}
+            onClick={() =>
+              setPanel((p) => (p.kind === "saved" ? { kind: "none" } : { kind: "saved" }))
+            }
+          />
+          <HeaderToggle
+            label="Scheduled messages"
+            icon="clock"
+            secondary
+            pressed={panel.kind === "scheduled"}
+            onClick={() =>
+              setPanel((p) => (p.kind === "scheduled" ? { kind: "none" } : { kind: "scheduled" }))
+            }
+          />
+          {activeChannelId && (
+            <HeaderToggle
+              label="Members"
+              icon="members"
+              secondary
+              pressed={panel.kind === "members"}
               onClick={() =>
-                setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
+                setPanel((p) => (p.kind === "members" ? { kind: "none" } : { kind: "members" }))
               }
-              aria-label="Pinned messages"
-              aria-pressed={panel.kind === "pins"}
-              className={`rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
-                panel.kind === "pins"
-                  ? "border-copper text-copper"
-                  : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
-              }`}
-            >
-              <Icon name="pin" />
-            </button>
-          </Tooltip>
-          <Tooltip label="Saved messages">
-            <button
-              onClick={() =>
-                setPanel((p) => (p.kind === "saved" ? { kind: "none" } : { kind: "saved" }))
-              }
-              aria-label="Saved messages"
-              aria-pressed={panel.kind === "saved"}
-              className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
-                panel.kind === "saved"
-                  ? "border-copper text-copper"
-                  : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
-              }`}
-            >
-              <Icon name="bookmark" />
-            </button>
-          </Tooltip>
-          <Tooltip label="Scheduled messages">
-            <button
-              onClick={() =>
-                setPanel((p) => (p.kind === "scheduled" ? { kind: "none" } : { kind: "scheduled" }))
-              }
-              aria-label="Scheduled messages"
-              aria-pressed={panel.kind === "scheduled"}
-              className={`header-secondary rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
-                panel.kind === "scheduled"
-                  ? "border-copper text-copper"
-                  : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
-              }`}
-            >
-              <Icon name="clock" />
-            </button>
-          </Tooltip>
+            />
+          )}
           <Tooltip label="Search messages" keys="Ctrl/Cmd F">
             <button
               onClick={() => setDialog({ kind: "search" })}
               aria-label="Search messages"
-              className="flex items-center gap-2 rounded-lg border border-edge px-3 py-1.5 text-[13px] text-ink-dim transition-colors hover:border-ink-faint hover:text-ink"
+              className="ml-1 flex items-center gap-2 rounded-lg bg-deep px-2.5 py-1.5 text-[13px] text-ink-faint transition-colors hover:text-ink"
             >
-              <Icon name="search" size={16} />
-              <span className="header-secondary">Search</span>
+              <span className="header-secondary w-28 text-left">Search</span>
+              <Icon name="search" size={15} />
             </button>
           </Tooltip>
         </header>
@@ -1042,6 +1046,14 @@ function WorkspaceInner({
       )}
       {panel.kind === "saved" && (
         <SavedPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+      )}
+      {panel.kind === "members" && activeChannelId && (
+        <MembersPanel
+          key={activeChannelId}
+          channelId={activeChannelId}
+          onClose={() => setPanel({ kind: "none" })}
+          onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
+        />
       )}
       {panel.kind === "threads" && (
         <ThreadsPanel onClose={() => setPanel({ kind: "none" })} onJump={openThreadInChannel} />
@@ -1157,4 +1169,29 @@ function WorkspaceInner({
     </div>
   );
   return <OpenMessageContext.Provider value={openMessage}>{screen}</OpenMessageContext.Provider>;
+}
+
+/** An icon in the conversation's header that opens a side panel, and shows when it is open. */
+function HeaderToggle(props: {
+  label: string;
+  icon: IconName;
+  pressed: boolean;
+  /** Folded away on a phone, where the header has no room for it. */
+  secondary?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip label={props.label}>
+      <button
+        onClick={props.onClick}
+        aria-label={props.label}
+        aria-pressed={props.pressed}
+        className={`${props.secondary ? "header-secondary " : ""}rounded-lg p-2 transition-colors ${
+          props.pressed ? "bg-lifted text-ink" : "text-ink-faint hover:bg-lifted/60 hover:text-ink"
+        }`}
+      >
+        <Icon name={props.icon} size={20} />
+      </button>
+    </Tooltip>
+  );
 }

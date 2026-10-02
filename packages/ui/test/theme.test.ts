@@ -16,10 +16,10 @@ function block(opening: string): string {
   throw new Error(`${opening} never closes`);
 }
 
+/** Onyx is the default, "dark"; White is "light". */
 const THEME_BLOCKS = {
   dark: "@theme {",
   light: ':root[data-theme="light"] {',
-  contrast: ':root[data-theme="contrast"] {',
 } as const;
 type ThemeName = keyof typeof THEME_BLOCKS;
 
@@ -130,22 +130,22 @@ describe("the other themes", () => {
     ["ground", "alert"],
   ];
 
-  it("redefine every colour, so none is left from dark by accident", () => {
-    for (const theme of ["light", "contrast"] as const) {
+  it("redefine every colour, so none is left from Onyx by accident", () => {
+    for (const theme of ["light"] as const) {
       const own = [...block(THEME_BLOCKS[theme]).matchAll(/--color-([a-z-]+):/g)].map((m) => m[1]);
       expect(own.sort(), theme).toEqual(Object.keys(colourTokens("dark")).concat("mention").sort());
     }
   });
 
-  it("keep light as readable as dark", () => {
+  it("keep White as readable as Onyx", () => {
     expect(unreadable([...everyPair, ...fills], 4.5, "light")).toEqual([]);
   });
 
-  it("hold high contrast to 7:1, text and filled buttons alike", () => {
-    expect(unreadable([...everyPair, ...fills], 7, "contrast")).toEqual([]);
+  it("offer no theme the stylesheet does not define", () => {
+    expect(css).not.toContain('data-theme="contrast"');
   });
 
-  it("use light for the system theme on a device that prefers light, word for word", () => {
+  it("use White for the system theme on a device that prefers light, word for word", () => {
     const system = block("@media (prefers-color-scheme: light) {");
     const inner = system.slice(system.indexOf("{") + 1, system.lastIndexOf("}"));
     const normalise = (text: string) => text.replace(/\s+/g, " ").trim();

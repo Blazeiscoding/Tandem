@@ -1,0 +1,139 @@
+import { useEffect, useMemo, useState } from "react";
+import type { ID, User } from "@slackoss/protocol";
+import { useClient, useWorkspace } from "../context.js";
+import { usePanelFocus } from "../lib/usePanelFocus.js";
+import { AvatarWithPresence } from "./Avatar.js";
+import { Icon } from "./Icon.js";
+import { ListStatus } from "./ListStatus.js";
+
+/**
+ * Who is in this conversation, Discord's member list: online first, then
+ * everyone else, each by name with their status. A direct message knows its
+ * people already; a channel asks the server when the panel opens.
+ */
+export function MembersPanel(props: {
+  channelId: ID;
+  onClose: () => void;
+  onOpenProfile: (userId: ID) => void;
+}) {
+  const client = useClient();
+  const channel = useWorkspace((s) => s.channels[props.channelId]);
+  const users = useWorkspace((s) => s.users);
+  const presence = useWorkspace((s) => s.presence);
+  const known = channel?.memberIds;
+  const [loaded, setLoaded] = useState<ID[] | null>(known ?? null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const { panel, heading } = usePanelFocus({ takeFocus: true });
+
+  useEffect(() => {
+    if (known) {
+      setLoaded(known);
+      return;
+    }
+    let active = true;
+    setFailed(false);
+    client.api
+      .channelMembers(props.channelId)
+      .then((r) => active && setLoaded(r.memberIds))
+      .catch(() => active && setFailed(true));
+    return () => {
+      active = false;
+    };
+  }, [client, props.channelId, known, attempt]);
+
+  const { online, offline } = useMemo(() => {
+    const people = (loaded ?? [])
+      .map((id) => users[id])
+      .filter((u): u is User => !!u && !u.deactivated)
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+    return {
+      online: people.filter((u) => presence[u.id] === "online"),
+      offline: people.filter((u) => presence[u.id] !== "online"),
+    };
+  }, [loaded, users, presence]);
+
+  return (
+    <aside
+      ref={panel}
+      aria-label="Members"
+      className="flex w-[260px] max-w-full shrink-0 flex-col border-l border-edge bg-raised"
+    >
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-edge px-4">
+        <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
+          Members
+        </h2>
+        <button
+          onClick={props.onClose}
+          aria-label="Close Members"
+          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+        >
+          <Icon name="close" size={16} />
+        </button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+        <ListStatus
+          loading={loaded === null && !failed}
+          placeholder={loaded === null}
+          loadingLabel="Loading members…"
+          error={failed ? "Could not load who is here." : null}
+          onRetry={() => setAttempt((n) => n + 1)}
+        />
+        {loaded !== null && (
+          <>
+            <MemberGroup
+              title={`Online — ${online.length}`}
+              people={online}
+              online
+              onOpen={props.onOpenProfile}
+            />
+            <MemberGroup
+              title={`Offline — ${offline.length}`}
+              people={offline}
+              online={false}
+              onOpen={props.onOpenProfile}
+            />
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function MemberGroup(props: {
+  title: string;
+  people: User[];
+  online: boolean;
+  onOpen: (userId: ID) => void;
+}) {
+  if (props.people.length === 0) return null;
+  return (
+    <section aria-label={props.title} className="mb-4">
+      <h3 className="mb-1 px-2 text-[11px] font-bold uppercase tracking-[0.06em] text-ink-faint">
+        {props.title}
+      </h3>
+      <ul>
+        {props.people.map((user) => (
+          <li key={user.id}>
+            <button
+              onClick={() => props.onOpen(user.id)}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-lifted ${
+                props.online ? "" : "opacity-60 hover:opacity-100"
+              }`}
+            >
+              <AvatarWithPresence user={user} online={props.online} size={32} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-medium">{user.displayName}</span>
+                {(user.statusText || user.statusEmoji) && (
+                  <span className="block truncate text-[12px] text-ink-faint">
+                    {`${user.statusEmoji ?? ""} ${user.statusText ?? ""}`.trim()}
+                  </span>
+                )}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

@@ -121,9 +121,9 @@ export function ActivityPanel({
     <aside
       ref={panel}
       aria-label="Activity"
-      className="flex w-[420px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
+      className="flex w-[420px] max-w-full shrink-0 flex-col border-l border-edge bg-raised"
     >
-      <header className="flex h-[53px] shrink-0 items-center justify-between gap-2 border-b border-edge px-4">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge px-4">
         <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
           Activity
         </h2>
