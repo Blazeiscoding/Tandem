@@ -1307,6 +1307,10 @@ export class WorkspaceClient {
         }
         const items = s.threads[rootId] ?? [];
         const next = updateThread(rootId, page.root, items, [envelope], page.hasMoreNewer);
+        // Most events in a channel touch none of its open threads. Those keep
+        // their replies and page as they were, so nothing showing them renders
+        // again; the load above still hears every event (REV-03).
+        if (next.root === page.root && next.items === items) continue;
         patch.threads = {
           ...(patch.threads ?? s.threads),
           [rootId]: next.items.slice(-THREAD_WINDOW),
