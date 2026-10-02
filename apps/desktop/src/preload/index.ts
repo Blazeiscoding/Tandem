@@ -9,6 +9,7 @@ export interface SlackossBridge {
   storageMergeDrafts: (key: string, changes: unknown, enveloped: boolean) => Promise<unknown>;
   onDraftsChanged: (cb: (key: string, stored: unknown) => void) => () => void;
   storageMergeRecord: (key: string, changes: unknown) => Promise<unknown>;
+  storageInitialize: (key: string, value: unknown) => Promise<unknown>;
   onRecordChanged: (cb: (key: string, stored: unknown) => void) => () => void;
   lanSnapshot: () => Promise<unknown[]>;
   onLanServers: (cb: (servers: unknown[]) => void) => () => void;
@@ -58,6 +59,7 @@ const bridge: SlackossBridge = {
   downloadFile: (url) => ipcRenderer.invoke("file:download", url),
   storageGet: (key, options) => ipcRenderer.invoke("storage:get", key, options),
   storageSet: (key, value) => ipcRenderer.invoke("storage:set", key, value),
+  storageInitialize: (key, value) => ipcRenderer.invoke("storage:initialize", key, value),
   storageMergeOutbox: (key, changes, enveloped) =>
     ipcRenderer.invoke("storage:mergeOutbox", key, changes, enveloped),
   onOutboxChanged: (cb) => {

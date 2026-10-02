@@ -2111,7 +2111,13 @@ export class WorkspaceClient {
   send(
     channelId: ID,
     text: string,
-    opts: { threadRootId?: ID; files?: File[]; alsoSendToChannel?: boolean } = {},
+    opts: {
+      threadRootId?: ID;
+      files?: File[];
+      alsoSendToChannel?: boolean;
+      /** Told the nonce of the message queued, for its author to follow (F01). */
+      onQueued?: (nonce: string) => void;
+    } = {},
   ): boolean {
     const self = this.state.self;
     if (!self) return false;
@@ -2152,6 +2158,7 @@ export class WorkspaceClient {
     };
     this.store.setState((s) => ({ pending: [...s.pending, pendingMsg] }));
     if (files.length > 0) this.retryFiles.set(nonce, files);
+    opts.onQueued?.(nonce);
 
     void this.deliver(channelId, text, files, nonce, opts.threadRootId, opts.alsoSendToChannel);
     return true;

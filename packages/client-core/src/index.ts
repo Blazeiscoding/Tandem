@@ -21,6 +21,7 @@ export type { OutboxChanges, StoredOutbox, StoredOutboxEntry } from "./outbox.js
 export {
   applyDraftChanges,
   isDraftChanges,
+  keepBothDrafts,
   mergeDrafts,
   readStoredDrafts,
   unwrapStoredDrafts,

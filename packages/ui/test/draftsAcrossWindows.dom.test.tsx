@@ -146,7 +146,7 @@ describe("drafts in two windows of the desktop app", () => {
     expect(first.state.drafts[design.id]).toBe("the second window's, later");
   });
 
-  it("keep a window's own unsaved change over another's, and write it after", async () => {
+  it("keep both windows' changes to the same draft when both change it at once (GL-03)", async () => {
     const device = sharedDevice();
     const first = signedIn();
     const second = signedIn();
@@ -165,12 +165,13 @@ describe("drafts in two windows of the desktop app", () => {
       "typed in the first",
     );
     expect(second.state.drafts[design.id]).toBe("typed in the second, later");
-    // Then the second's is written, and the first takes it on.
+    // Then the second's is written beside the first's, which neither window
+    // had seen when it typed, and the first takes both on.
     await pause();
-    expect(readStoredDrafts(device.values.get(draftsKey(first)))?.[design.id]).toBe(
-      "typed in the second, later",
-    );
-    expect(first.state.drafts[design.id]).toBe("typed in the second, later");
+    const both = "typed in the second, later\n\ntyped in the first";
+    expect(readStoredDrafts(device.values.get(draftsKey(first)))?.[design.id]).toBe(both);
+    expect(first.state.drafts[design.id]).toBe(both);
+    expect(second.state.drafts[design.id]).toBe(both);
   });
 
   it("says when a draft could not be written, and writes it on Retry", async () => {

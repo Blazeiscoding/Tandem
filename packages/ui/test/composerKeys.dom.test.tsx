@@ -122,6 +122,7 @@ describe.each([
       threadRootId: undefined,
       files: [],
       alsoSendToChannel: false,
+      onQueued: expect.any(Function),
     });
     expect(box).toHaveValue("");
   });

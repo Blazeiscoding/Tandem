@@ -11,6 +11,7 @@ import { Mrkdwn } from "./Mrkdwn.js";
 import { Tooltip } from "./Tooltip.js";
 import { caretToRestore, insideCodeBlock, isImeKey, type PendingCaret } from "../lib/textInput.js";
 import { useListbox } from "../lib/useListbox.js";
+import { whenKeptLocally } from "../lib/localWork.js";
 import {
   readWorkspaceStorage,
   workspaceStorageKey,
@@ -85,6 +86,11 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const [attachmentNote, setAttachmentNote] = useState<string | null>(null);
   /** Why the last send was not taken, while the draft waits in the box. */
   const [sendRefusal, setSendRefusal] = useState<string | null>(null);
+  /**
+   * A send whose words this box keeps until the device has them (GL-02):
+   * its draft key, so a send from another conversation is never cleared here.
+   */
+  const [saving, setSaving] = useState<{ draftKey: string; nonce: string } | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<PendingCaret | null>(null);
   const filePicker = useRef<HTMLInputElement>(null);
@@ -92,6 +98,9 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const dragDepth = useRef(0);
   /** True once the user has edited this conversation's draft in this session. */
   const edited = useRef(false);
+  /** The conversation this box writes to now, for a send that settles later. */
+  const currentDraftKey = useRef(draftKey);
+  currentDraftKey.current = draftKey;
   /** The saved draft as this composer last wrote or took it; typing since is unsaved. */
   const synced = useRef(savedDraft);
 
@@ -360,13 +369,15 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   useEffect(() => chooseCommand(0), [commandCandidates.length, chooseCommand]);
 
   function send() {
-    if (archived || scheduleLock.current || recoveryBlocksSend) return;
+    if (archived || scheduleLock.current || recoveryBlocksSend || saving) return;
     const trimmed = text.trim();
     if ((!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT) return;
+    let queued: string | null = null;
     const accepted = client.send(channelId, trimmed, {
       threadRootId,
       files: attached,
       alsoSendToChannel: alsoToChannel,
+      onQueued: (nonce) => (queued = nonce),
     });
     if (!accepted) {
       // Nothing was taken, so the words stay here rather than only in memory.
@@ -378,14 +389,38 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       return;
     }
     setSendRefusal(null);
-    setText("");
     // A deliberate choice per reply, not a mode to get stuck in.
     setAlsoToChannel(false);
     setAttached([]);
     setMentionQuery(null);
     setAttachmentNote(null);
+    // The words stay here, and in the saved draft, until the device keeps the
+    // send itself: until then a closed window would lose them (GL-02).
+    const kept = queued && trimmed ? whenKeptLocally(client, queued) : null;
+    if (!kept) return clearSent(draftKey);
+    const sending = { draftKey, nonce: queued! };
+    setSaving(sending);
+    void kept.then((outcome) => {
+      setSaving((now) => (now?.nonce === sending.nonce ? null : now));
+      if (sending.draftKey !== currentDraftKey.current) {
+        // The conversation changed meanwhile: its draft still goes with the send.
+        if (client.state.drafts[sending.draftKey]?.trim() === trimmed)
+          client.setDraft(sending.draftKey, "");
+        return;
+      }
+      clearSent(sending.draftKey);
+      if (outcome === "unsaved")
+        setSendRefusal(
+          "Your message is sending but could not be saved on this device. Keep this window open until it has gone.",
+        );
+    });
+  }
+
+  /** Empties the box after a send is taken, and the draft it came from. */
+  function clearSent(key: string) {
+    setText("");
     edited.current = false;
-    client.setDraft(draftKey, "");
+    client.setDraft(key, "");
     if (box.current) box.current.style.height = "auto";
   }
 
@@ -817,6 +852,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         <textarea
           ref={box}
           value={text}
+          readOnly={saving?.draftKey === draftKey}
+          aria-busy={saving?.draftKey === draftKey}
           rows={1}
           placeholder={dragging ? "Drop files to attach" : placeholder}
           aria-label={placeholder}

@@ -165,6 +165,13 @@ export interface Platform {
     get: <T>(key: string, options?: { strict?: boolean }) => Promise<T | null>;
     set: (key: string, value: unknown) => Promise<void>;
     /**
+     * Stores `value` under `key` only if nothing is stored there, in one step
+     * no other window's write can come between, and gives back what is stored
+     * now: `value`, or what another window stored first (F01, GL-01). Without
+     * it, initializing is a read and a separate write.
+     */
+    initialize?: (key: string, value: unknown) => Promise<unknown>;
+    /**
      * Merges one window's outbox changes into what is stored under `key`, in
      * one step no other window's write can come between, and gives back the
      * outbox now stored. `enveloped` says the value is kept as
@@ -382,6 +389,11 @@ export function webPlatform(): Platform {
       set: async (key, value) => {
         localStorage.setItem(`slackoss:${key}`, JSON.stringify(value));
       },
+      initialize: async (key, value) =>
+        mergeInLocalStorage(key, (stored) => {
+          const now = stored ?? value;
+          return { value: now, result: now };
+        }),
       mergeOutbox: async (key, changes, enveloped) =>
         mergeInLocalStorage(key, (stored) => {
           const { value, outbox } = applyOutboxChanges(stored, changes, enveloped);

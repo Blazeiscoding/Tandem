@@ -209,6 +209,14 @@ handle("storage:get", (_e, key: unknown, options?: { strict?: boolean }) =>
   settings.get(settingKey(key), { strict: options?.strict === true }),
 );
 
+// Stores a value only where none is, in the settings queue every window's
+// writes share, so a window that read nothing cannot replace another's (GL-01).
+handle("storage:initialize", (_e, key: unknown, value: unknown) =>
+  settings.update(settingKey(key), (current) =>
+    current === null || current === undefined ? value : current,
+  ),
+);
+
 const writeSetting = (key: string, value: unknown) => settings.set(key, value);
 handle("storage:set", (_e, key: unknown, value: unknown) => writeSetting(settingKey(key), value));
 

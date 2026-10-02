@@ -58,3 +58,43 @@ describe("reading stored drafts", () => {
     expect(value).toEqual({ version: 1, value: { C1: "kept" } });
   });
 });
+
+/** Two windows changing the same draft from the same text (F01, GL-03). */
+describe("a draft two windows changed", () => {
+  it("keeps both texts when another window changed it since this one last knew it", () => {
+    const stored = { C1: "hello from A" };
+    expect(
+      mergeDrafts(stored, { put: { C1: "hello from B" }, remove: [], base: { C1: "hello" } }),
+    ).toEqual({ C1: "hello from B\n\nhello from A" });
+    // One that already holds the other is kept as it is.
+    expect(
+      mergeDrafts(stored, {
+        put: { C1: "hello from A, and more" },
+        remove: [],
+        base: { C1: "hello" },
+      }),
+    ).toEqual({ C1: "hello from A, and more" });
+    // Nothing changed elsewhere: the write is the draft.
+    expect(
+      mergeDrafts(stored, { put: { C1: "replaced" }, remove: [], base: { C1: "hello from A" } }),
+    ).toEqual({ C1: "replaced" });
+  });
+
+  it("leaves text written since when clearing, and clears what it last knew", () => {
+    expect(
+      mergeDrafts({ C1: "typed since" }, { put: {}, remove: ["C1"], base: { C1: "old" } }),
+    ).toEqual({
+      C1: "typed since",
+    });
+    expect(mergeDrafts({ C1: "old" }, { put: {}, remove: ["C1"], base: { C1: "old" } })).toEqual(
+      {},
+    );
+    // Without a base, as from an earlier version, the later write is the draft.
+    expect(mergeDrafts({ C1: "typed since" }, { put: {}, remove: ["C1"] })).toEqual({});
+  });
+
+  it("accepts a base only of texts or nothing", () => {
+    expect(isDraftChanges({ put: {}, remove: [], base: { C1: null, C2: "x" } })).toBe(true);
+    expect(isDraftChanges({ put: {}, remove: [], base: { C1: 3 } })).toBe(false);
+  });
+});
