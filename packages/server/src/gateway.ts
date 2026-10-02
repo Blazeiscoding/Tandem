@@ -54,8 +54,9 @@ export class Gateway {
       resolveClientAddress(request.socket.remoteAddress, request.headers),
   ) {
     this.heartbeat = setInterval(() => {
-      for (const c of this.clients) {
-        if (!this.authorized(c)) continue;
+      const authorized = this.sessionCheck();
+      for (const c of [...this.clients]) {
+        if (!authorized(c)) continue;
         if (!c.alive) {
           c.ws.terminate();
           continue;
@@ -444,10 +445,40 @@ export class Gateway {
   publish(envelope: EventEnvelope, channelId: ID | null): void {
     const audience = channelId === null ? null : this.audienceForChannel(channelId);
     const frame = JSON.stringify({ type: "event", envelope } satisfies ServerToClient);
-    for (const c of this.clients) {
-      if ((audience === null || audience.has(c.userId)) && this.authorized(c))
-        this.sendRaw(c.ws, frame);
-    }
+    const authorized = this.sessionCheck();
+    for (const c of this.reach(audience)) if (authorized(c)) this.sendRaw(c.ws, frame);
+  }
+
+  /**
+   * The sockets a fan-out to `audience` reaches: everyone's, or only those of
+   * the people in it, found by person rather than by checking every socket
+   * here (REV-06). A copy, since a revoked socket leaves the set mid-way.
+   */
+  private reach(audience: Set<ID> | null): Client[] {
+    if (audience === null) return [...this.clients];
+    return [...audience].flatMap((userId) => [...(this.byUser.get(userId) ?? [])]);
+  }
+
+  /**
+   * Whether a socket's session is still signed in, asked once per session in
+   * one fan-out however many of its devices it reaches (REV-06). An ended
+   * session closes each of its sockets as it is met, as `authorized` does, so
+   * revocation and expiry act as soon as before; the answer lives only as
+   * long as the fan-out that asked.
+   */
+  private sessionCheck(): (client: Client) => boolean {
+    const known = new Map<string, boolean>();
+    return (client) => {
+      if (!this.clients.has(client)) return false;
+      const key = `${client.tokenHash}\n${client.userId}`;
+      let active = known.get(key);
+      if (active === undefined) {
+        active = this.store.isSessionActive(client.tokenHash, client.userId);
+        known.set(key, active);
+      }
+      if (!active) this.revoke(client, "session expired or revoked");
+      return active;
+    };
   }
 
   /**
@@ -496,17 +527,15 @@ export class Gateway {
   /** Sends an ephemeral event to every socket of one user (their other devices). */
   sendToUser(userId: ID, event: EphemeralEvent): void {
     const frame = JSON.stringify({ type: "ephemeral", event } satisfies ServerToClient);
-    for (const c of this.byUser.get(userId) ?? []) {
-      if (this.authorized(c)) this.sendRaw(c.ws, frame);
-    }
+    const authorized = this.sessionCheck();
+    for (const c of [...(this.byUser.get(userId) ?? [])])
+      if (authorized(c)) this.sendRaw(c.ws, frame);
   }
 
   broadcastEphemeral(event: EphemeralEvent, audience: Set<ID> | null): void {
     const frame = JSON.stringify({ type: "ephemeral", event } satisfies ServerToClient);
-    for (const c of this.clients) {
-      if ((audience === null || audience.has(c.userId)) && this.authorized(c))
-        this.sendRaw(c.ws, frame);
-    }
+    const authorized = this.sessionCheck();
+    for (const c of this.reach(audience)) if (authorized(c)) this.sendRaw(c.ws, frame);
   }
 
   private send(ws: WebSocket, msg: ServerToClient): void {
