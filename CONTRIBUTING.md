@@ -51,10 +51,14 @@ manual run naming the tag. It builds the server and the Windows installer from
 that one commit and runs the unit, browser and desktop suites on them. On
 Windows it also installs the installer silently, starts the app, checks it
 registers `tandem://` and `slackoss://`, upgrades from the previous published
-release if there is one, and checks uninstalling keeps the person's data.
-`scripts/release-manifest.mjs` then refuses any file not built from that commit,
-or built from changed source, and writes `SHA256SUMS` and notes naming the
-revision. The result is a draft release; publishing it is a person's decision.
+release if there is one, and checks uninstalling keeps the person's data. The
+installed app is asked which data folder it is using
+(`TANDEM_RELEASE_GATE_REPORT`), so an upgrade passes only when the new version
+runs in the previous release's folder and reads what that release left there.
+Each job lists the files it built and tested, with their SHA-256
+(`release-manifest.mjs bind`), and `scripts/release-manifest.mjs` then refuses
+any file not built from that commit, built from changed source, not listed, or
+changed since, and writes `SHA256SUMS` and notes naming the revision. The result is a draft release; publishing it is a person's decision.
 Its files are release assets, so the clean-up below never touches them. The
 `release-*` artifacts that carry them between jobs are deleted by the release
 run itself. A pull request that changes the release workflow or its scripts

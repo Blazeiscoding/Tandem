@@ -5,7 +5,15 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { identityProblem, prepareRelease, sha256, tagVersion } from "./release-manifest.mjs";
+import { gzipSync } from "node:zlib";
+import {
+  bindAssets,
+  identityProblem,
+  prepareRelease,
+  readTarGzFile,
+  sha256,
+  tagVersion,
+} from "./release-manifest.mjs";
 
 const REVISION = "0123456789abcdef0123456789abcdef01234567";
 const OTHER = "fedcba9876543210fedcba9876543210fedcba98";
@@ -20,13 +28,40 @@ const identity = (over = {}) => ({
   ...over,
 });
 
-/** A release directory: identities for the server and desktop app, and two files to publish. */
+/** A `.tar.gz` holding `./<name>` files, as `tar -czf … -C dist .` writes one. */
+function tarGz(entries) {
+  const blocks = [];
+  for (const [name, body] of Object.entries(entries)) {
+    const data = Buffer.from(body);
+    const header = Buffer.alloc(512);
+    header.write(`./${name}`, 0, "utf8");
+    header.write("0000644\0", 100);
+    header.write(`${data.length.toString(8).padStart(11, "0")}\0`, 124);
+    header.write("ustar\0", 257);
+    blocks.push(header, data, Buffer.alloc((512 - (data.length % 512)) % 512));
+  }
+  return gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024)]));
+}
+
+const INSTALLER = "Tandem Setup 0.2.0.exe";
+const ARCHIVE = "tandem-server-0.2.0.tar.gz";
+
+/**
+ * A release directory as the jobs stage it: identities for the server and
+ * desktop app, the server archive carrying its identity and the installer,
+ * each listed with its SHA-256 by the job that tested it.
+ */
 function release(identities = { server: identity(), desktop: identity() }) {
   const dir = mkdtempSync(join(tmpdir(), "release-manifest-"));
   for (const [name, value] of Object.entries(identities))
     writeFileSync(join(dir, `${name}.build.json`), JSON.stringify(value));
-  writeFileSync(join(dir, "Tandem Setup 0.2.0.exe"), "installer bytes");
-  writeFileSync(join(dir, "tandem-server-0.2.0.tar.gz"), "server bytes");
+  writeFileSync(join(dir, INSTALLER), "installer bytes");
+  writeFileSync(
+    join(dir, ARCHIVE),
+    tarGz({ "build.json": JSON.stringify(identities.server ?? identity()), "x.js": "server" }),
+  );
+  bindAssets(dir, "server", [join(dir, ARCHIVE)]);
+  bindAssets(dir, "desktop", [join(dir, INSTALLER)]);
   return dir;
 }
 
@@ -42,7 +77,7 @@ test("every published file is hashed, and the notes name the tested revision", (
   const dir = release();
   try {
     const { sums, notes, files } = prepareRelease({ dir, revision: REVISION, tag: "v0.2.0" });
-    assert.deepEqual(files, ["Tandem Setup 0.2.0.exe", "tandem-server-0.2.0.tar.gz"]);
+    assert.deepEqual(files, [INSTALLER, ARCHIVE]);
     assert.equal(
       sums,
       `${sha256(join(dir, files[0]))}  ${files[0]}\n${sha256(join(dir, files[1]))}  ${files[1]}\n`,
@@ -138,5 +173,90 @@ test("the command writes SHA256SUMS beside the files and the notes where asked",
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(notes, { force: true });
+  }
+});
+
+test("preparing twice gives the same sums, with notes kept beside the files (F05)", () => {
+  const dir = release();
+  const notes = join(dir, "notes.md");
+  try {
+    const run = () =>
+      spawnSync(
+        process.execPath,
+        [SCRIPT, dir, "--revision", REVISION, "--tag", "v0.2.0", "--notes", notes],
+        { encoding: "utf8" },
+      );
+    const first = run();
+    assert.equal(first.status, 0, first.stderr);
+    const second = run();
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(second.stdout, first.stdout);
+    assert.doesNotMatch(first.stdout, /notes\.md|assets\.json|build\.json/);
+    // The sums the notes quote are those of the files published.
+    for (const line of readFileSync(join(dir, "SHA256SUMS"), "utf8").trim().split("\n")) {
+      const [hash, file] = line.split("  ");
+      assert.equal(sha256(join(dir, file)), hash);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("refuses a file no tested build staged, a changed or swapped one, or a second installer (F05)", () => {
+  const prepare = (dir) => () => prepareRelease({ dir, revision: REVISION, tag: "v0.2.0" });
+  let dir = release();
+  try {
+    writeFileSync(join(dir, "old-notes.md"), "left over");
+    assert.throws(prepare(dir), /old-notes\.md was not staged by a tested build/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  dir = release();
+  try {
+    writeFileSync(join(dir, INSTALLER), "other installer bytes");
+    assert.throws(prepare(dir), /is not the file desktop staged/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  dir = release();
+  try {
+    writeFileSync(join(dir, "Tandem Setup 0.1.0.exe"), "older");
+    bindAssets(dir, "desktop", [join(dir, INSTALLER), join(dir, "Tandem Setup 0.1.0.exe")]);
+    assert.throws(prepare(dir), /exactly one Windows installer/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  dir = release();
+  try {
+    // An archive carrying another build's identity, rebound to look staged.
+    writeFileSync(
+      join(dir, ARCHIVE),
+      tarGz({ "build.json": JSON.stringify(identity({ inputs: "ffffffffffffffff" })) }),
+    );
+    bindAssets(dir, "server", [join(dir, ARCHIVE)]);
+    assert.throws(prepare(dir), /does not carry the server identity/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  dir = release();
+  try {
+    rmSync(join(dir, "desktop.assets.json"));
+    rmSync(join(dir, INSTALLER));
+    assert.throws(prepare(dir), /no Windows installer was staged/);
+    writeFileSync(join(dir, "desktop.build.json"), "null");
+    assert.throws(prepare(dir), /desktop\.build\.json is not an object/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("reads one file out of a server archive", () => {
+  const dir = mkdtempSync(join(tmpdir(), "release-manifest-"));
+  try {
+    writeFileSync(join(dir, "a.tar.gz"), tarGz({ "x.js": "one", "build.json": "{}" }));
+    assert.equal(readTarGzFile(join(dir, "a.tar.gz"), "build.json")?.toString(), "{}");
+    assert.equal(readTarGzFile(join(dir, "a.tar.gz"), "missing.json"), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

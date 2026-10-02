@@ -32,6 +32,7 @@ import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
 import { appRecipients, guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
+import { writeGateReport } from "./releaseGate.js";
 import {
   PlaceCheckpoint,
   RENDERER_RECOVERY,
@@ -993,6 +994,17 @@ function loadRenderer(win: BrowserWindow): void {
 
 void app.whenReady().then(async () => {
   if (!primaryInstance) return;
+  // The installer gates ask which profile this process uses (F05).
+  const gateReport = appEnv("RELEASE_GATE_REPORT");
+  if (gateReport)
+    void writeGateReport(
+      gateReport,
+      { userData: app.getPath("userData"), version: app.getVersion() },
+      async () => {
+        await settings.get("releaseGate", { strict: true });
+        return true;
+      },
+    ).catch(() => {});
   // Unreadable settings mean no saved address, not a failed launch. The
   // environment can still supply one, and Manage hosting can save a new one.
   const stored = await settings.get("publicAddress").catch(() => null);
