@@ -1,0 +1,99 @@
+{
+  "measure": "mixed chat/search/reconnect/maintenance (IMP-07)",
+  "revision": "54296c3a9eebe9c88608eef313fe6ba7944d6dba",
+  "dirty": false,
+  "params": {
+    "seed": 1,
+    "people": 12,
+    "devices": 2,
+    "history": 20000,
+    "rounds": 3,
+    "seconds": 8
+  },
+  "machine": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "cores": 4,
+    "memoryGiB": 15.7,
+    "os": "linux 6.18.44-fc-v51 x64"
+  },
+  "runtime": {
+    "node": "v24.21.0"
+  },
+  "cache": "warm: one process, fixture seeded before timing",
+  "devices": 24,
+  "results": {
+    "post": {
+      "samples": 1069,
+      "p50": 7.52,
+      "p95": 19.79,
+      "p99": 37.37,
+      "max": 68.39,
+      "p95ByRound": [23.3, 18.19, 17.61],
+      "p95SpreadPct": 28.9,
+      "errors": 0
+    },
+    "fanout": {
+      "samples": 1069,
+      "p50": 7.02,
+      "p95": 19.03,
+      "p99": 33.83,
+      "max": 67.52,
+      "p95ByRound": [21.76, 17.85, 17.27],
+      "p95SpreadPct": 23.7,
+      "errors": 0
+    },
+    "search": {
+      "samples": 230,
+      "p50": 11.47,
+      "p95": 27.45,
+      "p99": 33.89,
+      "max": 52.86,
+      "p95ByRound": [28.48, 30.27, 27.45],
+      "p95SpreadPct": 9.8,
+      "errors": 0
+    },
+    "reconnect": {
+      "samples": 47,
+      "p50": 4.77,
+      "p95": 31.31,
+      "p99": 54.21,
+      "max": 54.21,
+      "p95ByRound": [31.31, 32.04, 54.21],
+      "p95SpreadPct": 58.4,
+      "errors": 0
+    },
+    "maintenance": {
+      "samples": 3,
+      "p50": 6.66,
+      "p95": 9.99,
+      "p99": 9.99,
+      "max": 9.99,
+      "p95ByRound": [6.66, 9.99, 6.1],
+      "p95SpreadPct": 51.3,
+      "errors": 0
+    }
+  },
+  "eventLoopDelayMsByRound": [
+    {
+      "p50": 1.12,
+      "p99": 11.4,
+      "max": 37.45
+    },
+    {
+      "p50": 1.11,
+      "p99": 9.9,
+      "max": 41.68
+    },
+    {
+      "p50": 1.11,
+      "p99": 9.67,
+      "max": 52.95
+    }
+  ],
+  "memoryMiB": {
+    "rssBefore": 326,
+    "rssAfter": 391.3,
+    "heapUsedAfter": 86.1
+  },
+  "errors": 0
+}
