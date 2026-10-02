@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
+import { createServer as createNetServer, type AddressInfo } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,12 +32,32 @@ function solidPng(width: number, height: number): Buffer {
   ]);
 }
 
-let server: ChildProcess;
-let data: string;
+/** A port nothing is listening on right now. */
+async function freePort(): Promise<number> {
+  const probe = createNetServer();
+  await new Promise<void>((done) => probe.listen(0, "127.0.0.1", done));
+  const { port } = probe.address() as AddressInfo;
+  await new Promise((done) => probe.close(done));
+  return port;
+}
+
+/**
+ * Every scenario has a workspace of its own: the built server on a free port
+ * with fresh data, so each runs the same alone, in any order, and after
+ * another failed, rather than building on the accounts and state an earlier
+ * scenario left (REV-08). Alice, who owns it, and Bobby are registered before
+ * a scenario starts, as if they had signed up; a scenario tagged `@unowned`
+ * starts with nobody, to see the workspace before anyone claims it.
+ */
+let server: ChildProcess | undefined;
+let data = "";
 let claimCode = "";
-const base = "http://127.0.0.1:18543";
-test.beforeAll(async () => {
+let base = "";
+test.beforeEach(async ({}, testInfo) => {
   data = mkdtempSync(join(tmpdir(), "slackoss-e2e-"));
+  const port = await freePort();
+  base = `http://127.0.0.1:${port}`;
+  claimCode = "";
   server = spawn(
     process.execPath,
     [
@@ -44,7 +65,7 @@ test.beforeAll(async () => {
       "--data",
       data,
       "--port",
-      "18543",
+      String(port),
       "--host",
       "127.0.0.1",
       "--no-mdns",
@@ -72,13 +93,25 @@ test.beforeAll(async () => {
       }
     })
     .toBe(200);
+  if (testInfo.tags.includes("@unowned")) return;
+  // From this machine and with no browser's Origin, so no claim code is
+  // asked for; the first to register owns the workspace.
+  for (const handle of ["alice", "bobby"]) {
+    const registered = await fetch(`${base}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle, displayName: handle, password: "password123" }),
+    });
+    expect(registered.status, `registering ${handle}`).toBe(201);
+  }
 });
-test.afterAll(async () => {
+test.afterEach(async () => {
   if (server && server.exitCode === null) {
-    const exited = new Promise((r) => server.once("exit", r));
+    const exited = new Promise((r) => server!.once("exit", r));
     server.kill();
     await exited;
   }
+  server = undefined;
   if (data) rmSync(data, { recursive: true, force: true });
 });
 
@@ -175,178 +208,188 @@ function isInert(element: Locator) {
   return element.evaluate((el) => el.closest("[inert]") !== null);
 }
 
-test("a browser served by a workspace offers that workspace without being asked", async ({
-  page,
-}) => {
-  await page.goto(base);
-  // The page came from the workspace, so there is nothing to look up: it goes
-  // straight to signing in, named, with no address to type.
-  await expect(page.getByRole("heading", { name: "Product Test" })).toBeVisible();
-  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
-  await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toHaveCount(0);
+test(
+  "a browser served by a workspace offers that workspace without being asked",
+  { tag: "@unowned" },
+  async ({ page }) => {
+    await page.goto(base);
+    // The page came from the workspace, so there is nothing to look up: it goes
+    // straight to signing in, named, with no address to type.
+    await expect(page.getByRole("heading", { name: "Product Test" })).toBeVisible();
+    await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+    await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toHaveCount(0);
 
-  // The way back to the full list is still there for a second workspace.
-  await page.getByRole("button", { name: "All workspaces", exact: true }).click();
-  await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toBeVisible();
-  await expect(page.getByText("serving this page")).toBeVisible();
-});
+    // The way back to the full list is still there for a second workspace.
+    await page.getByRole("button", { name: "All workspaces", exact: true }).click();
+    await expect(page.getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")).toBeVisible();
+    await expect(page.getByText("serving this page")).toBeVisible();
+  },
+);
 
-test("two people register, chat, become friends, reconnect, and exchange real WebRTC media", async ({
-  browser,
-}, info) => {
-  const a = await browser.newContext({
-    permissions: ["microphone", "camera"],
-    viewport: { width: 1280, height: 820 },
-  });
-  const b = await browser.newContext({
-    permissions: ["microphone", "camera"],
-    viewport: { width: 1280, height: 820 },
-  });
-  const alice = await a.newPage();
-  const bob = await b.newPage();
-  const errors: string[] = [];
-  for (const page of [alice, bob]) {
-    page.on("pageerror", (err) => errors.push(err.message));
-    // A blocked resource is reported to the console rather than thrown, so it
-    // would slip past the page-error check above on its own.
-    page.on("console", (m) => {
-      if (m.text().includes("Content Security Policy")) errors.push(m.text());
+test(
+  "two people register, chat, become friends, reconnect, and exchange real WebRTC media",
+  { tag: "@unowned" },
+  async ({ browser }, info) => {
+    const a = await browser.newContext({
+      permissions: ["microphone", "camera"],
+      viewport: { width: 1280, height: 820 },
     });
-    await page.addInitScript(() => {
-      const Original = window.RTCPeerConnection;
-      (window as any).peers = [];
-      window.RTCPeerConnection = class extends Original {
-        constructor(config?: RTCConfiguration) {
-          super(config);
-          (window as any).peers.push(this);
-        }
-      };
+    const b = await browser.newContext({
+      permissions: ["microphone", "camera"],
+      viewport: { width: 1280, height: 820 },
     });
-  }
-  try {
-    // A reverse proxy removes the localhost claim bypass. The owner can still
-    // complete setup in the browser, including correcting an invalid code.
-    await expect.poll(() => claimCode.length).toBeGreaterThan(0);
-    await alice.route("**/api/**", (route) =>
-      route.continue({
-        headers: { ...route.request().headers(), "x-forwarded-for": "192.0.2.10" },
-      }),
-    );
-    await register(alice, "alice", claimCode);
-    await alice.unroute("**/api/**");
-    await register(bob, "bobby");
-    await alice.locator("textarea").fill("Hello from Alice — live delivery");
-    await alice.locator("textarea").press("Enter");
-    await expect(bob.getByText("Hello from Alice — live delivery", { exact: true })).toBeVisible();
-    // A screen reader hears a message as it arrives in the open conversation.
-    const bobHears = bob.getByRole("log", { name: "New messages", exact: true });
-    await expect(bobHears).toHaveText("alice: Hello from Alice — live delivery");
-    await alice.getByRole("button", { name: "Friends", exact: true }).click();
-    await alice.getByRole("tab", { name: "Add friends", exact: true }).click();
-    await alice.getByRole("button", { name: "Add friend", exact: true }).click();
-    await bob.getByRole("button", { name: "Friends 1" }).click();
-    await bob.getByRole("tab", { name: "Requests (1)", exact: true }).click();
-    await bob.getByRole("button", { name: "Accept", exact: true }).click();
-    await alice.getByRole("tab", { name: "Friends", exact: true }).click();
-    await expect(alice.getByRole("button", { name: "Remove friend" })).toBeVisible();
-    await alice.keyboard.press("Escape");
-    await bob.keyboard.press("Escape");
-    await b.setOffline(true);
-    await alice.locator("textarea").fill("Message while Bob is offline");
-    await alice.locator("textarea").press("Enter");
-    await b.setOffline(false);
-    await expect(bob.getByText("Message while Bob is offline", { exact: true })).toBeVisible();
-    await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
-    await expect(alice.getByText("Huddle in #general", { exact: true })).toBeVisible();
-    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
+    const alice = await a.newPage();
+    const bob = await b.newPage();
+    const errors: string[] = [];
     for (const page of [alice, bob]) {
+      page.on("pageerror", (err) => errors.push(err.message));
+      // A blocked resource is reported to the console rather than thrown, so it
+      // would slip past the page-error check above on its own.
+      page.on("console", (m) => {
+        if (m.text().includes("Content Security Policy")) errors.push(m.text());
+      });
+      await page.addInitScript(() => {
+        const Original = window.RTCPeerConnection;
+        (window as any).peers = [];
+        window.RTCPeerConnection = class extends Original {
+          constructor(config?: RTCConfiguration) {
+            super(config);
+            (window as any).peers.push(this);
+          }
+        };
+      });
+    }
+    try {
+      // A reverse proxy removes the localhost claim bypass. The owner can still
+      // complete setup in the browser, including correcting an invalid code.
+      await expect.poll(() => claimCode.length).toBeGreaterThan(0);
+      await alice.route("**/api/**", (route) =>
+        route.continue({
+          headers: { ...route.request().headers(), "x-forwarded-for": "192.0.2.10" },
+        }),
+      );
+      await register(alice, "alice", claimCode);
+      await alice.unroute("**/api/**");
+      await register(bob, "bobby");
+      await alice.locator("textarea").fill("Hello from Alice — live delivery");
+      await alice.locator("textarea").press("Enter");
+      await expect(
+        bob.getByText("Hello from Alice — live delivery", { exact: true }),
+      ).toBeVisible();
+      // A screen reader hears a message as it arrives in the open conversation.
+      const bobHears = bob.getByRole("log", { name: "New messages", exact: true });
+      await expect(bobHears).toHaveText("alice: Hello from Alice — live delivery");
+      await alice.getByRole("button", { name: "Friends", exact: true }).click();
+      await alice.getByRole("tab", { name: "Add friends", exact: true }).click();
+      await alice.getByRole("button", { name: "Add friend", exact: true }).click();
+      await bob.getByRole("button", { name: "Friends 1" }).click();
+      await bob.getByRole("tab", { name: "Requests (1)", exact: true }).click();
+      await bob.getByRole("button", { name: "Accept", exact: true }).click();
+      await alice.getByRole("tab", { name: "Friends", exact: true }).click();
+      await expect(alice.getByRole("button", { name: "Remove friend" })).toBeVisible();
+      await alice.keyboard.press("Escape");
+      await bob.keyboard.press("Escape");
+      await b.setOffline(true);
+      await alice.locator("textarea").fill("Message while Bob is offline");
+      await alice.locator("textarea").press("Enter");
+      await b.setOffline(false);
+      await expect(bob.getByText("Message while Bob is offline", { exact: true })).toBeVisible();
+      await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
+      await expect(alice.getByText("Huddle in #general", { exact: true })).toBeVisible();
+      await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
+      for (const page of [alice, bob]) {
+        await expect
+          .poll(() =>
+            page.evaluate(() =>
+              (window as any).peers.some(
+                (p: RTCPeerConnection) => p.connectionState === "connected",
+              ),
+            ),
+          )
+          .toBe(true);
+        await expect
+          .poll(() =>
+            page.evaluate(async () => {
+              let bytes = 0;
+              for (const pc of (window as any).peers as RTCPeerConnection[])
+                (await pc.getStats()).forEach((r) => {
+                  if (r.type === "inbound-rtp" && r.kind === "audio") bytes += r.bytesReceived;
+                });
+              return bytes;
+            }),
+          )
+          .toBeGreaterThan(0);
+      }
+      // The fake capture device plays a tone, so the level meter has something
+      // real to report: each side should see the other light up as talking.
+      for (const page of [alice, bob]) {
+        await expect
+          .poll(() => page.locator(".ring-online").count(), { timeout: 15_000 })
+          .toBeGreaterThan(0);
+      }
+      await alice.getByRole("button", { name: "Camera", pressed: false }).click();
       await expect
         .poll(() =>
-          page.evaluate(() =>
-            (window as any).peers.some((p: RTCPeerConnection) => p.connectionState === "connected"),
+          bob
+            .locator("video")
+            .evaluateAll((videos) => videos.some((v) => (v as HTMLVideoElement).videoWidth > 0)),
+        )
+        .toBe(true);
+      // The video gets a stage of its own above the chat, with Alice named on it.
+      const bobStage = bob.getByRole("region", { name: "Huddle video" });
+      await expect(bobStage.getByRole("group", { name: "alice", exact: true })).toBeVisible();
+      await alice.getByRole("button", { name: "Mute microphone", pressed: false }).click();
+      await expect(
+        alice.getByRole("button", { name: "Mute microphone", pressed: true }),
+      ).toBeVisible();
+      // Muting is signalled, not guessed: Bob's copy of Alice says so.
+      await expect(bob.getByTitle("alice (muted)")).toBeVisible();
+      await expect(
+        bobStage.getByRole("group", { name: "alice, muted", exact: true }),
+      ).toBeVisible();
+      await alice.screenshot({ path: info.outputPath("workspace.png") });
+      await alice.getByRole("button", { name: "Leave", exact: true }).click();
+      await bob.getByRole("button", { name: "Leave", exact: true }).click();
+      await expect
+        .poll(() =>
+          alice.evaluate(() =>
+            (window as any).peers.every((p: RTCPeerConnection) => p.connectionState === "closed"),
           ),
         )
         .toBe(true);
-      await expect
-        .poll(() =>
-          page.evaluate(async () => {
-            let bytes = 0;
-            for (const pc of (window as any).peers as RTCPeerConnection[])
-              (await pc.getStats()).forEach((r) => {
-                if (r.type === "inbound-rtp" && r.kind === "audio") bytes += r.bytesReceived;
-              });
-            return bytes;
-          }),
-        )
-        .toBeGreaterThan(0);
-    }
-    // The fake capture device plays a tone, so the level meter has something
-    // real to report: each side should see the other light up as talking.
-    for (const page of [alice, bob]) {
-      await expect
-        .poll(() => page.locator(".ring-online").count(), { timeout: 15_000 })
-        .toBeGreaterThan(0);
-    }
-    await alice.getByRole("button", { name: "Camera", pressed: false }).click();
-    await expect
-      .poll(() =>
-        bob
-          .locator("video")
-          .evaluateAll((videos) => videos.some((v) => (v as HTMLVideoElement).videoWidth > 0)),
-      )
-      .toBe(true);
-    // The video gets a stage of its own above the chat, with Alice named on it.
-    const bobStage = bob.getByRole("region", { name: "Huddle video" });
-    await expect(bobStage.getByRole("group", { name: "alice", exact: true })).toBeVisible();
-    await alice.getByRole("button", { name: "Mute microphone", pressed: false }).click();
-    await expect(
-      alice.getByRole("button", { name: "Mute microphone", pressed: true }),
-    ).toBeVisible();
-    // Muting is signalled, not guessed: Bob's copy of Alice says so.
-    await expect(bob.getByTitle("alice (muted)")).toBeVisible();
-    await expect(bobStage.getByRole("group", { name: "alice, muted", exact: true })).toBeVisible();
-    await alice.screenshot({ path: info.outputPath("workspace.png") });
-    await alice.getByRole("button", { name: "Leave", exact: true }).click();
-    await bob.getByRole("button", { name: "Leave", exact: true }).click();
-    await expect
-      .poll(() =>
-        alice.evaluate(() =>
-          (window as any).peers.every((p: RTCPeerConnection) => p.connectionState === "closed"),
-        ),
-      )
-      .toBe(true);
-    expect(errors).toEqual([]);
-  } finally {
-    for (const [name, page] of [
-      ["alice", alice],
-      ["bob", bob],
-    ] as const) {
-      const diagnostics = await page
-        .evaluate(async () =>
-          Promise.all(
-            ((window as any).peers ?? []).map(async (pc: RTCPeerConnection) => ({
-              connection: pc.connectionState,
-              senders: pc.getSenders().map((s) => ({
-                kind: s.track?.kind,
-                enabled: s.track?.enabled,
-                state: s.track?.readyState,
+      expect(errors).toEqual([]);
+    } finally {
+      for (const [name, page] of [
+        ["alice", alice],
+        ["bob", bob],
+      ] as const) {
+        const diagnostics = await page
+          .evaluate(async () =>
+            Promise.all(
+              ((window as any).peers ?? []).map(async (pc: RTCPeerConnection) => ({
+                connection: pc.connectionState,
+                senders: pc.getSenders().map((s) => ({
+                  kind: s.track?.kind,
+                  enabled: s.track?.enabled,
+                  state: s.track?.readyState,
+                })),
+                stats: [...(await pc.getStats()).values()].filter((r) =>
+                  ["inbound-rtp", "outbound-rtp", "media-source"].includes(r.type),
+                ),
               })),
-              stats: [...(await pc.getStats()).values()].filter((r) =>
-                ["inbound-rtp", "outbound-rtp", "media-source"].includes(r.type),
-              ),
-            })),
-          ),
-        )
-        .catch(() => null);
-      await info.attach(`${name}-rtc`, {
-        body: JSON.stringify(diagnostics, null, 2),
-        contentType: "application/json",
-      });
+            ),
+          )
+          .catch(() => null);
+        await info.attach(`${name}-rtc`, {
+          body: JSON.stringify(diagnostics, null, 2),
+          contentType: "application/json",
+        });
+      }
+      await a.close().catch(() => {});
+      await b.close().catch(() => {});
     }
-    await a.close().catch(() => {});
-    await b.close().catch(() => {});
-  }
-});
+  },
+);
 
 test("scrolls back through a long channel without unbounded growth or losing its place", async ({
   browser,
@@ -1375,7 +1418,7 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
   test.setTimeout(120_000);
   // A workspace of its own, invite-only, so the code the link carries is what
   // lets the new person in.
-  const port = 18544;
+  const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const inviteData = mkdtempSync(join(tmpdir(), "slackoss-e2e-invite-"));
   const inviteServer = spawn(
@@ -1686,7 +1729,7 @@ test("the demo seed fills a new workspace with something to try, and leaves one 
   test.setTimeout(90_000);
   // A workspace of its own, invite-only and with the usual limits, so the seed
   // has to let its people in with a code and stay inside the rationing.
-  const port = 18545;
+  const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const demoData = mkdtempSync(join(tmpdir(), "slackoss-e2e-demo-"));
   const demoServer = spawn(

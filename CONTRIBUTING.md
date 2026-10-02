@@ -60,12 +60,11 @@ launches the packaged app. Each build writes a `build.json` naming the source it
 was built from, and both suites check it before they start: run against a build
 older than your checkout, they stop and name the command that rebuilds it,
 rather than quietly passing against the previous build (`node
-scripts/build-identity.mjs check web server desktop` asks the same). The scenarios
-in `web.spec.ts` share one server and build on each other's accounts, and a
-worker is restarted after a failure with fresh hooks and a fresh server — so a
-failure midway cascades into confusing failures later (a sign-in meeting an
-empty workspace, for instance). Fix the first failure and rerun before chasing
-the later ones.
+scripts/build-identity.mjs check web server desktop` asks the same). Each scenario
+in `web.spec.ts` gets a workspace of its own, a server on a free port with
+fresh data, with Alice (the owner) and Bobby already registered; one tagged
+`@unowned` starts with nobody. So a scenario runs the same alone (`pnpm
+test:e2e tests/e2e/web.spec.ts:<line>`), in any order, and after another fails.
 
 Requests are rationed by default, keyed on the account where there is one. A
 test or script that seeds history by posting hundreds of messages in a loop is
