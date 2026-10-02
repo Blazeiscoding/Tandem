@@ -1,0 +1,75 @@
+{
+  "node": "v24.21.0",
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+  "cores": 4,
+  "memoryGiB": 16,
+  "rounds": 15,
+  "a": {
+    "executable": "linux-unpacked with the F15 filter (main)",
+    "archiveBytes": 7410671,
+    "launchMs": {
+      "median": 1458,
+      "p95": 1497.2,
+      "min": 892.1
+    },
+    "hostingMs": {
+      "median": 1487.5,
+      "p95": 1986.4,
+      "min": 1452.3
+    },
+    "idleMiB": {
+      "median": 542.6,
+      "p95": 544.5,
+      "min": 532.4
+    },
+    "idleMainMiB": {
+      "median": 189.6,
+      "p95": 190.1,
+      "min": 180.8
+    },
+    "hostingMiB": {
+      "median": 575.9,
+      "p95": 577.1,
+      "min": 566.2
+    },
+    "hostingMainMiB": {
+      "median": 201.6,
+      "p95": 202,
+      "min": 193.2
+    }
+  },
+  "b": {
+    "executable": "linux-unpacked without the F15 filter",
+    "archiveBytes": 11190131,
+    "launchMs": {
+      "median": 1444,
+      "p95": 1548.4,
+      "min": 926.6
+    },
+    "hostingMs": {
+      "median": 1527.6,
+      "p95": 1986.8,
+      "min": 1455.6
+    },
+    "idleMiB": {
+      "median": 542.3,
+      "p95": 544.4,
+      "min": 533.1
+    },
+    "idleMainMiB": {
+      "median": 190.2,
+      "p95": 190.9,
+      "min": 181.4
+    },
+    "hostingMiB": {
+      "median": 575.9,
+      "p95": 578.5,
+      "min": 567.3
+    },
+    "hostingMainMiB": {
+      "median": 202.2,
+      "p95": 203,
+      "min": 193.9
+    }
+  }
+}
