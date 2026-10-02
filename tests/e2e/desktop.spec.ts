@@ -669,3 +669,165 @@ test("a window whose page crashes comes back by itself, and hosting carries on (
     );
   });
 });
+
+/** The packaged app, launched with fresh data of its own for one test. */
+async function launchApp(prefix: string) {
+  const data = mkdtempSync(join(tmpdir(), prefix));
+  const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
+  const app = await electron.launch({
+    executablePath: resolve("apps/desktop/release/win-unpacked/Tandem.exe"),
+    env: {
+      ...inherited,
+      SLACKOSS_TEST: "1",
+      SLACKOSS_TEST_MEDIA: "1",
+      SLACKOSS_USER_DATA_DIR: data,
+    },
+  });
+  launched = { app, data };
+  const page = await app.firstWindow();
+  await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
+  return { app, page };
+}
+
+test("a window that loads the app's preload elsewhere is refused, and told nothing (REV-14, F09)", async () => {
+  const { app, page } = await launchApp("slackoss-desktop-foreign-");
+  // A second window with the app's own preload, showing another page: how a
+  // stray or opened window would look to the main process.
+  await app.evaluate(async ({ app, BrowserWindow }) => {
+    const foreign = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        preload: `${app.getAppPath()}/out/preload/index.cjs`,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    await foreign.loadURL("about:blank");
+  });
+  await expect.poll(() => app.windows().length).toBe(2);
+  const foreign = app.windows().find((window) => window !== page)!;
+  const refused = await foreign.evaluate(async () => {
+    const outcome = (call: () => Promise<unknown>) =>
+      call().then(
+        () => "accepted",
+        (error: Error) => error.message,
+      );
+    const bridge = (window as any).slackoss;
+    return {
+      read: await outcome(() => bridge.storageGet("servers")),
+      write: await outcome(() => bridge.storageSet("foreign", "written")),
+      hosting: await outcome(() => bridge.hostingStatus()),
+    };
+  });
+  expect(refused).toEqual({
+    read: expect.stringMatching(/did not come from the Tandem window/),
+    write: expect.stringMatching(/did not come from the Tandem window/),
+    hosting: expect.stringMatching(/did not come from the Tandem window/),
+  });
+
+  // It listens for what the app's own window changes, and hears none of it.
+  await foreign.evaluate(() => {
+    const heard: unknown[] = [];
+    (window as any).heard = heard;
+    const bridge = (window as any).slackoss;
+    bridge.onDraftsChanged((key: string, stored: unknown) => heard.push({ key, stored }));
+    bridge.onOutboxChanged((key: string, stored: unknown) => heard.push({ key, stored }));
+    bridge.onRecordChanged((key: string, stored: unknown) => heard.push({ key, stored }));
+  });
+  const stored = await page.evaluate(async () => {
+    const bridge = (window as any).slackoss;
+    const drafts = await bridge.storageMergeDrafts(
+      "drafts:foreign-test",
+      { put: { C1: "a private draft" }, remove: [] },
+      false,
+    );
+    const outbox = await bridge.storageMergeOutbox(
+      "outbox:foreign-test",
+      {
+        put: [
+          {
+            nonce: "foreign-test-nonce",
+            channelId: "C1",
+            threadRootId: null,
+            text: "an unsent message",
+            userId: "U1",
+            createdAt: Date.now(),
+            attachments: [],
+            rev: 1,
+          },
+        ],
+        remove: [],
+      },
+      false,
+    );
+    const record = await bridge.storageMergeRecord("notification-previews", { "U1 here": "none" });
+    return { drafts, outbox: outbox.entries.length, record };
+  });
+  expect(stored).toEqual({
+    drafts: { C1: "a private draft" },
+    outbox: 1,
+    record: { "U1 here": "none" },
+  });
+  await page.waitForTimeout(1_000);
+  expect(await foreign.evaluate(() => (window as any).heard)).toEqual([]);
+});
+
+test("a window that keeps crashing comes back where it was, Try again included (F08)", async () => {
+  const { app, page } = await launchApp("slackoss-desktop-place-");
+  await page.getByRole("button", { name: "Host a workspace on this computer" }).click();
+  await page.getByPlaceholder("Workspace name (e.g. Rocket Team)").fill("Place Test");
+  await page.getByRole("button", { name: "Start hosting", exact: true }).click();
+  await page.getByLabel("Username", { exact: true }).fill("placeowner");
+  await page.getByLabel("Display name", { exact: true }).fill("Place Owner");
+  await page.getByLabel("Password", { exact: true }).fill("password123");
+  await page.getByRole("button", { name: "Join workspace", exact: true }).click();
+  await expect(page.locator("textarea")).toBeVisible();
+  const saved = page.getByRole("button", { name: "Saved messages", exact: true });
+  await saved.click();
+  await expect(saved).toHaveAttribute("aria-pressed", "true");
+
+  // The fourth crash in a minute asks; this answers Try again, and keeps count.
+  await app.evaluate(({ dialog, BrowserWindow }) => {
+    const seen = { asked: [] as string[][], loads: 0 };
+    (globalThis as any).placeTest = seen;
+    dialog.showMessageBox = (async (...args: unknown[]) => {
+      seen.asked.push((args.at(-1) as { buttons: string[] }).buttons);
+      return { response: 0, checkboxChecked: false };
+    }) as unknown as typeof dialog.showMessageBox;
+    BrowserWindow.getAllWindows()[0]!.webContents.on("did-finish-load", () => void seen.loads++);
+  });
+  // The page reports where it is a moment after it gets there.
+  await page.waitForTimeout(1_000);
+  // Read through the main process: a crashed page's handle stays stale.
+  const place = () =>
+    app.evaluate(async ({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+      return contents
+        ?.executeJavaScript(
+          `(() => {
+            const saved = document.querySelector('button[aria-label="Saved messages"]');
+            return saved && document.querySelector("textarea") ? saved.getAttribute("aria-pressed") : null;
+          })()`,
+        )
+        .catch(() => null);
+    });
+  const loads = () => app.evaluate(() => (globalThis as any).placeTest.loads as number);
+  for (let crash = 1; crash <= 4; crash++) {
+    const before = await loads();
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]!.webContents.forcefullyCrashRenderer(),
+    );
+    await expect.poll(loads, { timeout: 20_000 }).toBeGreaterThan(before);
+    await expect.poll(place, { timeout: 20_000 }).toBe("true");
+  }
+  // Three came back by themselves; the fourth asked, and Try again kept the place.
+  expect(await app.evaluate(() => (globalThis as any).placeTest.asked)).toEqual([
+    ["Try again", "Open from the start", "Quit Tandem"],
+  ]);
+  await app.evaluate(async ({ BrowserWindow }) => {
+    await BrowserWindow.getAllWindows()[0]!.webContents.executeJavaScript(
+      "window.slackoss.hostingStop()",
+    );
+  });
+});
