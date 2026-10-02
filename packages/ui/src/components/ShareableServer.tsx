@@ -62,10 +62,16 @@ export function ShareableServerProvider(props: { platform: Platform; children: R
     };
   }, [client, online]);
 
-  const value = useMemo(
+  const computed = useMemo(
     () => shareableServer({ baseUrl: client.baseUrl, publicUrl, hosting: hosting.status }),
     [client.baseUrl, publicUrl, hosting.status],
   );
+  // The hosting status changes with every connection and backup, which no
+  // link carries. Keep the same value while it says the same thing, so every
+  // message row reading it renders only when a link would change (REV-03).
+  const sameLinks = [computed.serverUrl, computed.localOnly, ...computed.alternatives].join("\n");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const value = useMemo(() => computed, [sameLinks]);
 
   // Addresses this device has linked to the workspace, read once it is known.
   const workspaceId = useWorkspace((s) => s.workspaceId);
