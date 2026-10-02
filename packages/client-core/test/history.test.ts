@@ -580,3 +580,26 @@ describe("scoped history invalidation", () => {
     expect(client.state.threadPages[root.id]?.loaded).toBe(false);
   });
 });
+
+describe("paging forward (F14)", () => {
+  it("shares one transfer between identical newer-page requests, and both settle", async () => {
+    const messages: Message[] = [];
+    for (let i = 0; i < 120; i++)
+      messages.push((await owner.sendMessage(channelId, { text: `forward ${i}` })).message);
+    await caughtUp();
+    await client.jumpToMessage(channelId, messages[0]!.id);
+    expect(client.state.timelines[channelId]?.hasMoreNewer).toBe(true);
+    const after = vi.spyOn(client.api, "listMessagesAfter");
+
+    await Promise.all([client.loadNewer(channelId), client.loadNewer(channelId)]);
+    expect(after).toHaveBeenCalledTimes(1);
+    const ids = client.state.timelines[channelId]!.items.map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const order = messages.map((m) => m.id).filter((id) => ids.includes(id));
+    expect(ids.filter((id) => order.includes(id))).toEqual(order);
+
+    // A different window is a different request, and replaces it.
+    await client.loadNewer(channelId);
+    expect(after).toHaveBeenCalledTimes(2);
+  });
+});

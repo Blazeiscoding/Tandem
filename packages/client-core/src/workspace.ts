@@ -1810,7 +1810,23 @@ export class WorkspaceClient {
     const tl = this.state.timelines[channelId];
     if (!tl?.loaded || !tl.hasMoreNewer || tl.items.length === 0) return;
     const newest = tl.items[tl.items.length - 1]!;
-    const ticket = this.beginTimelineRequest(channelId, `newer:${newest.id}`);
+    // The same page already on its way: wait for it rather than ask twice
+    // (F14). A different window replaces it, as before.
+    const key = `newer:${newest.id}`;
+    const running = this.timelineHolds.get(channelId);
+    if (running?.key === key && running.shared) return running.shared;
+    const ticket = this.beginTimelineRequest(channelId, key);
+    ticket.shared = this.fetchNewer(channelId, tl, newest, epoch, ticket);
+    return ticket.shared;
+  }
+
+  private async fetchNewer(
+    channelId: ID,
+    tl: ChannelTimeline,
+    newest: Message,
+    epoch: number,
+    ticket: TimelineLoad,
+  ): Promise<void> {
     let answer: Awaited<ReturnType<Api["listMessagesAfter"]>>;
     try {
       answer = await this.api.listMessagesAfter(channelId, newest.id, 50, ticket.controller.signal);
