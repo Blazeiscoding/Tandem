@@ -596,3 +596,52 @@ test("a workspace chosen to start with Gatherline starts when it opens, and at s
     }
   }
 });
+
+test("a window whose page crashes comes back by itself, and hosting carries on (REV-09)", async () => {
+  const data = mkdtempSync(join(tmpdir(), "slackoss-desktop-crash-"));
+  const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
+  const app = await electron.launch({
+    executablePath: resolve("apps/desktop/release/win-unpacked/Gatherline.exe"),
+    env: {
+      ...inherited,
+      SLACKOSS_TEST: "1",
+      SLACKOSS_TEST_MEDIA: "1",
+      SLACKOSS_USER_DATA_DIR: data,
+    },
+  });
+  launched = { app, data };
+  const page = await app.firstWindow();
+  await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
+  const hosted = await page.evaluate(() =>
+    (window as any).slackoss.hostingStart({ workspaceName: "Crash-Test", port: 0 }),
+  );
+  expect(hosted.running).toBe(true);
+  const health = () =>
+    fetch(`http://127.0.0.1:${hosted.port}/api/health`).then(
+      (response) => response.status,
+      () => 0,
+    );
+  expect(await health()).toBe(200);
+
+  // The page dies; the main process, and the workspace it hosts, do not.
+  const showsApp = () =>
+    app.evaluate(async ({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+      if (!contents || contents.isCrashed() || contents.isLoading()) return false;
+      return contents.executeJavaScript("!!document.querySelector('#root')?.childElementCount");
+    });
+  for (let crash = 1; crash <= 2; crash++) {
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]!.webContents.forcefullyCrashRenderer(),
+    );
+    await expect.poll(showsApp, { timeout: 20_000 }).toBe(true);
+    expect(await health()).toBe(200);
+  }
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+  await app.evaluate(async ({ BrowserWindow }) => {
+    // Stop hosting from the window, so the test's close is not asked to.
+    await BrowserWindow.getAllWindows()[0]!.webContents.executeJavaScript(
+      "window.slackoss.hostingStop()",
+    );
+  });
+});
