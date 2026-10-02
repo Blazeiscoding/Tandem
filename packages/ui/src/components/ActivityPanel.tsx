@@ -9,8 +9,14 @@ import { Tooltip } from "./Tooltip.js";
 import { ListStatus } from "./ListStatus.js";
 import { usePanelFocus } from "../lib/usePanelFocus.js";
 import { useTabs } from "../lib/useTabs.js";
+import { CoalescedLoader } from "../lib/coalescedLoader.js";
 
 const MODES = ["unread", "mentions"] as const;
+/**
+ * How long a sign that Activity may be out of date waits for others like it,
+ * so a burst of read, edit and count changes is one load (REV-05).
+ */
+export const ACTIVITY_REFRESH_DELAY_MS = 250;
 type ActivityMode = (typeof MODES)[number];
 
 export function ActivityPanel({
@@ -48,27 +54,51 @@ export function ActivityPanel({
   const [revision, setRevision] = useState(0);
   const cursor = cursors.at(-1);
 
-  // The server refreshes this identity for mention edits, even when the unread
-  // count stays the same. Keep the current filter/page current with that signal.
+  // One loader for the panel's life: what each load asks for is read when it starts.
+  const query = useRef({ mode, cursor });
+  query.current = { mode, cursor };
+  const [loader] = useState(
+    () =>
+      new CoalescedLoader(async (signal) => {
+        const { mode, cursor } = query.current;
+        setLoading(true);
+        setError(null);
+        try {
+          const page = await client.api.activity(mode, { cursor, signal });
+          if (!signal.aborted) setResult(page);
+        } catch {
+          if (!signal.aborted)
+            setError("Could not load activity. Check your connection and try again.");
+        } finally {
+          if (!signal.aborted) setLoading(false);
+        }
+      }, ACTIVITY_REFRESH_DELAY_MS),
+  );
+  useEffect(() => () => loader.stop(), [loader]);
+
+  // Another filter or page is another list: clear it and load at once.
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
     setResult(null);
-    void client.api
-      .activity(mode, { cursor, signal: controller.signal })
-      .then((page) => {
-        if (!controller.signal.aborted) setResult(page);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setError("Could not load activity. Check your connection and try again.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [client, mode, cursor, revision, mentionCounts]);
+    loader.now();
+  }, [loader, mode, cursor]);
+
+  // Refresh and Retry load at once, keeping what is shown until the answer.
+  const asked = useRef(revision);
+  useEffect(() => {
+    if (asked.current === revision) return;
+    asked.current = revision;
+    loader.now();
+  }, [loader, revision]);
+
+  // The server refreshes this identity for mention edits, even when the unread
+  // count stays the same, so every change is a reason to look again. A burst of
+  // them is one load, and what is shown stays until it answers (REV-05).
+  const heardCounts = useRef(mentionCounts);
+  useEffect(() => {
+    if (heardCounts.current === mentionCounts) return;
+    heardCounts.current = mentionCounts;
+    loader.soon();
+  }, [loader, mentionCounts]);
 
   // Retention took threads from a conversation this page shows: load it again,
   // rather than go on listing what the server no longer has.
@@ -134,7 +164,7 @@ export function ActivityPanel({
         </p>
         <ListStatus
           loading={loading}
-          placeholder
+          placeholder={!result}
           loadingLabel="Loading activity…"
           error={error}
           onRetry={() => setRevision((v) => v + 1)}

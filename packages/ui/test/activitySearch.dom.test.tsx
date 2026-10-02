@@ -157,7 +157,7 @@ describe("the Activity panel", () => {
     );
   });
 
-  it("ignores a captured older page after a mention refresh loads a newer result", async () => {
+  it("lets a running load finish when mentions change, then loads once more, never older over newer", async () => {
     let release!: (page: { messages: Message[]; nextCursor: null }) => void;
     let requests = 0;
     const { client, panel, spy } = renderActivity(() => {
@@ -165,17 +165,55 @@ describe("the Activity panel", () => {
       return Promise.resolve({ messages: [message("M2", "Current mention", 2)], nextCursor: null });
     });
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const oldSignal = spy.mock.calls[0]![1]?.signal;
+    const firstSignal = spy.mock.calls[0]![1]?.signal;
     act(() => client.store.setState({ mentionCounts: { [design.id]: 1 } }));
-    expect(await within(panel).findByText("Current mention")).toBeVisible();
-    expect(oldSignal?.aborted).toBe(true);
+    expect(firstSignal?.aborted).toBe(false);
 
     await act(async () =>
       release({ messages: [message("M2", "Captured old text", 2)], nextCursor: null }),
     );
-    expect(within(panel).getByText("Current mention")).toBeVisible();
+    expect(await within(panel).findByText("Current mention")).toBeVisible();
     expect(within(panel).queryByText("Captured old text")).toBeNull();
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a running load for another filter, and ignores its late answer", async () => {
+    const user = userEvent.setup();
+    let release!: (page: { messages: Message[]; nextCursor: null }) => void;
+    const { panel, spy } = renderActivity((mode) =>
+      mode === "unread"
+        ? new Promise((resolve) => (release = resolve))
+        : Promise.resolve({ messages: [message("M2", "A mention", 2)], nextCursor: null }),
+    );
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    await user.click(within(panel).getByRole("tab", { name: "Mentions" }));
+    expect(spy.mock.calls[0]![1]?.signal?.aborted).toBe(true);
+    expect(await within(panel).findByText("A mention")).toBeVisible();
+    await act(async () =>
+      release({ messages: [message("M3", "Late unread page", 3)], nextCursor: null }),
+    );
+    expect(within(panel).queryByText("Late unread page")).toBeNull();
+    expect(within(panel).getByText("A mention")).toBeVisible();
+  });
+
+  it("keeps what it shows through a burst of mention changes, and asks at most twice", async () => {
+    let n = 0;
+    const { client, panel, spy } = renderActivity(async () => ({
+      messages: [message("M2", `Mention, version ${n}`, 2)],
+      nextCursor: null,
+    }));
+    expect(await within(panel).findByText("Mention, version 0")).toBeVisible();
+    const before = spy.mock.calls.length;
+    const blank: number[] = [];
+    for (let i = 1; i <= 10; i++) {
+      n = i;
+      await act(async () => client.store.setState({ mentionCounts: { [design.id]: i % 2 } }));
+      if (!within(panel).queryByText(/^Mention, version/)) blank.push(i);
+    }
+    expect(await within(panel).findByText("Mention, version 10")).toBeVisible();
+    expect(spy.mock.calls.length - before).toBeLessThanOrEqual(2);
+    expect(blank).toEqual([]);
+    expect(spy.mock.calls.every(([, opts]) => !opts?.signal?.aborted)).toBe(true);
   });
 
   it("loads its page again when retention takes threads from a conversation it shows", async () => {
