@@ -624,17 +624,41 @@ test("a window whose page crashes comes back by itself, and hosting carries on (
   expect(await health()).toBe(200);
 
   // The page dies; the main process, and the workspace it hosts, do not.
-  const showsApp = () =>
-    app.evaluate(async ({ BrowserWindow }) => {
+  // What the main process saw is kept, to say what happened if this fails.
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0]!.webContents;
+    const seen = { gone: [] as string[], loads: 0 };
+    (globalThis as any).crashTest = seen;
+    contents.on("render-process-gone", (_event, details) => void seen.gone.push(details.reason));
+    contents.on("did-finish-load", () => void seen.loads++);
+  });
+  const seen = () =>
+    app.evaluate(({ BrowserWindow }) => {
       const contents = BrowserWindow.getAllWindows()[0]?.webContents;
-      if (!contents || contents.isCrashed() || contents.isLoading()) return false;
-      return contents.executeJavaScript("!!document.querySelector('#root')?.childElementCount");
+      return { ...(globalThis as any).crashTest, url: contents?.getURL() };
     });
+  const showsApp = (loads: number) =>
+    app.evaluate(async ({ BrowserWindow }, loads) => {
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+      if (!contents || (globalThis as any).crashTest.loads < loads) return false;
+      return contents
+        .executeJavaScript("!!document.querySelector('#root')?.childElementCount")
+        .catch(() => false);
+    }, loads);
   for (let crash = 1; crash <= 2; crash++) {
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.webContents.forcefullyCrashRenderer(),
     );
-    await expect.poll(showsApp, { timeout: 20_000 }).toBe(true);
+    try {
+      await expect.poll(() => showsApp(crash), { timeout: 20_000 }).toBe(true);
+    } catch (error) {
+      throw new Error(
+        `after crash ${crash} the window did not come back: ${JSON.stringify(await seen())}`,
+        {
+          cause: error,
+        },
+      );
+    }
     expect(await health()).toBe(200);
   }
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);

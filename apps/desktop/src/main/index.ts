@@ -905,13 +905,18 @@ function createWindow(): void {
   const recover = async (what: string, fresh: boolean) => {
     if (win.isDestroyed() || quitting) return;
     rendererReady = false;
+    // A page that ran loads again where it was, its place kept in the address;
+    // one that never loaded starts again from the app's own page. Loading the
+    // address anew rather than reloading: a crashed page may have nothing to
+    // reload.
+    const where = win.webContents.getURL();
+    const reopen = () =>
+      fresh || !trustedRenderer(where)
+        ? loadRenderer(win)
+        : void win.loadURL(where).catch(() => {});
     if (recovery.failed() === "reload") {
       setTimeout(() => {
-        if (win.isDestroyed() || quitting) return;
-        // A page that ran reloads where it was, its place kept in the address;
-        // one that never loaded starts again from the app's own page.
-        if (fresh || !trustedRenderer(win.webContents.getURL())) loadRenderer(win);
-        else win.webContents.reload();
+        if (!win.isDestroyed() && !quitting) reopen();
       }, RENDERER_RECOVERY.reloadDelayMs);
       return;
     }
