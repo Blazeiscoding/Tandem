@@ -46,13 +46,15 @@ function everyMatch(reader: string, text: string, opts: { channelId?: string } =
   const params: (string | number)[] = [];
   if (opts.channelId) where.push("m.channel_id = ?") && params.push(opts.channelId);
   if (q.terms.length) {
-    // Said in the message, or every word in the name of one file attached to it.
+    // Said in the message, or every word with a letter or digit in it in the
+    // name of one file attached to it.
+    const named = q.terms.filter((t) => /[\p{L}\p{N}]/u.test(t));
     where.push(
       `(m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)
-        OR m.id IN (SELECT message_id FROM files WHERE ${q.terms.map(() => "instr(lower(name), ?) > 0").join(" AND ")}))`,
+        ${named.length ? `OR m.id IN (SELECT message_id FROM files WHERE ${named.map(() => "instr(lower(name), ?) > 0").join(" AND ")})` : ""})`,
     );
     params.push(q.terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" "));
-    params.push(...q.terms.map((t) => t.toLowerCase()));
+    params.push(...named.map((t) => t.toLowerCase()));
   }
   if (q.types.length) {
     const kinds = q.types.flatMap((type) => [
@@ -255,4 +257,165 @@ describe("a search, whichever way it goes", () => {
     const { ana } = seed();
     expect(everyPage(ana.id, "common", 20)).toEqual(everyMatch(ana.id, "common"));
   });
+});
+
+/**
+ * The rest of what a search must agree on, with no more than a few matches
+ * (F13): direct messages and a public channel the reader is not in, a
+ * message whose words are split between two files, a file on no message or
+ * on a deleted one, and words that are not plain ASCII: accents, other
+ * scripts, emoji, %, _, \, quotes and punctuation alone.
+ */
+function seedMatrix() {
+  const [ana, ben, cai] = ["ana", "ben", "cai"].map((handle) =>
+    store.createUser({ handle, displayName: handle, passwordHash: "", salt: "", role: "member" }),
+  );
+  const room = (type: "public" | "private" | "dm", name: string, members: string[]) =>
+    store.createChannel({ type, name, creatorId: members[0]!, memberIds: members }).id;
+  const where = {
+    general: room("public", "general", [ana!.id, ben!.id, cai!.id]),
+    lobby: room("public", "lobby", [cai!.id]),
+    team: room("private", "team", [ana!.id, ben!.id]),
+    hidden: room("private", "hidden", [ben!.id]),
+    anaBen: room("dm", "", [ana!.id, ben!.id]),
+    benCai: room("dm", "", [ben!.id, cai!.id]),
+  };
+  const by = { ana: ana!.id, ben: ben!.id, cai: cai!.id };
+  type Entry = [keyof typeof where, keyof typeof by, string, string[], boolean?];
+  const entries: Entry[] = [
+    ["general", "ana", "café au lait", ["Résumé Café.pdf"]],
+    ["general", "ben", "CAFÉ CLOSED", []],
+    ["lobby", "cai", "budget meeting", ["Q3 budget.xlsx"]],
+    ["lobby", "cai", "nothing here", ["budget.xlsx", "contract.pdf"]],
+    ["general", "ana", "plain words", ["budget contract.pdf"]],
+    ["team", "ben", "日本語のテキスト", ["日本語.txt"]],
+    ["hidden", "ben", "secret budget", ["budget secret.pdf"]],
+    ["anaBen", "ben", "dm budget plan", ["dm budget.pdf"]],
+    ["benCai", "cai", "other dm budget", ["other budget.pdf"]],
+    ["general", "ana", "50% off sale", ["50% off.pdf"]],
+    ["general", "ben", "under_score name", ["under_score.txt"]],
+    ["general", "cai", "back\\slash path", ["C:\\back\\slash.txt"]],
+    ["general", "ana", 'say "quoted" words', ['"quoted".txt']],
+    ["general", "ben", "emoji party 🎉", ["party 🎉.png"]],
+    ["general", "ana", "deleted budget", ["deleted budget.pdf"], true],
+    ["general", "ben", "dots... and more", ["v1.2.3.zip"]],
+    ["team", "ana", "https://example.com/budget", ["budget link.txt"]],
+  ];
+  // Enough of one word that a search for it walks the newest instead.
+  for (let i = 0; i < 30; i++)
+    entries.push(["general", i % 2 ? "ana" : "ben", `filler common ${i}`, []]);
+  // Ids in time order, written in an order they do not follow.
+  const order = entries.map((_, i) => i);
+  let rng = 5;
+  const random = () => (rng = (rng * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  const insert = db.prepare(
+    `INSERT INTO messages (id, channel_id, user_id, text, seq, created_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const attach = db.prepare(
+    `INSERT INTO files (id, channel_id, user_id, message_id, name, mime, size, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, 0)`,
+  );
+  const mime = (name: string) =>
+    name.endsWith(".pdf") ? "application/pdf" : name.endsWith(".png") ? "image/png" : "text/plain";
+  for (const n of order) {
+    const [channel, author, text, files, deleted] = entries[n]!;
+    const id = `M${String(n).padStart(6, "0")}`;
+    insert.run(
+      id,
+      where[channel],
+      by[author],
+      text,
+      n + 1,
+      Date.UTC(2026, 0, 1) + n * 3_600_000,
+      deleted ? 1 : null,
+    );
+    files.forEach((name, i) =>
+      attach.run(`F${n}-${i}`, where[channel], by[author], id, name, mime(name)),
+    );
+  }
+  // Uploaded and never sent: on no message, so no search finds it.
+  attach.run("F-unsent", where.general, by.ana, null, "budget unsent.pdf", "application/pdf");
+  return { ...by, where };
+}
+
+describe("a search with few matches, against every case (F13)", () => {
+  it(
+    "pages through exactly what one query over every match says",
+    () => {
+      const { ana, ben, cai, where } = seedMatrix();
+      const queries = [
+        "budget",
+        "BUDGET",
+        "budget contract",
+        "contract budget",
+        "café",
+        "CAFÉ",
+        "cafe",
+        "résumé",
+        "日本語",
+        "🎉",
+        "party",
+        "50%",
+        "%",
+        "under_score",
+        "_",
+        "back\\slash",
+        "\\",
+        '"quoted"',
+        "quoted",
+        "...",
+        "v1.2.3",
+        "budget has:link",
+        "budget has:file",
+        "budget type:pdf",
+        "budget from:@cai",
+        "budget in:#lobby",
+        "budget before:2026-01-01T05:00",
+        "budget after:2026-01-01",
+        "deleted",
+        "unsent",
+        "secret",
+        "dm",
+        "common",
+        "common budget",
+        "nothing-has-this",
+      ];
+      for (const reader of [ana, ben, cai]) {
+        for (const text of queries) {
+          const expected = everyMatch(reader, text);
+          for (const size of [1, 3, 50])
+            expect(everyPage(reader, text, size), `${text} for ${reader}, ${size} a page`).toEqual(
+              expected,
+            );
+          for (const channelId of [where.general, where.anaBen])
+            expect(everyPage(reader, text, 2, { channelId }), `${text} in one channel`).toEqual(
+              everyMatch(reader, text, { channelId }),
+            );
+        }
+      }
+      // What the cases are for, said outright.
+      const found = (reader: string, text: string) => everyMatch(reader, text);
+      expect(found(ana, "budget contract")).toEqual(["M000004"]);
+      expect(found(ana, "budget")).toContain("M000007");
+      expect(found(cai, "budget")).not.toContain("M000007");
+      expect(found(cai, "budget")).toContain("M000008");
+      expect(found(ana, "budget")).not.toContain("M000008");
+      expect(found(ana, "budget")).toContain("M000002");
+      for (const reader of [ana, ben, cai]) {
+        expect(found(reader, "budget")).not.toContain("M000014");
+        expect(found(reader, "unsent")).toEqual([]);
+      }
+      expect(found(ana, "secret")).toEqual([]);
+      expect(found(ben, "secret")).toEqual(["M000006"]);
+      expect(found(ana, "50%")).toEqual(["M000009"]);
+      expect(found(ana, "_")).toEqual([]);
+      expect(found(ana, "common").length).toBeGreaterThan(statics.SEARCH_FEW_MATCHES);
+    },
+    EXHAUSTIVE_MS,
+  );
 });

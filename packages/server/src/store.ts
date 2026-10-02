@@ -3593,12 +3593,30 @@ export class Store {
           )
           .get(fts, Store.SEARCH_FEW_MATCHES + 1) as { n: number }
       ).n > Store.SEARCH_FEW_MATCHES;
+    // The same matches as one list of rows, for a search that starts from
+    // them (F13). Asked as "said, or named", SQLite reads the file names once
+    // to pick the rows and again to check each one; read once into the list,
+    // a word in a few hundred file names is found in half the time, and no
+    // search measured is slower.
+    const fromMatches: Filter = [
+      `m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?
+         ${
+           nameTerms.length > 0
+             ? `UNION ALL SELECT named.rowid FROM files f CROSS JOIN messages named
+                  ON named.id = f.message_id
+                WHERE f.message_id IS NOT NULL
+                  AND ${nameTerms.map(() => "f.name LIKE ? ESCAPE '\\'").join(" AND ")}`
+             : ""
+         })`,
+      fts,
+      ...namedValues,
+    ];
     // A word in few messages is found from its matches. A common one would
     // have every match read, joined and sorted for one page: 120,000 of them
     // for "the" in 200,000 messages. So the newest messages are walked first,
     // checked against only their own matches, and the older ones are read
     // from the matches only if the newest hold less than a page.
-    if (!many) return this.hydrateMessages(page([matching], limit));
+    if (!many) return this.hydrateMessages(page([fromMatches], limit));
     const window = this.db
       .prepare(
         `SELECT MIN(id) AS edge, MIN(position) AS low, COUNT(*) AS n FROM (

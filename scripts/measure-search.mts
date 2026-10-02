@@ -12,9 +12,15 @@
  * contract, notes or logs in turn, so free text and `type:` find them by
  * name and kind (IMP-02).
  *
+ * "restricted" is said in about 300 messages, all in the channel the reader
+ * cannot see, and every tenth message also carries a file named "scan.bin",
+ * 20,000 in all: too many names for a search to start from (F13).
+ *
  * It checks that nothing from the hidden channel is returned, then times one
- * page (21 rows, as the route asks for 20) of each query through the store and
- * prints how SQLite runs it. Run with the server package's tsx:
+ * page (21 rows, as the route asks for 20) of each query through the store,
+ * after five untimed runs, and prints a short hash of the page's ids, so two
+ * revisions' runs show whether they found the same. Run with the server
+ * package's tsx:
  *
  *   pnpm --filter @slackoss/server exec tsx ../../scripts/measure-search.mts [--messages=200000]
  */
@@ -22,6 +28,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { cpus, tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { parseSearchQuery } from "../packages/protocol/src/search.js";
 import { openDb } from "../packages/server/src/db.js";
 import { Store } from "../packages/server/src/store.js";
@@ -29,7 +36,7 @@ import { Store } from "../packages/server/src/store.js";
 const arg = (name: string, fallback: number) =>
   Number(process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=")[1] ?? fallback);
 const count = arg("messages", 200_000);
-const SAMPLES = 15;
+const SAMPLES = 25;
 const DAY = 86_400_000;
 const END = Date.UTC(2026, 8, 30);
 const START = END - 730 * DAY;
@@ -103,6 +110,7 @@ try {
     if (random() < 0.05) words.push("deploy");
     if (i % 10_000 === 5_000) words.push("zebra");
     if (channel === "CSECRET" && random() < 0.5) words.push("classified");
+    if (channel === "CSECRET" && i % 17 === 0) words.push("restricted");
     if (random() < 0.02) words.push("https://example.com/page");
     const at = START + Math.floor((i / count) * (END - START));
     const id = `M${String(at).padStart(14, "0")}${String(i).padStart(7, "0")}`;
@@ -112,6 +120,8 @@ try {
       const [name, mime] = files[((i / 100) % files.length) | 0]!;
       attach.run(`F${i}`, channel, author, id, name, mime, at);
     }
+    if (i % 10 === 3)
+      attach.run(`S${i}`, channel, author, id, "scan.bin", "application/octet-stream", at);
   }
   db.exec("COMMIT");
   let head = "";
@@ -148,8 +158,14 @@ try {
     ["type:pdf"],
     ["type:image the"],
     ["budget type:spreadsheet"],
+    ["restricted"],
+    ["scan"],
+    ["scan zebra"],
+    ["budget", { cursor: true }],
+    ["budget from:@u02"],
+    [`budget before:${day(START + 365 * DAY)}`],
   ];
-  console.log("query                              rows   p50 ms   p95 ms");
+  console.log("query                              rows   p50 ms   p95 ms   page");
   for (const [text, options] of queries) {
     const parsed = parseSearchQuery(text, { timeZone: "UTC" });
     let cursor: string | undefined;
@@ -159,14 +175,19 @@ try {
     if (found.some((m) => m.channelId === "CSECRET"))
       throw new Error(`${text} returned a hidden channel's message`);
     const times: number[] = [];
-    for (let i = 0; i < SAMPLES; i++) {
+    for (let i = 0; i < 5 + SAMPLES; i++) {
       const t = performance.now();
       store.searchMessages(reader, parsed, 21, opts);
-      times.push(performance.now() - t);
+      if (i >= 5) times.push(performance.now() - t);
     }
+    // What the page held, short enough to compare between revisions.
+    const page = createHash("sha256")
+      .update(found.map((m) => m.id).join(","))
+      .digest("hex")
+      .slice(0, 8);
     const label = `${text}${options?.cursor ? " (page 2)" : ""}${options?.channelId ? " (in one channel)" : ""}`;
     console.log(
-      `${label.padEnd(34)} ${String(found.length).padStart(4)} ${percentile(times, 50).toFixed(1).padStart(8)} ${percentile(times, 95).toFixed(1).padStart(8)}`,
+      `${label.padEnd(34)} ${String(found.length).padStart(4)} ${percentile(times, 50).toFixed(1).padStart(8)} ${percentile(times, 95).toFixed(1).padStart(8)}   ${page}`,
     );
   }
 } finally {
