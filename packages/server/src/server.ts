@@ -611,7 +611,11 @@ async function startWorkspaceServer(
    * Whose counts a message arriving or leaving changes: whoever it names.
    * Deletion is read from the event's own copy, since the row is already gone.
    */
-  const mentionRecipients = (envelope: EventEnvelope, channelsRead: Set<ID>): ID[] => {
+  const mentionRecipients = (
+    envelope: EventEnvelope,
+    channelsRead: Set<ID>,
+    audiences: Map<ID, Set<ID> | null>,
+  ): ID[] => {
     const event = envelope.event;
     if (event.type === "message.created")
       return store.mentionedMemberIds(
@@ -624,7 +628,10 @@ async function startWorkspaceServer(
       // too, and read a channel's members once however many of its messages went.
       if (gateway.socketCount() === 0 || channelsRead.has(event.channelId)) return [];
       channelsRead.add(event.channelId);
-      return store.memberIds(event.channelId);
+      // A private channel's audience is its members, already read to send
+      // the deletions themselves (F10).
+      const audience = audiences.get(event.channelId);
+      return audience ? [...audience] : store.memberIds(event.channelId);
     }
     return [];
   };
@@ -685,9 +692,11 @@ async function startWorkspaceServer(
   const publishCommitted = (
     events: readonly { envelope: EventEnvelope; channelId: ID | null }[],
   ): void => {
+    // Each channel's audience is read once for the whole change (F10).
+    const audiences = new Map<ID, Set<ID> | null>();
     for (const { envelope, channelId } of events) {
       try {
-        gateway.publish(envelope, channelId);
+        gateway.publish(envelope, channelId, audiences);
       } catch (err) {
         app.log.error(
           { err, seq: envelope.seq },
@@ -704,7 +713,8 @@ async function startWorkspaceServer(
     for (const { envelope } of events) {
       afterCommitted("send thread follow states", () => publishThreadFollows(envelope));
       afterCommitted("find whose mention counts changed", () => {
-        for (const userId of mentionRecipients(envelope, channelsRead)) recount.add(userId);
+        for (const userId of mentionRecipients(envelope, channelsRead, audiences))
+          recount.add(userId);
       });
     }
     if (recount.size > 0) afterCommitted("send mention counts", () => pushMentionCounts(recount));
@@ -746,13 +756,37 @@ async function startWorkspaceServer(
       return message;
     });
 
-  /** Adds every eligible subscriber beside the event, inside its transaction. */
+  /**
+   * Adds every eligible subscriber beside the event, inside its transaction.
+   * What does not depend on the subscription is worked out once per event,
+   * however many subscriptions one bot has (F11): whether each bot is in the
+   * channel, the workspace's id and the callback body every one of them gets.
+   */
   const enqueueSubscriberDeliveries = (envelope: EventEnvelope, channelId: ID | null): void => {
     const subs = store.listAllSubscriptions();
     if (subs.length === 0) return;
     const payload = toSlackEvent(envelope.event);
     if (!payload) return;
     const actor = eventActorId(envelope.event);
+    const inChannel = new Map<ID, boolean>();
+    const botInChannel = (botUserId: ID, channel: ID): boolean => {
+      let member = inChannel.get(botUserId);
+      if (member === undefined)
+        inChannel.set(botUserId, (member = store.isMember(channel, botUserId)));
+      return member;
+    };
+    let body: string | null = null;
+    const callback = (): string =>
+      (body ??= JSON.stringify({
+        type: "event_callback",
+        event_id: `Ev${envelope.seq}`,
+        event_time: Math.floor(Date.now() / 1000),
+        team_id: store.getMeta("workspace_id"),
+        event: payload,
+        // Our own event beside Slack's shape, so a native app need not
+        // reverse-engineer the mapping.
+        slackoss: { type: envelope.event.type, seq: envelope.seq },
+      }));
 
     for (const { subscription, app: owner } of subs) {
       if (
@@ -766,23 +800,13 @@ async function startWorkspaceServer(
       if (actor !== null && actor === owner.botUserId) continue;
       // An app sees a channel only once its bot has been added to it, so
       // subscribing does not quietly expose every private conversation.
-      if (channelId !== null && !store.isMember(channelId, owner.botUserId)) continue;
+      if (channelId !== null && !botInChannel(owner.botUserId, channelId)) continue;
 
-      const body = JSON.stringify({
-        type: "event_callback",
-        event_id: `Ev${envelope.seq}`,
-        event_time: Math.floor(Date.now() / 1000),
-        team_id: store.getMeta("workspace_id"),
-        event: payload,
-        // Our own event beside Slack's shape, so a native app need not
-        // reverse-engineer the mapping.
-        slackoss: { type: envelope.event.type, seq: envelope.seq },
-      });
       const queued = store.enqueueEventDelivery(
         subscription.id,
         channelId,
         envelope.seq,
-        body,
+        callback(),
         Date.now(),
         Store.eventMessageId(envelope.event),
       );

@@ -523,12 +523,32 @@ export class Gateway {
     return new Set(this.store.memberIds(channelId));
   }
 
-  /** Fan a durable event out to every connected client allowed to see it. */
-  publish(envelope: EventEnvelope, channelId: ID | null): void {
-    const audience = channelId === null ? null : this.audienceForChannel(channelId);
+  /**
+   * Fan a durable event out to every connected client allowed to see it.
+   * `audiences` carries each channel's audience across the events of one
+   * committed change, read once however many of them there are (F10); the
+   * caller drops it when that change is out, so it never outlives the
+   * committed rows it was read from.
+   */
+  publish(
+    envelope: EventEnvelope,
+    channelId: ID | null,
+    audiences?: Map<ID, Set<ID> | null>,
+  ): void {
+    // With nobody signed in there is nobody to read an audience for.
+    if (this.clients.size === 0) return;
+    const audience = channelId === null ? null : this.channelAudience(channelId, audiences);
     const frame = JSON.stringify({ type: "event", envelope } satisfies ServerToClient);
     const authorized = this.sessionCheck();
     for (const c of this.reach(audience)) if (authorized(c)) this.sendRaw(c.ws, frame);
+  }
+
+  /** A channel's audience, from `audiences` when this change has read it already. */
+  channelAudience(channelId: ID, audiences?: Map<ID, Set<ID> | null>): Set<ID> | null {
+    if (audiences?.has(channelId)) return audiences.get(channelId)!;
+    const audience = this.audienceForChannel(channelId);
+    audiences?.set(channelId, audience);
+    return audience;
   }
 
   /**

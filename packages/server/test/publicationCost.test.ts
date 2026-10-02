@@ -175,4 +175,58 @@ describe("publishing a message (REV-06)", () => {
     );
     for (const watcher of watchers) expect(watcher.counts().at(-1)).toBe(0);
   });
+
+  it("reads a private channel's members not at all offline, and once for a connected batch (F10)", async () => {
+    const [author, ...others] = people as [Person, ...Person[]];
+    const created = await request("/api/channels", author.token, {
+      name: "private-plans",
+      type: "private",
+    });
+    expect(created.status).toBe(201);
+    channelId = created.data.channel.id;
+    for (const other of others)
+      expect(
+        (
+          await request(`/api/channels/${channelId}/invite-member`, author.token, {
+            userId: other.user.id,
+          })
+        ).status,
+      ).toBe(200);
+    expect(server.store.memberIds(channelId)).toHaveLength(MEMBERS);
+
+    const thread = async (label: string) => {
+      const root = await post(author, `<!channel> ${label}`);
+      for (let i = 0; i < 20; i++) await post(author, `<!channel> ${label} ${i}`, root.id);
+      return root;
+    };
+    const deleted = (frames: ServerToClient[]) =>
+      frames.filter((f) => f.type === "event" && f.envelope.event.type === "message.deleted")
+        .length;
+
+    // Nobody connected: no audience to read for any of the 21 deletions.
+    const offline = await thread("offline");
+    const { members, recounts } = cost();
+    expect(
+      (await request(`/api/messages/${offline.id}`, author.token, undefined, "DELETE")).status,
+    ).toBe(200);
+    expect(members).not.toHaveBeenCalled();
+    expect(recounts).not.toHaveBeenCalled();
+
+    // Two members connected: one read serves every deletion and the recounts.
+    const watchers = [await connect(others[0]!), await connect(others[1]!)];
+    const online = await thread("online");
+    members.mockClear();
+    recounts.mockClear();
+    const before = watchers.map((w) => deleted(w.frames));
+    expect(
+      (await request(`/api/messages/${online.id}`, author.token, undefined, "DELETE")).status,
+    ).toBe(200);
+    for (const watcher of watchers) await watcher.settle();
+    expect(members).toHaveBeenCalledTimes(1);
+    expect(watchers.map((w, i) => deleted(w.frames) - before[i]!)).toEqual([21, 21]);
+    expect(recounts.mock.calls.map(([userId]) => userId).sort()).toEqual(
+      [others[0]!.user.id, others[1]!.user.id].sort(),
+    );
+    for (const watcher of watchers) expect(watcher.counts().at(-1)).toBe(0);
+  }, 30_000);
 });
