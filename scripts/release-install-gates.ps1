@@ -31,6 +31,16 @@ function Installed {
   return $null
 }
 
+# Where the app is installed. The per-user entry may carry no InstallLocation,
+# so fall back to the folder of the uninstaller it names, then of its icon.
+function InstallDirectory($Entry) {
+  if ($Entry.InstallLocation) { return $Entry.InstallLocation.Trim('"') }
+  foreach ($value in @($Entry.UninstallString, $Entry.DisplayIcon)) {
+    if ($value -and $value -match '^"?([^",]+\.exe)') { return Split-Path -Parent $Matches[1] }
+  }
+  Fail "the uninstall entry names no install folder:$($Entry | Format-List | Out-String)"
+}
+
 function Install([string] $Path, [string] $Expected) {
   Write-Host "Installing $Path"
   $process = Start-Process -FilePath $Path -ArgumentList "/S" -Wait -PassThru
@@ -40,9 +50,10 @@ function Install([string] $Path, [string] $Expected) {
   if ($Expected -and $entry.DisplayVersion -ne $Expected) {
     Fail "installed version is $($entry.DisplayVersion), expected $Expected"
   }
-  $exe = Join-Path $entry.InstallLocation "Gatherline.exe"
-  if (-not (Test-Path $exe)) { Fail "no Gatherline.exe in $($entry.InstallLocation)" }
-  Write-Host "Installed $($entry.DisplayVersion) at $($entry.InstallLocation)"
+  $folder = InstallDirectory $entry
+  $exe = Join-Path $folder "Gatherline.exe"
+  if (-not (Test-Path $exe)) { Fail "no Gatherline.exe in $folder" }
+  Write-Host "Installed $($entry.DisplayVersion) at $folder"
   return $exe
 }
 
@@ -89,11 +100,17 @@ $data = Launch $exe
 Set-Content -Path (Join-Path $data $Marker) -Value "kept across uninstall"
 
 $entry = Installed
-$uninstaller = ($entry.UninstallString -replace '^"([^"]+)".*$', '$1')
-Write-Host "Uninstalling with $uninstaller"
+# The silent command the installer recorded, or its ordinary one made silent;
+# either may carry arguments of its own (a per-user install's /currentuser).
+$command = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { "$($entry.UninstallString) /S" }
+if ($command -notmatch '^"?([^"]+?\.exe)"?\s*(.*)$') { Fail "cannot read the uninstall command: $command" }
+$uninstaller = $Matches[1]
+$arguments = @($Matches[2] -split '\s+' | Where-Object { $_ })
+if ($arguments -notcontains "/S") { $arguments += "/S" }
+Write-Host "Uninstalling with $uninstaller $($arguments -join ' ')"
 # The uninstaller copies itself elsewhere and returns at once, so wait for the
 # app itself to go.
-Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait | Out-Null
+Start-Process -FilePath $uninstaller -ArgumentList $arguments -Wait | Out-Null
 for ($i = 0; $i -lt 60 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 1 }
 if (Test-Path $exe) { Fail "uninstalling left $exe behind" }
 if (Installed) { Fail "uninstalling left the uninstall entry behind" }
