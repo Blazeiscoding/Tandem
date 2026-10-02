@@ -1,8 +1,10 @@
 import {
   applyDraftChanges,
   applyOutboxChanges,
+  applyRecordChanges,
   type DraftChanges,
   type OutboxChanges,
+  type RecordChanges,
   type StoredOutbox,
 } from "@slackoss/client-core";
 import { parseDeepLink } from "./lib/deeplink.js";
@@ -187,6 +189,15 @@ export interface Platform {
     ) => Promise<Record<string, string>>;
     /** As `watchOutbox`, for a drafts key. */
     watchDrafts?: (key: string, cb: (stored: unknown) => void) => () => void;
+    /**
+     * Sets the named values of the record under `key`, each alone, in one
+     * step no other window's write can come between, and gives back the
+     * record now stored; null removes a name (F02). Without it, a window
+     * writes its whole record and can erase another window's change.
+     */
+    mergeRecord?: (key: string, changes: RecordChanges) => Promise<Record<string, string>>;
+    /** As `watchOutbox`, for a record key. */
+    watchRecord?: (key: string, cb: (stored: unknown) => void) => () => void;
   };
   /**
    * `tag` names what the notification is about. Windows of one browser that
@@ -383,6 +394,12 @@ export function webPlatform(): Platform {
           return { value, result: drafts };
         }),
       watchDrafts: watchLocalStorage,
+      mergeRecord: async (key, changes) =>
+        mergeInLocalStorage(key, (stored) => {
+          const value = applyRecordChanges(stored, changes);
+          return { value, result: value };
+        }),
+      watchRecord: watchLocalStorage,
     },
     notify: (title, body, onClick, options) => {
       if (typeof Notification === "undefined" || Notification.permission !== "granted") return;

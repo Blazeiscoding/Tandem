@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./outbox": "./src/outbox.ts",
-    "./drafts": "./src/drafts.ts"
+    "./drafts": "./src/drafts.ts",
+    "./records": "./src/records.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

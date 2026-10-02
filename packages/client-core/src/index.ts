@@ -26,6 +26,8 @@ export {
   unwrapStoredDrafts,
 } from "./drafts.js";
 export type { DraftChanges } from "./drafts.js";
+export { applyRecordChanges, isRecordChanges, readStoredRecord } from "./records.js";
+export type { RecordChanges } from "./records.js";
 export type { HuddlePeer, HuddleState, MicrophoneTest } from "./huddle.js";
 export { OUTBOX_LIMIT, WorkspaceClient, isMessageRead, unreadThreadCount } from "./workspace.js";
 export type {

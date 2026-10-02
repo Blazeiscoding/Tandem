@@ -8,6 +8,8 @@ export interface SlackossBridge {
   onOutboxChanged: (cb: (key: string, stored: unknown) => void) => () => void;
   storageMergeDrafts: (key: string, changes: unknown, enveloped: boolean) => Promise<unknown>;
   onDraftsChanged: (cb: (key: string, stored: unknown) => void) => () => void;
+  storageMergeRecord: (key: string, changes: unknown) => Promise<unknown>;
+  onRecordChanged: (cb: (key: string, stored: unknown) => void) => () => void;
   lanSnapshot: () => Promise<unknown[]>;
   onLanServers: (cb: (servers: unknown[]) => void) => () => void;
   hostingStatus: () => Promise<unknown>;
@@ -65,6 +67,12 @@ const bridge: SlackossBridge = {
     const listener = (_e: unknown, key: string, stored: unknown) => cb(key, stored);
     ipcRenderer.on("storage:draftsChanged", listener);
     return () => ipcRenderer.removeListener("storage:draftsChanged", listener);
+  },
+  storageMergeRecord: (key, changes) => ipcRenderer.invoke("storage:mergeRecord", key, changes),
+  onRecordChanged: (cb) => {
+    const listener = (_e: unknown, key: string, stored: unknown) => cb(key, stored);
+    ipcRenderer.on("storage:recordChanged", listener);
+    return () => ipcRenderer.removeListener("storage:recordChanged", listener);
   },
   lanSnapshot: () => ipcRenderer.invoke("lan:snapshot"),
   onLanServers: (cb) => {

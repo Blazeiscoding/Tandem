@@ -26,6 +26,7 @@ import {
 } from "@slackoss/protocol";
 import type { OutboxChanges } from "@slackoss/client-core/outbox";
 import type { DraftChanges } from "@slackoss/client-core/drafts";
+import { applyRecordChanges, isRecordChanges } from "@slackoss/client-core/records";
 import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
@@ -225,6 +226,22 @@ handle(
     return drafts;
   },
 );
+
+// Records likewise: each window's changed names only, such as one account's
+// notification choice, so no window's whole copy erases another's (F02).
+handle("storage:mergeRecord", async (event, key: unknown, changes: unknown) => {
+  if (!isRecordChanges(changes)) throw new Error("Invalid record changes.");
+  let value: Record<string, string> = {};
+  await settings.update(
+    settingKey(key),
+    (current) => (value = applyRecordChanges(current, changes)),
+  );
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
+      win.webContents.send("storage:recordChanged", key, value);
+  }
+  return value;
+});
 
 // ---------- LAN discovery (mDNS browse) ----------
 

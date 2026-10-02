@@ -70,11 +70,54 @@ interface Previews {
 }
 
 const KEY = "notification-previews";
+/**
+ * Saved for accounts whose choice was lost to damaged storage: they show
+ * nothing until someone chooses again, rather than everything (F02). No
+ * account is named this, since every account name has a space in it.
+ */
+const UNKNOWN = "*";
+const UNREADABLE =
+  "Could not read your choice, so notifications show nothing about messages until you choose again.";
 const isPreview = (value: unknown): value is NotificationPreview =>
   value === "full" || value === "sender" || value === "none";
 const stores = new WeakMap<Platform, ReturnType<typeof createPreviews>>();
 
+/**
+ * The choices a saved value holds, or null when it is not a map of them. A
+ * choice that is not one of the three is not known either, so it is read as
+ * the most private one and reported, never as the default of showing all.
+ */
+function readSaved(saved: unknown): {
+  byAccount: Record<string, NotificationPreview>;
+  damaged: boolean;
+} | null {
+  if (saved === null || saved === undefined) return { byAccount: {}, damaged: false };
+  if (typeof saved !== "object" || Array.isArray(saved)) return null;
+  const byAccount: Record<string, NotificationPreview> = {};
+  let damaged = false;
+  for (const [account, value] of Object.entries(saved)) {
+    if (isPreview(value)) byAccount[account] = value;
+    else {
+      byAccount[account] = "none";
+      damaged = true;
+    }
+  }
+  return { byAccount, damaged };
+}
+
 function createPreviews(platform: Platform) {
+  const unreadable = () =>
+    store.setState({ byAccount: {}, loaded: true, unreadable: true, error: UNREADABLE });
+  const apply = (saved: unknown) => {
+    const read = readSaved(saved);
+    if (!read) return unreadable();
+    store.setState({
+      byAccount: read.byAccount,
+      loaded: true,
+      unreadable: false,
+      error: read.damaged ? UNREADABLE : null,
+    });
+  };
   const store = createStore<Previews>(() => ({
     byAccount: {},
     loaded: false,
@@ -82,13 +125,23 @@ function createPreviews(platform: Platform) {
     saving: false,
     error: null,
     setPreview: async (account, preview) => {
-      const { loaded, saving, byAccount } = store.getState();
+      const { loaded, saving, byAccount, unreadable: lost } = store.getState();
       if (!loaded || saving) return;
-      const next = { ...byAccount, [account]: preview };
+      // Choosing again after the saved choices were lost keeps every other
+      // account on this device private, rather than showing all for them.
+      const changes: Record<string, string> = { [account]: preview };
+      if (lost) changes[UNKNOWN] = "none";
       store.setState({ saving: true, error: null });
       try {
-        await platform.storage.set(KEY, next);
-        store.setState({ byAccount: next, unreadable: false });
+        if (platform.storage.mergeRecord) {
+          // Only this account's choice is written, so another window's choice
+          // for another account stands (F02).
+          apply(await platform.storage.mergeRecord(KEY, changes));
+        } else {
+          const next = { ...byAccount, ...changes };
+          await platform.storage.set(KEY, next);
+          apply(next);
+        }
       } catch {
         store.setState({ error: "Could not save this choice. Please try again." });
       } finally {
@@ -96,22 +149,14 @@ function createPreviews(platform: Platform) {
       }
     },
   }));
-  void platform.storage
-    .get<Record<string, unknown>>(KEY)
-    .then((saved) => {
-      const byAccount: Record<string, NotificationPreview> = {};
-      for (const [account, value] of Object.entries(saved ?? {}))
-        if (isPreview(value)) byAccount[account] = value;
-      store.setState({ byAccount, loaded: true });
-    })
-    .catch(() => {
-      store.setState({
-        loaded: true,
-        unreadable: true,
-        error:
-          "Could not read your choice, so notifications show nothing about messages until you choose again.",
-      });
-    });
+  // Strict: storage that cannot be read is not the same as no choice saved.
+  void platform.storage.get<unknown>(KEY, { strict: true }).then(apply).catch(unreadable);
+  // Another window's choice takes effect here before the next notification,
+  // a stricter one included (F02).
+  platform.storage.watchRecord?.(KEY, (stored) => {
+    if (!store.getState().loaded) return;
+    apply(stored);
+  });
   return store;
 }
 
@@ -137,5 +182,5 @@ export function previewFor(
 ): NotificationPreview {
   if (!previews.loaded || (previews.unreadable && !(account && previews.byAccount[account])))
     return "none";
-  return (account && previews.byAccount[account]) || "full";
+  return (account && previews.byAccount[account]) || previews.byAccount[UNKNOWN] || "full";
 }
