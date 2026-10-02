@@ -2777,11 +2777,13 @@ export class Store {
 
   /**
    * At most one event per subscription is returned. An older retry blocks newer
-   * events for that endpoint, preserving event-sequence order.
+   * events for that endpoint, preserving event-sequence order. Subscriptions in
+   * `busy` (an event of theirs is already on its way) are left out entirely.
    */
   dueEventDeliveries(
     now = Date.now(),
     limit = 10,
+    busy: readonly ID[] = [],
   ): {
     id: ID;
     subscriptionId: ID;
@@ -2811,9 +2813,10 @@ export class Store {
                AND (older.event_seq < d.event_seq OR
                     (older.event_seq = d.event_seq AND older.id < d.id))
            )
+           AND d.subscription_id NOT IN (SELECT value FROM json_each(?))
          ORDER BY d.next_attempt_at, d.event_seq, d.id LIMIT ?`,
       )
-      .all(now, limit) as unknown as {
+      .all(now, JSON.stringify(busy), limit) as unknown as {
       id: string;
       subscription_id: string;
       event_seq: number;
