@@ -538,12 +538,18 @@ async function startWorkspaceServer(
     };
   };
 
-  const gateway = new Gateway(store, workspaceName, limiter, (req) =>
-    resolveClientAddress(
-      req.socket.remoteAddress,
-      req.headers,
-      trustLoopbackProxy ? "loopback" : undefined,
-    ),
+  const gateway = new Gateway(
+    store,
+    workspaceName,
+    limiter,
+    (req) =>
+      resolveClientAddress(
+        req.socket.remoteAddress,
+        req.headers,
+        trustLoopbackProxy ? "loopback" : undefined,
+      ),
+    (err, where) =>
+      app.log.error({ err, where }, "socket work failed; its socket closes to reconnect"),
   );
 
   const recordEvent = (event: WorkspaceEvent, channelId: ID | null): EventEnvelope => {
