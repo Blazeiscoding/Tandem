@@ -264,7 +264,7 @@ Each package names its owner when work starts and its PR when it merges. One ent
 
 - **REV-03** · Unassigned · Not started.
 
-- **REV-04** · Unassigned · Not started.
+- **REV-04** · Claude session · Implemented (the PR after #221). Private answers are kept within `EPHEMERAL_LIMITS` in `packages/client-core/src/workspace.ts`: 20 per conversation (also all a conversation shows), 100 and 400,000 characters (about 0.8 MB) across the workspace, and 40,000 characters of any one answer, which is cut with a note saying so. The oldest go first, never the one that just arrived; an id that arrives again replaces its row (moving it if it arrives in another conversation). What is let go is only counted per conversation, and the timeline says "N older private answers here were cleared to make room." with a Dismiss button; none of their text is kept. No answer expires by age: one stays until dismissed, pushed out, its conversation is lost, or the app reloads, as before. Leaving a conversation and resynchronising clear both answers and the count. Fed the deep review's shape through the socket handler (1,000 unique answers of about 1 KB across 10 conversations, then one id five more times): before, 1,005 kept, 930,750 bytes of text, the repeated id on 6 rows and up to 105 in one conversation; after, 100 kept, 93,585 bytes, 1 row and 10 per conversation. Client tests cover each limit, repeats, cutting, dismissal and losing a conversation; a DOM test covers the 20-row cap, the notice's wording, an axe check and dismissing it from the keyboard.
 
 - **REV-05** · Unassigned · Not started.
 
@@ -291,3 +291,5 @@ What a package's PR could not check in the cloud session, for a run on a Windows
 - **REV-13:** CI covers the image (container smoke test) and the packaged `resources/web` (desktop workflow). Left: host a workspace from the installed app, open it from another machine's browser and check in its developer tools that the entry script arrives as `br` with `immutable` and the page as `no-cache`; update the app to a build with a different entry script and check the next visit loads the new one without a hard refresh. Behind the Caddy configuration in DEPLOYMENT, check the same headers arrive and Caddy does not recompress `/assets/`.
 
 - **REV-07:** repeat the worker timing under Electron from the packaged app (the investigation's 180.66 → 74.46 ms initialization comparison was Electron), and in the installed app run a manual backup with verify, an inventory, a restore and a restore refused because the workspace is in use, checking each error is the same words as before and the workspace lock is released afterwards.
+
+- **REV-04:** with a screen reader (NVDA on Windows, VoiceOver on macOS), run a command that answers privately more than 20 times in one conversation and check the notice and its Dismiss button are read sensibly and reachable by Tab; then check the timeline's height and scrolling stay reasonable with 20 long answers showing.

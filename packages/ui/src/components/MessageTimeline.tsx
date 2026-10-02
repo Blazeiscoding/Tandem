@@ -63,6 +63,7 @@ export const MessageTimeline = memo(function MessageTimeline({
   const timeline = useWorkspace((s) => s.timelines[channelId]);
   const pending = useWorkspace((s) => s.pending);
   const ephemerals = useWorkspace((s) => s.ephemerals[channelId]);
+  const droppedEphemerals = useWorkspace((s) => s.ephemeralsDropped[channelId] ?? 0);
   const typing = useWorkspace((s) => s.typing[channelId]);
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
@@ -440,6 +441,9 @@ export const MessageTimeline = memo(function MessageTimeline({
         {channelPending.map((p) => (
           <PendingRow key={p.nonce} pending={p} />
         ))}
+        {droppedEphemerals > 0 && (
+          <DroppedEphemeralsNotice channelId={channelId} count={droppedEphemerals} />
+        )}
         {(ephemerals ?? []).map((e) => (
           <EphemeralRow key={e.id} message={e} channelId={channelId} />
         ))}
@@ -485,6 +489,34 @@ function EphemeralRow({ message, channelId }: { message: EphemeralMessage; chann
           <Mrkdwn text={message.text} users={users} channels={channels} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Says that older private answers here were cleared to stay within what the
+ * app keeps (REV-04). Nothing of what they said is kept to show.
+ */
+function DroppedEphemeralsNotice({ channelId, count }: { channelId: ID; count: number }) {
+  const client = useClient();
+  return (
+    <div className="flex gap-3 px-5 py-1">
+      <div className="w-9 shrink-0" />
+      <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 text-[13px] text-ink-faint">
+        <span className="font-mono text-[10px] uppercase tracking-widest">Only visible to you</span>
+        <span>
+          {count === 1
+            ? "1 older private answer here was cleared to make room."
+            : `${count} older private answers here were cleared to make room.`}
+        </span>
+        <button
+          onClick={() => client.dismissDroppedEphemerals(channelId)}
+          className="ml-auto rounded px-2 py-0.5 text-xs text-copper hover:bg-lifted"
+          aria-label="Dismiss note about cleared answers"
+        >
+          Dismiss
+        </button>
+      </p>
     </div>
   );
 }
