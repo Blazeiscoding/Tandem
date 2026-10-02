@@ -7,7 +7,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", "!test/**"],
+      "inputs": ["$TURBO_DEFAULT$", "!test/**", "$TURBO_ROOT$/scripts/build-identity.mjs"],
       "outputs": ["dist/**", "out/**"]
     },
     "typecheck": {

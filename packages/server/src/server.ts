@@ -97,7 +97,7 @@ import { isMissingAsset, webCacheControl } from "./webClient.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
 import { secretToken, ulid } from "./ids.js";
-import { SERVER_VERSION } from "./version.js";
+import { SERVER_BUILD, SERVER_VERSION } from "./version.js";
 
 export { SERVER_VERSION };
 
@@ -1420,6 +1420,7 @@ async function startWorkspaceServer(
       app: "slackoss",
       protocolVersion: PROTOCOL_VERSION,
       serverVersion: SERVER_VERSION,
+      ...(SERVER_BUILD ? { build: SERVER_BUILD } : {}),
       workspaceName: workspaceName(),
       userCount,
       requiresInvite: userCount > 0 && inviteOnly(),

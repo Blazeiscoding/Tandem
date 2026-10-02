@@ -254,10 +254,21 @@ export interface WorkspaceStatus {
 }
 
 /** Unauthenticated probe of a server — what the Join screen shows. */
+/**
+ * Which source a build was made from (IMP-08): the git revision, and whether
+ * the tree had changes not in it. Null `dirty` means there was no git to ask.
+ */
+export interface BuildRevision {
+  revision: string;
+  dirty: boolean | null;
+}
+
 export interface ServerInfo {
   app: "slackoss";
   protocolVersion: number;
   serverVersion: string;
+  /** What this server was built from; absent when it runs from source. */
+  build?: BuildRevision;
   workspaceName: string;
   userCount: number;
   /** True once an owner exists; joining then requires an invite code. */

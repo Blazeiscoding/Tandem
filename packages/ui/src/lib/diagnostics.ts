@@ -1,7 +1,8 @@
 import type { HuddleState } from "@slackoss/client-core";
-import type { ServerInfo, WorkspaceStatus } from "@slackoss/protocol";
+import type { BuildRevision, ServerInfo, WorkspaceStatus } from "@slackoss/protocol";
 import { PROTOCOL_VERSION } from "@slackoss/protocol";
 import { formatBytes } from "./format.js";
+import { APP_BUILD, describeBuild } from "./build.js";
 
 /** What a report can say about the device it came from. */
 export interface DiagnosticsInput {
@@ -10,6 +11,8 @@ export interface DiagnosticsInput {
   status: string;
   /** The server's own description, or why it could not be read. */
   server: ServerInfo | { error: string };
+  /** Which source this app was built from; the running build's own when left out. */
+  appBuild?: BuildRevision | null;
   huddle: HuddleState | null;
   /** Messages waiting to send, counted, never quoted. */
   waitingToSend: number;
@@ -36,7 +39,7 @@ export function diagnosticsReport(input: DiagnosticsInput): string {
   const server =
     "error" in input.server
       ? `not reachable (${input.server.error})`
-      : `v${input.server.serverVersion}, protocol ${input.server.protocolVersion}`;
+      : `v${input.server.serverVersion}, protocol ${input.server.protocolVersion}, build ${describeBuild(input.server.build)}`;
   const huddle = input.huddle
     ? `in a call with ${input.huddle.peers.length} other${input.huddle.peers.length === 1 ? "" : "s"}, ` +
       `${input.huddle.peers.filter((peer) => peer.connected).length} connected`
@@ -44,7 +47,7 @@ export function diagnosticsReport(input: DiagnosticsInput): string {
   return [
     "Gatherline diagnostics",
     `Taken: ${input.now.toISOString()}`,
-    `App: ${input.app === "desktop" ? "desktop app" : "browser"}, protocol ${PROTOCOL_VERSION}`,
+    `App: ${input.app === "desktop" ? "desktop app" : "browser"}, protocol ${PROTOCOL_VERSION}, build ${describeBuild(input.appBuild === undefined ? APP_BUILD : input.appBuild)}`,
     `Server: ${server}`,
     `Address: ${input.address}`,
     `Connection: ${input.status}${input.online ? "" : " (this device is offline)"}`,

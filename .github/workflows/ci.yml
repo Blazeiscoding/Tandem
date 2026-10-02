@@ -56,6 +56,8 @@ jobs:
         run: node --test scripts/check-desktop-archive.test.mjs
       - name: Test the web compression gate
         run: node --test scripts/check-web-precompressed.test.mjs
+      - name: Test the build identity check
+        run: node --test scripts/build-identity.test.mjs
       # Turbo compares each task's input hash; the archive only transports
       # its local cache. PR caches are reusable by later runs of the same PR.
       - name: Restore task cache
