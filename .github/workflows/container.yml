@@ -21,6 +21,7 @@ on:
       - ".pnpmfile.cjs"
       - "tsconfig.base.json"
       - "tests/docker-smoke.mjs"
+      - "scripts/build-identity.mjs"
       - ".github/workflows/container.yml"
       - "!**/*.md"
   workflow_dispatch:
@@ -37,5 +38,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: docker build -f docker/Dockerfile -t slackoss:local .
+      - run: docker build -f docker/Dockerfile --build-arg GITHUB_SHA=${{ github.sha }} -t slackoss:local .
       - run: node tests/docker-smoke.mjs

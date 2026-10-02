@@ -101,6 +101,9 @@ try {
   base = `http://${docker("port", name, "8543/tcp").split(/\r?\n/)[0]}`;
   await waitFor(async () => (await fetch(base + "/api/health")).ok, "healthy server");
   assert.notEqual(docker("exec", name, "id", "-u"), "0");
+  // The image says which source it was built from (IMP-08).
+  const info = await (await fetch(base + "/api/server-info")).json();
+  assert.match(info.build?.revision ?? "", /^([0-9a-f]{40}|unknown)$/);
   const page = await (await fetch(base)).text();
   assert.match(page, /<div id="root">/);
   // The image keeps the client's compressed copies (REV-13): the entry script

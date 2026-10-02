@@ -56,8 +56,11 @@ starts counts as at least a minute of CI time.
 
 The browser and desktop suites run against built output rather than the sources:
 `tests/e2e/web.spec.ts` spawns `apps/server-cli/dist/`, and the desktop spec
-launches the packaged app. Build before running them, or they will quietly pass
-against the previous build and tell you nothing about your change. The scenarios
+launches the packaged app. Each build writes a `build.json` naming the source it
+was built from, and both suites check it before they start: run against a build
+older than your checkout, they stop and name the command that rebuilds it,
+rather than quietly passing against the previous build (`node
+scripts/build-identity.mjs check web server desktop` asks the same). The scenarios
 in `web.spec.ts` share one server and build on each other's accounts, and a
 worker is restarted after a failure with fresh hooks and a fresh server — so a
 failure midway cascades into confusing failures later (a sign-in meeting an

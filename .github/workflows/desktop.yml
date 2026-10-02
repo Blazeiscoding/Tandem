@@ -24,6 +24,8 @@ on:
       - "scripts/generate-icons.mjs"
       - "scripts/desktop-ci-mode*.mjs"
       - "scripts/check-desktop-archive*.mjs"
+      - "scripts/build-identity*.mjs"
+      - "tests/e2e/fresh*.ts"
       - "scripts/check-web-precompressed*.mjs"
       - ".github/workflows/desktop.yml"
       - "!**/*.md"

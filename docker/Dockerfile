@@ -4,6 +4,10 @@ RUN corepack enable
 WORKDIR /repo
 COPY . .
 RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --frozen-lockfile
+# The image has no .git to ask which source it is (IMP-08); CI passes the
+# commit. Declared after installing, so a new commit reuses that step.
+ARG GITHUB_SHA=unknown
+ENV GITHUB_SHA=${GITHUB_SHA}
 RUN pnpm --filter @slackoss/web build && pnpm --filter slackoss-server build
 
 FROM node:24-alpine

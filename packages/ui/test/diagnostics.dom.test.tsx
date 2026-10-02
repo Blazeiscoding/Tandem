@@ -56,8 +56,8 @@ describe("the diagnostics report", () => {
     expect(report.split("\n")).toEqual([
       "Gatherline diagnostics",
       "Taken: 2026-09-26T12:00:00.000Z",
-      "App: browser, protocol 1",
-      "Server: v0.4.2, protocol 1",
+      "App: browser, protocol 1, build from source",
+      "Server: v0.4.2, protocol 1, build from source",
       "Address: http://10.0.0.5:8543",
       "Connection: online",
       "Waiting to send: 2",
@@ -68,6 +68,33 @@ describe("the diagnostics report", () => {
     ]);
     // Not even the workspace's name, which the server's answer carries.
     expect(report).not.toContain("Rocket Team");
+  });
+
+  it("names the source each side was built from (IMP-08)", () => {
+    const report = diagnosticsReport({
+      ...base,
+      appBuild: { revision: "0123456789abcdef0123456789abcdef01234567", dirty: false },
+      server: {
+        app: "slackoss",
+        protocolVersion: 1,
+        serverVersion: "0.4.2",
+        build: { revision: "fedcba9876543210fedcba9876543210fedcba98", dirty: true },
+        workspaceName: "Rocket Team",
+        userCount: 4,
+        requiresInvite: true,
+        requiresClaim: false,
+      },
+    });
+    expect(report).toContain("App: browser, protocol 1, build 0123456789ab\n");
+    expect(report).toContain(
+      "Server: v0.4.2, protocol 1, build fedcba987654 with uncommitted changes\n",
+    );
+    const container = diagnosticsReport({
+      ...base,
+      appBuild: { revision: "unknown", dirty: null },
+      server: { error: "timed out" },
+    });
+    expect(container).toContain("App: browser, protocol 1, build unknown revision\n");
   });
 
   it("says when the server could not be reached, and when this device is offline", () => {
