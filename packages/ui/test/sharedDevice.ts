@@ -46,6 +46,12 @@ export function sharedDevice(initial: Record<string, unknown> = {}) {
             if (value === null) values.delete(name);
             else values.set(name, value);
           }),
+        // As the main process's settings queue: only where nothing is stored.
+        initialize: (name, value) =>
+          turn(() => {
+            if (!values.has(name)) values.set(name, value);
+            return values.get(name);
+          }),
         mergeOutbox: (name, changes, enveloped) =>
           turn(() => {
             const { value, outbox } = applyOutboxChanges(

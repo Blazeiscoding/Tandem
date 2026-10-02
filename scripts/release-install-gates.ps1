@@ -9,13 +9,25 @@
 #
 # Run on a disposable Windows machine (a CI runner): it installs, launches and
 # uninstalls the real app for the current user.
+#
+# The installed app is asked which profile it is using (F05): started with
+# TANDEM_RELEASE_GATE_REPORT, it writes its data folder, version, revision
+# and what it read there. An upgrade passes only when the new process is
+# using the previous release's folder and reads the marker left in it; a
+# folder that merely exists, or a registry entry, proves neither.
 param(
   [Parameter(Mandatory)] [string] $Installer,
   [Parameter(Mandatory)] [string] $Version,
-  [string] $Previous
+  [string] $Previous,
+  # The commit this installer was built from, when the caller knows it.
+  [string] $Revision
 )
 $ErrorActionPreference = "Stop"
 $Marker = "release-gate-marker.txt"
+
+function SamePath([string] $A, [string] $B) {
+  return [System.IO.Path]::GetFullPath($A).TrimEnd('\') -ieq [System.IO.Path]::GetFullPath($B).TrimEnd('\')
+}
 
 function Fail([string] $Message) {
   Write-Host "::error::$Message"
@@ -59,18 +71,32 @@ function Install([string] $Path, [string] $Expected) {
   return $exe
 }
 
-# Starts the installed app, waits for it to register its links and create its
-# data folder, then stops it. Returns the data folder.
-function Launch([string] $Exe) {
+# Starts the installed app, waits for it to register its links and say which
+# data folder it is using, then stops it. Returns its report. A release from
+# before the report existed (-Legacy, for the previous release only) is
+# taken at the first data folder found instead; what it says is checked by
+# the new version's own report.
+function Launch([string] $Exe, [switch] $Legacy) {
   Write-Host "Starting $Exe"
-  $process = Start-Process -FilePath $Exe -PassThru
+  $report = Join-Path ([System.IO.Path]::GetTempPath()) "tandem-release-gate-$PID.json"
+  Remove-Item $report -ErrorAction SilentlyContinue
+  $env:TANDEM_RELEASE_GATE_REPORT = $report
+  try { $process = Start-Process -FilePath $Exe -PassThru } finally { Remove-Item Env:TANDEM_RELEASE_GATE_REPORT }
   $candidates = @((Join-Path $env:APPDATA "@slackoss\desktop"), (Join-Path $env:APPDATA "Tandem"), (Join-Path $env:APPDATA "Gatherline"))
-  $data = $null
+  $said = $null
   $registered = $false
-  for ($i = 0; $i -lt 60 -and -not ($data -and $registered); $i++) {
+  for ($i = 0; $i -lt 60 -and -not ($said -and $registered); $i++) {
     Start-Sleep -Seconds 1
     if ($process.HasExited) { Fail "the app exited on its own with $($process.ExitCode)" }
-    $data = $candidates | Where-Object { Test-Path (Join-Path $_ "Local State") } | Select-Object -First 1
+    if (Test-Path $report) {
+      # Taken once Chromium has written the profile there too, which can be
+      # a moment after the app says where it is.
+      try { $told = Get-Content $report -Raw | ConvertFrom-Json } catch { $told = $null }
+      if ($told -and $told.userData -and (Test-Path (Join-Path $told.userData "Local State"))) { $said = $told }
+    } elseif ($Legacy -and $i -ge 10) {
+      $folder = $candidates | Where-Object { Test-Path (Join-Path $_ "Local State") } | Select-Object -First 1
+      if ($folder) { $said = [pscustomobject]@{ userData = $folder; legacy = $true } }
+    }
     $registered = $true
     foreach ($scheme in "tandem", "gatherline", "slackoss") {
       $command = (Get-ItemProperty "HKCU:\Software\Classes\$scheme\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
@@ -79,26 +105,38 @@ function Launch([string] $Exe) {
   }
   Get-Process -Name "Tandem", "Gatherline" -ErrorAction SilentlyContinue | Stop-Process -Force
   Start-Sleep -Seconds 2
+  Remove-Item $report -ErrorAction SilentlyContinue
   if (-not $registered) { Fail "the app did not register tandem://, gatherline:// and slackoss:// to $Exe" }
-  if (-not $data) { Fail "the app created no data folder in $($candidates -join ' or ')" }
-  Write-Host "Links registered; data in $data"
-  return $data
+  if (-not $said) { Fail "the app did not say which data folder it uses (TANDEM_RELEASE_GATE_REPORT)" }
+  if (-not (Test-Path (Join-Path $said.userData "Local State"))) { Fail "the app's data folder $($said.userData) holds no profile" }
+  Write-Host "Links registered; data in $($said.userData)"
+  return $said
 }
 
 if ($Previous) {
-  # Upgrading: the previous release's data is still there after the new one installs.
+  # Upgrading: the new release starts in the previous release's profile and
+  # reads what is there, not merely leaves it alone.
   $oldExe = Install $Previous $null
-  $data = Launch $oldExe
-  Set-Content -Path (Join-Path $data $Marker) -Value "kept across upgrade"
+  $old = Launch $oldExe -Legacy
+  Set-Content -Path (Join-Path $old.userData $Marker) -Value "kept across upgrade"
   $exe = Install $Installer $Version
-  if (-not (Test-Path (Join-Path $data $Marker))) { Fail "installing over the previous release removed its data" }
-  Write-Host "Upgrade kept the previous release's data"
+  if (-not (Test-Path (Join-Path $old.userData $Marker))) { Fail "installing over the previous release removed its data" }
+  $now = Launch $exe
+  if (-not (SamePath $now.userData $old.userData)) {
+    Fail "the upgraded app uses $($now.userData), not the previous release's data in $($old.userData)"
+  }
+  if ($now.marker -ne "kept across upgrade") { Fail "the upgraded app did not read what the previous release left in $($old.userData)" }
+  if (-not $now.settingsReadable) { Fail "the upgraded app could not read the previous release's settings" }
+  Write-Host "Upgrade uses and reads the previous release's data"
 } else {
   Write-Host "No previous release to upgrade from; installing fresh"
   $exe = Install $Installer $Version
+  $now = Launch $exe
 }
+if ($now.version -ne $Version) { Fail "the running app is version $($now.version), expected $Version" }
+if ($Revision -and $now.revision -ne $Revision) { Fail "the running app was built from $($now.revision), expected $Revision" }
 
-$data = Launch $exe
+$data = $now.userData
 Set-Content -Path (Join-Path $data $Marker) -Value "kept across uninstall"
 
 $entry = Installed

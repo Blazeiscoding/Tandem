@@ -52,19 +52,66 @@ export class Gateway {
     private limiter: RateLimiter | null = null,
     private clientAddress: (request: IncomingMessage) => string = (request) =>
       resolveClientAddress(request.socket.remoteAddress, request.headers),
+    /**
+     * Told of a failure in a socket callback, which Fastify's error handler
+     * never sees: an exception there would otherwise end the process (F03).
+     */
+    private reportFailure: (err: unknown, where: string) => void = () => {},
   ) {
     this.heartbeat = setInterval(() => {
-      const authorized = this.sessionCheck();
-      for (const c of [...this.clients]) {
-        if (!authorized(c)) continue;
-        if (!c.alive) {
-          c.ws.terminate();
-          continue;
+      this.contained("heartbeat", () => {
+        const authorized = this.sessionCheck();
+        for (const c of [...this.clients]) {
+          if (!authorized(c)) continue;
+          if (!c.alive) {
+            c.ws.terminate();
+            continue;
+          }
+          c.alive = false;
+          c.ws.ping();
         }
-        c.alive = false;
-        c.ws.ping();
-      }
+      });
     }, 30_000);
+  }
+
+  /**
+   * Runs one socket callback so a throw is reported rather than ending the
+   * process. What it was doing may be half done, so callers decide what to
+   * close; this only keeps the server up.
+   */
+  private contained(where: string, work: () => void): boolean {
+    try {
+      work();
+      return true;
+    } catch (err) {
+      this.report(err, where);
+      return false;
+    }
+  }
+
+  private report(err: unknown, where: string): void {
+    try {
+      this.reportFailure(err, where);
+    } catch {
+      // Reporting cannot be what ends the process either.
+    }
+  }
+
+  /**
+   * Closes a socket whose state could not be read, so its client reconnects
+   * and is checked afresh. 1011 is a server fault, not a refusal: the client
+   * keeps its sign-in and tries again, where 4003 would sign it out. Taken out
+   * of fan-out first, so nothing more reaches it while it closes.
+   */
+  private fail(client: Client | null, ws: WebSocket): void {
+    // Told about afterwards, not here: telling others reads their sessions,
+    // which are failing too, and each failure would tell everyone again.
+    if (client) this.contained("unregister", () => this.unregister(client, true));
+    try {
+      ws.close(1011, "server error");
+    } catch {
+      ws.terminate();
+    }
   }
 
   attach(server: HttpServer, path = "/ws"): void {
@@ -91,15 +138,18 @@ export class Gateway {
         socket.destroy();
         return;
       }
-      // Opening sockets is cheap for the caller and not for the server, so it
-      // is rationed before the handshake rather than after it. Keyed on the
-      // address because there is no account yet to key on.
-      const address = this.clientAddress(req);
-      if (this.limiter && !this.limiter.take("socket", address).ok) {
-        socket.destroy();
-        return;
-      }
-      wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws));
+      const upgraded = this.contained("upgrade", () => {
+        // Opening sockets is cheap for the caller and not for the server, so it
+        // is rationed before the handshake rather than after it. Keyed on the
+        // address because there is no account yet to key on.
+        const address = this.clientAddress(req);
+        if (this.limiter && !this.limiter.take("socket", address).ok) {
+          socket.destroy();
+          return;
+        }
+        wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws));
+      });
+      if (!upgraded) socket.destroy();
     });
   }
 
@@ -198,7 +248,13 @@ export class Gateway {
       } catch {
         return;
       }
+      // Session and snapshot reads run here, outside Fastify's error handler.
+      // One that throws closes this socket for its client to try again,
+      // having sent nothing that depended on the read (F03).
+      if (!this.contained("message", () => handle(msg))) this.fail(client, ws);
+    });
 
+    const handle = (msg: ClientToServer): void => {
       if (msg.type === "hello" && !client) {
         clearTimeout(authTimer);
         if (msg.protocolVersion !== PROTOCOL_VERSION) {
@@ -228,9 +284,8 @@ export class Gateway {
           ws.close(4004);
           return;
         }
-        client = { ws, userId: user.id, tokenHash, alive: true };
-        this.register(client);
-
+        // Everything the handshake reads is read before this socket joins
+        // fan-out, so a read that fails announces nobody online (F03).
         const snapshot: ReadySnapshot = {
           type: "ready",
           seq: this.store.currentSeq(),
@@ -239,7 +294,7 @@ export class Gateway {
           channels: this.store.listChannelsVisibleTo(user.id),
           memberships: this.store.memberships(user.id),
           channelLastSeq: this.store.channelLastSeqMap(user.id),
-          presence: this.presenceMap(),
+          presence: {},
           savedMessageIds: this.store.savedMessageIds(user.id),
           threadFollows: this.store.threadFollows(user.id),
           mentionCounts: this.store.unreadMentionCounts(user.id),
@@ -253,6 +308,9 @@ export class Gateway {
           msg.lastSeq !== null && msg.lastSeq <= snapshot.seq
             ? this.store.eventsSince(msg.lastSeq, user.id)
             : null;
+        client = { ws, userId: user.id, tokenHash, alive: true };
+        this.register(client);
+        snapshot.presence = this.presenceMap();
         if (msg.syncVersion === 1) snapshot.replayFrom = missed === null ? null : msg.lastSeq;
         this.send(ws, snapshot);
         if (missed !== null) {
@@ -300,12 +358,13 @@ export class Gateway {
           });
         }
       }
-    });
+    };
 
     ws.on("close", () => {
       this.sockets.delete(ws);
       clearTimeout(authTimer);
-      if (client) this.unregister(client);
+      const leaving = client;
+      if (leaving) this.contained("close", () => this.unregister(leaving));
     });
     ws.on("error", () => ws.terminate());
   }
@@ -325,25 +384,43 @@ export class Gateway {
     }
   }
 
-  private unregister(client: Client): void {
+  /**
+   * Forgets a socket. Every in-memory change comes first and cannot fail, so a
+   * read that throws while telling others still leaves this person out of
+   * fan-out, presence and every huddle (F03); each notice then fails alone.
+   */
+  private unregister(client: Client, later = false): void {
     if (!this.clients.delete(client)) return;
     const set = this.byUser.get(client.userId);
-    if (set) {
-      set.delete(client);
-      if (set.size === 0) {
-        this.byUser.delete(client.userId);
-        // Dropping offline must also drop them from any huddle, or the room
-        // keeps a ghost participant nobody can call.
-        for (const channelId of [...this.huddles.keys()]) {
-          this.leaveHuddle(channelId, client.userId);
-        }
-        this.broadcastEphemeral(
-          { type: "presence", userId: client.userId, presence: "offline" },
-          null,
-        );
-        this.presenceChanged();
+    if (!set) return;
+    set.delete(client);
+    if (set.size > 0) return;
+    this.byUser.delete(client.userId);
+    // Dropping offline must also drop them from any huddle, or the room
+    // keeps a ghost participant nobody can call.
+    const left = [...this.huddles.keys()].filter((channelId) =>
+      this.dropFromHuddle(channelId, client.userId),
+    );
+    if (later) {
+      for (const channelId of left) this.departures.huddles.add(channelId);
+      this.departures.users.add(client.userId);
+      this.presenceChanged();
+      if (!this.departures.scheduled) {
+        this.departures.scheduled = true;
+        setImmediate(() => this.contained("departures", () => this.announceDepartures()));
       }
+      return;
     }
+    for (const channelId of left) {
+      this.contained("huddle departure", () => this.publishHuddle(channelId));
+    }
+    this.contained("presence", () =>
+      this.broadcastEphemeral(
+        { type: "presence", userId: client.userId, presence: "offline" },
+        null,
+      ),
+    );
+    this.presenceChanged();
   }
 
   // ---------- huddles ----------
@@ -402,30 +479,78 @@ export class Gateway {
   }
 
   private leaveHuddle(channelId: ID, userId: ID): void {
-    const room = this.huddles.get(channelId);
-    if (!room?.delete(userId)) return;
-    // An empty huddle is no huddle at all.
-    if (room.size === 0) this.huddles.delete(channelId);
-    this.publishHuddle(channelId);
+    if (this.dropFromHuddle(channelId, userId)) this.publishHuddle(channelId);
   }
 
-  /** Membership changes also invalidate a call and notify the affected user's devices. */
+  /** Takes someone out of a room in memory only; whether they were in it. */
+  private dropFromHuddle(channelId: ID, userId: ID): boolean {
+    const room = this.huddles.get(channelId);
+    if (!room?.delete(userId)) return false;
+    // An empty huddle is no huddle at all.
+    if (room.size === 0) this.huddles.delete(channelId);
+    return true;
+  }
+
+  /**
+   * Membership changes also invalidate a call and notify the affected user's
+   * devices. Someone removed from a private channel is outside its audience,
+   * so its durable `member.left` never reaches them: this notice is the only
+   * thing that clears it from their screens. If it cannot be read or sent,
+   * their devices reconnect, and the handshake reads their access afresh and
+   * drops whatever they may no longer see (F06). The change itself stands.
+   */
   updateChannelAccess(channelId: ID, userId: ID): void {
-    const membership =
-      this.store.memberships(userId).find((m) => m.channelId === channelId) ?? null;
-    const channel = this.store.canAccess(channelId, userId)
-      ? this.store.getChannel(channelId)
-      : null;
-    if (!channel) this.leaveHuddle(channelId, userId);
-    this.sendToUser(userId, { type: "channel.access", channelId, channel, membership });
+    try {
+      const membership =
+        this.store.memberships(userId).find((m) => m.channelId === channelId) ?? null;
+      const channel = this.store.canAccess(channelId, userId)
+        ? this.store.getChannel(channelId)
+        : null;
+      if (!channel) this.leaveHuddle(channelId, userId);
+      this.sendToUser(userId, { type: "channel.access", channelId, channel, membership });
+    } catch (err) {
+      this.report(err, "channel access");
+      this.resynchronizeUser(userId);
+    }
   }
 
   /** Tells the channel who is in its huddle now. */
-  private publishHuddle(channelId: ID): void {
+  private publishHuddle(channelId: ID, authorized?: (client: Client) => boolean): void {
     this.broadcastEphemeral(
       { type: "huddle.participants", channelId, userIds: [...(this.huddles.get(channelId) ?? [])] },
       this.audienceForChannel(channelId),
+      authorized,
     );
+  }
+
+  /** Who went offline when their sockets failed, not yet told to anyone. */
+  private departures = { users: new Set<ID>(), huddles: new Set<ID>(), scheduled: false };
+
+  /**
+   * Tells everyone at once about the people whose sockets failed, with one
+   * session check for the whole batch (F03). A socket whose session cannot
+   * be read here fails too and is told about in the next batch, so a
+   * failing database costs a read per session, not one per notice per
+   * session, and no failure nests inside another.
+   */
+  private announceDepartures(): void {
+    const { users, huddles } = this.departures;
+    this.departures = { users: new Set(), huddles: new Set(), scheduled: false };
+    if (this.closing) return;
+    const authorized = this.sessionCheck();
+    for (const channelId of huddles)
+      this.contained("huddle departure", () => this.publishHuddle(channelId, authorized));
+    for (const userId of users) {
+      // Back already, on a socket that told everyone so.
+      if (this.byUser.has(userId)) continue;
+      this.contained("presence", () =>
+        this.broadcastEphemeral(
+          { type: "presence", userId, presence: "offline" },
+          null,
+          authorized,
+        ),
+      );
+    }
   }
 
   /** Participants of one channel's huddle, for tests and diagnostics. */
@@ -441,12 +566,32 @@ export class Gateway {
     return new Set(this.store.memberIds(channelId));
   }
 
-  /** Fan a durable event out to every connected client allowed to see it. */
-  publish(envelope: EventEnvelope, channelId: ID | null): void {
-    const audience = channelId === null ? null : this.audienceForChannel(channelId);
+  /**
+   * Fan a durable event out to every connected client allowed to see it.
+   * `audiences` carries each channel's audience across the events of one
+   * committed change, read once however many of them there are (F10); the
+   * caller drops it when that change is out, so it never outlives the
+   * committed rows it was read from.
+   */
+  publish(
+    envelope: EventEnvelope,
+    channelId: ID | null,
+    audiences?: Map<ID, Set<ID> | null>,
+  ): void {
+    // With nobody signed in there is nobody to read an audience for.
+    if (this.clients.size === 0) return;
+    const audience = channelId === null ? null : this.channelAudience(channelId, audiences);
     const frame = JSON.stringify({ type: "event", envelope } satisfies ServerToClient);
     const authorized = this.sessionCheck();
     for (const c of this.reach(audience)) if (authorized(c)) this.sendRaw(c.ws, frame);
+  }
+
+  /** A channel's audience, from `audiences` when this change has read it already. */
+  channelAudience(channelId: ID, audiences?: Map<ID, Set<ID> | null>): Set<ID> | null {
+    if (audiences?.has(channelId)) return audiences.get(channelId)!;
+    const audience = this.audienceForChannel(channelId);
+    audiences?.set(channelId, audience);
+    return audience;
   }
 
   /**
@@ -467,14 +612,25 @@ export class Gateway {
    * long as the fan-out that asked.
    */
   private sessionCheck(): (client: Client) => boolean {
-    const known = new Map<string, boolean>();
+    const known = new Map<string, boolean | "unreadable">();
     return (client) => {
       if (!this.clients.has(client)) return false;
       const key = `${client.tokenHash}\n${client.userId}`;
       let active = known.get(key);
       if (active === undefined) {
-        active = this.store.isSessionActive(client.tokenHash, client.userId);
+        try {
+          active = this.store.isSessionActive(client.tokenHash, client.userId);
+        } catch (err) {
+          this.report(err, "session check");
+          active = "unreadable";
+        }
         known.set(key, active);
+      }
+      // A session that cannot be read is not known to be signed in: send it
+      // nothing, and close for its client to reconnect and be asked again (F03).
+      if (active === "unreadable") {
+        this.fail(client, client.ws);
+        return false;
       }
       if (!active) this.revoke(client, "session expired or revoked");
       return active;
@@ -504,6 +660,18 @@ export class Gateway {
     for (const client of this.clients) client.ws.close(1012, "resynchronize");
   }
 
+  /**
+   * Closes one person's sockets for the same reason, taking them out of
+   * fan-out at once. Needs no read, so it works when the read that failed
+   * is the reason for it.
+   */
+  resynchronizeUser(userId: ID): void {
+    for (const client of [...(this.byUser.get(userId) ?? [])]) {
+      this.contained("unregister", () => this.unregister(client));
+      client.ws.close(1012, "resynchronize");
+    }
+  }
+
   disconnectSession(tokenHash: string): void {
     for (const client of [...this.clients]) {
       if (client.tokenHash === tokenHash) this.revoke(client, "signed out");
@@ -518,10 +686,7 @@ export class Gateway {
   }
 
   private authorized(client: Client): boolean {
-    if (!this.clients.has(client)) return false;
-    if (this.store.isSessionActive(client.tokenHash, client.userId)) return true;
-    this.revoke(client, "session expired or revoked");
-    return false;
+    return this.sessionCheck()(client);
   }
 
   /** Sends an ephemeral event to every socket of one user (their other devices). */
@@ -532,9 +697,12 @@ export class Gateway {
       if (authorized(c)) this.sendRaw(c.ws, frame);
   }
 
-  broadcastEphemeral(event: EphemeralEvent, audience: Set<ID> | null): void {
+  broadcastEphemeral(
+    event: EphemeralEvent,
+    audience: Set<ID> | null,
+    authorized: (client: Client) => boolean = this.sessionCheck(),
+  ): void {
     const frame = JSON.stringify({ type: "ephemeral", event } satisfies ServerToClient);
-    const authorized = this.sessionCheck();
     for (const c of this.reach(audience)) if (authorized(c)) this.sendRaw(c.ws, frame);
   }
 

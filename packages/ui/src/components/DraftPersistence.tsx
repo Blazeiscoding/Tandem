@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   OUTBOX_TOMBSTONES_KEPT,
+  keepBothDrafts,
   outboxRevision,
   storedPending,
   type DraftChanges,
@@ -20,6 +21,7 @@ import {
   workspaceStorageKey,
   writeWorkspaceStorage,
 } from "../lib/workspaceStorage.js";
+import { keepLocalWork, settleLocalWork, waitingLocalWork } from "../lib/localWork.js";
 
 /** A send's words kept for a restart while the outbox could not store them. */
 interface UnstoredSend {
@@ -43,11 +45,18 @@ function validUnstored(value: unknown): value is Record<string, UnstoredSend> {
 const composerOf = (send: Pick<StoredOutboxEntry, "channelId" | "threadRootId">) =>
   send.threadRootId ? `${send.channelId}:${send.threadRootId}` : send.channelId;
 
-/** What makes `base` into `drafts`: each draft that differs, alone. */
+/**
+ * What makes `base` into `drafts`: each draft that differs, alone, with the
+ * text it is changed from, so a draft another window changed meanwhile is
+ * kept beside this one rather than replaced (GL-03).
+ */
 function draftChanges(drafts: Record<string, string>, base: Record<string, string>): DraftChanges {
   const put: Record<string, string> = {};
   for (const [key, text] of Object.entries(drafts)) if (base[key] !== text) put[key] = text;
-  return { put, remove: Object.keys(base).filter((key) => !(key in drafts)) };
+  const remove = Object.keys(base).filter((key) => !(key in drafts));
+  const from: Record<string, string | null> = {};
+  for (const key of [...Object.keys(put), ...remove]) from[key] = base[key] ?? null;
+  return { put, remove, base: from };
 }
 
 /** How many times in a row a window writes its sends again after another's write left them out. */
@@ -96,6 +105,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     [client, workspaceId, selfId],
   );
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const retry = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -136,7 +146,16 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     // write has them; and that key's content as last written, as JSON.
     let carried: Record<string, UnstoredSend> = {};
     let unstoredJson = "{}";
+    // Whether the write of `unstoredJson` succeeded; pending while it is out.
+    let unstoredWrite: Promise<boolean> = Promise.resolve(true);
     setError(null);
+    // Sends wait for this to say their words are kept here (GL-02).
+    const releaseKeeper = keepLocalWork(client);
+    const acknowledge = () => {
+      const pending = new Set(client.state.pending.map((p) => p.nonce));
+      for (const nonce of waitingLocalWork(client))
+        if (stored.has(nonce) || !pending.has(nonce)) settleLocalWork(client, nonce, "stored");
+    };
 
     // While outbox writes fail, keeps the words of every send this window
     // holds that the outbox has not stored, and afterwards takes them out.
@@ -150,12 +169,25 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         }
       }
       const json = JSON.stringify(want);
-      if (json === unstoredJson) return;
-      unstoredJson = json;
-      void writeWorkspaceStorage(platform, unstoredKey, want).catch(() => {
-        // Unknown now: write it again next time.
-        unstoredJson = "";
-      });
+      // A send whose words are written here is kept on this device too.
+      const told = (outcome: "stored" | "unsaved") => {
+        for (const nonce of waitingLocalWork(client))
+          if (want[nonce]) settleLocalWork(client, nonce, outcome);
+      };
+      // The same words written already, or still being written: kept once
+      // that write is, never before (GL-02).
+      if (json !== unstoredJson) {
+        unstoredJson = json;
+        unstoredWrite = writeWorkspaceStorage(platform, unstoredKey, want).then(
+          () => true,
+          () => {
+            // Unknown now: write it again next time.
+            if (unstoredJson === json) unstoredJson = "";
+            return false;
+          },
+        );
+      }
+      void unstoredWrite.then((saved) => told(saved ? "stored" : "unsaved"));
     };
 
     // The latest write of each part decides whether saving has failed.
@@ -273,24 +305,47 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     const takeOnDrafts = (stored: Record<string, string>, written?: DraftChanges) => {
       const next = { ...currentDrafts };
       let changed = false;
+      let conflicted = false;
       const mine = new Set<string>();
       if (written) {
         for (const key of written.remove) {
           delete baseDrafts[key];
-          mine.add(key);
+          // Kept: another window wrote to it since, and that text comes back.
+          if (stored[key] === undefined) mine.add(key);
+          else conflicted = true;
         }
         for (const [key, text] of Object.entries(written.put)) {
           baseDrafts[key] = text;
-          mine.add(key);
+          if (stored[key] === text) mine.add(key);
+          else if (stored[key] !== undefined) {
+            // Both windows changed it: the store kept both texts (GL-03). Typing
+            // here since keeps its place beside them.
+            conflicted = true;
+            if (currentDrafts[key] !== text) {
+              // The store holds this window's write beside the other's; the
+              // typing since replaces that write, not joins it.
+              const theirs = stored[key].startsWith(`${text}\n\n`)
+                ? stored[key].slice(text.length + 2)
+                : stored[key];
+              next[key] = keepBothDrafts(currentDrafts[key] ?? "", theirs);
+              baseDrafts[key] = stored[key];
+              mine.add(key);
+              changed = true;
+            }
+          }
         }
       }
+      if (conflicted)
+        setNotice("Another window changed this draft too, so both versions are kept in it.");
       for (const key of new Set([...Object.keys(stored), ...Object.keys(baseDrafts)])) {
         if (mine.has(key) || stored[key] === baseDrafts[key]) continue;
-        if (currentDrafts[key] === baseDrafts[key]) {
-          if (stored[key] === undefined) delete next[key];
-          else next[key] = stored[key];
-          changed = true;
-        }
+        // A change of this window's own not yet written keeps the text it was
+        // changed from, so the write carrying it finds the other window's
+        // text there and keeps both, rather than replacing it (GL-03).
+        if (currentDrafts[key] !== baseDrafts[key]) continue;
+        if (stored[key] === undefined) delete next[key];
+        else next[key] = stored[key];
+        changed = true;
         if (stored[key] === undefined) delete baseDrafts[key];
         else baseDrafts[key] = stored[key];
       }
@@ -325,6 +380,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       }).then((record) => {
         for (const entry of record.entries) if (held.has(entry.nonce)) stored.add(entry.nonce);
         for (const nonce of stored) if (!held.has(nonce)) stored.delete(nonce);
+        acknowledge();
         if (!disposed && loaded) takeOn(record);
         // Drafts held back by a failed outbox write can go now.
         if (loaded && failing.has("drafts")) void saveDrafts();
@@ -487,6 +543,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     document.addEventListener("visibilitychange", onHide);
     return () => {
       if (retry.current === retryPersistence) retry.current = null;
+      releaseKeeper();
       unsubscribe();
       unwatch();
       unwatchDrafts();
@@ -497,14 +554,26 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     };
   }, [client, platform, keys, selfId]);
 
-  return error ? (
+  if (error)
+    return (
+      <div
+        role="alert"
+        className="absolute inset-x-3 top-3 z-50 flex items-center gap-3 rounded-lg border border-alert/30 bg-raised p-3 text-sm text-alert shadow-lg"
+      >
+        <span className="flex-1">{error}</span>
+        <button type="button" className="shrink-0 underline" onClick={() => retry.current?.()}>
+          Retry
+        </button>
+      </div>
+    );
+  return notice ? (
     <div
-      role="alert"
-      className="absolute inset-x-3 top-3 z-50 flex items-center gap-3 rounded-lg border border-alert/30 bg-raised p-3 text-sm text-alert shadow-lg"
+      role="status"
+      className="absolute inset-x-3 top-3 z-50 flex items-center gap-3 rounded-lg border border-edge bg-raised p-3 text-sm text-ink shadow-lg"
     >
-      <span className="flex-1">{error}</span>
-      <button type="button" className="shrink-0 underline" onClick={() => retry.current?.()}>
-        Retry
+      <span className="flex-1">{notice}</span>
+      <button type="button" className="shrink-0 underline" onClick={() => setNotice(null)}>
+        Dismiss
       </button>
     </div>
   ) : null;

@@ -27,8 +27,42 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Files every build reads, whatever it builds. */
-const SHARED_INPUTS = ["package.json", "pnpm-lock.yaml", "tsconfig.base.json"];
+/**
+ * Files every build reads, whatever it builds (F05): what Turbo's cache
+ * already counts as every task's input (`globalDependencies`: the TypeScript
+ * base config and pnpm's workspace and install settings), the manifest and
+ * lockfile, and this script, which writes the identity into each build. One
+ * list, read from the build configuration, so a change that makes Turbo
+ * build again also makes an older build stale here.
+ */
+export const SHARED_INPUTS = [
+  ...new Set([
+    "package.json",
+    "pnpm-lock.yaml",
+    ...JSON.parse(readFileSync(join(ROOT, "turbo.json"), "utf8")).globalDependencies,
+    "scripts/build-identity.mjs",
+  ]),
+];
+
+/**
+ * Formats hashed as text, with Windows line endings read as committed ones,
+ * so a Windows checkout hashes like the rest. Everything else, images and
+ * fonts above all, is hashed byte for byte: reading `0d 0a` as `0a` in a
+ * binary file would let a changed asset pass as the same (F05).
+ */
+const TEXT =
+  /\.([cm]?[jt]sx?|json|jsonc|md|css|html?|ya?ml|svg|txt|xml|map|webmanifest|ps1|sh|nsh|cjs|mjs)$|(^|\/)(\.npmrc|\.gitattributes|\.gitignore|LICENSE)$/i;
+
+/**
+ * The bytes a file is hashed as. `name` is its path from the root with `/`
+ * separators, so a Windows path's backslashes decide nothing.
+ */
+function contents(path, name) {
+  const bytes = readFileSync(path);
+  // A NUL byte is binary whatever the name says, as git decides.
+  if (!TEXT.test(name) || bytes.subarray(0, 8000).includes(0)) return bytes;
+  return Buffer.from(bytes.toString("latin1").replaceAll("\r\n", "\n"), "latin1");
+}
 
 /** Where each artifact's manifest is, and which source folders go into it. */
 export const ARTIFACTS = {
@@ -94,8 +128,7 @@ export function inputsHash(inputs, root = ROOT) {
   for (const path of paths) {
     hash.update(path);
     hash.update("\0");
-    // Line endings as committed: a Windows checkout must hash like the rest.
-    hash.update(readFileSync(join(root, path)).toString("latin1").replaceAll("\r\n", "\n"));
+    hash.update(contents(join(root, path), path));
     hash.update("\0");
   }
   return hash.digest("hex").slice(0, 16);
@@ -164,6 +197,22 @@ export function readAsarFile(archive, path) {
   }
 }
 
+/**
+ * What is wrong with the shape of a parsed `build.json`, or null: valid JSON
+ * that is not one (`null`, a number revision) must say so, not throw (F05).
+ */
+export function manifestProblem(built) {
+  if (built === null || typeof built !== "object" || Array.isArray(built))
+    return "is not an object";
+  if (typeof built.inputs !== "string" || !/^[0-9a-f]{16}$/.test(built.inputs))
+    return "names no source inputs";
+  if (typeof built.revision !== "string") return "names no revision";
+  if (typeof built.version !== "string") return "names no version";
+  if (built.dirty !== true && built.dirty !== false && built.dirty !== null)
+    return "does not say whether the source had changes";
+  return null;
+}
+
 /** What is wrong with one built manifest against the checkout, or null. */
 export function staleness(artifact, manifestText, root = ROOT) {
   const { inputs, rebuild } = ARTIFACTS[artifact];
@@ -174,6 +223,8 @@ export function staleness(artifact, manifestText, root = ROOT) {
   } catch {
     return `has an unreadable build.json: rebuild it with \`${rebuild}\``;
   }
+  const shape = manifestProblem(built);
+  if (shape) return `has a build.json that ${shape}: rebuild it with \`${rebuild}\``;
   const now = inputsHash(inputs, root);
   if (built.inputs !== now)
     return `was built from other source (${built.revision?.slice(0, 12)}${built.dirty ? ", with changes" : ""}, inputs ${built.inputs}; the checkout's are ${now}): rebuild it with \`${rebuild}\``;

@@ -266,8 +266,9 @@ describe("setting up the drafts while another window writes them", () => {
   const stored = (values: Map<string, unknown>) =>
     unwrapStoredDrafts(values.get(key.key) ?? null, true);
 
-  it("lost a draft another window stored after this one found the key empty, read as a whole value", async () => {
-    // How drafts were first read before: a whole value, recording absence by writing it.
+  it("keeps a draft another window stored after this one found the key empty, read as a whole value (GL-01)", async () => {
+    // A whole value used to record absence by writing it over whatever was
+    // stored meanwhile; it is now recorded only where nothing is stored.
     const { values, window, pausedWindow } = sharedDevice();
     const b = pausedWindow(key.key);
     const reading = readWorkspaceStorage(b.platform, key);
@@ -276,8 +277,8 @@ describe("setting up the drafts while another window writes them", () => {
     await readWorkspaceDrafts(a, key);
     await mergeWorkspaceDrafts(a, key, () => ({ put: { C1: "typed in a" }, remove: [] }));
     b.resume();
-    await reading;
-    expect(stored(values)).toEqual({});
+    expect(await reading).toEqual({ C1: "typed in a" });
+    expect(stored(values)).toEqual({ C1: "typed in a" });
   });
 
   it("keeps a draft another window stored after this one found the key empty", async () => {

@@ -1,8 +1,10 @@
 import {
   applyDraftChanges,
   applyOutboxChanges,
+  applyRecordChanges,
   type DraftChanges,
   type OutboxChanges,
+  type RecordChanges,
   type StoredOutbox,
 } from "@slackoss/client-core";
 import { parseDeepLink } from "./lib/deeplink.js";
@@ -163,6 +165,13 @@ export interface Platform {
     get: <T>(key: string, options?: { strict?: boolean }) => Promise<T | null>;
     set: (key: string, value: unknown) => Promise<void>;
     /**
+     * Stores `value` under `key` only if nothing is stored there, in one step
+     * no other window's write can come between, and gives back what is stored
+     * now: `value`, or what another window stored first (F01, GL-01). Without
+     * it, initializing is a read and a separate write.
+     */
+    initialize?: (key: string, value: unknown) => Promise<unknown>;
+    /**
      * Merges one window's outbox changes into what is stored under `key`, in
      * one step no other window's write can come between, and gives back the
      * outbox now stored. `enveloped` says the value is kept as
@@ -187,6 +196,15 @@ export interface Platform {
     ) => Promise<Record<string, string>>;
     /** As `watchOutbox`, for a drafts key. */
     watchDrafts?: (key: string, cb: (stored: unknown) => void) => () => void;
+    /**
+     * Sets the named values of the record under `key`, each alone, in one
+     * step no other window's write can come between, and gives back the
+     * record now stored; null removes a name (F02). Without it, a window
+     * writes its whole record and can erase another window's change.
+     */
+    mergeRecord?: (key: string, changes: RecordChanges) => Promise<Record<string, string>>;
+    /** As `watchOutbox`, for a record key. */
+    watchRecord?: (key: string, cb: (stored: unknown) => void) => () => void;
   };
   /**
    * `tag` names what the notification is about. Windows of one browser that
@@ -371,6 +389,11 @@ export function webPlatform(): Platform {
       set: async (key, value) => {
         localStorage.setItem(`slackoss:${key}`, JSON.stringify(value));
       },
+      initialize: async (key, value) =>
+        mergeInLocalStorage(key, (stored) => {
+          const now = stored ?? value;
+          return { value: now, result: now };
+        }),
       mergeOutbox: async (key, changes, enveloped) =>
         mergeInLocalStorage(key, (stored) => {
           const { value, outbox } = applyOutboxChanges(stored, changes, enveloped);
@@ -383,6 +406,12 @@ export function webPlatform(): Platform {
           return { value, result: drafts };
         }),
       watchDrafts: watchLocalStorage,
+      mergeRecord: async (key, changes) =>
+        mergeInLocalStorage(key, (stored) => {
+          const value = applyRecordChanges(stored, changes);
+          return { value, result: value };
+        }),
+      watchRecord: watchLocalStorage,
     },
     notify: (title, body, onClick, options) => {
       if (typeof Notification === "undefined" || Notification.permission !== "granted") return;

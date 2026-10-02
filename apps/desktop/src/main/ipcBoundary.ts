@@ -61,6 +61,30 @@ export function fromTrustedWindow(
   return trusted(frame.url);
 }
 
+/** The parts of a window a push to the app reads. */
+export interface Recipient {
+  isDestroyed(): boolean;
+  webContents: { id: number; isDestroyed(): boolean; getURL(): string };
+}
+
+/**
+ * The windows allowed to hear what the main process pushes (F09): drafts,
+ * unsent messages, choices, invite links, hosting. The same rule as for
+ * requests: the app's own window, live, showing the app's page. Any other
+ * window, one loading the same preload or the app's window navigated away,
+ * hears nothing, though it is refused only when it asks. `except` leaves out
+ * the window whose own change is being told to the rest.
+ */
+export function appRecipients<W extends Recipient>(
+  window: W | null,
+  trusted: (url: string) => boolean,
+  except?: number,
+): W[] {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return [];
+  if (window.webContents.id === except) return [];
+  return trusted(window.webContents.getURL()) ? [window] : [];
+}
+
 /** What a refused request is told; it names no channel and echoes no input. */
 export const REFUSED = "This request did not come from the Tandem window.";
 

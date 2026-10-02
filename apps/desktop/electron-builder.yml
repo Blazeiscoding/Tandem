@@ -5,6 +5,10 @@ directories:
 files:
   - out/**
   - package.json
+  # Never loaded at runtime (F15): TypeScript source and declarations inside
+  # dependencies. Node does not strip types under node_modules, and zod's
+  # "@zod/source" export condition, the only route to its src/, is never set.
+  - "!**/node_modules/**/*.{ts,cts,mts}"
 asar: true
 extraResources:
   - from: ../web/dist

@@ -31,6 +31,8 @@ const forbidden = {
   "node_modules/other/debug.log": "log",
   "node_modules/other/.env.local": "secret",
   "node_modules/other/pre-upgrade/workspace.db": "copy",
+  "node_modules/zod/src/v4/core/core.ts": "dependency source",
+  "node_modules/zod/v4/core/index.d.cts": "declarations",
 };
 
 function folder(files) {
@@ -101,7 +103,7 @@ test("fails a package carrying workspace data, logs or workspace source, naming 
     const result = run(out);
     assert.equal(result.code, 1);
     for (const path of Object.keys(forbidden)) assert.ok(result.output.includes(path), path);
-    assert.match(result.output, /9 forbidden files/);
+    assert.match(result.output, /11 forbidden files/);
     assert.ok(!result.output.includes("out/main/index.js:"));
   } finally {
     rmSync(source, { recursive: true, force: true });
@@ -114,7 +116,7 @@ test("checks an unpacked app folder the same way", () => {
   try {
     const found = findForbidden(listFolder(dir)).map((file) => file.path);
     assert.deepEqual(found.sort(), Object.keys(forbidden).sort());
-    assert.equal(inventory(listFolder(dir)).files, Object.keys(clean).length + 9);
+    assert.equal(inventory(listFolder(dir)).files, Object.keys(clean).length + 11);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -123,6 +125,9 @@ test("checks an unpacked app folder the same way", () => {
 test("does not mistake ordinary dependency files for forbidden ones", () => {
   const ordinary = [
     "node_modules/zod/v4/core/regexes.js",
+    "node_modules/zod/index.cjs",
+    "node_modules/some-lib/tsconfig.json",
+    "node_modules/some-lib/lib/parts.js",
     "node_modules/fastify/lib/logger.js",
     "node_modules/ws/lib/receiver.js",
     "node_modules/some-lib/data/schema.json",

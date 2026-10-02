@@ -1,13 +1,26 @@
 import type { ID } from "@slackoss/protocol";
 import type { Api } from "./api.js";
 
+/** The message a file is attached to, and its conversation. */
+export interface FileOwner {
+  channelId: ID;
+  messageId: ID;
+}
+
 /**
  * Uploads are auth-gated, so an `<img src>` can't fetch them directly.
  * This fetches once with the session token and hands back a blob: URL,
  * deduping concurrent requests for the same file. At most four transfers run
  * at once; releasing the last view cancels unfinished work for that file.
+ *
+ * Each file it holds or is fetching remembers the message it came with, when
+ * that was known (F07), for as long as the cache holds it: the bytes must go
+ * when the message is deleted or its conversation becomes unreadable, even
+ * after the history that listed it has been let go.
  */
 export class FileCache {
+  private owners = new Map<ID, FileOwner | null>();
+  private listeners = new Set<(fileId: ID) => void>();
   private urls = new Map<ID, string>();
   private inflight = new Map<ID, Promise<string>>();
   private controllers = new Map<ID, AbortController>();
@@ -20,7 +33,18 @@ export class FileCache {
   constructor(
     private api: Api,
     private maxIdleBytes = 32 * 1024 * 1024,
+    /** Which loaded message a file is attached to, if any. */
+    private ownerOf: (fileId: ID) => FileOwner | null = () => null,
   ) {}
+
+  /**
+   * Calls back with each file whose bytes were taken away, so a preview
+   * showing it can say it is gone rather than go on showing it.
+   */
+  onInvalidate(listener: (fileId: ID) => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
 
   retain(fileId: ID): void {
     this.references.set(fileId, (this.references.get(fileId) ?? 0) + 1);
@@ -40,6 +64,8 @@ export class FileCache {
     this.controllers.get(fileId)?.abort();
     this.controllers.delete(fileId);
     this.inflight.delete(fileId);
+    // Held for neither bytes nor a transfer: what it came with is forgotten too.
+    if (!this.urls.has(fileId)) this.owners.delete(fileId);
   }
 
   private drain(): void {
@@ -87,6 +113,7 @@ export class FileCache {
       URL.revokeObjectURL(url);
       this.urls.delete(id);
       this.sizes.delete(id);
+      this.owners.delete(id);
     }
   }
 
@@ -105,6 +132,8 @@ export class FileCache {
 
     const controller = new AbortController();
     this.controllers.set(fileId, controller);
+    // Asked afresh for each transfer: a message not loaded last time may be now.
+    this.owners.set(fileId, this.ownerOf(fileId) ?? this.owners.get(fileId) ?? null);
     const request = this.fetch(fileId, controller)
       .then((blob) => {
         if (this.disposed) throw new Error("File cache is closed");
@@ -119,6 +148,7 @@ export class FileCache {
       })
       .catch((err: unknown) => {
         if (this.inflight.get(fileId) === request) this.inflight.delete(fileId);
+        if (!this.urls.has(fileId) && !this.inflight.has(fileId)) this.owners.delete(fileId);
         if (this.controllers.get(fileId) === controller) this.controllers.delete(fileId);
         throw err;
       });
@@ -133,12 +163,44 @@ export class FileCache {
   }
 
   invalidate(fileId: ID): void {
+    const held = this.urls.has(fileId) || this.inflight.has(fileId);
     this.cancelFetch(fileId);
     const url = this.urls.get(fileId);
     if (url) URL.revokeObjectURL(url);
     this.urls.delete(fileId);
     this.sizes.delete(fileId);
     this.references.delete(fileId);
+    this.owners.delete(fileId);
+    if (!held) return;
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(fileId);
+      } catch {
+        // One preview cannot stop the others from hearing.
+      }
+    }
+  }
+
+  /** Takes away every file attached to a message that has been deleted (F07). */
+  invalidateMessage(messageId: ID): void {
+    for (const [id, owner] of [...this.owners])
+      if (owner?.messageId === messageId) this.invalidate(id);
+  }
+
+  /**
+   * Takes away every file from a conversation this account can no longer
+   * read (F07), and every file whose conversation was never known, since it
+   * may have been that one; a file still readable is simply fetched again.
+   */
+  invalidateChannel(channelId: ID): void {
+    for (const [id, owner] of [...this.owners])
+      if (owner === null || owner.channelId === channelId) this.invalidate(id);
+  }
+
+  /** Takes away everything, as when this account is signed out (F07). */
+  invalidateAll(): void {
+    for (const id of new Set([...this.urls.keys(), ...this.inflight.keys(), ...this.owners.keys()]))
+      this.invalidate(id);
   }
 
   dispose(): void {
@@ -151,5 +213,7 @@ export class FileCache {
     this.inflight.clear();
     this.sizes.clear();
     this.references.clear();
+    this.owners.clear();
+    this.listeners.clear();
   }
 }

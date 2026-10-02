@@ -57,6 +57,8 @@ jobs:
           tar -czf "release/tandem-server-$version.tar.gz" -C apps/server-cli/dist .
           cp apps/server-cli/dist/build.json release/server.build.json
           cp apps/server-cli/dist/web/build.json release/web.build.json
+          # What this job tested, bound by SHA-256 here, where it was built.
+          node scripts/release-manifest.mjs bind release server "release/tandem-server-$version.tar.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: release-server
@@ -110,9 +112,9 @@ jobs:
           $installer = (Get-ChildItem "apps/desktop/release/*Setup*.exe" | Select-Object -First 1).FullName
           $previous = $env:PREVIOUS
           if ($previous) {
-            ./scripts/release-install-gates.ps1 -Installer $installer -Version $version -Previous $previous
+            ./scripts/release-install-gates.ps1 -Installer $installer -Version $version -Revision $env:GITHUB_SHA -Previous $previous
           } else {
-            ./scripts/release-install-gates.ps1 -Installer $installer -Version $version
+            ./scripts/release-install-gates.ps1 -Installer $installer -Version $version -Revision $env:GITHUB_SHA
           }
       - name: Collect the installer
         shell: pwsh
@@ -120,6 +122,8 @@ jobs:
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item (Get-ChildItem "apps/desktop/release/*Setup*.exe" | Select-Object -First 1).FullName release/
           node --input-type=module -e "import { readAsarFile } from './scripts/build-identity.mjs'; import { writeFileSync } from 'node:fs'; writeFileSync('release/desktop.build.json', readAsarFile('apps/desktop/release/win-unpacked/resources/app.asar', 'out/build.json'));"
+          # Every installer here is bound, so a second one is refused, not chosen between.
+          node scripts/release-manifest.mjs bind release desktop @((Get-ChildItem "release/*Setup*.exe").FullName)
       - uses: actions/upload-artifact@v4
         with:
           name: release-desktop
@@ -180,7 +184,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.manifest.outputs.tag }}
         run: |
-          mapfile -t files < <(find release -maxdepth 1 -type f ! -name '*.build.json' ! -name notes.md | sort)
+          # Exactly what the manifest checked and summed, and the sums.
+          mapfile -t files < <(sed -E 's/^[0-9a-f]{64}  /release\//' release/SHA256SUMS)
+          files+=(release/SHA256SUMS)
           prerelease=()
           if [[ "$TAG" == *-* ]]; then prerelease=(--prerelease); fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft "${prerelease[@]}" \

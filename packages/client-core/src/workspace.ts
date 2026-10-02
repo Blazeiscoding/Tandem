@@ -677,12 +677,43 @@ export class WorkspaceClient {
     private token: string,
   ) {
     this.api = new Api(baseUrl, token);
-    this.files = new FileCache(this.api);
+    this.files = new FileCache(this.api, undefined, (fileId) => this.fileOwner(fileId));
     this.store = createStore<WorkspaceState>(() => ({ ...initialState }));
+    // A session that has ended keeps nothing it downloaded (F07).
+    this.store.subscribe((now, before) => {
+      if (
+        now.status !== before.status &&
+        (now.status === "auth_failed" || now.status === "password_change_required")
+      )
+        this.files.invalidateAll();
+    });
   }
 
   get state(): WorkspaceState {
     return this.store.getState();
+  }
+
+  /**
+   * The loaded message a file is attached to, asked when the file is first
+   * fetched, so the cache can let it go with that message or conversation
+   * after the history listing it is gone (F07).
+   */
+  private fileOwner(fileId: ID): { channelId: ID; messageId: ID } | null {
+    const state = this.state;
+    const carries = (m: Message) => m.files.some((f) => f.id === fileId);
+    for (const tl of Object.values(state.timelines)) {
+      const m = tl.items.find(carries);
+      if (m) return { channelId: m.channelId, messageId: m.id };
+    }
+    for (const replies of Object.values(state.threads)) {
+      const m = replies.find(carries);
+      if (m) return { channelId: m.channelId, messageId: m.id };
+    }
+    for (const page of Object.values(state.threadPages)) {
+      if (page.root && carries(page.root))
+        return { channelId: page.root.channelId, messageId: page.root.id };
+    }
+    return null;
   }
 
   connect(): void {
@@ -986,6 +1017,8 @@ export class WorkspaceClient {
         .filter((m) => m.channelId === channelId),
     ].flatMap((m) => m.files.map((f) => f.id));
     for (const id of fileIds) this.files.invalidate(id);
+    // And those it fetched earlier, from history that has since been let go (F07).
+    this.files.invalidateChannel(channelId);
     const without = <T>(values: Record<ID, T>) =>
       Object.fromEntries(Object.entries(values).filter(([id]) => id !== channelId));
     this.store.setState({
@@ -1159,6 +1192,8 @@ export class WorkspaceClient {
       }
       case "message.deleted": {
         this.onMessageDeleted?.(event.messageId);
+        // Its files go with it, whether or not its history is still loaded (F07).
+        this.files.invalidateMessage(event.messageId);
         const tl = s.timelines[event.channelId];
         if (tl?.loaded) {
           patch.timelines = {
@@ -1810,7 +1845,23 @@ export class WorkspaceClient {
     const tl = this.state.timelines[channelId];
     if (!tl?.loaded || !tl.hasMoreNewer || tl.items.length === 0) return;
     const newest = tl.items[tl.items.length - 1]!;
-    const ticket = this.beginTimelineRequest(channelId, `newer:${newest.id}`);
+    // The same page already on its way: wait for it rather than ask twice
+    // (F14). A different window replaces it, as before.
+    const key = `newer:${newest.id}`;
+    const running = this.timelineHolds.get(channelId);
+    if (running?.key === key && running.shared) return running.shared;
+    const ticket = this.beginTimelineRequest(channelId, key);
+    ticket.shared = this.fetchNewer(channelId, tl, newest, epoch, ticket);
+    return ticket.shared;
+  }
+
+  private async fetchNewer(
+    channelId: ID,
+    tl: ChannelTimeline,
+    newest: Message,
+    epoch: number,
+    ticket: TimelineLoad,
+  ): Promise<void> {
     let answer: Awaited<ReturnType<Api["listMessagesAfter"]>>;
     try {
       answer = await this.api.listMessagesAfter(channelId, newest.id, 50, ticket.controller.signal);
@@ -2060,7 +2111,13 @@ export class WorkspaceClient {
   send(
     channelId: ID,
     text: string,
-    opts: { threadRootId?: ID; files?: File[]; alsoSendToChannel?: boolean } = {},
+    opts: {
+      threadRootId?: ID;
+      files?: File[];
+      alsoSendToChannel?: boolean;
+      /** Told the nonce of the message queued, for its author to follow (F01). */
+      onQueued?: (nonce: string) => void;
+    } = {},
   ): boolean {
     const self = this.state.self;
     if (!self) return false;
@@ -2101,6 +2158,7 @@ export class WorkspaceClient {
     };
     this.store.setState((s) => ({ pending: [...s.pending, pendingMsg] }));
     if (files.length > 0) this.retryFiles.set(nonce, files);
+    opts.onQueued?.(nonce);
 
     void this.deliver(channelId, text, files, nonce, opts.threadRootId, opts.alsoSendToChannel);
     return true;

@@ -8,6 +8,9 @@ export interface SlackossBridge {
   onOutboxChanged: (cb: (key: string, stored: unknown) => void) => () => void;
   storageMergeDrafts: (key: string, changes: unknown, enveloped: boolean) => Promise<unknown>;
   onDraftsChanged: (cb: (key: string, stored: unknown) => void) => () => void;
+  storageMergeRecord: (key: string, changes: unknown) => Promise<unknown>;
+  storageInitialize: (key: string, value: unknown) => Promise<unknown>;
+  onRecordChanged: (cb: (key: string, stored: unknown) => void) => () => void;
   lanSnapshot: () => Promise<unknown[]>;
   onLanServers: (cb: (servers: unknown[]) => void) => () => void;
   hostingStatus: () => Promise<unknown>;
@@ -46,12 +49,17 @@ export interface SlackossBridge {
   onDeepLink: (cb: (url: string) => void) => () => void;
   /** Shows the window again, restored and in front. */
   revealWindow: () => Promise<void>;
+  /** Tells the main process where the page is, for recovery to return to. */
+  rememberPlace: (url: string, state: unknown) => Promise<void>;
+  /** The history entry a recovered page starts from, if this load is one. */
+  takePlace: () => Promise<unknown>;
 }
 
 const bridge: SlackossBridge = {
   downloadFile: (url) => ipcRenderer.invoke("file:download", url),
   storageGet: (key, options) => ipcRenderer.invoke("storage:get", key, options),
   storageSet: (key, value) => ipcRenderer.invoke("storage:set", key, value),
+  storageInitialize: (key, value) => ipcRenderer.invoke("storage:initialize", key, value),
   storageMergeOutbox: (key, changes, enveloped) =>
     ipcRenderer.invoke("storage:mergeOutbox", key, changes, enveloped),
   onOutboxChanged: (cb) => {
@@ -65,6 +73,12 @@ const bridge: SlackossBridge = {
     const listener = (_e: unknown, key: string, stored: unknown) => cb(key, stored);
     ipcRenderer.on("storage:draftsChanged", listener);
     return () => ipcRenderer.removeListener("storage:draftsChanged", listener);
+  },
+  storageMergeRecord: (key, changes) => ipcRenderer.invoke("storage:mergeRecord", key, changes),
+  onRecordChanged: (cb) => {
+    const listener = (_e: unknown, key: string, stored: unknown) => cb(key, stored);
+    ipcRenderer.on("storage:recordChanged", listener);
+    return () => ipcRenderer.removeListener("storage:recordChanged", listener);
   },
   lanSnapshot: () => ipcRenderer.invoke("lan:snapshot"),
   onLanServers: (cb) => {
@@ -108,6 +122,8 @@ const bridge: SlackossBridge = {
     return () => ipcRenderer.removeListener("deeplink", listener);
   },
   revealWindow: () => ipcRenderer.invoke("window:reveal"),
+  rememberPlace: (url, state) => ipcRenderer.invoke("window:rememberPlace", url, state),
+  takePlace: () => ipcRenderer.invoke("window:takePlace"),
 };
 
 contextBridge.exposeInMainWorld("slackoss", bridge);

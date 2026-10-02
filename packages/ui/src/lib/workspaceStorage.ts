@@ -118,6 +118,20 @@ async function legacyKeysOf(platform: Platform, key: WorkspaceStorageKey): Promi
   return legacyKeys;
 }
 
+/**
+ * Stores `value` only where nothing is stored yet, and gives back what is
+ * stored now (GL-01): where the platform can, in one step across windows, so
+ * a window that read nothing a moment ago cannot replace what another window
+ * has stored since. Elsewhere, a read and a write in this window's turn.
+ */
+async function initialize(platform: Platform, key: string, value: unknown): Promise<unknown> {
+  if (platform.storage.initialize) return platform.storage.initialize(key, value);
+  const stored = await platform.storage.get<unknown>(key, { strict: true });
+  if (stored !== null) return stored;
+  await platform.storage.set(key, value);
+  return value;
+}
+
 export function readWorkspaceStorage<T>(
   platform: Platform,
   key: WorkspaceStorageKey,
@@ -130,20 +144,24 @@ export function readWorkspaceStorage<T>(
       const value = await serialized(platform, legacyKey, async () => {
         const legacy = await platform.storage.get<T>(legacyKey, { strict: true });
         if (legacy === null) return null;
-        await platform.storage.set(key.key, envelope(legacy));
+        const brought = envelope(legacy);
+        const now = await initialize(platform, key.key, brought);
+        // Another window stored this key first: its value stands, and the old
+        // key stays where it is rather than being retired for a copy not made.
+        if (JSON.stringify(now) !== JSON.stringify(brought)) return { stored: unwrap<T>(now) };
         try {
           await platform.storage.set(legacyKey, null);
         } catch {
           // The durable new value remains authoritative if retirement fails.
         }
-        return legacy;
+        return { stored: legacy };
       });
-      if (value !== null) return value;
+      if (value !== null) return value.stored;
     }
     // Record absence as well: dismissed recovery and cleared data must not be
-    // resurrected by a stale address key on a later read.
-    await platform.storage.set(key.key, envelope(null));
-    return null;
+    // resurrected by a stale address key on a later read. Only where nothing
+    // is stored yet: another window may have saved work here meanwhile.
+    return unwrap<T>(await initialize(platform, key.key, envelope(null)));
   });
 }
 

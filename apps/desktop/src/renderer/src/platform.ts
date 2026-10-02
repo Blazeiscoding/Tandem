@@ -1,4 +1,9 @@
-import type { DraftChanges, OutboxChanges, StoredOutbox } from "@slackoss/client-core";
+import type {
+  DraftChanges,
+  OutboxChanges,
+  RecordChanges,
+  StoredOutbox,
+} from "@slackoss/client-core";
 import type {
   AutoBackup,
   DiscoveredServer,
@@ -26,6 +31,9 @@ interface SlackossBridge {
     enveloped: boolean,
   ) => Promise<Record<string, string>>;
   onDraftsChanged: (cb: (key: string, stored: unknown) => void) => () => void;
+  storageMergeRecord: (key: string, changes: RecordChanges) => Promise<Record<string, string>>;
+  storageInitialize: (key: string, value: unknown) => Promise<unknown>;
+  onRecordChanged: (cb: (key: string, stored: unknown) => void) => () => void;
   lanSnapshot: () => Promise<DiscoveredServer[]>;
   onLanServers: (cb: (servers: DiscoveredServer[]) => void) => () => void;
   hostingStatus: () => Promise<HostingStatus>;
@@ -62,6 +70,8 @@ interface SlackossBridge {
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
   revealWindow: () => Promise<void>;
+  rememberPlace: (url: string, state: unknown) => Promise<void>;
+  takePlace: () => Promise<unknown>;
 }
 
 declare global {
@@ -92,6 +102,7 @@ export function electronPlatform(): Platform {
       get: async <T>(key: string, options?: { strict?: boolean }) =>
         (await bridge.storageGet(key, options)) as T | null,
       set: (key, value) => bridge.storageSet(key, value),
+      initialize: (key, value) => bridge.storageInitialize(key, value),
       // Merged in the main process, where every window's writes wait their turn.
       mergeOutbox: (key, changes, enveloped) => bridge.storageMergeOutbox(key, changes, enveloped),
       watchOutbox: (key, cb) =>
@@ -101,6 +112,11 @@ export function electronPlatform(): Platform {
       mergeDrafts: (key, changes, enveloped) => bridge.storageMergeDrafts(key, changes, enveloped),
       watchDrafts: (key, cb) =>
         bridge.onDraftsChanged((changed, stored) => {
+          if (changed === key) cb(stored);
+        }),
+      mergeRecord: (key, changes) => bridge.storageMergeRecord(key, changes),
+      watchRecord: (key, cb) =>
+        bridge.onRecordChanged((changed, stored) => {
           if (changed === key) cb(stored);
         }),
     },
@@ -159,4 +175,40 @@ export function electronPlatform(): Platform {
       subscribe: (cb) => bridge.onHostingStatus(cb),
     },
   };
+}
+
+/**
+ * Keeps the main process told where this page is, so a page that crashes or
+ * fails to load comes back to the same place, side panel, thread, dialog and
+ * reading position included (F08). The history entry holds all of that, and
+ * a reload keeps the address but not the entry. Reports are gathered for a
+ * moment, since reading position changes as someone scrolls.
+ */
+export async function followPlace(
+  bridge: Pick<SlackossBridge, "rememberPlace" | "takePlace">,
+  delayMs = 250,
+): Promise<void> {
+  // A recovered page starts from the entry it had; the app checks that entry
+  // belongs to the workspace it opens before using it.
+  const recovered = await bridge.takePlace().catch(() => null);
+  if (recovered && window.history.state == null)
+    window.history.replaceState(recovered, "", window.location.href);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const report = () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      void bridge.rememberPlace(window.location.href, window.history.state).catch(() => {});
+    }, delayMs);
+  };
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = window.history[method].bind(window.history);
+    window.history[method] = (...args: Parameters<History["pushState"]>) => {
+      original(...args);
+      report();
+    };
+  }
+  window.addEventListener("popstate", report);
+  window.addEventListener("hashchange", report);
+  report();
 }

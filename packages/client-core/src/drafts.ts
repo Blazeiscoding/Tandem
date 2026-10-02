@@ -20,6 +20,24 @@ export interface DraftChanges {
    * kept, brought across without replacing anything written since.
    */
   fill?: Record<string, string>;
+  /**
+   * For each draft put or removed, its stored text when this window last
+   * knew it (null: none). One another window has changed since is a conflict
+   * (F01, GL-03): both texts are kept in it, rather than the later write
+   * replacing the other, and a removal leaves text written there since.
+   * Without it, the later write is the draft.
+   */
+  base?: Record<string, string | null>;
+}
+
+/**
+ * One draft holding two windows' texts for the same conversation: the one
+ * that already contains the other, or both, this window's first.
+ */
+export function keepBothDrafts(mine: string, theirs: string): string {
+  if (mine.includes(theirs)) return mine;
+  if (theirs.includes(mine)) return theirs;
+  return `${mine}\n\n${theirs}`;
 }
 
 /** Drafts in the shape they are stored: text by draft key. Null when not that. */
@@ -51,9 +69,16 @@ export function mergeDrafts(
   changes: DraftChanges,
 ): Record<string, string> {
   const drafts = { ...current };
-  for (const key of changes.remove) if (typeof key === "string") delete drafts[key];
+  const base = changes.base;
+  // Changed by another window since this one last knew it.
+  const elsewhere = (key: string) =>
+    !!base && Object.hasOwn(base, key) && (current[key] ?? null) !== base[key];
+  for (const key of changes.remove)
+    if (typeof key === "string" && !(elsewhere(key) && current[key])) delete drafts[key];
   for (const [key, text] of Object.entries(changes.put)) {
-    if (typeof text === "string") drafts[key] = text;
+    if (typeof text !== "string") continue;
+    const theirs = current[key];
+    drafts[key] = elsewhere(key) && theirs ? keepBothDrafts(text, theirs) : text;
   }
   for (const [key, text] of Object.entries(changes.fill ?? {})) {
     if (typeof text === "string" && !(key in drafts)) drafts[key] = text;
@@ -69,11 +94,17 @@ export function isDraftChanges(changes: unknown): changes is DraftChanges {
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.values(value).every((text) => typeof text === "string");
+  const bases = (value: unknown) =>
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((text) => text === null || typeof text === "string");
   return (
     !!c &&
     typeof c === "object" &&
     texts(c.put) &&
     (c.fill === undefined || texts(c.fill)) &&
+    (c.base === undefined || bases(c.base)) &&
     Array.isArray(c.remove) &&
     c.remove.every((key) => typeof key === "string")
   );

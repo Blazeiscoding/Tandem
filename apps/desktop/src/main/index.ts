@@ -26,12 +26,19 @@ import {
 } from "@slackoss/protocol";
 import type { OutboxChanges } from "@slackoss/client-core/outbox";
 import type { DraftChanges } from "@slackoss/client-core/drafts";
+import { applyRecordChanges, isRecordChanges } from "@slackoss/client-core/records";
 import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
-import { guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
-import { RENDERER_RECOVERY, RendererRecovery, isRendererLoadFailure } from "./rendererRecovery.js";
+import { appRecipients, guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
+import { writeGateReport } from "./releaseGate.js";
+import {
+  PlaceCheckpoint,
+  RENDERER_RECOVERY,
+  RendererRecovery,
+  isRendererLoadFailure,
+} from "./rendererRecovery.js";
 import { pickScreen } from "./screenPicker.js";
 import { mergeOutboxSetting } from "./outboxStorage.js";
 import { mergeDraftsSetting } from "./draftsStorage.js";
@@ -80,6 +87,15 @@ const handle = (
     channel,
     guarded(() => mainWindow, trustedRenderer, listener),
   );
+/**
+ * Tells the app's window something, and no other window (F09): what is
+ * pushed here includes drafts, unsent messages and invite links. `except` is
+ * the window whose own change this is.
+ */
+const pushToApp = (channel: string, args: unknown[], except?: number): void => {
+  for (const win of appRecipients(mainWindow, trustedRenderer, except))
+    win.webContents.send(channel, ...args);
+};
 let rendererReady = false;
 let quitting = false;
 let quitReady = false;
@@ -115,9 +131,9 @@ let pendingDeepLink: string | null = null;
 function deliverDeepLink(url: string): void {
   pendingDeepLink = url;
   const win = showMainWindow();
-  if (win && rendererReady) {
+  if (win && rendererReady && appRecipients(win, trustedRenderer).length > 0) {
     pendingDeepLink = null;
-    win.webContents.send("deeplink", url);
+    pushToApp("deeplink", [url]);
   }
 }
 
@@ -164,6 +180,13 @@ handle("window:reveal", () => {
   showMainWindow();
 });
 
+// Where the page is, kept here so a recovery can put it back (F08).
+let place = new PlaceCheckpoint(trustedRenderer);
+handle("window:rememberPlace", (_event, url: unknown, state: unknown) => {
+  place.remember(url, state);
+});
+handle("window:takePlace", () => place.take());
+
 handle("deeplink:consume", () => {
   rendererReady = true;
   const url = pendingDeepLink;
@@ -186,6 +209,14 @@ handle("storage:get", (_e, key: unknown, options?: { strict?: boolean }) =>
   settings.get(settingKey(key), { strict: options?.strict === true }),
 );
 
+// Stores a value only where none is, in the settings queue every window's
+// writes share, so a window that read nothing cannot replace another's (GL-01).
+handle("storage:initialize", (_e, key: unknown, value: unknown) =>
+  settings.update(settingKey(key), (current) =>
+    current === null || current === undefined ? value : current,
+  ),
+);
+
 const writeSetting = (key: string, value: unknown) => settings.set(key, value);
 handle("storage:set", (_e, key: unknown, value: unknown) => writeSetting(settingKey(key), value));
 
@@ -200,10 +231,7 @@ handle(
       changes,
       enveloped,
     );
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
-        win.webContents.send("storage:outboxChanged", key, value);
-    }
+    pushToApp("storage:outboxChanged", [key, value], event.sender.id);
     return outbox;
   },
 );
@@ -218,13 +246,23 @@ handle(
       changes,
       enveloped,
     );
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
-        win.webContents.send("storage:draftsChanged", key, value);
-    }
+    pushToApp("storage:draftsChanged", [key, value], event.sender.id);
     return drafts;
   },
 );
+
+// Records likewise: each window's changed names only, such as one account's
+// notification choice, so no window's whole copy erases another's (F02).
+handle("storage:mergeRecord", async (event, key: unknown, changes: unknown) => {
+  if (!isRecordChanges(changes)) throw new Error("Invalid record changes.");
+  let value: Record<string, string> = {};
+  await settings.update(
+    settingKey(key),
+    (current) => (value = applyRecordChanges(current, changes)),
+  );
+  pushToApp("storage:recordChanged", [key, value], event.sender.id);
+  return value;
+});
 
 // ---------- LAN discovery (mDNS browse) ----------
 
@@ -251,9 +289,7 @@ function discoveredServers() {
 
 function publishDiscovered(): void {
   const servers = discoveredServers();
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send("lan:servers", servers);
-  }
+  pushToApp("lan:servers", [servers]);
 }
 
 /**
@@ -657,9 +693,7 @@ handle("hosting:setPublicAddress", async (_e, value: unknown) => {
 
 function publishHostingStatus(): void {
   const status = hostingStatus();
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send("hosting:changed", status);
-  }
+  pushToApp("hosting:changed", [status]);
   updateTray();
 }
 
@@ -800,6 +834,8 @@ function createTray(): void {
 // ---------- window ----------
 
 function createWindow(): void {
+  // A new window starts where the app starts, not where a closed one was.
+  place = new PlaceCheckpoint(trustedRenderer);
   mainWindow = new BrowserWindow({
     show: !isTest,
     width: 1280,
@@ -905,11 +941,12 @@ function createWindow(): void {
   const recover = async (what: string, fresh: boolean) => {
     if (win.isDestroyed() || quitting) return;
     rendererReady = false;
-    // A page that ran loads again where it was, its place kept in the address;
-    // one that never loaded starts again from the app's own page. Loading the
-    // address anew rather than reloading: a crashed page may have nothing to
-    // reload.
-    const where = win.webContents.getURL();
+    // A page that ran loads again where it was: the address it last reported,
+    // and its history entry handed back (F08). One that never loaded starts
+    // again from the app's own page, still given the place to return to.
+    // Loading the address anew rather than reloading: a crashed page may have
+    // nothing to reload.
+    const where = place.recover() ?? win.webContents.getURL();
     const reopen = () =>
       fresh || !trustedRenderer(where)
         ? loadRenderer(win)
@@ -924,18 +961,26 @@ function createWindow(): void {
       type: "error",
       title: "Tandem",
       message: "Tandem's window keeps stopping.",
-      detail: `${what} A hosted workspace keeps running, and messages saved on this computer come back with the window.`,
-      buttons: ["Try again", "Quit Tandem"],
+      detail: `${what} A hosted workspace keeps running, and messages saved on this computer come back with the window. If it stops again where you were, open it from the start.`,
+      buttons: ["Try again", "Open from the start", "Quit Tandem"],
       defaultId: 0,
       cancelId: 0,
     });
     if (win.isDestroyed()) return;
-    if (response === 1) {
+    if (response === 2) {
       app.quit();
       return;
     }
     recovery.reset();
-    loadRenderer(win);
+    if (response === 1) {
+      // A way out when the place itself is what stops the page.
+      place.forget();
+      loadRenderer(win);
+      return;
+    }
+    // Trying again returns to the same place an automatic reload would.
+    place.recover();
+    reopen();
   };
   win.webContents.on("render-process-gone", (_event, details) => {
     if (details.reason === "clean-exit") return;
@@ -963,6 +1008,17 @@ function loadRenderer(win: BrowserWindow): void {
 
 void app.whenReady().then(async () => {
   if (!primaryInstance) return;
+  // The installer gates ask which profile this process uses (F05).
+  const gateReport = appEnv("RELEASE_GATE_REPORT");
+  if (gateReport)
+    void writeGateReport(
+      gateReport,
+      { userData: app.getPath("userData"), version: app.getVersion() },
+      async () => {
+        await settings.get("releaseGate", { strict: true });
+        return true;
+      },
+    ).catch(() => {});
   // Unreadable settings mean no saved address, not a failed launch. The
   // environment can still supply one, and Manage hosting can save a new one.
   const stored = await settings.get("publicAddress").catch(() => null);

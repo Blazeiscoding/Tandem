@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createWorkspaceServer, type WorkspaceServer } from "../src/server.js";
 import { Store } from "../src/store.js";
@@ -9,22 +12,29 @@ import { Store } from "../src/store.js";
  * what it cannot place yet, and drains as the endpoint answers.
  */
 const CEILING = Store.MAX_PENDING_DELIVERIES;
+const WEEK = 7 * 24 * 3600_000;
 let server: WorkspaceServer;
 let store: Store;
 let subscriptionId: string;
 let appId: string;
 let seq = 0;
+let dataDir: string;
 
-beforeEach(async () => {
+async function open(dir: string) {
   // Isolated: nothing is sent, so the queue moves only as these tests move it.
   server = await createWorkspaceServer({
-    dataDir: ":memory:",
+    dataDir: dir,
     host: "127.0.0.1",
     port: 0,
     mdns: false,
     isolated: true,
   });
   store = server.store;
+}
+
+beforeEach(async () => {
+  dataDir = mkdtempSync(join(tmpdir(), "tandem-retry-"));
+  await open(dataDir);
   const owner = await fetch(`http://127.0.0.1:${server.port}/api/auth/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -47,6 +57,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await server.stop();
+  rmSync(dataDir, { recursive: true, force: true });
 });
 
 /** Queues `n` events; returns how many the ceiling let in. */
@@ -77,11 +88,11 @@ function answer(n: number): number[] {
 }
 
 /** What the deep review set up: 1,000 given up on and a full queue of 500 behind them. */
-function failedAndFull() {
+function failedAndFull(failedAt = Date.now()) {
   expect(enqueue(CEILING)).toBe(CEILING);
-  store.abandonEventBacklog(subscriptionId, "HTTP 500");
+  store.abandonEventBacklog(subscriptionId, "HTTP 500", failedAt);
   expect(enqueue(CEILING)).toBe(CEILING);
-  store.abandonEventBacklog(subscriptionId, "HTTP 500");
+  store.abandonEventBacklog(subscriptionId, "HTTP 500", failedAt);
   expect(enqueue(CEILING)).toBe(CEILING);
   expect(delivery()).toMatchObject({ pending: CEILING, failed: 1_000, retrying: 0 });
 }
@@ -164,5 +175,60 @@ describe("retrying given-up app events (REV-15)", { timeout: 30_000 }, () => {
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, retried: 1_000, waiting: 1_000 });
+  });
+
+  it("keeps an accepted retry past the history window and a restart, then sends each once (F04)", async () => {
+    // Given up on a week ago, as after an outage: retried into a full queue.
+    failedAndFull(Date.now() - WEEK + 60_000);
+    expect(store.retryFailedEventDeliveries(subscriptionId)).toEqual({
+      retried: 1_000,
+      waiting: 1_000,
+    });
+    // The hourly prune crosses the original deadline while the queue is full.
+    store.pruneEventDeliveries(Date.now() + 120_000 - WEEK);
+    expect(delivery()).toMatchObject({ pending: CEILING, retrying: 1_000, dropped: 0 });
+
+    await server.stop();
+    await open(dataDir);
+    store.pruneEventDeliveries(Date.now() + 120_000 - WEEK);
+    expect(delivery()).toMatchObject({ pending: CEILING, retrying: 1_000, dropped: 0 });
+
+    const sent = answer(10_000);
+    expect(sent).toHaveLength(1_500);
+    expect(new Set(sent).size).toBe(1_500);
+    expect(delivery()).toMatchObject({ pending: 0, failed: 0, retrying: 0 });
+  });
+
+  it("still forgets expired given-up events nobody asked to retry (F04)", () => {
+    failedAndFull(Date.now() - WEEK - 60_000);
+    store.pruneEventDeliveries(Date.now() - WEEK);
+    expect(delivery()).toMatchObject({ pending: CEILING, failed: 0, retrying: 0 });
+  });
+
+  it("starts the history window again for a retry given up on once more (F04)", () => {
+    failedAndFull(Date.now() - WEEK + 60_000);
+    store.retryFailedEventDeliveries(subscriptionId);
+    answer(100);
+    store.abandonEventBacklog(subscriptionId, "HTTP 503");
+    // Given up on again today, so a prune at the old deadline keeps it all.
+    store.pruneEventDeliveries(Date.now() + 120_000 - WEEK);
+    expect(delivery()).toMatchObject({ pending: 0, failed: Store.MAX_FAILED_DELIVERIES });
+  });
+
+  /**
+   * The order a retry keeps, measured as an integration sees it (F04, S6): a
+   * retry goes out oldest first among itself, but events already queued when
+   * it was asked for are not held back for it, so it can arrive after newer
+   * ones. docs/INTEGRATIONS.md says so.
+   */
+  it("sends a retry in its own order, after events already queued ahead of it", () => {
+    seq = 0;
+    enqueue(3);
+    store.abandonEventBacklog(subscriptionId, "HTTP 500");
+    seq = 3;
+    expect(enqueue(CEILING)).toBe(CEILING);
+    store.retryFailedEventDeliveries(subscriptionId);
+    const sent = answer(5);
+    expect(sent).toEqual([4, 1, 2, 3, 5]);
   });
 });

@@ -45,3 +45,66 @@ export function isRendererLoadFailure(errorCode: number, isMainFrame: boolean): 
   // -3 is ERR_ABORTED: another navigation took over, which is not a failure.
   return isMainFrame && errorCode !== -3;
 }
+
+/** A place as the page reports it: its address and its history entry's state. */
+export interface Place {
+  url: string;
+  state: unknown;
+}
+
+/**
+ * Where the window's page was, kept outside the page so recovery can put it
+ * back (F08). Reloading after a crash keeps the address but not the history
+ * entry, and the entry is what holds an open side panel, thread, dialog and
+ * reading position, for which workspace; Try again used to start from the
+ * bare page. The page reports its place as it changes; a recovery loads
+ * that address and hands the entry back, once, to the page that loads next.
+ * The page checks the entry names the workspace it shows before using it,
+ * as it does any history entry, so one workspace's place never opens
+ * another's. Only the app's own page, and only a small, plain value.
+ */
+export class PlaceCheckpoint {
+  private place: Place | null = null;
+  private restoring: Place | null = null;
+
+  constructor(
+    private readonly trusted: (url: string) => boolean,
+    private readonly maxBytes = 32 * 1024,
+  ) {}
+
+  /** Notes where the page is now. Says whether it was taken. */
+  remember(url: unknown, state: unknown): boolean {
+    if (typeof url !== "string" || !this.trusted(url)) return false;
+    let json: string | undefined;
+    try {
+      json = JSON.stringify(state ?? null);
+    } catch {
+      return false;
+    }
+    if (json === undefined || json.length > this.maxBytes) return false;
+    this.place = { url, state: JSON.parse(json) as unknown };
+    return true;
+  }
+
+  /**
+   * A recovery is starting: the address to load, if a place is known, and
+   * the entry the next page asks for is armed.
+   */
+  recover(): string | null {
+    this.restoring = this.place;
+    return this.place?.url ?? null;
+  }
+
+  /** The entry the page loading after a recovery starts from; given once. */
+  take(): unknown {
+    const restoring = this.restoring;
+    this.restoring = null;
+    return restoring?.state ?? null;
+  }
+
+  /** Starts afresh: nothing remembered, nothing handed back. */
+  forget(): void {
+    this.place = null;
+    this.restoring = null;
+  }
+}

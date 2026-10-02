@@ -9,6 +9,15 @@
  *
  * Uses Node's own WebSocket, so it needs nothing the root does not have.
  *
+ * What a pass proves, not only how fast it went (F12): each round seeds
+ * conversation past the retention window, with attachments, and maintenance
+ * must remove exactly that through the production sweep; a device that drops
+ * stays offline while posts arrive and must receive exactly the events it
+ * missed, in order, or say it was sent a snapshot instead; seeded history
+ * has the event log behind it, so no watermark runs past the checkpoint.
+ * The harness drops what it has checked, so its own memory does not grow
+ * with the run, and it records how much work was offered and completed.
+ *
  * Writes one JSON artifact: the source revision, seed and parameters, the
  * machine and runtime, then per measure the samples, p50/p95/p99, spread
  * across rounds and errors; plus how long the event loop went unserved and
@@ -16,10 +25,10 @@
  *
  *   pnpm --filter @slackoss/server exec tsx ../../scripts/measure-mixed.mts \
  *     [--seed=1] [--people=12] [--devices=2] [--history=20000] [--rounds=3] \
- *     [--seconds=8] [--out=mixed.json]
+ *     [--seconds=8] [--expired=200] [--out=mixed.json]
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { arch, cpus, platform, release, tmpdir, totalmem } from "node:os";
 import { join, sep } from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
@@ -35,8 +44,15 @@ const params = {
   history: arg("history", 20_000),
   rounds: arg("rounds", 3),
   seconds: arg("seconds", 8),
+  /** Messages past the retention window seeded before each round's maintenance. */
+  expired: arg("expired", 200),
 };
 const out = process.argv.find((a) => a.startsWith("--out="))?.split("=")[1];
+// Actors 0–7 post, search and roam; fewer people would leave some unplayed.
+if (!(params.people >= 8 && params.devices >= 1 && params.rounds >= 1 && params.seconds > 0))
+  throw new Error("needs --people of at least 8, and at least one device, round and second");
+const RETENTION_DAYS = 365;
+const DAY = 24 * 3600_000;
 
 /** A small seeded generator, so a seed always makes the same workspace and workload. */
 function generator(seed: number) {
@@ -113,18 +129,22 @@ class Measure {
 
 function revision() {
   try {
-    const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    const dirty =
-      execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim() !== "";
-    return { revision: head, dirty };
+    const git = (args: string[]) => execFileSync("git", args, { encoding: "utf8" }).trim();
+    const head = git(["rev-parse", "HEAD"]);
+    // The whole tree, research notes included; and, apart, whether the
+    // application's own source differs from the commit.
+    const dirty = git(["status", "--porcelain"]) !== "";
+    const sourceChanged = git(["status", "--porcelain", "--", "packages", "apps"]) !== "";
+    return { revision: head, dirty, sourceChanged };
   } catch {
-    return { revision: process.env.GITHUB_SHA ?? "unknown", dirty: null };
+    return { revision: process.env.GITHUB_SHA ?? "unknown", dirty: null, sourceChanged: null };
   }
 }
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "tandem-mixed-")));
 let server: WorkspaceServer | undefined;
-const sockets: WebSocket[] = [];
+/** Open sockets only: a closed one is let go, so the harness does not keep it. */
+const sockets = new Set<WebSocket>();
 const measures = {
   post: new Measure(),
   fanout: new Measure(),
@@ -141,7 +161,7 @@ try {
     mdns: false,
     logger: false,
     rateLimits: false,
-    retentionDays: 365,
+    retentionDays: RETENTION_DAYS,
   });
   const base = `http://127.0.0.1:${server.port}`;
   const post = (path: string, token: string, body: unknown) =>
@@ -178,44 +198,159 @@ try {
   for (const channelId of channels)
     for (const person of people) store.addMember(channelId, person.id);
   const realNow = Date.now.bind(Date);
-  const start = realNow() - 180 * 24 * 3600_000;
-  const step = (180 * 24 * 3600_000) / params.history;
+  /**
+   * Writes a message as the server would have when `at` was now: the row,
+   * its event in the log, and its sequence number from that event, so no
+   * channel's watermark runs past the checkpoint a snapshot reports.
+   */
+  const seedMessage = (at: number, channelId: string, text: string) => {
+    Date.now = () => Math.floor(at);
+    try {
+      const message = store.createMessage({
+        channelId,
+        userId: pick(people).id,
+        text,
+        threadRootId: null,
+        nonce: null,
+      });
+      const envelope = store.appendEvent({ type: "message.created", message }, channelId);
+      store.stampMessageSeq(message.id, channelId, envelope.seq);
+      return message;
+    } finally {
+      Date.now = realNow;
+    }
+  };
+  const start = realNow() - 180 * DAY;
+  const step = (180 * DAY) / params.history;
   for (let batch = 0; batch < params.history; batch += 1000) {
     store.transaction(() => {
-      for (let i = batch; i < Math.min(params.history, batch + 1000); i++) {
-        Date.now = () => Math.floor(start + i * step);
-        const channelId = pick(channels);
-        const message = store.createMessage({
-          channelId,
-          userId: pick(people).id,
-          text: sentence(8 + Math.floor(random() * 30)),
-          threadRootId: null,
-          nonce: null,
-        });
-        store.stampMessageSeq(message.id, channelId, 1_000_000 + i);
-      }
+      for (let i = batch; i < Math.min(params.history, batch + 1000); i++)
+        seedMessage(start + i * step, pick(channels), sentence(8 + Math.floor(random() * 30)));
     });
   }
-  Date.now = realNow;
+  // The seeded history is coherent before anything is timed.
+  const checkpoint = store.currentSeq();
+  const watermarks = Object.values(store.channelLastSeqMap(people[0]!.id));
+  if (watermarks.some((seq) => seq > checkpoint))
+    throw new Error("fixture check: a channel's watermark runs past the event checkpoint");
+  const page = await succeeded<{ messages: { seq?: number; createdAt: number }[] }>(
+    await fetch(`${base}/api/channels/${channels[0]}/messages?limit=50`, {
+      headers: { authorization: `Bearer ${people[0]!.token}` },
+    }),
+  );
+  if (
+    page.messages.length !== 50 ||
+    page.messages.some((m, i) => i > 0 && m.createdAt > page.messages[i - 1]!.createdAt) ||
+    page.messages.some((m) => (m.seq ?? 0) > checkpoint)
+  )
+    throw new Error(
+      "fixture check: seeded history does not page newest first within the checkpoint",
+    );
+
+  /**
+   * Conversation past the retention window, with attachments, that this
+   * round's maintenance must remove: what it seeded, to check against.
+   */
+  const filesDir = join(dir, "workspace", "files");
+  const seedExpired = () => {
+    const at = realNow() - (RETENTION_DAYS + 30) * DAY;
+    const messages: string[] = [];
+    const files: string[] = [];
+    store.transaction(() => {
+      for (let i = 0; i < params.expired; i++) {
+        const channelId = pick(channels);
+        const message = seedMessage(at + i, channelId, `expired ${sentence(6)}`);
+        messages.push(message.id);
+        if (i % 10 === 0) {
+          Date.now = () => at + i;
+          try {
+            const file = store.createFile({
+              channelId,
+              userId: message.userId,
+              name: `old-${i}.txt`,
+              mime: "text/plain",
+              size: 5,
+              width: null,
+              height: null,
+            });
+            writeFileSync(join(filesDir, file.id), "bytes");
+            if (!store.attachFiles([file.id], message.id, channelId, message.userId))
+              throw new Error("fixture: could not attach a seeded file");
+            files.push(file.id);
+          } finally {
+            Date.now = realNow;
+          }
+        }
+      }
+    });
+    return { messages, files };
+  };
 
   // Every device of every person, connected and caught up.
-  type Device = { ws: WebSocket; person: number; seen: Map<string, number>; seq: number };
-  const connect = (person: number, lastSeq: number | null) =>
+  type Device = {
+    ws: WebSocket;
+    person: number;
+    /** Texts of posts not yet checked, as they arrived; only for devices that check fanout. */
+    seen: Map<string, number> | null;
+    seq: number;
+    /** On a reconnect: whether replay was offered, and the events replayed. */
+    replayFrom: number | null | undefined;
+    replayed: number[];
+  };
+  /** Exact replays, snapshots sent instead, and how many events were replayed. */
+  const replay = { exact: 0, snapshots: 0, events: 0, missedWhileOffline: 0 };
+  const connect = (person: number, lastSeq: number | null, tracks = true) =>
     new Promise<Device>((resolve, reject) => {
       const ws = new WebSocket(base.replace("http", "ws") + "/ws");
-      sockets.push(ws);
-      const device: Device = { ws, person, seen: new Map(), seq: lastSeq ?? 0 };
-      const timer = setTimeout(() => reject(new Error("not caught up within 10 s")), 10_000);
+      sockets.add(ws);
+      ws.addEventListener("close", () => sockets.delete(ws));
+      const device: Device = {
+        ws,
+        person,
+        seen: tracks ? new Map() : null,
+        seq: lastSeq ?? 0,
+        replayFrom: undefined,
+        replayed: [],
+      };
+      let synced = false;
+      const timer = setTimeout(() => {
+        ws.close();
+        reject(new Error("not caught up within 10 s"));
+      }, 10_000);
       ws.addEventListener("message", (message) => {
         const frame = JSON.parse(String(message.data)) as ServerToClient;
-        if (frame.type === "event") {
+        if (frame.type === "ready") device.replayFrom = frame.replayFrom;
+        else if (frame.type === "event") {
           device.seq = Math.max(device.seq, frame.envelope.seq);
-          if (frame.envelope.event.type === "message.created")
+          if (!synced) device.replayed.push(frame.envelope.seq);
+          if (device.seen && frame.envelope.event.type === "message.created")
             device.seen.set(frame.envelope.event.message.text, performance.now());
         } else if (frame.type === "synced") {
           // Caught up: the snapshot, then everything since `lastSeq`.
+          synced = true;
           device.seq = Math.max(device.seq, frame.seq);
           clearTimeout(timer);
+          if (lastSeq !== null) {
+            // Exactly the events this account may see since `lastSeq`, in
+            // order, up to the checkpoint it was told; or a snapshot instead,
+            // said so.
+            const expected = (store.eventsSince(lastSeq, people[person]!.id) ?? [])
+              .map((e) => e.seq)
+              .filter((seq) => seq <= frame.seq);
+            if (device.replayFrom === null) replay.snapshots++;
+            else if (JSON.stringify(expected) !== JSON.stringify(device.replayed)) {
+              ws.close();
+              reject(
+                new Error(
+                  `replay after ${lastSeq} sent ${device.replayed.length} events, not the ${expected.length} expected in order`,
+                ),
+              );
+              return;
+            } else {
+              replay.exact++;
+              replay.events += expected.length;
+            }
+          }
           resolve(device);
         }
       });
@@ -235,6 +370,11 @@ try {
   const devices: Device[] = [];
   for (let p = 0; p < params.people; p++)
     for (let d = 0; d < params.devices; d++) devices.push(await connect(p, null));
+  const arrived = (text: string) => devices.every((d) => d.seen!.has(text));
+  /** Once checked, a post's receipts are let go, so tracking does not grow with the run. */
+  const forget = (text: string) => {
+    for (const d of devices) d.seen!.delete(text);
+  };
 
   // Checked before anything is timed: a post reaches every device, a search answers.
   const check = `fixture check ${realNow()}`;
@@ -242,10 +382,9 @@ try {
     await post(`/api/channels/${channels[0]}/messages`, people[0]!.token, { text: check }),
   );
   const deadline = realNow() + 5_000;
-  while (devices.some((d) => !d.seen.has(check)) && realNow() < deadline)
-    await new Promise((r) => setTimeout(r, 20));
-  if (devices.some((d) => !d.seen.has(check)))
-    throw new Error("fixture check: a post did not reach every device");
+  while (!arrived(check) && realNow() < deadline) await new Promise((r) => setTimeout(r, 20));
+  if (!arrived(check)) throw new Error("fixture check: a post did not reach every device");
+  forget(check);
   const found = await succeeded<{ messages: unknown[] }>(
     await fetch(`${base}/api/search?q=release`, {
       headers: { authorization: `Bearer ${people[0]!.token}` },
@@ -255,8 +394,25 @@ try {
 
   const memoryBefore = process.memoryUsage();
   let posted = 0;
+  /** Per round: how long it took, and how much work was offered and completed. */
+  const work: Record<string, number>[] = [];
   for (let round = 0; round < params.rounds; round++) {
     for (const m of Object.values(measures)) m.round();
+    const due = seedExpired();
+    const load = {
+      postsOffered: 0,
+      postsCompleted: 0,
+      searchesOffered: 0,
+      searchesCompleted: 0,
+      reconnectsOffered: 0,
+      reconnectsCompleted: 0,
+      receiptsInFlightMax: 0,
+      expiredSeeded: due.messages.length,
+      expiredFilesSeeded: due.files.length,
+      expiredRemoved: 0,
+    };
+    let receiptsInFlight = 0;
+    const began = performance.now();
     const delay = monitorEventLoopDelay({ resolution: 1 });
     delay.enable();
     const until = realNow() + params.seconds * 1000;
@@ -266,19 +422,24 @@ try {
       while (realNow() < until) {
         const text = `round ${round} post ${posted++} ${sentence(10)}`;
         const sent = performance.now();
+        load.postsOffered++;
         try {
           await succeeded(
             await post(`/api/channels/${pick(channels)}/messages`, people[person]!.token, { text }),
           );
           measures.post.add(performance.now() - sent);
+          load.postsCompleted++;
+          load.receiptsInFlightMax = Math.max(load.receiptsInFlightMax, ++receiptsInFlight);
           waiting.push(
             (async () => {
               const giveUp = realNow() + 10_000;
-              while (devices.some((d) => !d.seen.has(text)) && realNow() < giveUp)
+              while (!arrived(text) && realNow() < giveUp)
                 await new Promise((r) => setTimeout(r, 5));
-              if (devices.some((d) => !d.seen.has(text)))
+              if (!arrived(text))
                 measures.fanout.fail(new Error("a post did not reach every device in 10 s"));
-              else measures.fanout.add(Math.max(...devices.map((d) => d.seen.get(text)!)) - sent);
+              else measures.fanout.add(Math.max(...devices.map((d) => d.seen!.get(text)!)) - sent);
+              forget(text);
+              receiptsInFlight--;
             })(),
           );
         } catch (error) {
@@ -290,6 +451,7 @@ try {
     const searcher = async (person: number) => {
       while (realNow() < until) {
         const sent = performance.now();
+        load.searchesOffered++;
         try {
           await succeeded(
             await fetch(`${base}/api/search?q=${encodeURIComponent(pick(SEARCHED))}`, {
@@ -297,36 +459,51 @@ try {
             }),
           );
           measures.search.add(performance.now() - sent);
+          load.searchesCompleted++;
         } catch (error) {
           measures.search.fail(error);
         }
         await new Promise((r) => setTimeout(r, 100 + random() * 200));
       }
     };
-    // A device of its own drops and comes back, catching up from where it was.
+    // A device of its own drops, stays away while posts arrive, and comes
+    // back with exactly what it missed.
     const roamer = async (person: number) => {
-      let device = await connect(person, null);
+      let device = await connect(person, null, false);
       while (realNow() < until) {
-        await new Promise((r) => setTimeout(r, 500 + random() * 1000));
+        await new Promise((r) => setTimeout(r, 300 + random() * 700));
         const lastSeq = device.seq;
         device.ws.close();
+        await new Promise((r) => setTimeout(r, 200 + random() * 400));
+        replay.missedWhileOffline += store.currentSeq() - lastSeq;
         const sent = performance.now();
+        load.reconnectsOffered++;
         try {
-          device = await connect(person, lastSeq);
+          device = await connect(person, lastSeq, false);
           measures.reconnect.add(performance.now() - sent);
+          load.reconnectsCompleted++;
         } catch (error) {
           measures.reconnect.fail(error);
+          device = await connect(person, null, false);
         }
       }
       device.ws.close();
     };
+    // The production sweep must remove exactly what was seeded past the window.
     const maintenance = async () => {
       await new Promise((r) => setTimeout(r, (params.seconds * 1000) / 2));
       const sent = performance.now();
       try {
-        server!.applyRetention();
+        const removed = await server!.sweepRetention();
         await server!.flushFileDeletions();
         measures.maintenance.add(performance.now() - sent);
+        load.expiredRemoved = removed;
+        const left = due.messages.filter((id) => store.getMessage(id));
+        const blobs = due.files.filter((id) => existsSync(join(filesDir, id)) || store.getFile(id));
+        if (removed !== due.messages.length || left.length || blobs.length)
+          throw new Error(
+            `retention removed ${removed} of ${due.messages.length} expired messages; ${left.length} remain, ${blobs.length} files remain`,
+          );
       } catch (error) {
         measures.maintenance.fail(error);
       }
@@ -344,6 +521,7 @@ try {
       p99: +(delay.percentile(99) / 1e6).toFixed(2),
       max: +(delay.max / 1e6).toFixed(2),
     });
+    work.push({ elapsedMs: +(performance.now() - began).toFixed(0), ...load });
   }
   const memoryAfter = process.memoryUsage();
 
@@ -360,6 +538,14 @@ try {
     runtime: { node: process.version },
     cache: "warm: one process, fixture seeded before timing",
     devices: devices.length,
+    workByRound: work,
+    replay,
+    // What the harness itself still holds: receipts and sockets it let go are not here.
+    harness: {
+      receiptsHeld: devices.reduce((n, d) => n + d.seen!.size, 0),
+      socketsOpen: sockets.size,
+    },
+    note: "One Node process runs the server and every client: memory and event-loop delay are theirs together, not the server's alone, nor a desktop main process's.",
     results: Object.fromEntries(Object.entries(measures).map(([k, m]) => [k, m.summary()])),
     // Sampled every millisecond, so an idle loop reads about 1 ms.
     eventLoopDelayMsByRound: loop,

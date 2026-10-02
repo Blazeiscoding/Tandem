@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -7,9 +7,11 @@ import { test } from "node:test";
 import {
   ARTIFACTS,
   ROOT,
+  SHARED_INPUTS,
   buildIdentity,
   check,
   inputsHash,
+  manifestProblem,
   readAsarFile,
   staleness,
   writeBuildIdentity,
@@ -110,5 +112,76 @@ test("reads a manifest out of a real asar archive, as the packaged app carries i
     assert.equal(readAsarFile(join(dir, "app.asar"), "out/missing.json"), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("every input Turbo rebuilds for, and this script, makes an older build stale (F05)", () => {
+  const turbo = JSON.parse(readFileSync(join(ROOT, "turbo.json"), "utf8"));
+  for (const path of turbo.globalDependencies) assert.ok(SHARED_INPUTS.includes(path), path);
+  assert.ok(SHARED_INPUTS.includes("scripts/build-identity.mjs"));
+  const { root, put } = checkout();
+  try {
+    for (const path of [
+      "pnpm-workspace.yaml",
+      ".npmrc",
+      ".pnpmfile.cjs",
+      "tsconfig.base.json",
+      "scripts/build-identity.mjs",
+    ]) {
+      const before = inputsHash(ARTIFACTS.web.inputs, root);
+      put(path, `changed ${path}\n`);
+      assert.notEqual(inputsHash(ARTIFACTS.web.inputs, root), before, path);
+      mkdirSync(join(root, "apps/web/dist"), { recursive: true });
+      writeBuildIdentity("web", join(root, "apps/web/dist"), root);
+      put(path, `changed again ${path}\n`);
+      assert.match(check(["web"], root)[0] ?? "", /was built from other source/, path);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a binary file is hashed byte for byte, and text by its committed line endings (F05)", () => {
+  const { root, put } = checkout();
+  try {
+    put("packages/ui/src/icon.png", Buffer.from([0x00, 0x0d, 0x0a, 0xff]));
+    const crlf = inputsHash(ARTIFACTS.web.inputs, root);
+    put("packages/ui/src/icon.png", Buffer.from([0x00, 0x0a, 0xff]));
+    assert.notEqual(inputsHash(ARTIFACTS.web.inputs, root), crlf);
+    // A file named as text that carries a NUL byte is binary too.
+    put("packages/ui/src/data.json", Buffer.from([0x00, 0x0d, 0x0a]));
+    const named = inputsHash(ARTIFACTS.web.inputs, root);
+    put("packages/ui/src/data.json", Buffer.from([0x00, 0x0a]));
+    assert.notEqual(inputsHash(ARTIFACTS.web.inputs, root), named);
+    // Named text files without an extension are text as well, on any platform.
+    put("packages/ui/LICENSE", "MIT\r\n");
+    const license = inputsHash(ARTIFACTS.web.inputs, root);
+    put("packages/ui/LICENSE", "MIT\n");
+    assert.equal(inputsHash(ARTIFACTS.web.inputs, root), license);
+    put("packages/ui/src/style.css", "a {}\r\n");
+    const text = inputsHash(ARTIFACTS.web.inputs, root);
+    put("packages/ui/src/style.css", "a {}\n");
+    assert.equal(inputsHash(ARTIFACTS.web.inputs, root), text);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a manifest of the wrong shape names what to rebuild instead of throwing (F05)", () => {
+  const { root } = checkout();
+  try {
+    for (const text of ["null", "7", "[]", '{"revision": 7}', '{"inputs": "nothex"}']) {
+      assert.match(staleness("web", text, root), /has a build\.json that .*: rebuild it with/);
+    }
+    assert.equal(
+      manifestProblem({ version: "1", revision: "abc", dirty: false, inputs: "0123456789abcdef" }),
+      null,
+    );
+    assert.match(
+      manifestProblem({ version: "1", revision: "abc", dirty: "no", inputs: "0123456789abcdef" }),
+      /changes/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
