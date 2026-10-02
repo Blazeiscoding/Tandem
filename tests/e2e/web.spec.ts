@@ -952,7 +952,12 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeFocused();
   await composer.fill("Sent from a small window");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await expect(page.getByText("Sent from a small window", { exact: true })).toBeInViewport();
+  // The composer keeps the words until the device has the send (GL-02), so
+  // look for the message itself, then for the composer to let them go.
+  await expect(
+    page.getByRole("article").filter({ hasText: "Sent from a small window" }),
+  ).toBeInViewport();
+  await expect(composer).toHaveValue("");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   // An image wider than a phone's column scales down instead of running off it.
@@ -2451,9 +2456,11 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     await expect(thread.getByRole("textbox", { name: "Reply…" })).toBeFocused();
     await page.keyboard.type("The line set");
     await page.keyboard.press("Enter");
-    await expect(thread.getByText("The line set", { exact: true })).toBeVisible();
-    // A thread is one Tab stop too, its newest reply, with the arrow keys up to the root.
+    // The composer keeps the words until the device has the send (GL-02).
     const threadReply = thread.getByRole("article").filter({ hasText: "The line set" });
+    await expect(threadReply).toBeVisible();
+    await expect(thread.getByRole("textbox", { name: "Reply…" })).toHaveValue("");
+    // A thread is one Tab stop too, its newest reply, with the arrow keys up to the root.
     const threadRoot = thread.getByRole("article").filter({ hasText: "Which icon set" });
     await expect(threadReply).toHaveAttribute("tabindex", "0");
     await expect(threadRoot).toHaveAttribute("tabindex", "-1");
