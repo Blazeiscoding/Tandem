@@ -1,0 +1,99 @@
+{
+  "measure": "mixed chat/search/reconnect/maintenance (IMP-07)",
+  "revision": "54296c3a9eebe9c88608eef313fe6ba7944d6dba",
+  "dirty": false,
+  "params": {
+    "seed": 1,
+    "people": 12,
+    "devices": 2,
+    "history": 20000,
+    "rounds": 3,
+    "seconds": 8
+  },
+  "machine": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "cores": 4,
+    "memoryGiB": 15.7,
+    "os": "linux 6.18.44-fc-v51 x64"
+  },
+  "runtime": {
+    "node": "v24.21.0"
+  },
+  "cache": "warm: one process, fixture seeded before timing",
+  "devices": 24,
+  "results": {
+    "post": {
+      "samples": 1063,
+      "p50": 7.49,
+      "p95": 20.55,
+      "p99": 41.41,
+      "max": 62.35,
+      "p95ByRound": [22.65, 22.86, 17.17],
+      "p95SpreadPct": 27.2,
+      "errors": 0
+    },
+    "fanout": {
+      "samples": 1063,
+      "p50": 7.04,
+      "p95": 19.29,
+      "p99": 35.55,
+      "max": 61.77,
+      "p95ByRound": [21.31, 20.74, 16.84],
+      "p95SpreadPct": 22.8,
+      "errors": 0
+    },
+    "search": {
+      "samples": 218,
+      "p50": 11.84,
+      "p95": 24.18,
+      "p99": 33.67,
+      "max": 48.14,
+      "p95ByRound": [27.32, 24.35, 21.35],
+      "p95SpreadPct": 24.5,
+      "errors": 0
+    },
+    "reconnect": {
+      "samples": 50,
+      "p50": 5.5,
+      "p95": 16.29,
+      "p99": 29.74,
+      "max": 29.74,
+      "p95ByRound": [29.74, 16.29, 13.48],
+      "p95SpreadPct": 82,
+      "errors": 0
+    },
+    "maintenance": {
+      "samples": 3,
+      "p50": 6.7,
+      "p95": 10.22,
+      "p99": 10.22,
+      "max": 10.22,
+      "p95ByRound": [6.7, 10.22, 6.54],
+      "p95SpreadPct": 47.1,
+      "errors": 0
+    }
+  },
+  "eventLoopDelayMsByRound": [
+    {
+      "p50": 1.11,
+      "p99": 10.15,
+      "max": 42.93
+    },
+    {
+      "p50": 1.11,
+      "p99": 9.97,
+      "max": 44.34
+    },
+    {
+      "p50": 1.11,
+      "p99": 9.85,
+      "max": 40.14
+    }
+  ],
+  "memoryMiB": {
+    "rssBefore": 326.8,
+    "rssAfter": 391.2,
+    "heapUsedAfter": 82.3
+  },
+  "errors": 0
+}
