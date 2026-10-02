@@ -1,9 +1,19 @@
 # Build the bundled server + web client, then ship a tiny runtime image.
-FROM node:24-alpine AS build
+#
+# Dependencies first, from the lockfile alone (REV-08): `pnpm fetch` fills the
+# store from pnpm-lock.yaml, so an edit to the source reuses this stage and a
+# change to the lockfile (or the pnpm version or settings) redoes it.
+FROM node:24-alpine AS deps
 RUN corepack enable
 WORKDIR /repo
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
+
+FROM deps AS build
 COPY . .
-RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --frozen-lockfile
+# Only what the image ships: the server and the packages it bundles, the web
+# client among them; nothing of the desktop app or the test tooling.
+RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --offline --frozen-lockfile --filter "slackoss-server..."
 # The image has no .git to ask which source it is (IMP-08); CI passes the
 # commit. Declared after installing, so a new commit reuses that step.
 ARG GITHUB_SHA=unknown

@@ -21,6 +21,7 @@ on:
       - ".pnpmfile.cjs"
       - "tsconfig.base.json"
       - "tests/docker-smoke.mjs"
+      - "tests/docker-reuse.mjs"
       - "scripts/build-identity.mjs"
       - ".github/workflows/container.yml"
       - "!**/*.md"
@@ -38,5 +39,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: docker build -f docker/Dockerfile --build-arg GITHUB_SHA=${{ github.sha }} -t slackoss:local .
+      - uses: docker/setup-buildx-action@v3
+      # Layers, the dependency stage among them, are kept in this repository's
+      # Actions cache under one scope, so a run whose lockfile is unchanged
+      # reuses them (REV-08). GitHub evicts the oldest past the repository's
+      # cache limit, and a new lockfile replaces the stage rather than adding
+      # to it.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: GITHUB_SHA=${{ github.sha }}
+          tags: slackoss:local
+          load: true
+          cache-from: type=gha,scope=container-image
+          cache-to: type=gha,scope=container-image,mode=max
       - run: node tests/docker-smoke.mjs
+      - run: node tests/docker-reuse.mjs
+      - name: Build cache size
+        run: docker buildx du | tail -n 3
