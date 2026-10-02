@@ -31,7 +31,7 @@ import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
-import { guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
+import { appRecipients, guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
 import { RENDERER_RECOVERY, RendererRecovery, isRendererLoadFailure } from "./rendererRecovery.js";
 import { pickScreen } from "./screenPicker.js";
 import { mergeOutboxSetting } from "./outboxStorage.js";
@@ -81,6 +81,15 @@ const handle = (
     channel,
     guarded(() => mainWindow, trustedRenderer, listener),
   );
+/**
+ * Tells the app's window something, and no other window (F09): what is
+ * pushed here includes drafts, unsent messages and invite links. `except` is
+ * the window whose own change this is.
+ */
+const pushToApp = (channel: string, args: unknown[], except?: number): void => {
+  for (const win of appRecipients(mainWindow, trustedRenderer, except))
+    win.webContents.send(channel, ...args);
+};
 let rendererReady = false;
 let quitting = false;
 let quitReady = false;
@@ -116,9 +125,9 @@ let pendingDeepLink: string | null = null;
 function deliverDeepLink(url: string): void {
   pendingDeepLink = url;
   const win = showMainWindow();
-  if (win && rendererReady) {
+  if (win && rendererReady && appRecipients(win, trustedRenderer).length > 0) {
     pendingDeepLink = null;
-    win.webContents.send("deeplink", url);
+    pushToApp("deeplink", [url]);
   }
 }
 
@@ -201,10 +210,7 @@ handle(
       changes,
       enveloped,
     );
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
-        win.webContents.send("storage:outboxChanged", key, value);
-    }
+    pushToApp("storage:outboxChanged", [key, value], event.sender.id);
     return outbox;
   },
 );
@@ -219,10 +225,7 @@ handle(
       changes,
       enveloped,
     );
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
-        win.webContents.send("storage:draftsChanged", key, value);
-    }
+    pushToApp("storage:draftsChanged", [key, value], event.sender.id);
     return drafts;
   },
 );
@@ -236,10 +239,7 @@ handle("storage:mergeRecord", async (event, key: unknown, changes: unknown) => {
     settingKey(key),
     (current) => (value = applyRecordChanges(current, changes)),
   );
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed() && win.webContents.id !== event.sender.id)
-      win.webContents.send("storage:recordChanged", key, value);
-  }
+  pushToApp("storage:recordChanged", [key, value], event.sender.id);
   return value;
 });
 
@@ -268,9 +268,7 @@ function discoveredServers() {
 
 function publishDiscovered(): void {
   const servers = discoveredServers();
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send("lan:servers", servers);
-  }
+  pushToApp("lan:servers", [servers]);
 }
 
 /**
@@ -674,9 +672,7 @@ handle("hosting:setPublicAddress", async (_e, value: unknown) => {
 
 function publishHostingStatus(): void {
   const status = hostingStatus();
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send("hosting:changed", status);
-  }
+  pushToApp("hosting:changed", [status]);
   updateTray();
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  appRecipients,
   fromTrustedWindow,
   guarded,
   REFUSED,
@@ -151,5 +152,34 @@ describe("a settings key", () => {
       "a\u0000b",
     ])
       expect(() => settingKey(key)).toThrow("Not a settings key.");
+  });
+});
+
+/**
+ * Who hears what the main process pushes (F09): drafts and unsent messages
+ * merged from another window, invite links, hosting. Only the app's own
+ * window, live and showing the app's page; a foreign window loading the
+ * same preload hears nothing, nor does the app's window once it has
+ * navigated away.
+ */
+describe("who hears what the main process pushes", () => {
+  function recipient(url: string, overrides: { destroyed?: boolean; id?: number } = {}) {
+    return {
+      isDestroyed: () => overrides.destroyed === true,
+      webContents: { id: overrides.id ?? 7, isDestroyed: () => false, getURL: () => url },
+    };
+  }
+
+  it("is the app's window showing the app's page", () => {
+    const win = recipient(`${PAGE}#/w/1/c/2`);
+    expect(appRecipients(win, trusted)).toEqual([win]);
+  });
+
+  it("is nobody once the window has navigated away, closed, or is the one that changed it", () => {
+    expect(appRecipients(recipient("about:blank"), trusted)).toEqual([]);
+    expect(appRecipients(recipient("https://example.com/"), trusted)).toEqual([]);
+    expect(appRecipients(recipient(PAGE, { destroyed: true }), trusted)).toEqual([]);
+    expect(appRecipients(recipient(PAGE), trusted, 7)).toEqual([]);
+    expect(appRecipients(null, trusted)).toEqual([]);
   });
 });
