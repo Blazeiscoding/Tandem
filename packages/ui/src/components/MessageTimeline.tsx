@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import type { FileMeta, ID } from "@slackoss/protocol";
 import type { EphemeralMessage, PendingMessage } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
@@ -86,6 +86,13 @@ export const MessageTimeline = memo(function MessageTimeline({
    * waiting for its message to render before the view goes back there.
    */
   const pendingPosition = useRef<ReadingPosition | null>(null);
+  /**
+   * Renders again, so a position just read is put back once its message is
+   * on screen. Setting the ref renders nothing, and the history request's
+   * own state can end where it began within one render: a conversation held
+   * here answers before React renders, and that render then commits nothing.
+   */
+  const [, lookForPosition] = useReducer((renders: number) => renders + 1, 0);
   /** Where this conversation is being read now, noted as the reader scrolls. */
   const reading = useRef<{ channelId: ID; position: ReadingPosition | null } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,6 +119,7 @@ export const MessageTimeline = memo(function MessageTimeline({
       const position = rememberedReadingPosition(client.baseUrl, channelId);
       pendingPosition.current = position;
       pinnedToBottom.current = position === null;
+      if (position) lookForPosition();
       void requestHistory("initial");
     } else {
       pendingPosition.current = null;
