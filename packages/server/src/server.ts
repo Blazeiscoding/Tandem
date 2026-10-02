@@ -97,8 +97,9 @@ import { isMissingAsset, webCacheControl } from "./webClient.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
 import { secretToken, ulid } from "./ids.js";
+import { SERVER_VERSION } from "./version.js";
 
-export const SERVER_VERSION = "0.1.0";
+export { SERVER_VERSION };
 
 /** How many times an unexplained delivery error is retried before giving up. */
 const SCHEDULED_ATTEMPTS = 3;

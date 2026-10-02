@@ -1,5 +1,12 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { backupWorkspace, inventoryBackup, restoreWorkspace, verifyBackup } from "@slackoss/server";
+// The backup module alone: the server's barrel would load Fastify, sockets and
+// discovery into every backup job, which uses none of them (REV-07).
+import {
+  backupWorkspace,
+  inventoryBackup,
+  restoreWorkspace,
+  verifyBackup,
+} from "@slackoss/server/backup";
 
 /**
  * Backing up, checking and restoring a workspace, off the main thread. Each
