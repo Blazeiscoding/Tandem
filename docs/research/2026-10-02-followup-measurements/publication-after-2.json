@@ -1,0 +1,93 @@
+{
+  "revision": "8e8c340",
+  "node": "v24.21.0",
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+  "cores": 4,
+  "memoryGiB": 16,
+  "rounds": 25,
+  "privateDeletion": [
+    {
+      "members": 50,
+      "online": 0,
+      "deleteAnsweredMs": {
+        "median": 8.65,
+        "p95": 14.56
+      }
+    },
+    {
+      "members": 50,
+      "online": 2,
+      "deleteAnsweredMs": {
+        "median": 11.06,
+        "p95": 30.05
+      },
+      "allFramesReceivedMs": {
+        "median": 11.27,
+        "p95": 30.29
+      }
+    },
+    {
+      "members": 500,
+      "online": 0,
+      "deleteAnsweredMs": {
+        "median": 7.58,
+        "p95": 10.81
+      }
+    },
+    {
+      "members": 500,
+      "online": 2,
+      "deleteAnsweredMs": {
+        "median": 11.13,
+        "p95": 18.93
+      },
+      "allFramesReceivedMs": {
+        "median": 11.34,
+        "p95": 19.28
+      }
+    },
+    {
+      "members": 2000,
+      "online": 0,
+      "deleteAnsweredMs": {
+        "median": 7.45,
+        "p95": 11.85
+      }
+    },
+    {
+      "members": 2000,
+      "online": 2,
+      "deleteAnsweredMs": {
+        "median": 14.64,
+        "p95": 29.54
+      },
+      "allFramesReceivedMs": {
+        "median": 14.81,
+        "p95": 29.86
+      }
+    }
+  ],
+  "appPosting": [
+    {
+      "subscriptions": 1,
+      "postAnsweredMs": {
+        "median": 3.5,
+        "p95": 4.64
+      }
+    },
+    {
+      "subscriptions": 10,
+      "postAnsweredMs": {
+        "median": 5.04,
+        "p95": 5.71
+      }
+    },
+    {
+      "subscriptions": 100,
+      "postAnsweredMs": {
+        "median": 11.45,
+        "p95": 14
+      }
+    }
+  ]
+}

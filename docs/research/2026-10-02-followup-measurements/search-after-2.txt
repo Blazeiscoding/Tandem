@@ -1,0 +1,29 @@
+200,000 messages seeded in 5.7 s. 57dcb8d, Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads, 16 GB, Node v24.21.0, linux.
+
+query                              rows   p50 ms   p95 ms   page
+the                                  21     16.4     17.2   992150e6
+the (page 2)                         21     16.9     17.3   05b7ec29
+deploy                               21      8.3      8.6   a8381a4e
+zebra                                20      3.2      3.6   468f4d93
+classified                            0      7.7      8.7   e3b0c442
+from:@rare                           21     13.2     20.7   51feeeb0
+in:#small-3                          21      1.0      1.2   f7b45ef4
+the in:#small-3                      21     18.7     23.0   ba257422
+has:file                             21      0.5      1.1   eba31bf8
+has:link                             21      0.7      0.8   d0d0283f
+after:2026-08-31                     21      0.3      0.3   42c66d08
+before:2024-10-30                    21     53.7     69.2   a27695cb
+zebra before:2024-10-30               1      3.1      3.3   5ef3cfe9
+deploy (in one channel)              21      6.3      6.6   32b77d6b
+budget                               21      5.9      8.3   6646785a
+contract pdf                         21      6.0      6.8   71cadee7
+invoice                               0      3.2      3.4   e3b0c442
+type:pdf                             21      7.2      7.9   71cadee7
+type:image the                       21     26.5     31.2   cf532dcb
+budget type:spreadsheet              21      7.8      9.8   6646785a
+restricted                            0      3.7      4.0   e3b0c442
+scan                                 21     39.4     43.4   e034b4f4
+scan zebra                            0      4.1      4.9   e3b0c442
+budget (page 2)                      21      5.7      6.3   0d695b95
+budget from:@u02                      0      4.8      5.0   e3b0c442
+budget before:2025-09-30             21      6.2      7.9   df9b654b

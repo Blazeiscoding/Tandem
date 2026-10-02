@@ -1,4 +1,12 @@
-import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { createServer as createNetServer, type AddressInfo } from "node:net";
@@ -1017,6 +1025,132 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   await expect(page.getByRole("navigation")).toBeVisible();
   await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toBeHidden();
   expect(errors).toEqual([]);
+});
+
+/**
+ * A browser this test starts and may kill outright, as a crash or a power
+ * cut would, on a profile kept on disk so the next launch finds what the
+ * last one stored. Playwright's own browsers cannot be killed that way.
+ */
+async function launchProfile(profile: string) {
+  const executable =
+    test.info().project.use.launchOptions?.executablePath ?? chromium.executablePath();
+  const process_ = spawn(
+    executable,
+    [
+      "--headless=new",
+      "--no-sandbox",
+      "--no-first-run",
+      "--no-default-browser-check",
+      `--user-data-dir=${profile}`,
+      "--remote-debugging-port=0",
+      // The size every other journey runs at: a browser's own default can
+      // be narrow enough to fold the sidebar away.
+      "--window-size=1280,820",
+      "about:blank",
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+  const endpoint = await new Promise<string>((resolve, reject) => {
+    let said = "";
+    process_.stderr!.on("data", (chunk) => {
+      said += String(chunk);
+      const found = /DevTools listening on (ws:\/\/\S+)/.exec(said);
+      if (found) resolve(found[1]!);
+    });
+    process_.once("exit", (code) => reject(new Error(`The browser exited (${code}): ${said}`)));
+  });
+  const browser: Browser = await chromium.connectOverCDP(endpoint);
+  const kill = async () => {
+    const gone = new Promise((resolve) => process_.once("exit", resolve));
+    process_.kill("SIGKILL");
+    await gone;
+  };
+  const context = browser.contexts()[0]!;
+  const open = async () => {
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 1280, height: 820 });
+    return page;
+  };
+  return { browser, context, open, kill };
+}
+
+test("a send the composer let go of, and the drafts saved, outlast the browser being killed (F01)", async () => {
+  const profile = mkdtempSync(join(tmpdir(), "slackoss-profile-"));
+  let running: Awaited<ReturnType<typeof launchProfile>> | null = null;
+  try {
+    running = await launchProfile(profile);
+    const first = await running.open();
+    await register(first, "crashed");
+    const token = await savedToken(first);
+    const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const created = await fetch(`${base}/api/channels`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ type: "public", name: "later" }),
+    });
+    expect(created.status).toBe(201);
+    const later = ((await created.json()) as { channel: { id: string } }).channel;
+    const composer = (page: Page, channel: string) =>
+      page.getByRole("textbox", { name: `Message #${channel}`, exact: true });
+
+    // Two tabs change one draft at once; both texts are stored.
+    const second = await running.open();
+    await second.goto(base);
+    await composer(first, "general").fill("Words from the first tab");
+    await composer(second, "general").fill("Words from the second tab");
+    const both = /Words from the (first|second) tab\n\nWords from the (first|second) tab/;
+    await expect(composer(first, "general")).toHaveValue(both);
+    await expect(composer(second, "general")).toHaveValue(both);
+
+    // A send made with no connection: the composer lets go of its words only
+    // once the device has stored the send.
+    await second.close();
+    await first
+      .getByRole("navigation")
+      .getByRole("button", { name: /^#\s*later\b/ })
+      .click();
+    await running.context.setOffline(true);
+    await composer(first, "later").fill("Sent with no connection, then the browser died");
+    await composer(first, "later").press("Enter");
+    await expect(composer(first, "later")).toHaveValue("");
+    // Killed at once: no page is told it is closing, and nothing else is written.
+    await running.kill();
+    await running.browser.close().catch(() => {});
+    running = null;
+
+    running = await launchProfile(profile);
+    const reopened = await running.open();
+    await reopened.goto(base);
+    await reopened
+      .getByRole("navigation")
+      .getByRole("button", { name: /^#\s*general\b/ })
+      .click();
+    await expect(composer(reopened, "general")).toHaveValue(both);
+    // The send goes out now that there is a connection, and only once.
+    const sent = async () => {
+      const response = await fetch(`${base}/api/channels/${later.id}/messages`, { headers: auth });
+      const { messages } = (await response.json()) as { messages: { text: string }[] };
+      return messages.filter((m) => m.text === "Sent with no connection, then the browser died")
+        .length;
+    };
+    await expect.poll(sent, { timeout: 20_000 }).toBe(1);
+    await reopened
+      .getByRole("navigation")
+      .getByRole("button", { name: /^#\s*later\b/ })
+      .click();
+    await expect(
+      reopened
+        .getByRole("article")
+        .filter({ hasText: "Sent with no connection, then the browser died" }),
+    ).toHaveCount(1);
+    await reopened.waitForTimeout(1_500);
+    expect(await sent()).toBe(1);
+  } finally {
+    await running?.kill().catch(() => {});
+    await running?.browser.close().catch(() => {});
+    rmSync(profile, { recursive: true, force: true });
+  }
 });
 
 test("unsent words outlast two tabs typing at once, and a tab closed straight after typing (F01)", async ({
