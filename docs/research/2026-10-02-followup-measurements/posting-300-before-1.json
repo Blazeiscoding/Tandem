@@ -1,0 +1,32 @@
+{
+  "revision": "0fc401a",
+  "node": "v24.21.0",
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+  "cores": 4,
+  "memoryGiB": 16,
+  "rounds": 300,
+  "privateDeletion": [],
+  "appPosting": [
+    {
+      "subscriptions": 1,
+      "postAnsweredMs": {
+        "median": 3.69,
+        "p95": 6.27
+      }
+    },
+    {
+      "subscriptions": 10,
+      "postAnsweredMs": {
+        "median": 5.36,
+        "p95": 8.39
+      }
+    },
+    {
+      "subscriptions": 100,
+      "postAnsweredMs": {
+        "median": 14.63,
+        "p95": 26.47
+      }
+    }
+  ]
+}
