@@ -369,7 +369,9 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   useEffect(() => chooseCommand(0), [commandCandidates.length, chooseCommand]);
 
   function send() {
-    if (archived || scheduleLock.current || recoveryBlocksSend || saving) return;
+    // Only this conversation's send waiting to be kept holds this one back.
+    if (archived || scheduleLock.current || recoveryBlocksSend || saving?.draftKey === draftKey)
+      return;
     const trimmed = text.trim();
     if ((!trimmed && attached.length === 0) || text.length > MESSAGE_LIMIT) return;
     let queued: string | null = null;

@@ -64,6 +64,8 @@ export class FileCache {
     this.controllers.get(fileId)?.abort();
     this.controllers.delete(fileId);
     this.inflight.delete(fileId);
+    // Held for neither bytes nor a transfer: what it came with is forgotten too.
+    if (!this.urls.has(fileId)) this.owners.delete(fileId);
   }
 
   private drain(): void {
@@ -130,7 +132,8 @@ export class FileCache {
 
     const controller = new AbortController();
     this.controllers.set(fileId, controller);
-    if (!this.owners.has(fileId)) this.owners.set(fileId, this.ownerOf(fileId));
+    // Asked afresh for each transfer: a message not loaded last time may be now.
+    this.owners.set(fileId, this.ownerOf(fileId) ?? this.owners.get(fileId) ?? null);
     const request = this.fetch(fileId, controller)
       .then((blob) => {
         if (this.disposed) throw new Error("File cache is closed");
@@ -144,10 +147,8 @@ export class FileCache {
         return url;
       })
       .catch((err: unknown) => {
-        if (this.inflight.get(fileId) === request) {
-          this.inflight.delete(fileId);
-          if (!this.urls.has(fileId)) this.owners.delete(fileId);
-        }
+        if (this.inflight.get(fileId) === request) this.inflight.delete(fileId);
+        if (!this.urls.has(fileId) && !this.inflight.has(fileId)) this.owners.delete(fileId);
         if (this.controllers.get(fileId) === controller) this.controllers.delete(fileId);
         throw err;
       });

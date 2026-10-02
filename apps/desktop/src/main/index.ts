@@ -961,17 +961,23 @@ function createWindow(): void {
       type: "error",
       title: "Tandem",
       message: "Tandem's window keeps stopping.",
-      detail: `${what} A hosted workspace keeps running, and messages saved on this computer come back with the window.`,
-      buttons: ["Try again", "Quit Tandem"],
+      detail: `${what} A hosted workspace keeps running, and messages saved on this computer come back with the window. If it stops again where you were, open it from the start.`,
+      buttons: ["Try again", "Open from the start", "Quit Tandem"],
       defaultId: 0,
       cancelId: 0,
     });
     if (win.isDestroyed()) return;
-    if (response === 1) {
+    if (response === 2) {
       app.quit();
       return;
     }
     recovery.reset();
+    if (response === 1) {
+      // A way out when the place itself is what stops the page.
+      place.forget();
+      loadRenderer(win);
+      return;
+    }
     // Trying again returns to the same place an automatic reload would.
     place.recover();
     reopen();

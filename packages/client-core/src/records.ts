@@ -44,14 +44,18 @@ export function readStoredRecord(value: unknown): Record<string, string> | null 
 }
 
 /**
- * Applies one window's changes to what is stored. An unreadable stored value
- * is replaced, since nothing in it can be told apart from damage.
+ * Applies one window's changes to what is stored. Every other name keeps its
+ * text, even beside a damaged value, which goes: one bad entry must not take
+ * the others with it. A stored value that is not a record at all is replaced.
  */
 export function applyRecordChanges(
   stored: unknown,
   changes: RecordChanges,
 ): Record<string, string> {
-  const next = { ...(readStoredRecord(stored) ?? {}) };
+  const next: Record<string, string> = {};
+  if (stored && typeof stored === "object" && !Array.isArray(stored))
+    for (const [name, text] of Object.entries(stored))
+      if (typeof text === "string") next[name] = text;
   for (const [name, text] of Object.entries(changes)) {
     if (text === null) delete next[name];
     else next[name] = text;

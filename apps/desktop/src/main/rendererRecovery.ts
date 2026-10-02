@@ -101,4 +101,10 @@ export class PlaceCheckpoint {
     this.restoring = null;
     return restoring?.state ?? null;
   }
+
+  /** Starts afresh: nothing remembered, nothing handed back. */
+  forget(): void {
+    this.place = null;
+    this.restoring = null;
+  }
 }

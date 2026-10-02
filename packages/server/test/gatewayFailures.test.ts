@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import WebSocket from "ws";
 import { PROTOCOL_VERSION, type ServerToClient } from "@slackoss/protocol";
 import { createWorkspaceServer, type WorkspaceServer } from "../src/server.js";
@@ -164,6 +164,40 @@ describe("socket callbacks that fail (F03)", () => {
     // Reconnecting replays what it missed.
     const again = await connect(reader.token);
     expect(again.closed()).toBe(null);
+    expect(await healthy()).toBe(true);
+  });
+
+  it("reads each session once, without nesting, when every read fails in a fan-out", async () => {
+    const devices = [];
+    for (let i = 0; i < 20; i++) {
+      const { data } = await request("POST", "/api/auth/register", undefined, {
+        handle: `crowd${i}`,
+        displayName: `Crowd ${i}`,
+        password: "password123",
+      });
+      devices.push(await connect(data.token));
+    }
+    // How deep each read sits: before, each person's last socket failing
+    // told everyone again from inside that failure, one level deeper per
+    // person, so a thousand people were a thousand nested broadcasts.
+    const depths: number[] = [];
+    const limit = Error.stackTraceLimit;
+    Error.stackTraceLimit = Infinity;
+    onTestFinished(() => void (Error.stackTraceLimit = limit));
+    const check = vi.spyOn(server.store, "isSessionActive").mockImplementation(() => {
+      depths.push(new Error().stack!.split("\n").length);
+      throw new Error("disk");
+    });
+
+    server.gateway.broadcastEphemeral(
+      { type: "presence", userId: "U_ANY", presence: "online" },
+      null,
+    );
+    for (const device of devices) await expect.poll(() => device.closed()).toBe(1011);
+    // Each session read once, and every read at the same depth.
+    expect(check.mock.calls.length).toBe(20);
+    expect(Math.max(...depths) - Math.min(...depths)).toBe(0);
+    expect(server.gateway.onlineUserIds()).toEqual([]);
     expect(await healthy()).toBe(true);
   });
 

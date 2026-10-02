@@ -84,6 +84,18 @@ describe("notification privacy when storage is damaged (F02)", () => {
     expect(view().error).toMatch(/could not read your choice/i);
   });
 
+  it("keeps the others private when one account saves beside a damaged choice", async () => {
+    const accountC = previewAccount("http://127.0.0.1:9", "U3");
+    localStorage.setItem(KEY, JSON.stringify({ [accountA]: "none", [accountB]: 123 }));
+    const view = await open("damaged-entry");
+    expect(previewFor(view(), accountB)).toBe("none");
+    await act(async () => view().setPreview(accountC, "sender"));
+    const reopened = await open("after-damaged-entry");
+    expect(previewFor(reopened(), accountA)).toBe("none");
+    expect(previewFor(reopened(), accountB)).toBe("none");
+    expect(previewFor(reopened(), accountC)).toBe("sender");
+  });
+
   it("stays private for a storage read that is refused", async () => {
     const platform: Platform = {
       kind: "web",

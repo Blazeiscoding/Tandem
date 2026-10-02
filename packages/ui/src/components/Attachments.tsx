@@ -264,10 +264,14 @@ function useFileResource(fileId: ID, enabled = true) {
       .catch((err) => {
         if (active) setState({ client, fileId, url: null, error: fileError(err) });
       });
-    // Deleted, or no longer readable: an open preview says so rather than
-    // going on showing it (F07).
+    // Taken away: deleted, no longer readable, or only perhaps so (a file
+    // whose conversation was not known goes with any lost access). An open
+    // preview stops showing it and asks the server again, which answers
+    // with the file, or with why it is unavailable (F07).
     const stop = client.files.onInvalidate((gone) => {
-      if (active && gone === fileId) setState({ client, fileId, url: null, error: UNAVAILABLE });
+      if (!active || gone !== fileId) return;
+      setState({ client, fileId, url: null, error: null });
+      setAttempt((n) => n + 1);
     });
     return () => {
       active = false;

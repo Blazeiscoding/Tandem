@@ -153,6 +153,11 @@ test("a binary file is hashed byte for byte, and text by its committed line endi
     const named = inputsHash(ARTIFACTS.web.inputs, root);
     put("packages/ui/src/data.json", Buffer.from([0x00, 0x0a]));
     assert.notEqual(inputsHash(ARTIFACTS.web.inputs, root), named);
+    // Named text files without an extension are text as well, on any platform.
+    put("packages/ui/LICENSE", "MIT\r\n");
+    const license = inputsHash(ARTIFACTS.web.inputs, root);
+    put("packages/ui/LICENSE", "MIT\n");
+    assert.equal(inputsHash(ARTIFACTS.web.inputs, root), license);
     put("packages/ui/src/style.css", "a {}\r\n");
     const text = inputsHash(ARTIFACTS.web.inputs, root);
     put("packages/ui/src/style.css", "a {}\n");

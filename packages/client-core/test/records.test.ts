@@ -15,11 +15,17 @@ describe("record merges", () => {
     });
   });
 
-  it("replaces a stored value that is not a record of text", () => {
+  it("replaces a stored value that is not a record, and keeps good entries beside a bad one", () => {
     for (const damaged of ["text", 7, ["none"], { "http://a U1": 3 }])
       expect(applyRecordChanges(damaged, { "http://a U1": "none" })).toEqual({
         "http://a U1": "none",
       });
+    expect(
+      applyRecordChanges(
+        { "http://a U1": "none", "http://a U2": 123 },
+        { "http://a U3": "sender" },
+      ),
+    ).toEqual({ "http://a U1": "none", "http://a U3": "sender" });
     expect(readStoredRecord(["none"])).toBe(null);
     expect(readStoredRecord(null)).toEqual({});
   });

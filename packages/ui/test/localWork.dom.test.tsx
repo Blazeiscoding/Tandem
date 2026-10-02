@@ -216,6 +216,85 @@ describe("a send's words before the device keeps it (GL-02)", () => {
     // Sent once, not queued twice.
     expect(client.state.pending).toHaveLength(1);
   });
+  it("wait for words still being written for a restart, and warn if that write fails", async () => {
+    const device = sharedDevice();
+    const platform = device.window();
+    const client = signedIn();
+    vi.spyOn(client.api, "sendMessage").mockImplementation(() => new Promise(() => {}));
+    const merge = platform.storage.mergeOutbox!;
+    platform.storage.mergeOutbox = async (...args) => {
+      if (args[1].put.length) throw new Error("quota exceeded");
+      return merge(...args);
+    };
+    const set = platform.storage.set;
+    let refuse!: () => void;
+    let writing = false;
+    platform.storage.set = (name, value) => {
+      if (!name.startsWith("unstored-sends:") || JSON.stringify(value) === "{}")
+        return set(name, value);
+      writing = true;
+      return new Promise((_, fail) => (refuse = () => fail(new Error("disk full"))));
+    };
+    const box = mount(platform, client);
+    await waitFor(() => expect(device.values.has("outbox:http://127.0.0.1:9:U1")).toBe(true));
+
+    await typeAndSend(box, "words in a slow write");
+    await waitFor(() => expect(writing).toBe(true));
+    // Another save fails meanwhile and asks for the same words to be kept:
+    // drafts wait 600 ms after the last change, the composer's own included.
+    act(() => client.setDraft("C2", "elsewhere"));
+    await act(() => new Promise((r) => setTimeout(r, 1500)));
+    expect(box.value).toBe("words in a slow write");
+
+    act(() => refuse());
+    await waitFor(() => expect(box.value).toBe(""));
+    expect(
+      screen
+        .getAllByRole("alert")
+        .map((a) => a.textContent)
+        .join(" "),
+    ).toMatch(/could not be saved on this device/);
+  });
+
+  it("let another conversation send while one waits to be kept", async () => {
+    const device = sharedDevice();
+    const platform = device.window();
+    const client = signedIn();
+    client.store.setState((state) => ({
+      channels: { ...state.channels, C2: { ...state.channels.C1!, id: "C2", name: "random" } },
+    }));
+    vi.spyOn(client.api, "sendMessage").mockImplementation(() => new Promise(() => {}));
+    let resume!: () => void;
+    const until = new Promise<void>((resolve) => (resume = resolve));
+    releases.push(resume);
+    const merge = platform.storage.mergeOutbox!;
+    platform.storage.mergeOutbox = async (...args) => {
+      if (args[1].put.some((entry) => entry.channelId === "C1")) await until;
+      return merge(...args);
+    };
+    const view = render(
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <DraftPersistence platform={platform} />
+          <Composer channelId="C1" placeholder="Message test" />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
+    );
+    await waitFor(() => expect(device.values.has("outbox:http://127.0.0.1:9:U1")).toBe(true));
+    await typeAndSend(screen.getByRole("textbox", { name: "Message test" }), "held in C1");
+    view.rerender(
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <DraftPersistence platform={platform} />
+          <Composer channelId="C2" placeholder="Message test" />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
+    );
+    const box = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message test" });
+    expect(box.readOnly).toBe(false);
+    await typeAndSend(box, "sent from C2");
+    expect(client.state.pending.map((p) => p.text)).toEqual(["held in C1", "sent from C2"]);
+  });
 });
 
 describe("two windows writing the same draft (GL-03)", () => {
@@ -312,5 +391,52 @@ describe("two windows writing the same draft (GL-03)", () => {
       timeout: 3000,
     });
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("keeps typing since a conflicted write beside the other window's text, once", async () => {
+    const device = sharedDevice();
+    const key = "drafts:http://127.0.0.1:9:U1";
+    const first = signedIn();
+    const second = signedIn();
+    const firstWindow = device.window();
+    const mergeDrafts = firstWindow.storage.mergeDrafts!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    releases.push(release);
+    let held = false;
+    firstWindow.storage.mergeDrafts = async (...args) => {
+      if (args[1].put.C1 === "hello") {
+        held = true;
+        await gate;
+      }
+      return mergeDrafts(...args);
+    };
+    render(
+      <ClientContext.Provider value={first}>
+        <DraftPersistence platform={firstWindow} />
+      </ClientContext.Provider>,
+    );
+    render(
+      <ClientContext.Provider value={second}>
+        <DraftPersistence platform={device.window()} />
+      </ClientContext.Provider>,
+    );
+    await waitFor(() => expect(device.values.has(key)).toBe(true));
+    act(() => {
+      first.setDraft("C1", "hello");
+      second.setDraft("C1", "bye");
+    });
+    await waitFor(() => expect(held).toBe(true), { timeout: 3000 });
+    await waitFor(() => expect((device.values.get(key) as Record<string, string>).C1).toBe("bye"), {
+      timeout: 3000,
+    });
+    // Typed on in the first window while its write was out.
+    act(() => first.setDraft("C1", "hello!"));
+    act(() => release());
+    await waitFor(() => expect(first.state.drafts.C1).toBe("hello!\n\nbye"), { timeout: 3000 });
+    await waitFor(
+      () => expect((device.values.get(key) as Record<string, string>).C1).toBe("hello!\n\nbye"),
+      { timeout: 3000 },
+    );
   });
 });

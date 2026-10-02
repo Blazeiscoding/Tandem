@@ -146,6 +146,8 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     // write has them; and that key's content as last written, as JSON.
     let carried: Record<string, UnstoredSend> = {};
     let unstoredJson = "{}";
+    // Whether the write of `unstoredJson` succeeded; pending while it is out.
+    let unstoredWrite: Promise<boolean> = Promise.resolve(true);
     setError(null);
     // Sends wait for this to say their words are kept here (GL-02).
     const releaseKeeper = keepLocalWork(client);
@@ -172,16 +174,20 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         for (const nonce of waitingLocalWork(client))
           if (want[nonce]) settleLocalWork(client, nonce, outcome);
       };
-      if (json === unstoredJson) return told("stored");
-      unstoredJson = json;
-      void writeWorkspaceStorage(platform, unstoredKey, want).then(
-        () => told("stored"),
-        () => {
-          // Unknown now: write it again next time.
-          unstoredJson = "";
-          told("unsaved");
-        },
-      );
+      // The same words written already, or still being written: kept once
+      // that write is, never before (GL-02).
+      if (json !== unstoredJson) {
+        unstoredJson = json;
+        unstoredWrite = writeWorkspaceStorage(platform, unstoredKey, want).then(
+          () => true,
+          () => {
+            // Unknown now: write it again next time.
+            if (unstoredJson === json) unstoredJson = "";
+            return false;
+          },
+        );
+      }
+      void unstoredWrite.then((saved) => told(saved ? "stored" : "unsaved"));
     };
 
     // The latest write of each part decides whether saving has failed.
@@ -316,7 +322,12 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
             // here since keeps its place beside them.
             conflicted = true;
             if (currentDrafts[key] !== text) {
-              next[key] = keepBothDrafts(currentDrafts[key] ?? "", stored[key]);
+              // The store holds this window's write beside the other's; the
+              // typing since replaces that write, not joins it.
+              const theirs = stored[key].startsWith(`${text}\n\n`)
+                ? stored[key].slice(text.length + 2)
+                : stored[key];
+              next[key] = keepBothDrafts(currentDrafts[key] ?? "", theirs);
               baseDrafts[key] = stored[key];
               mine.add(key);
               changed = true;

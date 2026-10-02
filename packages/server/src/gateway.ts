@@ -104,7 +104,9 @@ export class Gateway {
    * of fan-out first, so nothing more reaches it while it closes.
    */
   private fail(client: Client | null, ws: WebSocket): void {
-    if (client) this.contained("unregister", () => this.unregister(client));
+    // Told about afterwards, not here: telling others reads their sessions,
+    // which are failing too, and each failure would tell everyone again.
+    if (client) this.contained("unregister", () => this.unregister(client, true));
     try {
       ws.close(1011, "server error");
     } catch {
@@ -387,7 +389,7 @@ export class Gateway {
    * read that throws while telling others still leaves this person out of
    * fan-out, presence and every huddle (F03); each notice then fails alone.
    */
-  private unregister(client: Client): void {
+  private unregister(client: Client, later = false): void {
     if (!this.clients.delete(client)) return;
     const set = this.byUser.get(client.userId);
     if (!set) return;
@@ -399,6 +401,16 @@ export class Gateway {
     const left = [...this.huddles.keys()].filter((channelId) =>
       this.dropFromHuddle(channelId, client.userId),
     );
+    if (later) {
+      for (const channelId of left) this.departures.huddles.add(channelId);
+      this.departures.users.add(client.userId);
+      this.presenceChanged();
+      if (!this.departures.scheduled) {
+        this.departures.scheduled = true;
+        setImmediate(() => this.contained("departures", () => this.announceDepartures()));
+      }
+      return;
+    }
     for (const channelId of left) {
       this.contained("huddle departure", () => this.publishHuddle(channelId));
     }
@@ -503,11 +515,42 @@ export class Gateway {
   }
 
   /** Tells the channel who is in its huddle now. */
-  private publishHuddle(channelId: ID): void {
+  private publishHuddle(channelId: ID, authorized?: (client: Client) => boolean): void {
     this.broadcastEphemeral(
       { type: "huddle.participants", channelId, userIds: [...(this.huddles.get(channelId) ?? [])] },
       this.audienceForChannel(channelId),
+      authorized,
     );
+  }
+
+  /** Who went offline when their sockets failed, not yet told to anyone. */
+  private departures = { users: new Set<ID>(), huddles: new Set<ID>(), scheduled: false };
+
+  /**
+   * Tells everyone at once about the people whose sockets failed, with one
+   * session check for the whole batch (F03). A socket whose session cannot
+   * be read here fails too and is told about in the next batch, so a
+   * failing database costs a read per session, not one per notice per
+   * session, and no failure nests inside another.
+   */
+  private announceDepartures(): void {
+    const { users, huddles } = this.departures;
+    this.departures = { users: new Set(), huddles: new Set(), scheduled: false };
+    if (this.closing) return;
+    const authorized = this.sessionCheck();
+    for (const channelId of huddles)
+      this.contained("huddle departure", () => this.publishHuddle(channelId, authorized));
+    for (const userId of users) {
+      // Back already, on a socket that told everyone so.
+      if (this.byUser.has(userId)) continue;
+      this.contained("presence", () =>
+        this.broadcastEphemeral(
+          { type: "presence", userId, presence: "offline" },
+          null,
+          authorized,
+        ),
+      );
+    }
   }
 
   /** Participants of one channel's huddle, for tests and diagnostics. */
@@ -654,9 +697,12 @@ export class Gateway {
       if (authorized(c)) this.sendRaw(c.ws, frame);
   }
 
-  broadcastEphemeral(event: EphemeralEvent, audience: Set<ID> | null): void {
+  broadcastEphemeral(
+    event: EphemeralEvent,
+    audience: Set<ID> | null,
+    authorized: (client: Client) => boolean = this.sessionCheck(),
+  ): void {
     const frame = JSON.stringify({ type: "ephemeral", event } satisfies ServerToClient);
-    const authorized = this.sessionCheck();
     for (const c of this.reach(audience)) if (authorized(c)) this.sendRaw(c.ws, frame);
   }
 

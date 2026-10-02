@@ -53,11 +53,14 @@ export const SHARED_INPUTS = [
 const TEXT =
   /\.([cm]?[jt]sx?|json|jsonc|md|css|html?|ya?ml|svg|txt|xml|map|webmanifest|ps1|sh|nsh|cjs|mjs)$|(^|\/)(\.npmrc|\.gitattributes|\.gitignore|LICENSE)$/i;
 
-/** The bytes a file is hashed as. */
-function contents(path) {
+/**
+ * The bytes a file is hashed as. `name` is its path from the root with `/`
+ * separators, so a Windows path's backslashes decide nothing.
+ */
+function contents(path, name) {
   const bytes = readFileSync(path);
   // A NUL byte is binary whatever the name says, as git decides.
-  if (!TEXT.test(path) || bytes.subarray(0, 8000).includes(0)) return bytes;
+  if (!TEXT.test(name) || bytes.subarray(0, 8000).includes(0)) return bytes;
   return Buffer.from(bytes.toString("latin1").replaceAll("\r\n", "\n"), "latin1");
 }
 
@@ -125,7 +128,7 @@ export function inputsHash(inputs, root = ROOT) {
   for (const path of paths) {
     hash.update(path);
     hash.update("\0");
-    hash.update(contents(join(root, path)));
+    hash.update(contents(join(root, path), path));
     hash.update("\0");
   }
   return hash.digest("hex").slice(0, 16);

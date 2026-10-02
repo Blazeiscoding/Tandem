@@ -64,6 +64,8 @@ interface Previews {
   loaded: boolean;
   /** The saved choices could not be read, so none of them is known. */
   unreadable: boolean;
+  /** Some saved choice was damaged, so some account's choice is not known. */
+  damaged: boolean;
   saving: boolean;
   error: string | null;
   setPreview: (account: string, preview: NotificationPreview) => Promise<void>;
@@ -107,7 +109,13 @@ function readSaved(saved: unknown): {
 
 function createPreviews(platform: Platform) {
   const unreadable = () =>
-    store.setState({ byAccount: {}, loaded: true, unreadable: true, error: UNREADABLE });
+    store.setState({
+      byAccount: {},
+      loaded: true,
+      unreadable: true,
+      damaged: true,
+      error: UNREADABLE,
+    });
   const apply = (saved: unknown) => {
     const read = readSaved(saved);
     if (!read) return unreadable();
@@ -115,6 +123,7 @@ function createPreviews(platform: Platform) {
       byAccount: read.byAccount,
       loaded: true,
       unreadable: false,
+      damaged: read.damaged,
       error: read.damaged ? UNREADABLE : null,
     });
   };
@@ -122,15 +131,16 @@ function createPreviews(platform: Platform) {
     byAccount: {},
     loaded: false,
     unreadable: false,
+    damaged: false,
     saving: false,
     error: null,
     setPreview: async (account, preview) => {
-      const { loaded, saving, byAccount, unreadable: lost } = store.getState();
+      const { loaded, saving, byAccount, damaged } = store.getState();
       if (!loaded || saving) return;
-      // Choosing again after the saved choices were lost keeps every other
-      // account on this device private, rather than showing all for them.
+      // Choosing again after saved choices were lost or damaged keeps every
+      // account whose choice is not known private, rather than showing all.
       const changes: Record<string, string> = { [account]: preview };
-      if (lost) changes[UNKNOWN] = "none";
+      if (damaged) changes[UNKNOWN] = "none";
       store.setState({ saving: true, error: null });
       try {
         if (platform.storage.mergeRecord) {

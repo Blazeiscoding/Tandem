@@ -65,6 +65,15 @@ describe("the page's place across a recovery", () => {
     expect(place.take()).toEqual(saved);
   });
 
+  it("starts from nowhere once asked to open from the start", () => {
+    const place = new PlaceCheckpoint(trusted);
+    place.remember(`${PAGE}#/c/C1/p/saved`, saved);
+    place.recover();
+    place.forget();
+    expect(place.take()).toBe(null);
+    expect(place.recover()).toBe(null);
+  });
+
   it("knows no place before the page reports one", () => {
     const place = new PlaceCheckpoint(trusted);
     expect(place.recover()).toBe(null);

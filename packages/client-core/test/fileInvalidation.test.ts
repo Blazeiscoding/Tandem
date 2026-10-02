@@ -158,4 +158,34 @@ describe("the attachment cache's owners (F07)", () => {
     await expect(loading).rejects.toBeTruthy();
     expect(files.peek("a")).toBeUndefined();
   });
+
+  it("forgets a cancelled transfer's message, and asks again for the next one", async () => {
+    const known = new Map<string, { channelId: string; messageId: string } | null>([["d", null]]);
+    let finish!: (blob: Blob) => void;
+    const files = new FileCache(
+      {
+        // As the real one: an aborted transfer rejects.
+        fetchFile: (_id: string, signal: AbortSignal) =>
+          new Promise<Blob>((done, fail) => {
+            finish = done;
+            signal.addEventListener("abort", () => fail(signal.reason), { once: true });
+          }),
+      } as never,
+      undefined,
+      (id) => known.get(id) ?? null,
+    );
+    files.retain("d");
+    const first = files.get("d");
+    // Scrolled away: the last view goes and the transfer is cancelled.
+    files.release("d");
+    await expect(first).rejects.toBeTruthy();
+    expect((files as unknown as { owners: Map<string, unknown> }).owners.size).toBe(0);
+    // Its message has loaded since, so the next transfer knows it.
+    known.set("d", { channelId: "C1", messageId: "M4" });
+    const second = files.get("d");
+    finish(new Blob(["x"]));
+    await second;
+    files.invalidateMessage("M4");
+    expect(files.peek("d")).toBeUndefined();
+  });
 });
