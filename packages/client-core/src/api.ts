@@ -267,7 +267,7 @@ export class Api {
 
   listMessages(
     channelId: ID,
-    opts: { before?: ID; limit?: number; threadRootId?: ID } = {},
+    opts: { before?: ID; limit?: number; threadRootId?: ID; signal?: AbortSignal } = {},
   ): Promise<{ messages: Message[]; readThroughSeq?: number; seq?: number }> {
     const params = new URLSearchParams();
     if (opts.before) params.set("before", opts.before);
@@ -276,6 +276,7 @@ export class Api {
     const qs = params.size > 0 ? `?${params}` : "";
     return this.request("GET", `/api/channels/${channelId}/messages${qs}`, undefined, {
       timeoutMs: 10_000,
+      signal: opts.signal,
     });
   }
 
@@ -284,6 +285,7 @@ export class Api {
     channelId: ID,
     messageId: ID,
     limit = 50,
+    signal?: AbortSignal,
   ): Promise<{
     messages: Message[];
     hasMoreOlder: boolean;
@@ -295,7 +297,7 @@ export class Api {
       "GET",
       `/api/channels/${channelId}/messages/around/${messageId}?limit=${limit}`,
       undefined,
-      { timeoutMs: 10_000 },
+      { timeoutMs: 10_000, signal },
     );
   }
 
@@ -303,19 +305,20 @@ export class Api {
     channelId: ID,
     afterId: ID,
     limit = 50,
+    signal?: AbortSignal,
   ): Promise<{ messages: Message[]; seq?: number }> {
     return this.request(
       "GET",
       `/api/channels/${channelId}/messages/after/${afterId}?limit=${limit}`,
       undefined,
-      { timeoutMs: 10_000 },
+      { timeoutMs: 10_000, signal },
     );
   }
 
   threadHistory(
     channelId: ID,
     rootId: ID,
-    opts: { before?: ID; after?: ID; around?: ID; limit?: number } = {},
+    opts: { before?: ID; after?: ID; around?: ID; limit?: number; signal?: AbortSignal } = {},
   ): Promise<{
     root: Message;
     messages: Message[];
@@ -323,14 +326,15 @@ export class Api {
     hasMoreNewer: boolean;
     seq: number;
   }> {
+    const { signal, ...params } = opts;
     const query = new URLSearchParams();
-    for (const [key, value] of Object.entries(opts))
+    for (const [key, value] of Object.entries(params))
       if (value !== undefined) query.set(key, String(value));
     return this.request(
       "GET",
       `/api/channels/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(rootId)}?${query}`,
       undefined,
-      { timeoutMs: 10_000 },
+      { timeoutMs: 10_000, signal },
     );
   }
 

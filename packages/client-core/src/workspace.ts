@@ -205,7 +205,28 @@ interface TimelineLoad {
   events: EventEnvelope[];
   seen: Set<number>;
   overflow: boolean;
+  /**
+   * Stops its transfer once nothing will use the answer (REV-05): a newer
+   * window for the conversation, eviction, revocation, a reset or destroy.
+   */
+  controller: AbortController;
+  /** Which window it reads, so an identical request can share it. */
+  key: string;
+  /** The load in flight for `key`, which an identical request joins. */
+  shared?: Promise<void>;
 }
+
+/** A thread page in flight, with what it needs to be joined or stopped (REV-05). */
+interface ThreadLoad {
+  events: EventEnvelope[];
+  overflow: boolean;
+  controller: AbortController;
+  key: string;
+  shared?: Promise<void>;
+}
+
+/** Whether a load failed because this client stopped it on purpose, which is not an error. */
+const stoppedOnPurpose = (controller: AbortController) => controller.signal.aborted;
 
 /** Remember which socket events a page already includes, even if they arrive later. */
 function snapshotTimeline(timeline: ChannelTimeline, seq: number | undefined): ChannelTimeline {
@@ -630,7 +651,7 @@ export class WorkspaceClient {
   private historyEpoch = 0;
   private reloadChannels = new Set<ID>();
   private reloadThreads = new Map<ID, ID>();
-  private threadLoads = new Map<ID, { events: EventEnvelope[]; overflow: boolean }>();
+  private threadLoads = new Map<ID, ThreadLoad>();
   private messageJump = 0;
   private timelineRequests = new Map<ID, object>();
   /** Events held until their history page's snapshot sequence decides which to replay. */
@@ -681,6 +702,7 @@ export class WorkspaceClient {
     this.choices.clear();
     this.prefsWrites.clear();
     this.historyEpoch++;
+    this.abortHistoryLoads();
     this.timelineRequests.clear();
     this.timelineHolds.clear();
     this.threadLoads.clear();
@@ -891,8 +913,15 @@ export class WorkspaceClient {
     }
   }
 
+  /** Stops every history transfer in flight; nothing will use their answers. */
+  private abortHistoryLoads(): void {
+    for (const hold of this.timelineHolds.values()) hold.controller.abort();
+    for (const load of this.threadLoads.values()) load.controller.abort();
+  }
+
   private resetHistory(): void {
     this.historyEpoch++;
+    this.abortHistoryLoads();
     for (const id of this.timelineHolds.keys()) this.reloadChannels.add(id);
     this.timelineRequests.clear();
     this.timelineHolds.clear();
@@ -926,6 +955,7 @@ export class WorkspaceClient {
 
   private removeChannel(channelId: ID): void {
     this.timelineRequests.delete(channelId);
+    this.timelineHolds.get(channelId)?.controller.abort();
     this.timelineHolds.delete(channelId);
     this.timelineRecency.delete(channelId);
     this.pendingReads.delete(channelId);
@@ -939,6 +969,7 @@ export class WorkspaceClient {
     // A choice for a channel this account can no longer see has nowhere to go.
     this.prefsWrites.delete(channelId);
     for (const id of roots) {
+      this.threadLoads.get(id)?.controller.abort();
       this.threadLoads.delete(id);
       this.threadRecency.delete(id);
     }
@@ -1531,6 +1562,7 @@ export class WorkspaceClient {
       delete timelines[victim];
       this.timelineRecency.delete(victim);
       this.timelineRequests.delete(victim);
+      this.timelineHolds.get(victim)?.controller.abort();
       this.timelineHolds.delete(victim);
       this.reloadChannels.delete(victim);
     }
@@ -1538,6 +1570,7 @@ export class WorkspaceClient {
       delete threads[victim];
       delete threadPages[victim];
       this.threadRecency.delete(victim);
+      this.threadLoads.get(victim)?.controller.abort();
       this.threadLoads.delete(victim);
       this.reloadThreads.delete(victim);
     }
@@ -1545,14 +1578,20 @@ export class WorkspaceClient {
     this.store.setState({ timelines, threads, threadPages });
   }
 
-  /** Each conversation accepts only its most recently requested history window. */
-  private beginTimelineRequest(channelId: ID): TimelineLoad {
+  /**
+   * Each conversation accepts only its most recently requested history window,
+   * so the window it replaces stops its transfer too (REV-05).
+   */
+  private beginTimelineRequest(channelId: ID, key: string): TimelineLoad {
+    this.timelineHolds.get(channelId)?.controller.abort();
     const ticket: TimelineLoad = {
       ticket: {},
       startSeq: this.state.lastSeq,
       events: [],
       seen: new Set(),
       overflow: false,
+      controller: new AbortController(),
+      key,
     };
     this.timelineRequests.set(channelId, ticket.ticket);
     this.timelineHolds.set(channelId, ticket);
@@ -1593,12 +1632,34 @@ export class WorkspaceClient {
     if (tl?.loaded) this.touchHistory("timeline", channelId);
     if (tl?.loaded && !opts.older && !opts.latest) return;
     if (opts.older && (!tl?.hasMore || tl.items.length === 0)) return;
-    const ticket = this.beginTimelineRequest(channelId);
-
     const before = opts.older ? tl!.items[0]!.id : undefined;
+    // The same window already on its way: wait for it rather than ask twice.
+    const key = before ? `older:${before}` : "tail";
+    const running = this.timelineHolds.get(channelId);
+    if (running?.key === key && running.shared) return running.shared;
+    const ticket = this.beginTimelineRequest(channelId, key);
+    ticket.shared = this.fetchTimeline(channelId, opts, tl, epoch, ticket, before);
+    return ticket.shared;
+  }
+
+  private async fetchTimeline(
+    channelId: ID,
+    opts: { older?: boolean; latest?: boolean },
+    tl: ChannelTimeline | undefined,
+    epoch: number,
+    ticket: TimelineLoad,
+    before: ID | undefined,
+  ): Promise<void> {
     let answer: Awaited<ReturnType<Api["listMessages"]>>;
     try {
-      answer = await this.api.listMessages(channelId, { before, limit: 50 });
+      answer = await this.api.listMessages(channelId, {
+        before,
+        limit: 50,
+        signal: ticket.controller.signal,
+      });
+    } catch (error) {
+      if (stoppedOnPurpose(ticket.controller)) return;
+      throw error;
     } finally {
       this.releaseTimelineRequest(channelId, ticket);
     }
@@ -1681,10 +1742,18 @@ export class WorkspaceClient {
       existing.items.some((m) => m.id === messageId)
     )
       return null;
-    const timelineTicket = this.beginTimelineRequest(channelId);
+    const timelineTicket = this.beginTimelineRequest(channelId, `around:${messageId}`);
     let answer: Awaited<ReturnType<Api["listMessagesAround"]>>;
     try {
-      answer = await this.api.listMessagesAround(channelId, messageId);
+      answer = await this.api.listMessagesAround(
+        channelId,
+        messageId,
+        50,
+        timelineTicket.controller.signal,
+      );
+    } catch (error) {
+      if (stoppedOnPurpose(timelineTicket.controller)) return;
+      throw error;
     } finally {
       this.releaseTimelineRequest(channelId, timelineTicket);
     }
@@ -1736,11 +1805,14 @@ export class WorkspaceClient {
     const epoch = this.historyEpoch;
     const tl = this.state.timelines[channelId];
     if (!tl?.loaded || !tl.hasMoreNewer || tl.items.length === 0) return;
-    const ticket = this.beginTimelineRequest(channelId);
     const newest = tl.items[tl.items.length - 1]!;
+    const ticket = this.beginTimelineRequest(channelId, `newer:${newest.id}`);
     let answer: Awaited<ReturnType<Api["listMessagesAfter"]>>;
     try {
-      answer = await this.api.listMessagesAfter(channelId, newest.id, 50);
+      answer = await this.api.listMessagesAfter(channelId, newest.id, 50, ticket.controller.signal);
+    } catch (error) {
+      if (stoppedOnPurpose(ticket.controller)) return;
+      throw error;
     } finally {
       this.releaseTimelineRequest(channelId, ticket);
     }
@@ -1818,9 +1890,47 @@ export class WorkspaceClient {
         (direction === "older" ? !previous?.hasMoreOlder : !previous?.hasMoreNewer))
     )
       return;
-    const epoch = this.historyEpoch;
-    const request = { events: [] as EventEnvelope[], overflow: false };
+    // The same page already on its way: wait for it rather than ask twice.
+    // A different one replaces it, so its transfer stops (REV-05).
+    const key = `${direction}:${
+      direction === "older"
+        ? items[0]!.id
+        : direction === "newer"
+          ? items.at(-1)!.id
+          : (around ?? "")
+    }`;
+    const running = this.threadLoads.get(threadRootId);
+    if (running?.key === key && running.shared) return running.shared;
+    running?.controller.abort();
+    const request: ThreadLoad = {
+      events: [],
+      overflow: false,
+      controller: new AbortController(),
+      key,
+    };
     this.threadLoads.set(threadRootId, request);
+    request.shared = this.fetchThread(
+      threadRootId,
+      channelId,
+      direction,
+      around,
+      previous,
+      items,
+      request,
+    );
+    return request.shared;
+  }
+
+  private async fetchThread(
+    threadRootId: ID,
+    channelId: ID,
+    direction: "latest" | "older" | "newer",
+    around: ID | undefined,
+    previous: ThreadPage | undefined,
+    items: Message[],
+    request: ThreadLoad,
+  ): Promise<void> {
+    const epoch = this.historyEpoch;
     this.store.setState((s) => ({
       threads: { ...s.threads, [threadRootId]: items },
       threadPages: {
@@ -1855,6 +1965,7 @@ export class WorkspaceClient {
               ? { around }
               : {}),
         limit: 50,
+        signal: request.controller.signal,
       });
       if (!current()) return;
       if (request.overflow) throw new Error("Thread changed too quickly to reconcile this page");
