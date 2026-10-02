@@ -43,6 +43,11 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       - run: pnpm exec prettier --check .
+      # The browser and desktop tests, their configs and the measurement
+      # scripts belong to no workspace package, so they are checked here,
+      # before anything expensive runs (REV-08).
+      - name: Typecheck tests and scripts
+        run: pnpm typecheck:automation
       - name: Verify task-cache inputs
         run: node scripts/check-ci-cache.mjs
       # The desktop archive gate runs on the Windows package; its own tests

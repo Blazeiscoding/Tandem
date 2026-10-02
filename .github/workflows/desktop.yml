@@ -13,6 +13,7 @@ on:
       - "packages/ui/**"
       - "tests/e2e/desktop.spec.ts"
       - "playwright.desktop.config.ts"
+      - "tsconfig.automation.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "package.json"
@@ -70,6 +71,9 @@ jobs:
           CI_EVENT_NAME: ${{ github.event_name }}
           CI_BUILD_INSTALLER: ${{ inputs.installer }}
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      # A type error in the desktop tests fails here, before packaging (REV-08).
+      - name: Typecheck tests and scripts
+        run: pnpm typecheck:automation
       - name: Package unpacked app
         if: steps.packaging.outputs.installer == 'false'
         run: pnpm --filter @slackoss/desktop package --win --dir

@@ -83,7 +83,9 @@ never has anything to find.
 
 Use Node 24+ and pnpm 10.23.0 (`corepack enable`). Install with
 `pnpm install --frozen-lockfile`, then run `pnpm format`, `pnpm build`,
-`pnpm typecheck`, and `pnpm test` before submitting a pull request. CI checks
+`pnpm typecheck`, `pnpm typecheck:automation` (the browser and desktop tests,
+their configs and `scripts/`), and `pnpm test` before submitting a pull
+request. CI checks
 formatting, so an unformatted file fails the build rather than starting an
 argument in review.
 
