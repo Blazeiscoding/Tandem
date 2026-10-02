@@ -350,6 +350,89 @@ export interface EphemeralMessage {
   createdAt: number;
 }
 
+/**
+ * How many private answers are kept (REV-04). They are never stored, but a
+ * long session of commands would otherwise keep every one, in memory and on
+ * screen. The newest are kept, per conversation and across the workspace;
+ * what is let go is counted, so the conversation can say so, and none of its
+ * text is kept. No answer expires by age: one stays until it is dismissed,
+ * newer ones push it out, its conversation is left, or the app reloads.
+ */
+export const EPHEMERAL_LIMITS = {
+  /** Answers kept in one conversation, which is also how many it shows. */
+  perConversation: 20,
+  /** Answers kept across the workspace. */
+  total: 100,
+  /** Characters of answer text kept across the workspace, about 0.8 MB. */
+  totalChars: 400_000,
+  /** Characters kept of one answer; a longer one is cut, and says so. */
+  answerChars: 40_000,
+} as const;
+
+/** What replaces the end of an answer too long to keep whole. */
+export const EPHEMERAL_CUT_NOTE = "\n\n_(The rest of this answer was too long to keep.)_";
+
+/**
+ * Adds a private answer within EPHEMERAL_LIMITS. An answer with an id already
+ * shown replaces that one, in place in the same conversation, rather than
+ * adding a second row.
+ * Returns the answers kept and, per conversation, how many were let go.
+ */
+export function keepEphemeral(
+  ephemerals: Record<ID, EphemeralMessage[]>,
+  dropped: Record<ID, number>,
+  incoming: EphemeralMessage,
+): { ephemerals: Record<ID, EphemeralMessage[]>; ephemeralsDropped: Record<ID, number> } {
+  const { perConversation, total, totalChars, answerChars } = EPHEMERAL_LIMITS;
+  const message =
+    incoming.text.length > answerChars
+      ? { ...incoming, text: incoming.text.slice(0, answerChars) + EPHEMERAL_CUT_NOTE }
+      : incoming;
+  const next = { ...ephemerals };
+  const counts = { ...dropped };
+  // Ids are the server's and unique: one arriving again elsewhere moves here.
+  for (const [channelId, list] of Object.entries(next)) {
+    if (channelId === message.channelId || !list.some((e) => e.id === message.id)) continue;
+    const kept = list.filter((e) => e.id !== message.id);
+    if (kept.length > 0) next[channelId] = kept;
+    else delete next[channelId];
+  }
+  const letGo = (channelId: ID, n: number) => {
+    if (n > 0) counts[channelId] = (counts[channelId] ?? 0) + n;
+  };
+  const here = next[message.channelId] ?? [];
+  const at = here.findIndex((e) => e.id === message.id);
+  if (at >= 0) next[message.channelId] = here.map((e, i) => (i === at ? message : e));
+  else {
+    const added = [...here, message];
+    letGo(message.channelId, added.length - perConversation);
+    next[message.channelId] = added.slice(-perConversation);
+  }
+  // Across the workspace, the oldest go first; never the one just added.
+  const all = Object.values(next)
+    .flat()
+    .sort((a, b) => a.createdAt - b.createdAt);
+  let count = all.length;
+  let chars = all.reduce((sum, e) => sum + e.text.length, 0);
+  const gone = new Set<EphemeralMessage>();
+  for (const e of all) {
+    if (count <= total && chars <= totalChars) break;
+    if (e === message) continue;
+    gone.add(e);
+    count--;
+    chars -= e.text.length;
+  }
+  if (gone.size > 0) {
+    for (const [channelId, list] of Object.entries(next)) {
+      const kept = list.filter((e) => !gone.has(e));
+      letGo(channelId, list.length - kept.length);
+      if (kept.length > 0) next[channelId] = kept;
+      else delete next[channelId];
+    }
+  }
+  return { ephemerals: next, ephemeralsDropped: counts };
+}
+
 export interface WorkspaceState {
   friends: Friendship[];
   status: ConnectionStatus;
@@ -402,8 +485,10 @@ export interface WorkspaceState {
   drafts: Record<ID, string>;
   /** channelId -> who is in that channel's huddle right now. */
   huddles: Record<ID, ID[]>;
-  /** Private replies per channel, newest last. */
+  /** Private replies per channel, newest last, within EPHEMERAL_LIMITS. */
   ephemerals: Record<ID, EphemeralMessage[]>;
+  /** channelId -> private replies let go there to stay within the limits. */
+  ephemeralsDropped: Record<ID, number>;
   /** A form an app has asked this person to fill in, or null. */
   modal: ModalView | null;
   /** Commands that can be typed here; loaded once after connecting. */
@@ -440,6 +525,7 @@ const initialState: WorkspaceState = {
   huddles: {},
   huddle: null,
   ephemerals: {},
+  ephemeralsDropped: {},
   modal: null,
   commands: [],
 };
@@ -833,6 +919,7 @@ export class WorkspaceClient {
       threadPages: {},
       typing: {},
       ephemerals: {},
+      ephemeralsDropped: {},
       modal: null,
     });
   }
@@ -881,6 +968,7 @@ export class WorkspaceClient {
       typing: without(state.typing),
       huddles: without(state.huddles),
       ephemerals: without(state.ephemerals),
+      ephemeralsDropped: without(state.ephemeralsDropped),
       threads: Object.fromEntries(
         Object.entries(state.threads).filter(
           ([id, replies]) => !roots.has(id) && !replies.some((m) => m.channelId === channelId),
@@ -2754,12 +2842,17 @@ export class WorkspaceClient {
   }
 
   private addEphemeral(message: EphemeralMessage): void {
-    this.store.setState((s) => ({
-      ephemerals: {
-        ...s.ephemerals,
-        [message.channelId]: [...(s.ephemerals[message.channelId] ?? []), message],
-      },
-    }));
+    this.store.setState((s) => keepEphemeral(s.ephemerals, s.ephemeralsDropped, message));
+  }
+
+  /** Forgets that private replies were let go here, once the notice is dismissed. */
+  dismissDroppedEphemerals(channelId: ID): void {
+    this.store.setState((s) => {
+      if (!(channelId in s.ephemeralsDropped)) return {};
+      const ephemeralsDropped = { ...s.ephemeralsDropped };
+      delete ephemeralsDropped[channelId];
+      return { ephemeralsDropped };
+    });
   }
 
   dismissEphemeral(channelId: ID, id: ID): void {
