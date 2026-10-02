@@ -12,7 +12,7 @@ export function LazyPanel(props: { name: string; onClose: () => void; children: 
       fallback={
         <aside
           aria-label={`${props.name} unavailable`}
-          className="w-[420px] max-w-full border-l border-edge bg-ground p-5 text-sm"
+          className="w-[420px] max-w-full border-l border-edge bg-raised p-5 text-sm"
         >
           <p role="alert">
             {props.name} could not load. Close it to keep chatting, or reload the app to try again.
@@ -28,7 +28,7 @@ export function LazyPanel(props: { name: string; onClose: () => void; children: 
         fallback={
           <aside
             role="status"
-            className="w-[420px] max-w-full border-l border-edge bg-ground p-5 text-sm text-ink-faint"
+            className="w-[420px] max-w-full border-l border-edge bg-raised p-5 text-sm text-ink-faint"
           >
             Loading {props.name.toLowerCase()}…
             <button className="ml-3 text-copper" onClick={props.onClose}>

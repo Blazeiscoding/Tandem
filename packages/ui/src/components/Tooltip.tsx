@@ -32,7 +32,8 @@ interface Props {
   label: string;
   /** The keyboard shortcut that does the same thing, if there is one. */
   keys?: string;
-  side?: "top" | "bottom";
+  /** Where it prefers to open; it flips to the other side when that does not fit. */
+  side?: "top" | "bottom" | "right";
   children: ReactElement<TriggerProps>;
 }
 
@@ -200,20 +201,31 @@ export function Tooltip({ label, keys, side: preferredSide = "top", children }: 
     const height = tooltipBox.height || tooltip.offsetHeight;
     const fitsTop = anchorBox.top - height >= VIEWPORT_MARGIN;
     const fitsBottom = anchorBox.bottom + height <= window.innerHeight - VIEWPORT_MARGIN;
+    const fitsRight = anchorBox.right + width <= window.innerWidth - VIEWPORT_MARGIN;
     const side =
-      preferredSide === "top"
-        ? !fitsTop && fitsBottom
-          ? "bottom"
-          : "top"
-        : !fitsBottom && fitsTop
-          ? "top"
-          : "bottom";
+      preferredSide === "right" && fitsRight
+        ? "right"
+        : preferredSide === "top" || preferredSide === "right"
+          ? !fitsTop && fitsBottom
+            ? "bottom"
+            : "top"
+          : !fitsBottom && fitsTop
+            ? "top"
+            : "bottom";
     const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - width - VIEWPORT_MARGIN);
     const left = Math.max(
       VIEWPORT_MARGIN,
-      Math.min(anchorBox.left + anchorBox.width / 2 - width / 2, maxLeft),
+      Math.min(
+        side === "right" ? anchorBox.right : anchorBox.left + anchorBox.width / 2 - width / 2,
+        maxLeft,
+      ),
     );
-    const wantedTop = side === "top" ? anchorBox.top - height : anchorBox.bottom;
+    const wantedTop =
+      side === "right"
+        ? anchorBox.top + anchorBox.height / 2 - height / 2
+        : side === "top"
+          ? anchorBox.top - height
+          : anchorBox.bottom;
     const maxTop = Math.max(VIEWPORT_MARGIN, window.innerHeight - height - VIEWPORT_MARGIN);
 
     const top = Math.max(VIEWPORT_MARGIN, Math.min(wantedTop, maxTop));

@@ -2079,16 +2079,17 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     // A theme chosen in Account settings recolours the page at once, and a
     // reload keeps it.
     const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(await background()).toBe("rgb(25, 29, 41)");
+    // Onyx's ground, then White's.
+    expect(await background()).toBe("rgb(15, 15, 18)");
     await page.goto(`${origin}/#/c/${design.id}/d/account/appearance`);
     const appearance = page.getByRole("tabpanel", { name: "Appearance" });
-    await appearance.getByRole("radio", { name: /^Light/ }).check();
-    await expect.poll(background).toBe("rgb(248, 249, 252)");
+    await appearance.getByRole("radio", { name: /^White/ }).check();
+    await expect.poll(background).toBe("rgb(255, 255, 255)");
     await page.reload();
     await expect(page.locator("textarea")).toBeVisible();
-    await expect.poll(background).toBe("rgb(248, 249, 252)");
-    await appearance.getByRole("radio", { name: /^Dark/ }).check();
-    await expect.poll(background).toBe("rgb(25, 29, 41)");
+    await expect.poll(background).toBe("rgb(255, 255, 255)");
+    await appearance.getByRole("radio", { name: /^Onyx/ }).check();
+    await expect.poll(background).toBe("rgb(15, 15, 18)");
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
 
@@ -2572,7 +2573,8 @@ test("the layout holds at phone, tablet, laptop and short-window sizes", async (
       } else {
         await expect(navigation, where).toBeVisible();
         await expect(openNavigation, where).toBeHidden();
-        expect((await box(navigation)).width, where).toBe(264);
+        // The rail of workspaces and the channels beside it.
+        expect((await box(navigation)).width, where).toBe(320);
       }
       await page.screenshot({ path: info.outputPath(`layout-${size.name}.png`) });
 

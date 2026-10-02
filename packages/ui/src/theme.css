@@ -1,45 +1,56 @@
 /*
- * Gatherline visual identity: slate surfaces, a periwinkle accent, mono for
- * infrastructure (addresses, ports, codes). Dark by default, with light,
- * high-contrast and system (light or dark, as the device prefers) themes that
- * redefine the same tokens below; Account settings chooses, per device.
+ * Gatherline's look: Discord's shape with Slack's order. A rail of
+ * workspaces on the far left, the workspace's channels beside it, the
+ * conversation in the middle and threads, members or a panel on the right.
+ * Two themes for now, each a full set of the tokens below: Onyx, near-black
+ * surfaces stepping up in lightness from the rail to the conversation, and
+ * White. "System" picks whichever the device prefers. Account settings
+ * chooses, per device.
+ *
+ * Surfaces, darkest to lightest in Onyx (lightest to darkest in White):
+ * - deep: the workspace rail and the huddle stage, behind video;
+ * - raised: the sidebar, side panels and cards;
+ * - ground: the conversation, the page;
+ * - lifted: hover, menus, chips and the composer.
  *
  * The rest of the system, written down:
  * - Type: 10, 11, 12 and 13 px for metadata, labels and compact controls; 14 px
- *   (text-sm) for dialog and panel text; 15 px for messages and the page; 17 px
- *   for a conversation's name; text-lg and text-2xl for dialog and empty-state
- *   titles; 52 px once, for the sign-in page's headline. theme.test.ts fails
- *   on a size outside this scale.
+ *   (text-sm) for dialog and panel text; 15 px for messages and the page; 16
+ *   px for a sidebar heading; 17 px for a conversation's name; text-lg and
+ *   text-2xl for dialog and empty-state titles; 52 px once, for the sign-in
+ *   page's headline. theme.test.ts fails on a size outside this scale.
  * - Spacing: Tailwind's 4 px steps. Rows use 0.5 to 2, panels and dialogs 3 to
  *   6, and nothing sits on an odd pixel unless it lines up with an icon.
  * - Radius: rounded (4 px) for keys and chips inside text, rounded-lg for
  *   controls, rows and code blocks, rounded-md for the tabs inside a tab strip,
- *   rounded-xl for cards and message attachments, rounded-2xl for dialogs and
- *   video tiles, rounded-3xl for a card that fills a page, such as sign-in,
- *   rounded-full for avatars, dots and pills. theme.test.ts fails on any other.
+ *   rounded-xl for cards, the composer and message attachments, rounded-2xl
+ *   for dialogs, video tiles and a workspace's rail icon, rounded-3xl for a
+ *   card that fills a page, such as sign-in, rounded-full for avatars, dots
+ *   and pills. theme.test.ts fails on any other.
  * - Focus: a ring in the accent, --focus-ring-width wide, 3 px out from the
- *   control; wider in high contrast.
+ *   control.
  *
- * The accent and the alert are light, so text written on them takes the ground
- * colour, never white. Every ink clears 4.5:1 on every surface, and ink-faint on
- * lifted comes closest at 4.8. packages/ui/test/theme.test.ts holds both, and
- * keeps the colours the window, the pages and the icons repeat equal to these.
+ * Onyx's accent and alert are light, so text written on them takes the ground
+ * colour; in White they are deep, and the ground there is white. Every ink
+ * clears 4.5:1 on every surface in both. packages/ui/test/theme.test.ts holds
+ * both, and keeps the colours the window, the pages and the icons repeat equal
+ * to Onyx's.
  */
 @theme {
-  --color-deep: #11141c; /* the huddle stage, behind video */
-  --color-ground: #191d29; /* app background, the timeline */
-  --color-raised: #222737; /* sidebar, panels, cards */
-  --color-lifted: #30374b; /* hover, menus, chips */
-  --color-edge: #3c445a; /* borders */
-  --color-ink: #f0f2fa; /* primary text */
-  --color-ink-dim: #c1c8db; /* secondary text */
-  --color-ink-faint: #9ba6bf; /* tertiary text, timestamps */
+  --color-deep: #050507; /* the workspace rail, the huddle stage */
+  --color-ground: #0f0f12; /* the conversation, the page */
+  --color-raised: #17171b; /* sidebar, panels, cards */
+  --color-lifted: #222228; /* hover, menus, chips, the composer */
+  --color-edge: #2e2e36; /* borders */
+  --color-ink: #f4f4f7; /* primary text */
+  --color-ink-dim: #c6c6d0; /* secondary text */
+  --color-ink-faint: #9b9ba8; /* tertiary text, timestamps */
   /* Keep the token name compatible with existing integration components. */
-  --color-copper: #b6bfff; /* accent: unread, selected, links, primary actions */
-  --color-copper-deep: #9faaf5; /* accent, pressed and hovered */
-  --color-online: #8dd6b4; /* present, live huddles */
-  --color-alert: #ff948f; /* errors and leaving */
-  --color-mention: rgba(182, 191, 255, 0.09); /* a message that names you */
+  --color-copper: #a8a2ff; /* accent: unread, selected, links, primary actions */
+  --color-copper-deep: #948dff; /* accent, pressed and hovered */
+  --color-online: #4ade80; /* present, live huddles */
+  --color-alert: #ff7b72; /* errors, leaving and mention counts */
+  --color-mention: rgba(168, 162, 255, 0.1); /* a message that names you */
 
   --font-sans:
     "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
@@ -51,62 +62,40 @@
   --focus-ring-width: 2px;
 }
 
-/* Light, chosen, or the system's choice on a device that prefers light. */
+/* White, chosen, or the system's choice on a device that prefers light. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --color-deep: #dde2ec;
-  --color-ground: #f8f9fc;
-  --color-raised: #eef1f7;
-  --color-lifted: #e2e6f0;
-  --color-edge: #b4bccd;
-  --color-ink: #141925;
-  --color-ink-dim: #394257;
-  --color-ink-faint: #535c72;
-  --color-copper: #4550c4;
-  --color-copper-deep: #3843ad;
-  --color-online: #176647;
-  --color-alert: #b42a22;
-  --color-mention: rgba(69, 80, 196, 0.08);
+  --color-deep: #e9e9ee;
+  --color-ground: #ffffff;
+  --color-raised: #f5f5f7;
+  --color-lifted: #ebebf0;
+  --color-edge: #d4d4dc;
+  --color-ink: #0f0f14;
+  --color-ink-dim: #3b3b47;
+  --color-ink-faint: #5c5c6a;
+  --color-copper: #5146d6;
+  --color-copper-deep: #4339c2;
+  --color-online: #116b34;
+  --color-alert: #c42b30;
+  --color-mention: rgba(81, 70, 214, 0.08);
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"] {
     color-scheme: light;
-    --color-deep: #dde2ec;
-    --color-ground: #f8f9fc;
-    --color-raised: #eef1f7;
-    --color-lifted: #e2e6f0;
-    --color-edge: #b4bccd;
-    --color-ink: #141925;
-    --color-ink-dim: #394257;
-    --color-ink-faint: #535c72;
-    --color-copper: #4550c4;
-    --color-copper-deep: #3843ad;
-    --color-online: #176647;
-    --color-alert: #b42a22;
-    --color-mention: rgba(69, 80, 196, 0.08);
+    --color-deep: #e9e9ee;
+    --color-ground: #ffffff;
+    --color-raised: #f5f5f7;
+    --color-lifted: #ebebf0;
+    --color-edge: #d4d4dc;
+    --color-ink: #0f0f14;
+    --color-ink-dim: #3b3b47;
+    --color-ink-faint: #5c5c6a;
+    --color-copper: #5146d6;
+    --color-copper-deep: #4339c2;
+    --color-online: #116b34;
+    --color-alert: #c42b30;
+    --color-mention: rgba(81, 70, 214, 0.08);
   }
-}
-
-/*
- * High contrast: dark, with every ink at 7:1 or more on every surface, borders
- * that stand out as clearly as text, and a wider focus ring.
- */
-:root[data-theme="contrast"] {
-  color-scheme: dark;
-  --focus-ring-width: 3px;
-  --color-deep: #000000;
-  --color-ground: #05060a;
-  --color-raised: #10131b;
-  --color-lifted: #1d2230;
-  --color-edge: #9aa3ba;
-  --color-ink: #ffffff;
-  --color-ink-dim: #eceff6;
-  --color-ink-faint: #d2d7e4;
-  --color-copper: #cdd3ff;
-  --color-copper-deep: #b9c1ff;
-  --color-online: #a3f2cd;
-  --color-alert: #ffb3ae;
-  --color-mention: rgba(205, 211, 255, 0.14);
 }
 
 /*
@@ -192,8 +181,9 @@ button {
 textarea {
   scrollbar-width: thin;
 }
+/* The rail of workspaces (72 px) and the channels beside it. */
 .workspace-sidebar {
-  width: 264px;
+  width: 320px;
 }
 .timeline-scroll {
   position: relative;
@@ -233,7 +223,7 @@ textarea {
     position: absolute;
     inset: 0 auto 0 0;
     z-index: 40;
-    width: min(300px, 85vw);
+    width: min(320px, 88vw);
     box-shadow: 16px 0 40px #0005;
   }
   .mobile-nav-toggle,
@@ -278,7 +268,8 @@ textarea {
     padding-inline: 10px;
   }
   .header-secondary,
-  .composer-hint {
+  .composer-hint,
+  .channel-topic {
     display: none;
   }
   .formatting-toggle {
@@ -354,6 +345,26 @@ textarea {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/*
+ * The theme cards in Account settings: each shows its theme in miniature
+ * (the rail, the sidebar and the conversation) whatever theme is on now.
+ */
+.theme-swatch {
+  display: grid;
+  grid-template-columns: 14% 30% 1fr;
+  height: 56px;
+  overflow: hidden;
+}
+.theme-swatch[data-swatch="dark"] {
+  background: linear-gradient(90deg, #050507 14%, #17171b 14% 44%, #0f0f12 44%);
+}
+.theme-swatch[data-swatch="light"] {
+  background: linear-gradient(90deg, #e9e9ee 14%, #f5f5f7 14% 44%, #ffffff 44%);
+}
+.theme-swatch[data-swatch="system"] {
+  background: linear-gradient(120deg, #050507 0 20%, #0f0f12 20% 50%, #f5f5f7 50% 80%, #ffffff 80%);
 }
 
 /* Window drag region for the frameless titlebar */

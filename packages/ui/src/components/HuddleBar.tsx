@@ -167,8 +167,8 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
 
   if (inThis) {
     return (
-      <span className="flex items-center gap-2 rounded-lg border border-copper px-2.5 py-1.5 text-[13px] text-copper">
-        <Icon name="headphones" />
+      <span className="flex items-center gap-2 rounded-lg bg-online/15 px-2.5 py-1.5 text-[13px] font-medium text-online">
+        <Icon name="headphones" size={18} />
         <span className="header-secondary">In huddle</span>
       </span>
     );
@@ -181,12 +181,12 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
         onClick={join}
         disabled={joining}
         aria-label={label}
-        className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors ${
+        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium transition-colors ${
           error
-            ? "border-alert text-alert"
+            ? "text-alert"
             : count > 0
-              ? "border-online text-online hover:bg-online/10"
-              : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+              ? "bg-online/15 text-online hover:bg-online/25"
+              : "text-ink-faint hover:bg-lifted/60 hover:text-ink"
         }`}
       >
         {error ? (
@@ -195,7 +195,7 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
           "Joining…"
         ) : (
           <>
-            <Icon name="headphones" />
+            <Icon name="headphones" size={20} />
             <span className="header-secondary">Huddle</span>
             {count > 0 && <span className="font-mono text-[11px]">{count}</span>}
           </>

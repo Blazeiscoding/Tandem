@@ -65,18 +65,24 @@ const root = () => document.documentElement.dataset;
 
 describe("how Gatherline looks on this device", () => {
   it("applies what was saved, and offers every theme and density", async () => {
-    const { panel } = appearance({ theme: "contrast", density: "compact" });
-    await waitFor(() => expect(root().theme).toBe("contrast"));
+    const { panel } = appearance({ theme: "light", density: "compact" });
+    await waitFor(() => expect(root().theme).toBe("light"));
     expect(root().density).toBe("compact");
     const themes = within(panel).getByRole("group", { name: "Theme" });
     expect(
       within(themes)
         .getAllByRole("radio")
-        .map((r) => r.closest("label")!.firstChild?.nextSibling?.firstChild?.textContent),
-    ).toEqual(["Match this device", "Dark", "Light", "High contrast"]);
-    expect(within(themes).getByRole("radio", { name: /High contrast/ })).toBeChecked();
+        .map((r) => r.nextElementSibling?.firstElementChild?.textContent),
+    ).toEqual(["Match this device", "Onyx", "White"]);
+    expect(within(themes).getByRole("radio", { name: /^White/ })).toBeChecked();
     expect(within(panel).getByRole("radio", { name: /Compact/ })).toBeChecked();
     expect(await accessibilityProblems(panel)).toEqual([]);
+  });
+
+  it("puts a device that chose the old high-contrast theme on Onyx", async () => {
+    const { panel } = appearance({ theme: "contrast", density: "comfortable" });
+    await waitFor(() => expect(root().theme).toBe("dark"));
+    expect(within(panel).getByRole("radio", { name: /^Onyx/ })).toBeChecked();
   });
 
   it("stays dark and comfortable when nothing, or nothing it knows, was saved", async () => {
@@ -87,8 +93,8 @@ describe("how Gatherline looks on this device", () => {
 
   it("changes at once when chosen, and keeps the choice", async () => {
     const { panel, set, user } = appearance(null);
-    await waitFor(() => expect(within(panel).getByRole("radio", { name: /^Dark/ })).toBeEnabled());
-    await user.click(within(panel).getByRole("radio", { name: /^Light/ }));
+    await waitFor(() => expect(within(panel).getByRole("radio", { name: /^Onyx/ })).toBeEnabled());
+    await user.click(within(panel).getByRole("radio", { name: /^White/ }));
     expect(root().theme).toBe("light");
     expect(set).toHaveBeenLastCalledWith("appearance", { theme: "light", density: "comfortable" });
     await user.click(within(panel).getByRole("radio", { name: /^Compact/ }));
@@ -101,12 +107,12 @@ describe("how Gatherline looks on this device", () => {
       { theme: "dark", density: "comfortable" },
       { failSave: true },
     );
-    await waitFor(() => expect(within(panel).getByRole("radio", { name: /^Dark/ })).toBeEnabled());
-    await user.click(within(panel).getByRole("radio", { name: /^Light/ }));
+    await waitFor(() => expect(within(panel).getByRole("radio", { name: /^Onyx/ })).toBeEnabled());
+    await user.click(within(panel).getByRole("radio", { name: /^White/ }));
     expect(await within(panel).findByRole("alert")).toHaveTextContent(
       "Could not save how Gatherline looks on this device.",
     );
     expect(root().theme).toBe("dark");
-    expect(within(panel).getByRole("radio", { name: /^Dark/ })).toBeChecked();
+    expect(within(panel).getByRole("radio", { name: /^Onyx/ })).toBeChecked();
   });
 });

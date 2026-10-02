@@ -156,9 +156,9 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
     <aside
       ref={panel}
       aria-label="Scheduled messages"
-      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-ground"
+      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-raised"
     >
-      <header className="flex h-[53px] shrink-0 items-center justify-between border-b border-edge px-4">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-edge px-4">
         <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
           Scheduled
         </h2>
