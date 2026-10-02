@@ -206,6 +206,26 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     };
   }, [client, draftKey]);
 
+  // Nor may it hold back the last keystrokes from a page being hidden or
+  // closed, which writes its unsent work at once (F01). Capturing, so this
+  // runs before that write does.
+  useEffect(() => {
+    const handOver = () => {
+      if (edited.current && typed.current.text !== typed.current.savedDraft) {
+        client.setDraft(draftKey, typed.current.text);
+      }
+    };
+    const onHide = () => {
+      if (document.visibilityState === "hidden") handOver();
+    };
+    window.addEventListener("pagehide", handOver, true);
+    document.addEventListener("visibilitychange", onHide, true);
+    return () => {
+      window.removeEventListener("pagehide", handOver, true);
+      document.removeEventListener("visibilitychange", onHide, true);
+    };
+  }, [client, draftKey]);
+
   /** Attaches files, up to ten; `note` is said beside any word about the limit. */
   function addFiles(files: FileList | File[] | null, note?: string) {
     if (!files || scheduleLock.current || recoveryBlocksSend) return;

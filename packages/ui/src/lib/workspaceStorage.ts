@@ -52,8 +52,8 @@ function serialized<T>(platform: Platform, key: string, operation: () => Promise
   const previous = queue.get(key);
   let result: Promise<T>;
   try {
-    // An uncontended browser write must still enter localStorage immediately:
-    // pagehide cannot rely on another turn to save the final keystroke.
+    // An uncontended write is still asked for immediately: pagehide cannot
+    // rely on another turn to save the final keystroke.
     result = previous ? previous.then(operation) : operation();
   } catch (error) {
     result = Promise.reject(error);
@@ -226,14 +226,17 @@ async function mergeOutboxNow(
 /**
  * Merges one window's outbox changes into what is stored and gives back the
  * outbox now stored. Where the platform can, this is one step across every
- * window; otherwise it is one turn of this window's queue for the key. Call
- * only after `readWorkspaceOutbox`.
+ * window, asked for at once: the platform makes merges in the order they are
+ * asked for, and a page that is closing may not live to ask later (F01).
+ * Otherwise it is one turn of this window's queue for the key. Call only
+ * after `readWorkspaceOutbox`.
  */
 export function mergeWorkspaceOutbox(
   platform: Platform,
   key: WorkspaceStorageKey,
   changes: OutboxChanges,
 ): Promise<StoredOutbox> {
+  if (platform.storage.mergeOutbox) return mergeOutboxNow(platform, key, changes);
   return serialized(platform, key.key, () => mergeOutboxNow(platform, key, changes));
 }
 
@@ -333,6 +336,23 @@ export function mergeWorkspaceDrafts(
     if (Object.keys(now.put).length === 0 && now.remove.length === 0) return null;
     return { changes: now, drafts: await mergeDraftsNow(platform, key, now) };
   });
+}
+
+/**
+ * Merges draft changes at once rather than in this window's turn for the key,
+ * for a page that may be closing and not live to take that turn (F01). Where
+ * the platform merges in one step it makes merges in the order they are asked
+ * for, so these come after every merge already asked for and before any still
+ * waiting its turn here: make them from what the ones asked for will have
+ * stored. Elsewhere they take their turn like any other.
+ */
+export function mergeWorkspaceDraftsAtOnce(
+  platform: Platform,
+  key: WorkspaceStorageKey,
+  changes: DraftChanges,
+): Promise<Record<string, string>> {
+  if (platform.storage.mergeDrafts) return mergeDraftsNow(platform, key, changes);
+  return serialized(platform, key.key, () => mergeDraftsNow(platform, key, changes));
 }
 
 /**
