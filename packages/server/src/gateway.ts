@@ -479,15 +479,27 @@ export class Gateway {
     return true;
   }
 
-  /** Membership changes also invalidate a call and notify the affected user's devices. */
+  /**
+   * Membership changes also invalidate a call and notify the affected user's
+   * devices. Someone removed from a private channel is outside its audience,
+   * so its durable `member.left` never reaches them: this notice is the only
+   * thing that clears it from their screens. If it cannot be read or sent,
+   * their devices reconnect, and the handshake reads their access afresh and
+   * drops whatever they may no longer see (F06). The change itself stands.
+   */
   updateChannelAccess(channelId: ID, userId: ID): void {
-    const membership =
-      this.store.memberships(userId).find((m) => m.channelId === channelId) ?? null;
-    const channel = this.store.canAccess(channelId, userId)
-      ? this.store.getChannel(channelId)
-      : null;
-    if (!channel) this.leaveHuddle(channelId, userId);
-    this.sendToUser(userId, { type: "channel.access", channelId, channel, membership });
+    try {
+      const membership =
+        this.store.memberships(userId).find((m) => m.channelId === channelId) ?? null;
+      const channel = this.store.canAccess(channelId, userId)
+        ? this.store.getChannel(channelId)
+        : null;
+      if (!channel) this.leaveHuddle(channelId, userId);
+      this.sendToUser(userId, { type: "channel.access", channelId, channel, membership });
+    } catch (err) {
+      this.report(err, "channel access");
+      this.resynchronizeUser(userId);
+    }
   }
 
   /** Tells the channel who is in its huddle now. */
@@ -583,6 +595,18 @@ export class Gateway {
    */
   resynchronize(): void {
     for (const client of this.clients) client.ws.close(1012, "resynchronize");
+  }
+
+  /**
+   * Closes one person's sockets for the same reason, taking them out of
+   * fan-out at once. Needs no read, so it works when the read that failed
+   * is the reason for it.
+   */
+  resynchronizeUser(userId: ID): void {
+    for (const client of [...(this.byUser.get(userId) ?? [])]) {
+      this.contained("unregister", () => this.unregister(client));
+      client.ws.close(1012, "resynchronize");
+    }
   }
 
   disconnectSession(tokenHash: string): void {

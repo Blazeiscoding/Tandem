@@ -167,6 +167,41 @@ describe("connection recovery", () => {
     expect(client.state.timelines[channel.id]).toBeUndefined();
     expect(client.state.threads[root.id]).toBeUndefined();
   });
+
+  it("drops a revoked private channel even when its access notice could not be read (F06)", async () => {
+    const { channel } = await owner.createChannel({ type: "private", name: "private-room" });
+    await owner.inviteMember(channel.id, memberId);
+    await expect.poll(() => client.state.channels[channel.id]?.name).toBe("private-room");
+    await owner.sendMessage(channel.id, { text: "Private history" });
+    await client.loadTimeline(channel.id);
+    expect(client.state.timelines[channel.id]?.items).toHaveLength(1);
+    const elsewhere = new WorkspaceClient(
+      owner.baseUrl,
+      (owner as unknown as { token: string }).token,
+    );
+    elsewhere.connect();
+    await expect.poll(() => elsewhere.state.status).toBe("online");
+
+    // The removal commits; the read behind the notice that tells the member fails.
+    const memberships = server.store.memberships.bind(server.store);
+    const failed = vi.spyOn(server.store, "memberships").mockImplementation((userId) => {
+      if (userId === memberId) throw new Error("disk");
+      return memberships(userId);
+    });
+    await owner.removeChannelMember(channel.id, memberId);
+    await expect.poll(() => failed.mock.calls.length).toBeGreaterThan(0);
+    failed.mockRestore();
+
+    // The member's devices reconnect, which takes the client's first retry delay.
+    await expect.poll(() => client.state.channels[channel.id], { timeout: 5_000 }).toBeUndefined();
+    expect(client.state.memberships[channel.id]).toBeUndefined();
+    expect(client.state.timelines[channel.id]).toBeUndefined();
+    await expect.poll(() => client.state.status).toBe("online");
+    // Nobody else was disturbed, and the owner still sees the channel.
+    expect(elsewhere.state.channels[channel.id]?.name).toBe("private-room");
+    expect(elsewhere.state.status).toBe("online");
+    elsewhere.destroy();
+  });
 });
 
 describe("outbox durability", () => {
