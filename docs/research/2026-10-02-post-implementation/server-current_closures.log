@@ -1,0 +1,3 @@
+AUDIT {"phase":"result","mode":"current_closures","cleanup":{"waiting":0,"retrying":100,"rejected":0,"oldestQueuedAt":1790938926583},"healthyBlobGone":true,"deleteHttp":200,"deleteFrames":21,"recounts":1,"twoDeviceSessionReads":1,"socketCloses":[],"scope":"real filesystem upload/unlink failure; real HTTP deletion and native sockets; targeted injected recount only"}
+
+STDERR:

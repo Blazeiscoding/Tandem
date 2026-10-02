@@ -1,0 +1,430 @@
+{
+  "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "endingRevision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "generatedAt": "2026-10-02T11:09:09.360Z",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32"
+  },
+  "timingClaim": "none; work counts and correctness/fault consequences only",
+  "fixtures": "synthetic owned disposable local workspaces; no live data",
+  "harnessCorrections": [
+    {
+      "note": "Initial harness used /api/users/me instead of /api/me for its positive connection control; corrected and reran this case only. The failed assertion is not a product finding.",
+      "result": {
+        "mode": "revocation_effect",
+        "exitCode": 3221226505,
+        "signal": null,
+        "timedOut": false,
+        "stdout": "",
+        "stderr": "F:\\personal\\MaybeProducts\\SlackOSS\\docs\\research\\2026-10-02-post-implementation\\server-probes.mts:23\r\nfunction check(v: unknown, label: string): asserts v { if (!v) throw new Error(`Probe assertion: ${label}`); }\r\n                                                                     ^\r\n\r\nError: Probe assertion: later global update\r\n    at check (F:\\personal\\MaybeProducts\\SlackOSS\\docs\\research\\2026-10-02-post-implementation\\server-probes.mts:23:70)\r\n    at probe (F:\\personal\\MaybeProducts\\SlackOSS\\docs\\research\\2026-10-02-post-implementation\\server-probes.mts:132:7)\r\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\r\n    at async <anonymous> (F:\\personal\\MaybeProducts\\SlackOSS\\docs\\research\\2026-10-02-post-implementation\\server-probes.mts:214:3)\r\n\r\nNode.js v24.16.0\r\nAssertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 94\r\n",
+        "records": [],
+        "expectedUncaughtExit": false,
+        "assertionsPassed": false
+      }
+    }
+  ],
+  "results": [
+    {
+      "mode": "gateway_message_failure",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"armed\",\"mode\":\"gateway_message_failure\",\"authenticatedSocket\":true,\"productionTrigger\":\"actual WebSocket message callback\"}\n",
+      "stderr": "F:\\personal\\MaybeProducts\\SlackOSS\\docs\\research\\2026-10-02-post-implementation\\server-probes.mts:67\r\n    if (mode !== \"gateway_heartbeat_control\") server.store.isSessionActive = () => { throw new Error(`AUDIT_${mode.toUpperCase()}_SESSION_READ`); };\r\n                                                                                     ^\r\n\r\nError: AUDIT_GATEWAY_MESSAGE_FAILURE_SESSION_READ\r\n    at Store.server2.store.isSessionActive (F:\\personal\\MaybeProducts\\SlackOSS\\docs\\research\\2026-10-02-post-implementation\\server-probes.mts:67:92)\r\n    at Gateway.authorized (F:\\personal\\MaybeProducts\\SlackOSS\\packages\\server\\src\\gateway.ts:522:20)\r\n    at WebSocket.<anonymous> (F:\\personal\\MaybeProducts\\SlackOSS\\packages\\server\\src\\gateway.ts:268:17)\r\n    at WebSocket.emit (node:events:509:28)\r\n    at Receiver.receiverOnMessage (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\websocket.js:1239:20)\r\n    at Receiver.emit (node:events:509:28)\r\n    at Receiver.dataMessage (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\receiver.js:633:14)\r\n    at Receiver.getData (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\receiver.js:532:10)\r\n    at Receiver.startLoop (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\receiver.js:190:16)\r\n    at Receiver._write (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\receiver.js:117:10)\r\n\r\nNode.js v24.16.0\r\n",
+      "records": [
+        {
+          "phase": "armed",
+          "mode": "gateway_message_failure",
+          "authenticatedSocket": true,
+          "productionTrigger": "actual WebSocket message callback"
+        }
+      ],
+      "expectedUncaughtExit": true,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "retry_retention",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"result\",\"mode\":\"retry_retention\",\"before\":{\"pending\":500,\"failed\":1000,\"retrying\":0,\"dropped\":0,\"lastError\":\"synthetic historical outage\",\"lastFailedAt\":1790247722954},\"accepted\":{\"status\":200,\"body\":{\"ok\":true,\"retried\":1000,\"waiting\":1000}},\"waiting\":{\"pending\":500,\"failed\":0,\"retrying\":1000,\"dropped\":0,\"lastError\":\"synthetic historical outage\",\"lastFailedAt\":1790247722954},\"after\":{\"pending\":500,\"failed\":0,\"retrying\":0,\"dropped\":0,\"lastError\":null,\"lastFailedAt\":null},\"freshControl\":{\"pending\":500,\"failed\":0,\"retrying\":500,\"dropped\":0,\"lastError\":\"fresh outage\",\"lastFailedAt\":1790938922954},\"lostAcceptedRetries\":1000,\"trigger\":\"real retry HTTP; directly invoke the unaltered hourly maintenance Store function with production 7-day cutoff; no fake timers\"}\n",
+      "stderr": "",
+      "records": [
+        {
+          "phase": "result",
+          "mode": "retry_retention",
+          "before": {
+            "pending": 500,
+            "failed": 1000,
+            "retrying": 0,
+            "dropped": 0,
+            "lastError": "synthetic historical outage",
+            "lastFailedAt": 1790247722954
+          },
+          "accepted": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "retried": 1000,
+              "waiting": 1000
+            }
+          },
+          "waiting": {
+            "pending": 500,
+            "failed": 0,
+            "retrying": 1000,
+            "dropped": 0,
+            "lastError": "synthetic historical outage",
+            "lastFailedAt": 1790247722954
+          },
+          "after": {
+            "pending": 500,
+            "failed": 0,
+            "retrying": 0,
+            "dropped": 0,
+            "lastError": null,
+            "lastFailedAt": null
+          },
+          "freshControl": {
+            "pending": 500,
+            "failed": 0,
+            "retrying": 500,
+            "dropped": 0,
+            "lastError": "fresh outage",
+            "lastFailedAt": 1790938922954
+          },
+          "lostAcceptedRetries": 1000,
+          "trigger": "real retry HTTP; directly invoke the unaltered hourly maintenance Store function with production 7-day cutoff; no fake timers"
+        }
+      ],
+      "expectedUncaughtExit": false,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "retry_order",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"result\",\"mode\":\"retry_order\",\"accepted\":{\"status\":200,\"body\":{\"ok\":true,\"retried\":3,\"waiting\":3}},\"received\":[{\"seq\":4,\"historical\":false},{\"seq\":1,\"historical\":true},{\"seq\":2,\"historical\":true},{\"seq\":3,\"historical\":true},{\"seq\":5,\"historical\":false},{\"seq\":6,\"historical\":false}],\"queue\":{\"pending\":498,\"failed\":0,\"retrying\":0,\"dropped\":0,\"lastError\":null,\"lastFailedAt\":null},\"orderInversions\":[[4,1]],\"transport\":\"production HTTP retry endpoint and delivery pump to actual loopback HTTP; synthetic queue payloads; sixth response held to bound work\"}\n",
+      "stderr": "",
+      "records": [
+        {
+          "phase": "result",
+          "mode": "retry_order",
+          "accepted": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "retried": 3,
+              "waiting": 3
+            }
+          },
+          "received": [
+            {
+              "seq": 4,
+              "historical": false
+            },
+            {
+              "seq": 1,
+              "historical": true
+            },
+            {
+              "seq": 2,
+              "historical": true
+            },
+            {
+              "seq": 3,
+              "historical": true
+            },
+            {
+              "seq": 5,
+              "historical": false
+            },
+            {
+              "seq": 6,
+              "historical": false
+            }
+          ],
+          "queue": {
+            "pending": 498,
+            "failed": 0,
+            "retrying": 0,
+            "dropped": 0,
+            "lastError": null,
+            "lastFailedAt": null
+          },
+          "orderInversions": [[4, 1]],
+          "transport": "production HTTP retry endpoint and delivery pump to actual loopback HTTP; synthetic queue payloads; sixth response held to bound work"
+        }
+      ],
+      "expectedUncaughtExit": false,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "current_closures",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"result\",\"mode\":\"current_closures\",\"cleanup\":{\"waiting\":0,\"retrying\":100,\"rejected\":0,\"oldestQueuedAt\":1790938926583},\"healthyBlobGone\":true,\"deleteHttp\":200,\"deleteFrames\":21,\"recounts\":1,\"twoDeviceSessionReads\":1,\"socketCloses\":[],\"scope\":\"real filesystem upload/unlink failure; real HTTP deletion and native sockets; targeted injected recount only\"}\n",
+      "stderr": "",
+      "records": [
+        {
+          "phase": "result",
+          "mode": "current_closures",
+          "cleanup": {
+            "waiting": 0,
+            "retrying": 100,
+            "rejected": 0,
+            "oldestQueuedAt": 1790938926583
+          },
+          "healthyBlobGone": true,
+          "deleteHttp": 200,
+          "deleteFrames": 21,
+          "recounts": 1,
+          "twoDeviceSessionReads": 1,
+          "socketCloses": [],
+          "scope": "real filesystem upload/unlink failure; real HTTP deletion and native sockets; targeted injected recount only"
+        }
+      ],
+      "expectedUncaughtExit": false,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "delivery_queue_recovery",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"result\",\"mode\":\"delivery_queue_recovery\",\"healthStatus\":200,\"failedReads\":1,\"retained\":{\"pending\":1,\"failed\":0,\"retrying\":0,\"dropped\":0,\"lastError\":null,\"lastFailedAt\":null},\"backgroundDuring\":[{\"queue\":\"event deliveries\",\"since\":1790938932641,\"failures\":1}],\"backgroundAfter\":[],\"received\":[{\"seq\":1}],\"trigger\":\"unaltered production 5000ms interval; one local Store read fault; actual loopback outbound recovers on next interval\"}\n",
+      "stderr": "",
+      "records": [
+        {
+          "phase": "result",
+          "mode": "delivery_queue_recovery",
+          "healthStatus": 200,
+          "failedReads": 1,
+          "retained": {
+            "pending": 1,
+            "failed": 0,
+            "retrying": 0,
+            "dropped": 0,
+            "lastError": null,
+            "lastFailedAt": null
+          },
+          "backgroundDuring": [
+            {
+              "queue": "event deliveries",
+              "since": 1790938932641,
+              "failures": 1
+            }
+          ],
+          "backgroundAfter": [],
+          "received": [
+            {
+              "seq": 1
+            }
+          ],
+          "trigger": "unaltered production 5000ms interval; one local Store read fault; actual loopback outbound recovers on next interval"
+        }
+      ],
+      "expectedUncaughtExit": false,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "gateway_heartbeat_failure",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"armed\",\"mode\":\"gateway_heartbeat_failure\",\"authenticatedSocket\":true,\"productionTrigger\":\"unaltered 30000ms Gateway heartbeat interval\"}\n",
+      "stderr": "F:\\personal\\MaybeProducts\\SlackOSS\\docs\\research\\2026-10-02-post-implementation\\server-probes.mts:67\r\n    if (mode !== \"gateway_heartbeat_control\") server.store.isSessionActive = () => { throw new Error(`AUDIT_${mode.toUpperCase()}_SESSION_READ`); };\r\n                                                                                     ^\r\n\r\nError: AUDIT_GATEWAY_HEARTBEAT_FAILURE_SESSION_READ\r\n    at Store.server2.store.isSessionActive (F:\\personal\\MaybeProducts\\SlackOSS\\docs\\research\\2026-10-02-post-implementation\\server-probes.mts:67:92)\r\n    at <anonymous> (F:\\personal\\MaybeProducts\\SlackOSS\\packages\\server\\src\\gateway.ts:476:29)\r\n    at Timeout._onTimeout (F:\\personal\\MaybeProducts\\SlackOSS\\packages\\server\\src\\gateway.ts:59:14)\r\n    at listOnTimeout (node:internal/timers:605:17)\r\n    at process.processTimers (node:internal/timers:541:7)\r\n\r\nNode.js v24.16.0\r\n",
+      "records": [
+        {
+          "phase": "armed",
+          "mode": "gateway_heartbeat_failure",
+          "authenticatedSocket": true,
+          "productionTrigger": "unaltered 30000ms Gateway heartbeat interval"
+        }
+      ],
+      "expectedUncaughtExit": true,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "gateway_heartbeat_control",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"armed\",\"mode\":\"gateway_heartbeat_control\",\"authenticatedSocket\":true,\"productionTrigger\":\"unaltered 30000ms Gateway heartbeat interval\"}\nAUDIT {\"phase\":\"result\",\"healthStatus\":200,\"mode\":\"gateway_heartbeat_control\",\"socketCloseCodes\":[1006]}\n",
+      "stderr": "",
+      "records": [
+        {
+          "phase": "armed",
+          "mode": "gateway_heartbeat_control",
+          "authenticatedSocket": true,
+          "productionTrigger": "unaltered 30000ms Gateway heartbeat interval"
+        },
+        {
+          "phase": "result",
+          "healthStatus": 200,
+          "mode": "gateway_heartbeat_control",
+          "socketCloseCodes": [1006]
+        }
+      ],
+      "expectedUncaughtExit": false,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "revocation_effect",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"result\",\"mode\":\"revocation_effect\",\"removed\":{\"status\":200,\"body\":{\"ok\":true}},\"denied\":{\"status\":404,\"body\":{\"error\":\"channel_not_found\",\"message\":\"channel_not_found\"}},\"injectedReads\":1,\"stale\":{\"clientStatus\":\"online\",\"cachedChannel\":true,\"cachedMembership\":true,\"cachedText\":[\"synthetic private content\"],\"lastSeq\":3},\"healed\":{\"cachedChannel\":false,\"cachedTimeline\":false,\"status\":\"online\"},\"scope\":\"actual WorkspaceClient/HTTP/native WebSocket; one local Store.memberships read failure during afterCommit access effect. Already-delivered cached data remains until reconnect; no new server access or private-data leak claimed\"}\n",
+      "stderr": "",
+      "records": [
+        {
+          "phase": "result",
+          "mode": "revocation_effect",
+          "removed": {
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          },
+          "denied": {
+            "status": 404,
+            "body": {
+              "error": "channel_not_found",
+              "message": "channel_not_found"
+            }
+          },
+          "injectedReads": 1,
+          "stale": {
+            "clientStatus": "online",
+            "cachedChannel": true,
+            "cachedMembership": true,
+            "cachedText": ["synthetic private content"],
+            "lastSeq": 3
+          },
+          "healed": {
+            "cachedChannel": false,
+            "cachedTimeline": false,
+            "status": "online"
+          },
+          "scope": "actual WorkspaceClient/HTTP/native WebSocket; one local Store.memberships read failure during afterCommit access effect. Already-delivered cached data remains until reconnect; no new server access or private-data leak claimed"
+        }
+      ],
+      "expectedUncaughtExit": false,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "gateway_sqlite_message_failure",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"armed\",\"mode\":\"gateway_sqlite_message_failure\",\"authenticatedSocket\":true,\"productionTrigger\":\"actual WebSocket message callback\",\"injection\":\"actual SQLite authorizer refuses READ sessions, without replacing Store methods\"}\n",
+      "stderr": "F:\\personal\\MaybeProducts\\SlackOSS\\packages\\server\\src\\store.ts:443\r\n        .prepare(\r\n         ^\r\n\r\nError: access to sessions.token_hash is prohibited\r\n    at Store.isSessionActive (F:\\personal\\MaybeProducts\\SlackOSS\\packages\\server\\src\\store.ts:443:10)\r\n    at Gateway.authorized (F:\\personal\\MaybeProducts\\SlackOSS\\packages\\server\\src\\gateway.ts:522:20)\r\n    at WebSocket.<anonymous> (F:\\personal\\MaybeProducts\\SlackOSS\\packages\\server\\src\\gateway.ts:268:17)\r\n    at WebSocket.emit (node:events:509:28)\r\n    at Receiver.receiverOnMessage (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\websocket.js:1239:20)\r\n    at Receiver.emit (node:events:509:28)\r\n    at Receiver.dataMessage (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\receiver.js:633:14)\r\n    at Receiver.getData (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\receiver.js:532:10)\r\n    at Receiver.startLoop (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\receiver.js:190:16)\r\n    at Receiver._write (F:\\personal\\MaybeProducts\\SlackOSS\\node_modules\\.pnpm\\ws@8.21.3\\node_modules\\ws\\lib\\receiver.js:117:10) {\r\n  code: 'ERR_SQLITE_ERROR',\r\n  errcode: 23,\r\n  errstr: 'authorization denied'\r\n}\r\n\r\nNode.js v24.16.0\r\n",
+      "records": [
+        {
+          "phase": "armed",
+          "mode": "gateway_sqlite_message_failure",
+          "authenticatedSocket": true,
+          "productionTrigger": "actual WebSocket message callback",
+          "injection": "actual SQLite authorizer refuses READ sessions, without replacing Store methods"
+        }
+      ],
+      "expectedUncaughtExit": true,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "integration_work_counts",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"result\",\"mode\":\"integration_work_counts\",\"rows\":[{\"subscriptions\":1,\"distinctBots\":1,\"eligibilityReads\":1,\"workspaceMetaReads\":1,\"sameEnvelopeSerializations\":1,\"enqueueCalls\":1},{\"subscriptions\":10,\"distinctBots\":1,\"eligibilityReads\":10,\"workspaceMetaReads\":10,\"sameEnvelopeSerializations\":10,\"enqueueCalls\":10},{\"subscriptions\":100,\"distinctBots\":1,\"eligibilityReads\":100,\"workspaceMetaReads\":100,\"sameEnvelopeSerializations\":100,\"enqueueCalls\":100}],\"method\":\"actual HTTP POST; delegating method and JSON.stringify counters; one synthetic bot with N eligible subscriptions; isolated outbound; counts only\"}\n",
+      "stderr": "",
+      "records": [
+        {
+          "phase": "result",
+          "mode": "integration_work_counts",
+          "rows": [
+            {
+              "subscriptions": 1,
+              "distinctBots": 1,
+              "eligibilityReads": 1,
+              "workspaceMetaReads": 1,
+              "sameEnvelopeSerializations": 1,
+              "enqueueCalls": 1
+            },
+            {
+              "subscriptions": 10,
+              "distinctBots": 1,
+              "eligibilityReads": 10,
+              "workspaceMetaReads": 10,
+              "sameEnvelopeSerializations": 10,
+              "enqueueCalls": 10
+            },
+            {
+              "subscriptions": 100,
+              "distinctBots": 1,
+              "eligibilityReads": 100,
+              "workspaceMetaReads": 100,
+              "sameEnvelopeSerializations": 100,
+              "enqueueCalls": 100
+            }
+          ],
+          "method": "actual HTTP POST; delegating method and JSON.stringify counters; one synthetic bot with N eligible subscriptions; isolated outbound; counts only"
+        }
+      ],
+      "expectedUncaughtExit": false,
+      "assertionsPassed": true
+    },
+    {
+      "mode": "private_publication_counts",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "AUDIT {\"phase\":\"result\",\"mode\":\"private_publication_counts\",\"rows\":[{\"scenario\":\"private_offline\",\"channelMembers\":50,\"connectedMembers\":0,\"deletedMessages\":21,\"memberListReads\":21,\"memberIdsMaterialized\":1050,\"mentionRecounts\":0,\"deleteHttp\":200},{\"scenario\":\"public_offline_control\",\"channelMembers\":50,\"connectedMembers\":0,\"deletedMessages\":21,\"memberListReads\":0,\"memberIdsMaterialized\":0,\"mentionRecounts\":0,\"deleteHttp\":200},{\"scenario\":\"private_two_online\",\"channelMembers\":50,\"connectedMembers\":2,\"deletedMessages\":21,\"memberListReads\":22,\"memberIdsMaterialized\":1100,\"mentionRecounts\":2,\"deleteHttp\":200}],\"method\":\"real HTTP posts/deletions and native sockets; delegating memberIds/unreadMentionCounts counters; measured private batch fanout against public offline control; counts only\"}\n",
+      "stderr": "",
+      "records": [
+        {
+          "phase": "result",
+          "mode": "private_publication_counts",
+          "rows": [
+            {
+              "scenario": "private_offline",
+              "channelMembers": 50,
+              "connectedMembers": 0,
+              "deletedMessages": 21,
+              "memberListReads": 21,
+              "memberIdsMaterialized": 1050,
+              "mentionRecounts": 0,
+              "deleteHttp": 200
+            },
+            {
+              "scenario": "public_offline_control",
+              "channelMembers": 50,
+              "connectedMembers": 0,
+              "deletedMessages": 21,
+              "memberListReads": 0,
+              "memberIdsMaterialized": 0,
+              "mentionRecounts": 0,
+              "deleteHttp": 200
+            },
+            {
+              "scenario": "private_two_online",
+              "channelMembers": 50,
+              "connectedMembers": 2,
+              "deletedMessages": 21,
+              "memberListReads": 22,
+              "memberIdsMaterialized": 1100,
+              "mentionRecounts": 2,
+              "deleteHttp": 200
+            }
+          ],
+          "method": "real HTTP posts/deletions and native sockets; delegating memberIds/unreadMentionCounts counters; measured private batch fanout against public offline control; counts only"
+        }
+      ],
+      "expectedUncaughtExit": false,
+      "assertionsPassed": true
+    }
+  ]
+}

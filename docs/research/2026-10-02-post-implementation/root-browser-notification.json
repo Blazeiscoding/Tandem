@@ -1,0 +1,44 @@
+{
+  "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "mode": "product-native T3 browser; fresh production web assets and owned source-server fixture",
+  "before": {
+    "checked": [
+      {
+        "checked": false,
+        "label": "The message\nPriya Shah in #design: The launch moves to Friday"
+      },
+      {
+        "checked": false,
+        "label": "Only who sent it\nPriya Shah in #design: New message"
+      },
+      {
+        "checked": true,
+        "label": "Nothing about it\nNew message"
+      }
+    ],
+    "choice": {
+      "http://localhost:62632 01M3Y434H7XENS1WFG72N6DPD7": "none"
+    }
+  },
+  "after": {
+    "checked": [
+      {
+        "checked": true,
+        "label": "The message\nPriya Shah in #design: The launch moves to Friday"
+      },
+      {
+        "checked": false,
+        "label": "Only who sent it\nPriya Shah in #design: New message"
+      },
+      {
+        "checked": false,
+        "label": "Nothing about it\nNew message"
+      }
+    ],
+    "dialog": "Account settings\n\nSigned in as Maya Chen · @maya\n\nProfile\nNotifications\nAppearance\nComposing\nCalls\nSecurity\nDevices\nStorage\nOn this device\n\nNotifications are on in this browser.\n\nPause notifications\n\nPausing holds notifications on every device you use.\n\n30 minutes\n1 hour\nUntil tomorrow at 9:00 AM\nWhat notifications show\n\nFor this workspace on this device. Choose less where others can see your screen.\n\nThe message\nPriya Shah in #design: The launch moves to Friday\nOnly who sent it\nPriya Shah in #design: New message\nNothing about it\nNew message\n\nWhat each channel notifies you about is in its details, under Notifications.",
+    "persisted": "malformed-synthetic-review",
+    "url": "http://localhost:62632/#/c/01M3Y434H7NJ0QHAAH2CM0MV8A/d/account/notifications"
+  },
+  "screenshotPath": "C:\\Users\\nikhi\\.t3\\userdata\\browser-artifacts\\browser-screenshot-localhost-muquwb0d-afb909e8.png",
+  "limits": "Actual settings UI demonstrates full-message default after malformed synthetic saved choice. No OS notification toast or independent-window conflict reproduction in this browser probe; those consequences are separately covered by client DOM probes."
+}

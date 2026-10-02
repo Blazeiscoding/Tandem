@@ -1,0 +1,6012 @@
+{
+  "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "capturedAt": "2026-10-02T11:18:03.426Z",
+  "experimentVariant": "message-ID UNION; paired five-call warmups; construction/prepare/hydration included",
+  "machine": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-12400F",
+    "logicalCores": 12,
+    "memoryGiB": 15.842273712158203,
+    "platform": "win32",
+    "node": "v24.16.0"
+  },
+  "fixture": {
+    "messages": 200000,
+    "seed": 7,
+    "fileDensity": "1%",
+    "fileKinds": [
+      ["Q3 budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+      ["site photo.jpg", "image/jpeg"],
+      ["contract.pdf", "application/pdf"],
+      ["notes.txt", "text/plain"],
+      ["logs.zip", "application/zip"]
+    ],
+    "cache": "warm",
+    "samples": 15,
+    "limits": "Single quiet Windows host; no migration; candidate keeps current hydration, constructs SQL and reparses on every call; reference uses simple ASCII words present in this synthetic fixture. Reference/plans outside timing; fifteen-sample p95 is maximum observed, not a robust tail estimate. No low-spec, DM, multi-file, deleted-message, reordered-rowid or Electron-main claim."
+  },
+  "baseline": [
+    {
+      "text": "the",
+      "rows": 21,
+      "p50": 9.40860000000066,
+      "p95": 14.206399999999121,
+      "samples": [
+        10.660600000001068, 9.7479000000003, 10.582300000000032, 9.40860000000066,
+        8.864199999999983, 13.218199999999342, 8.807999999999083, 8.852899999999863,
+        14.206399999999121, 8.93710000000101, 8.69380000000092, 11.914299999998548,
+        9.334499999999025, 9.063400000000911, 12.60660000000098
+      ]
+    },
+    {
+      "text": "the",
+      "options": {
+        "cursor": true
+      },
+      "rows": 21,
+      "p50": 10.027799999999843,
+      "p95": 13.532100000000355,
+      "samples": [
+        10.638500000000931, 11.658100000000559, 10.0666999999994, 10.42489999999998,
+        13.532100000000355, 9.468199999999342, 9.114799999999377, 9.743899999999485,
+        9.139900000000125, 9.658900000000358, 10.156700000001365, 10.027799999999843,
+        9.18499999999949, 8.805099999999584, 10.399600000000646
+      ]
+    },
+    {
+      "text": "deploy",
+      "rows": 21,
+      "p50": 4.285299999999552,
+      "p95": 6.718899999999849,
+      "samples": [
+        4.335000000000946, 4.130199999999604, 4.166700000001583, 5.197799999999916,
+        4.142899999998917, 4.087499999999636, 3.9780999999984488, 4.013300000000527,
+        4.285299999999552, 6.718899999999849, 5.001000000000204, 4.644500000000335,
+        4.756100000000515, 4.23739999999998, 4.3047999999998865
+      ]
+    },
+    {
+      "text": "zebra",
+      "rows": 20,
+      "p50": 0.5758999999998196,
+      "p95": 0.711699999999837,
+      "samples": [
+        0.5534999999999854, 0.6414000000004307, 0.5851999999995314, 0.6070999999992637,
+        0.6854999999995925, 0.6880999999993946, 0.711699999999837, 0.5758999999998196,
+        0.5483000000003813, 0.5738000000001193, 0.5011000000013155, 0.524199999999837,
+        0.5018999999992957, 0.5882000000001426, 0.5066999999999098
+      ]
+    },
+    {
+      "text": "classified",
+      "rows": 0,
+      "p50": 9.628099999999904,
+      "p95": 15.102899999999863,
+      "samples": [
+        7.765900000000329, 11.352200000001176, 9.628099999999904, 8.209499999999025,
+        9.44970000000103, 12.41530000000057, 8.066600000000108, 8.034800000001269,
+        12.52349999999933, 11.850599999999758, 15.102899999999863, 8.590899999999237,
+        8.095900000000256, 11.088999999999942, 10.960399999999936
+      ]
+    },
+    {
+      "text": "from:@rare",
+      "rows": 21,
+      "p50": 11.660899999998946,
+      "p95": 14.950300000000425,
+      "samples": [
+        13.718600000000151, 11.317600000000311, 13.552499999999782, 11.660899999998946,
+        12.088700000000244, 14.852000000000771, 10.008599999999205, 13.608100000001286,
+        10.945600000000923, 11.583599999999933, 12.973699999998644, 10.822799999999916,
+        14.950300000000425, 11.161299999999756, 11.209399999999732
+      ]
+    },
+    {
+      "text": "in:#small-3",
+      "rows": 21,
+      "p50": 0.8009999999994761,
+      "p95": 1.244700000001103,
+      "samples": [
+        1.244700000001103, 1.1226999999998952, 0.8198000000011234, 0.9027999999998428,
+        0.8161000000000058, 0.8009999999994761, 0.9945999999999913, 0.7725000000009459,
+        0.8247999999985041, 0.6968000000015309, 0.7627000000011321, 0.7957999999998719,
+        0.6729000000013912, 0.7222999999994499, 0.7209000000002561
+      ]
+    },
+    {
+      "text": "the in:#small-3",
+      "rows": 21,
+      "p50": 11.212499999999636,
+      "p95": 14.868999999998778,
+      "samples": [
+        10.06919999999991, 14.868999999998778, 10.782700000001569, 13.507200000000012,
+        12.621100000000297, 11.024899999998524, 13.959000000000742, 10.287200000000666,
+        14.348500000000058, 13.356799999999566, 11.212499999999636, 10.670200000000477,
+        11.255699999999706, 10.22360000000117, 9.88930000000073
+      ]
+    },
+    {
+      "text": "has:file",
+      "rows": 21,
+      "p50": 1.4426999999996042,
+      "p95": 2.4354000000002998,
+      "samples": [
+        2.4354000000002998, 1.4526999999998225, 1.0229999999992287, 0.9796000000005733,
+        1.2494000000006054, 1.5108000000000175, 1.485899999999674, 1.2589000000007218,
+        1.4426999999996042, 1.1846999999997934, 1.5884000000005472, 1.111399999999776,
+        1.7098000000005413, 1.5537999999996828, 1.0187999999998283
+      ]
+    },
+    {
+      "text": "has:link",
+      "rows": 21,
+      "p50": 0.5849999999991269,
+      "p95": 1.1239999999997963,
+      "samples": [
+        0.4915000000000873, 0.5110999999997148, 0.5010000000002037, 0.5849999999991269,
+        0.5275000000001455, 0.5530999999991764, 0.5497999999988679, 0.6612000000004628,
+        0.6350000000002183, 0.5480999999999767, 1.1239999999997963, 0.6176999999988766,
+        0.8713000000007014, 0.8886000000002241, 0.6005000000004657
+      ]
+    },
+    {
+      "text": "after:2026-08-31",
+      "rows": 21,
+      "p50": 0.3816999999999098,
+      "p95": 0.7654999999995198,
+      "samples": [
+        0.3566999999984546, 0.5429999999996653, 0.3143000000000029, 0.36889999999948486,
+        0.3717999999989843, 0.26860000000124273, 0.4837999999999738, 0.4584999999988213,
+        0.4187999999994645, 0.3816999999999098, 0.3528999999998632, 0.7654999999995198,
+        0.6531000000013591, 0.400099999998929, 0.2537000000011176
+      ]
+    },
+    {
+      "text": "before:2024-10-30",
+      "rows": 21,
+      "p50": 50.28310000000056,
+      "p95": 52.569400000000314,
+      "samples": [
+        44.27679999999964, 46.85909999999967, 52.35030000000006, 46.13270000000011,
+        50.28310000000056, 52.2562999999991, 50.580700000000434, 48.3163999999997,
+        47.18320000000131, 52.569400000000314, 49.28889999999956, 51.21550000000025,
+        49.10270000000128, 50.3775999999998, 51.73519999999917
+      ]
+    },
+    {
+      "text": "zebra before:2024-10-30",
+      "rows": 1,
+      "p50": 0.4437999999991007,
+      "p95": 1.3306999999986147,
+      "samples": [
+        1.3306999999986147, 0.49799999999959255, 0.4403999999994994, 0.48849999999947613,
+        0.5756000000001222, 0.4437999999991007, 0.37989999999990687, 0.42190000000118744,
+        0.4110000000000582, 0.5715999999993073, 0.4151000000001659, 0.37669999999889114,
+        0.4293999999990774, 0.5709000000006199, 0.6396999999997206
+      ]
+    },
+    {
+      "text": "deploy",
+      "options": {
+        "channelId": "CSM2"
+      },
+      "rows": 21,
+      "p50": 2.3286000000007334,
+      "p95": 5.922500000000582,
+      "samples": [
+        2.306700000001001, 2.3564000000005763, 2.3286000000007334, 2.2633999999998196,
+        2.2841000000007625, 2.2893000000003667, 2.805899999999383, 2.372299999999086,
+        3.560300000001007, 5.922500000000582, 3.1486000000004424, 2.4007999999994354,
+        2.2551000000003114, 2.3218999999990046, 2.2609000000011292
+      ]
+    },
+    {
+      "text": "budget",
+      "rows": 21,
+      "p50": 4.598400000000765,
+      "p95": 8.395800000000236,
+      "samples": [
+        4.598400000000765, 4.699999999998909, 7.596700000000055, 6.094100000000253,
+        4.415500000000975, 4.404199999999037, 4.10989999999947, 4.821200000000317,
+        8.395800000000236, 4.850099999999657, 4.442700000001423, 4.405399999999645,
+        4.192600000000311, 4.4913999999989755, 5.089099999999235
+      ]
+    },
+    {
+      "text": "contract pdf",
+      "rows": 21,
+      "p50": 5.318999999999505,
+      "p95": 8.304400000000896,
+      "samples": [
+        6.9187999999994645, 5.865899999998874, 5.310900000000402, 5.318999999999505,
+        5.1591000000007625, 6.123799999999392, 5.129899999999907, 4.516300000001138,
+        4.887399999999616, 4.702900000000227, 5.431899999999587, 5.399200000001656,
+        6.661200000000463, 8.304400000000896, 4.819700000000012
+      ]
+    },
+    {
+      "text": "invoice",
+      "rows": 0,
+      "p50": 0.3051000000014028,
+      "p95": 0.336699999999837,
+      "samples": [
+        0.29540000000088185, 0.319100000000617, 0.3051000000014028, 0.2687999999998283,
+        0.256600000000617, 0.2541000000001077, 0.2602000000006228, 0.297099999999773,
+        0.32110000000102445, 0.3225000000002183, 0.336699999999837, 0.32150000000001455,
+        0.3356999999996333, 0.30670000000100117, 0.2955999999994674
+      ]
+    },
+    {
+      "text": "type:pdf",
+      "rows": 21,
+      "p50": 3.9699000000000524,
+      "p95": 5.16490000000158,
+      "samples": [
+        4.427400000000489, 3.645599999999831, 4.698500000000422, 3.987199999999575,
+        3.9971000000005006, 3.7982999999985623, 3.9699000000000524, 3.7391999999999825,
+        3.99960000000101, 3.66820000000007, 4.164600000000064, 5.16490000000158, 3.6534999999985303,
+        3.835300000000643, 3.9236000000000786
+      ]
+    },
+    {
+      "text": "type:image the",
+      "rows": 21,
+      "p50": 19.007599999999,
+      "p95": 23.94800000000032,
+      "samples": [
+        18.007400000000416, 18.662599999999657, 19.76090000000113, 19.007599999999,
+        21.874799999999595, 21.686900000000605, 17.231700000000274, 20.11989999999969,
+        18.02900000000045, 23.94800000000032, 20.122800000001007, 18.774099999998725,
+        19.772899999999936, 18.28099999999904, 16.601999999998952
+      ]
+    },
+    {
+      "text": "budget type:spreadsheet",
+      "rows": 21,
+      "p50": 5.220400000000154,
+      "p95": 6.540199999999459,
+      "samples": [
+        4.968500000000859, 4.694900000000416, 4.498700000000099, 4.6833000000005995,
+        6.1327000000001135, 6.015000000001237, 5.756599999998798, 5.352399999999761,
+        4.55370000000039, 4.524199999999837, 5.220400000000154, 6.540199999999459,
+        6.294399999998859, 5.777400000000853, 4.673900000001595
+      ]
+    }
+  ],
+  "experiment": [
+    {
+      "text": "zebra",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 20,
+      "production": {
+        "p50": 0.5443999999988591,
+        "p95": 1.217899999999645,
+        "samples": [
+          0.5296999999991385, 0.5733000000000175, 0.4839000000010856, 1.217899999999645,
+          0.7636000000002241, 0.585400000001755, 0.5336999999999534, 0.5669999999990978,
+          0.4894000000003871, 0.5434000000004744, 0.5311000000001513, 0.7042000000001281,
+          0.6159999999999854, 0.5148000000008324, 0.5443999999988591
+        ]
+      },
+      "unionCandidate": {
+        "p50": 0.5413000000007742,
+        "p95": 0.7488999999986845,
+        "samples": [
+          0.6414000000004307, 0.5797000000002299, 0.5413000000007742, 0.7488999999986845,
+          0.5501000000003842, 0.5551000000014028, 0.5208000000002357, 0.5609999999996944,
+          0.46270000000004075, 0.4967999999989843, 0.4734999999982392, 0.4686999999994441,
+          0.5403000000005704, 0.5462999999999738, 0.5196999999989202
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"zebra\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["U01", "\"zebra\"", "%zebra%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 35,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 40,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 45,
+              "parent": 40,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 47,
+              "parent": 45,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 68,
+              "parent": 40,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 79,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 82,
+              "parent": 79,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 91,
+              "parent": 79,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 103,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 106,
+              "parent": 103,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 117,
+              "parent": 103,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 126,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 134,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 138,
+              "parent": 134,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 150,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 174,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017891496000000195000",
+            "M017859960000000185000",
+            "M017828424000000175000",
+            "M017796888000000165000",
+            "M017765352000000155000",
+            "M017733816000000145000",
+            "M017702280000000135000",
+            "M017670744000000125000",
+            "M017639208000000115000",
+            "M017607672000000105000",
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 85,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017891496000000195000",
+            "M017859960000000185000",
+            "M017828424000000175000",
+            "M017796888000000165000",
+            "M017765352000000155000",
+            "M017733816000000145000",
+            "M017702280000000135000",
+            "M017670744000000125000",
+            "M017639208000000115000",
+            "M017607672000000105000",
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017891496000000195000",
+            "M017859960000000185000",
+            "M017828424000000175000",
+            "M017796888000000165000",
+            "M017765352000000155000",
+            "M017733816000000145000",
+            "M017702280000000135000",
+            "M017670744000000125000",
+            "M017639208000000115000",
+            "M017607672000000105000",
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017891496000000195000",
+            "M017859960000000185000",
+            "M017828424000000175000",
+            "M017796888000000165000",
+            "M017765352000000155000",
+            "M017733816000000145000",
+            "M017702280000000135000",
+            "M017670744000000125000",
+            "M017639208000000115000",
+            "M017607672000000105000",
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 89,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 122,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 126,
+          "parent": 122,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 138,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "classified",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 0,
+      "production": {
+        "p50": 9.491500000000087,
+        "p95": 12.860800000000381,
+        "samples": [
+          10.945200000000114, 8.511399999999412, 11.16569999999956, 9.491500000000087,
+          10.242099999999482, 9.712099999998827, 12.860800000000381, 12.780899999999747,
+          8.352699999999459, 7.64600000000064, 8.052499999999782, 7.909199999998236,
+          8.748700000000099, 11.256400000000212, 9.01549999999952
+        ]
+      },
+      "unionCandidate": {
+        "p50": 21.86789999999928,
+        "p95": 28.406099999998332,
+        "samples": [
+          21.56630000000041, 22.567800000000716, 18.16489999999976, 19.37540000000081,
+          21.86789999999928, 25.64680000000044, 24.03479999999945, 18.608500000000276,
+          28.406099999998332, 22.242200000000594, 23.659600000000864, 21.457800000000134,
+          21.86659999999938, 20.351199999999153, 25.016999999999825
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"classified\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["U01", "\"classified\"", "%classified%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 35,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 40,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 45,
+              "parent": 40,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 47,
+              "parent": 45,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 68,
+              "parent": 40,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 79,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 82,
+              "parent": 79,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 91,
+              "parent": 79,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 103,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 106,
+              "parent": 103,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 117,
+              "parent": 103,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 126,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 134,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 138,
+              "parent": 134,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 150,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 174,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 122,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 126,
+          "parent": 122,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 138,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "invoice",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 0,
+      "production": {
+        "p50": 0.28440000000045984,
+        "p95": 0.3283000000010361,
+        "samples": [
+          0.31229999999959546, 0.3000000000010914, 0.290500000000975, 0.27449999999953434,
+          0.2640000000010332, 0.30749999999898137, 0.2595000000001164, 0.28440000000045984,
+          0.25940000000082364, 0.28399999999965075, 0.2871999999988475, 0.27119999999922584,
+          0.2668000000012398, 0.3283000000010361, 0.29210000000057335
+        ]
+      },
+      "unionCandidate": {
+        "p50": 0.258800000001429,
+        "p95": 0.2693999999992229,
+        "samples": [
+          0.2693999999992229, 0.258800000001429, 0.2561999999998079, 0.24169999999867287,
+          0.26410000000032596, 0.23480000000017753, 0.2643000000007305, 0.23730000000068685,
+          0.26679999999942083, 0.2562000000016269, 0.2668000000012398, 0.23720000000139407,
+          0.26569999999992433, 0.25050000000010186, 0.26519999999982247
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"invoice\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["U01", "\"invoice\"", "%invoice%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 35,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 40,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 45,
+              "parent": 40,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 47,
+              "parent": 45,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 68,
+              "parent": 40,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 79,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 82,
+              "parent": 79,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 91,
+              "parent": 79,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 103,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 106,
+              "parent": 103,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 117,
+              "parent": 103,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 126,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 134,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 138,
+              "parent": 134,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 150,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 174,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 122,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 126,
+          "parent": 122,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 138,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "budget",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 5.175900000000183,
+        "p95": 7.386099999999715,
+        "samples": [
+          5.318500000001222, 3.871100000000297, 4.731400000000576, 6.468899999999849,
+          6.376400000001013, 4.817900000000009, 4.399400000000242, 4.40809999999874,
+          6.766299999999319, 5.368399999999383, 5.175900000000183, 4.097399999998743,
+          4.352000000000771, 7.386099999999715, 5.935600000000704
+        ]
+      },
+      "unionCandidate": {
+        "p50": 1.0812999999998283,
+        "p95": 1.9552000000003318,
+        "samples": [
+          1.5097999999998137, 0.7423999999991793, 1.4602999999988242, 0.9207000000005792,
+          1.3678999999992811, 0.7109999999993306, 1.0812999999998283, 0.797099999999773,
+          1.322599999999511, 0.7590000000000146, 1.105199999999968, 0.759700000000521,
+          1.203300000001036, 0.7577999999994063, 1.9552000000003318
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"budget\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["U01", "\"budget\"", "%budget%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 35,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 40,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 45,
+              "parent": 40,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 47,
+              "parent": 45,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 68,
+              "parent": 40,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 79,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 82,
+              "parent": 79,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 91,
+              "parent": 79,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 103,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 106,
+              "parent": 103,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 117,
+              "parent": 103,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 126,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 134,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 138,
+              "parent": 134,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 150,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 174,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017905844880000199550",
+            "M017904268080000199050",
+            "M017902691280000198550",
+            "M017901114480000198050",
+            "M017899537680000197550",
+            "M017897960880000197050",
+            "M017896384080000196550",
+            "M017894807280000196050",
+            "M017893230480000195550",
+            "M017891653680000195050",
+            "M017890076880000194550",
+            "M017888500080000194050",
+            "M017886923280000193550",
+            "M017885346480000193050",
+            "M017883769680000192550",
+            "M017882192880000192050",
+            "M017880616080000191550",
+            "M017879039280000191050",
+            "M017877462480000190550",
+            "M017875885680000190050",
+            "M017874308880000189550"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 88,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017905844880000199550",
+            "M017904268080000199050",
+            "M017902691280000198550",
+            "M017901114480000198050",
+            "M017899537680000197550",
+            "M017897960880000197050",
+            "M017896384080000196550",
+            "M017894807280000196050",
+            "M017893230480000195550",
+            "M017891653680000195050",
+            "M017890076880000194550",
+            "M017888500080000194050",
+            "M017886923280000193550",
+            "M017885346480000193050",
+            "M017883769680000192550",
+            "M017882192880000192050",
+            "M017880616080000191550",
+            "M017879039280000191050",
+            "M017877462480000190550",
+            "M017875885680000190050",
+            "M017874308880000189550"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017905844880000199550",
+            "M017904268080000199050",
+            "M017902691280000198550",
+            "M017901114480000198050",
+            "M017899537680000197550",
+            "M017897960880000197050",
+            "M017896384080000196550",
+            "M017894807280000196050",
+            "M017893230480000195550",
+            "M017891653680000195050",
+            "M017890076880000194550",
+            "M017888500080000194050",
+            "M017886923280000193550",
+            "M017885346480000193050",
+            "M017883769680000192550",
+            "M017882192880000192050",
+            "M017880616080000191550",
+            "M017879039280000191050",
+            "M017877462480000190550",
+            "M017875885680000190050",
+            "M017874308880000189550"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017905844880000199550",
+            "M017904268080000199050",
+            "M017902691280000198550",
+            "M017901114480000198050",
+            "M017899537680000197550",
+            "M017897960880000197050",
+            "M017896384080000196550",
+            "M017894807280000196050",
+            "M017893230480000195550",
+            "M017891653680000195050",
+            "M017890076880000194550",
+            "M017888500080000194050",
+            "M017886923280000193550",
+            "M017885346480000193050",
+            "M017883769680000192550",
+            "M017882192880000192050",
+            "M017880616080000191550",
+            "M017879039280000191050",
+            "M017877462480000190550",
+            "M017875885680000190050",
+            "M017874308880000189550"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 92,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 122,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 126,
+          "parent": 122,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 138,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "contract pdf",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 4.883200000000215,
+        "p95": 8.512899999999718,
+        "samples": [
+          4.589400000000751, 4.401900000000751, 4.883200000000215, 4.700399999999718,
+          5.848400000000765, 4.407199999999648, 7.820499999999811, 5.872499999999491,
+          6.082499999998618, 4.279499999998734, 6.608899999999267, 5.12670000000071,
+          8.512899999999718, 3.969600000000355, 4.49829999999929
+        ]
+      },
+      "unionCandidate": {
+        "p50": 1.14220000000023,
+        "p95": 1.7916000000004715,
+        "samples": [
+          1.2355999999999767, 0.9944999999988795, 1.14220000000023, 1.0982999999996537,
+          1.3309000000008382, 0.7662000000000262, 1.3016000000006898, 0.7757999999994354,
+          1.4377000000004045, 0.9578000000001339, 1.7916000000004715, 1.5069000000003143,
+          1.4083999999984371, 0.7915999999986525, 1.1406000000006316
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"contract\" \"pdf\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\' AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["U01", "\"contract\" \"pdf\"", "%contract%", "%pdf%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 35,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 40,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 45,
+              "parent": 40,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 47,
+              "parent": 45,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 71,
+              "parent": 40,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 82,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 85,
+              "parent": 82,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 94,
+              "parent": 82,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 106,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 109,
+              "parent": 106,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 123,
+              "parent": 106,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 132,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 140,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 144,
+              "parent": 140,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 156,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 180,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017906475600000199750",
+            "M017904898800000199250",
+            "M017903322000000198750",
+            "M017901745200000198250",
+            "M017900168400000197750",
+            "M017898591600000197250",
+            "M017897014800000196750",
+            "M017895438000000196250",
+            "M017893861200000195750",
+            "M017892284400000195250",
+            "M017890707600000194750",
+            "M017889130800000194250",
+            "M017887554000000193750",
+            "M017885977200000193250",
+            "M017884400400000192750",
+            "M017882823600000192250",
+            "M017881246800000191750",
+            "M017879670000000191250",
+            "M017878093200000190750",
+            "M017876516400000190250",
+            "M017874939600000189750"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 88,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017906475600000199750",
+            "M017904898800000199250",
+            "M017903322000000198750",
+            "M017901745200000198250",
+            "M017900168400000197750",
+            "M017898591600000197250",
+            "M017897014800000196750",
+            "M017895438000000196250",
+            "M017893861200000195750",
+            "M017892284400000195250",
+            "M017890707600000194750",
+            "M017889130800000194250",
+            "M017887554000000193750",
+            "M017885977200000193250",
+            "M017884400400000192750",
+            "M017882823600000192250",
+            "M017881246800000191750",
+            "M017879670000000191250",
+            "M017878093200000190750",
+            "M017876516400000190250",
+            "M017874939600000189750"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017906475600000199750",
+            "M017904898800000199250",
+            "M017903322000000198750",
+            "M017901745200000198250",
+            "M017900168400000197750",
+            "M017898591600000197250",
+            "M017897014800000196750",
+            "M017895438000000196250",
+            "M017893861200000195750",
+            "M017892284400000195250",
+            "M017890707600000194750",
+            "M017889130800000194250",
+            "M017887554000000193750",
+            "M017885977200000193250",
+            "M017884400400000192750",
+            "M017882823600000192250",
+            "M017881246800000191750",
+            "M017879670000000191250",
+            "M017878093200000190750",
+            "M017876516400000190250",
+            "M017874939600000189750"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017906475600000199750",
+            "M017904898800000199250",
+            "M017903322000000198750",
+            "M017901745200000198250",
+            "M017900168400000197750",
+            "M017898591600000197250",
+            "M017897014800000196750",
+            "M017895438000000196250",
+            "M017893861200000195750",
+            "M017892284400000195250",
+            "M017890707600000194750",
+            "M017889130800000194250",
+            "M017887554000000193750",
+            "M017885977200000193250",
+            "M017884400400000192750",
+            "M017882823600000192250",
+            "M017881246800000191750",
+            "M017879670000000191250",
+            "M017878093200000190750",
+            "M017876516400000190250",
+            "M017874939600000189750"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 92,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 101,
+          "parent": 12,
+          "notused": 212,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 117,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 125,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 129,
+          "parent": 125,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 141,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "zebra",
+      "opts": {
+        "channelId": "CSM2"
+      },
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 0,
+      "production": {
+        "p50": 0.42400000000088767,
+        "p95": 0.6799000000009983,
+        "samples": [
+          0.42400000000088767, 0.4294000000008964, 0.4171999999998661, 0.4614999999994325,
+          0.42189999999936845, 0.40790000000015425, 0.36679999999978463, 0.3993000000009488,
+          0.40819999999985157, 0.4341999999996915, 0.40160000000105356, 0.538300000000163,
+          0.5067999999992026, 0.6799000000009983, 0.45199999999931606
+        ]
+      },
+      "unionCandidate": {
+        "p50": 0.33770000000004075,
+        "p95": 1.272399999999834,
+        "samples": [
+          0.31199999999989814, 0.2694999999985157, 0.3352999999988242, 0.5020999999997002,
+          0.3467000000000553, 0.30160000000068976, 0.33770000000004075, 0.29769999999916763,
+          0.31270000000040454, 0.3194000000003143, 0.5686999999998079, 0.5813000000016473,
+          0.395699999999124, 1.272399999999834, 0.377200000000812
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"zebra\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND m.channel_id = ? AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["CSM2", "U01", "\"zebra\"", "%zebra%", 21],
+          "plan": [
+            {
+              "id": 10,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 19,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 23,
+              "parent": 19,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 35,
+              "parent": 0,
+              "notused": 62,
+              "detail": "SEARCH m USING INDEX idx_messages_channel (channel_id=?)"
+            },
+            {
+              "id": 45,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 48,
+              "parent": 45,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 57,
+              "parent": 45,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 69,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 72,
+              "parent": 69,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 83,
+              "parent": 69,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 94,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 17,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 21,
+          "parent": 17,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 33,
+          "parent": 0,
+          "notused": 62,
+          "detail": "SEARCH m USING INDEX idx_messages_channel (channel_id=? AND id=?)"
+        },
+        {
+          "id": 39,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 42,
+          "parent": 39,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 45,
+          "parent": 42,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 47,
+          "parent": 45,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 51,
+          "parent": 47,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 56,
+          "parent": 47,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 63,
+          "parent": 47,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 72,
+          "parent": 45,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 76,
+          "parent": 72,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 125,
+          "parent": 39,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 144,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "zebra",
+      "opts": {
+        "cursor": "M017591904000000100000"
+      },
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 10,
+      "production": {
+        "p50": 0.52639999999883,
+        "p95": 0.8109000000004016,
+        "samples": [
+          0.6304000000000087, 0.5997999999999593, 0.52639999999883, 0.6026000000001659,
+          0.4724000000005617, 0.5871999999999389, 0.6033999999999651, 0.4680000000007567,
+          0.46349999999983993, 0.4897999999993772, 0.42629999999917345, 0.5203000000001339,
+          0.8109000000004016, 0.742099999999482, 0.515400000000227
+        ]
+      },
+      "unionCandidate": {
+        "p50": 0.48730000000068685,
+        "p95": 0.7881000000015774,
+        "samples": [
+          0.7881000000015774, 0.6075000000000728, 0.5176999999985128, 0.48730000000068685,
+          0.5017000000007101, 0.43209999999999127, 0.5200999999997293, 0.4724999999998545,
+          0.4236000000000786, 0.40649999999914144, 0.46039999999993597, 0.413300000000163,
+          0.6125000000010914, 0.6098000000001775, 0.48070000000006985
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"zebra\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND m.id < ? AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["M017591904000000100000", "U01", "\"zebra\"", "%zebra%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 37,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 42,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 47,
+              "parent": 42,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 49,
+              "parent": 47,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 72,
+              "parent": 42,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 85,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 88,
+              "parent": 85,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 97,
+              "parent": 85,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 109,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 112,
+              "parent": 109,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 123,
+              "parent": 109,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 132,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 140,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 144,
+              "parent": 140,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 156,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 180,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 96,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 55,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 95,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 94,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 59,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 116,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 124,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 128,
+          "parent": 124,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 140,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "deploy in:#small-3",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 29.259500000000116,
+        "p95": 33.302200000000084,
+        "samples": [
+          29.686999999999898, 29.931900000001406, 27.662399999999252, 29.259500000000116,
+          33.302200000000084, 29.10570000000007, 25.739599999998973, 32.2432000000008,
+          30.978900000001886, 31.252300000000105, 28.51599999999962, 30.59609999999884,
+          27.88839999999982, 28.057600000000093, 28.271100000001752
+        ]
+      },
+      "unionCandidate": {
+        "p50": 22.957500000000437,
+        "p95": 24.94249999999738,
+        "samples": [
+          23.844100000000253, 22.29150000000118, 24.48619999999937, 24.142299999999523,
+          21.467099999999846, 21.32209999999941, 23.305500000000393, 23.047999999998865,
+          22.893299999999726, 20.727100000000064, 23.540400000001682, 20.504000000000815,
+          22.957500000000437, 24.94249999999738, 21.29239999999845
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"deploy\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT MIN(id) AS edge, MIN(position) AS low, COUNT(*) AS n FROM (\n           SELECT m.id, m.rowid AS position FROM messages m\n           \n           ORDER BY m.id DESC LIMIT ?\n         )",
+          "method": "get",
+          "args": [20000],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 8,
+              "parent": 2,
+              "notused": 210,
+              "detail": "SCAN m USING COVERING INDEX sqlite_autoindex_messages_1"
+            },
+            {
+              "id": 17,
+              "parent": 0,
+              "notused": 216,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND c.name IN (?) AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (+m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND rowid >= ?)\n            OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\')) AND m.id >= ?\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": [
+            "small-3",
+            "U01",
+            "\"deploy\"",
+            180001,
+            "%deploy%",
+            "M017844192000000180000",
+            21
+          ],
+          "plan": [
+            {
+              "id": 10,
+              "parent": 0,
+              "notused": 203,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id>?)"
+            },
+            {
+              "id": 20,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 23,
+              "parent": 20,
+              "notused": 152,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1>"
+            },
+            {
+              "id": 35,
+              "parent": 20,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 47,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 50,
+              "parent": 47,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 61,
+              "parent": 47,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 72,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 82,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 86,
+              "parent": 82,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 98,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND c.name IN (?) AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\')) AND m.id < ?\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["small-3", "U01", "\"deploy\"", "%deploy%", "M017844192000000180000", 6],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 37,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 42,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 47,
+              "parent": 42,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 49,
+              "parent": 47,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 72,
+              "parent": 42,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 83,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 86,
+              "parent": 83,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 95,
+              "parent": 83,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 107,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 110,
+              "parent": 107,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 121,
+              "parent": 107,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 132,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 142,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 146,
+              "parent": 142,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 158,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 182,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017905198392000199345",
+            "M017900121096000197735",
+            "M017897005339200196747",
+            "M017891928043200195137",
+            "M017888812286400194149",
+            "M017883734990400192539",
+            "M017880619233600191551",
+            "M017875541937600189941",
+            "M017872426180800188953",
+            "M017867348884800187343",
+            "M017864233128000186355",
+            "M017859155832000184745",
+            "M017856040075200183757",
+            "M017850962779200182147",
+            "M017847847022400181159",
+            "M017842769726400179549",
+            "M017839653969600178561",
+            "M017834576673600176951",
+            "M017831460916800175963",
+            "M017826383620800174353",
+            "M017823267864000173365"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 88,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017905198392000199345",
+            "M017900121096000197735",
+            "M017897005339200196747",
+            "M017891928043200195137",
+            "M017888812286400194149",
+            "M017883734990400192539",
+            "M017880619233600191551",
+            "M017875541937600189941",
+            "M017872426180800188953",
+            "M017867348884800187343",
+            "M017864233128000186355",
+            "M017859155832000184745",
+            "M017856040075200183757",
+            "M017850962779200182147",
+            "M017847847022400181159",
+            "M017842769726400179549",
+            "M017839653969600178561",
+            "M017834576673600176951",
+            "M017831460916800175963",
+            "M017826383620800174353",
+            "M017823267864000173365"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017905198392000199345",
+            "M017900121096000197735",
+            "M017897005339200196747",
+            "M017891928043200195137",
+            "M017888812286400194149",
+            "M017883734990400192539",
+            "M017880619233600191551",
+            "M017875541937600189941",
+            "M017872426180800188953",
+            "M017867348884800187343",
+            "M017864233128000186355",
+            "M017859155832000184745",
+            "M017856040075200183757",
+            "M017850962779200182147",
+            "M017847847022400181159",
+            "M017842769726400179549",
+            "M017839653969600178561",
+            "M017834576673600176951",
+            "M017831460916800175963",
+            "M017826383620800174353",
+            "M017823267864000173365"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017905198392000199345",
+            "M017900121096000197735",
+            "M017897005339200196747",
+            "M017891928043200195137",
+            "M017888812286400194149",
+            "M017883734990400192539",
+            "M017880619233600191551",
+            "M017875541937600189941",
+            "M017872426180800188953",
+            "M017867348884800187343",
+            "M017864233128000186355",
+            "M017859155832000184745",
+            "M017856040075200183757",
+            "M017850962779200182147",
+            "M017847847022400181159",
+            "M017842769726400179549",
+            "M017839653969600178561",
+            "M017834576673600176951",
+            "M017831460916800175963",
+            "M017826383620800174353",
+            "M017823267864000173365"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 92,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 124,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 128,
+          "parent": 124,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 140,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "zebra from:@rare",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 0,
+      "production": {
+        "p50": 0.3245000000024447,
+        "p95": 0.37010000000009313,
+        "samples": [
+          0.30199999999967986, 0.37010000000009313, 0.3330000000023574, 0.35890000000290456,
+          0.33779999999751453, 0.35010000000329455, 0.32300000000032014, 0.3312999999980093,
+          0.3011999999980617, 0.33439999999973224, 0.31490000000121654, 0.3245000000024447,
+          0.31239999999888823, 0.32259999999951106, 0.3120999999991909
+        ]
+      },
+      "unionCandidate": {
+        "p50": 0.3099999999976717,
+        "p95": 0.3573000000033062,
+        "samples": [
+          0.31040000000211876, 0.3051000000014028, 0.3328000000001339, 0.2980999999999767,
+          0.3573000000033062, 0.3275000000030559, 0.3099000000001979, 0.288300000000163,
+          0.3098999999965599, 0.31300000000192085, 0.3359999999993306, 0.2996999999995751,
+          0.31229999999777647, 0.2835000000013679, 0.3099999999976717
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"zebra\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND u.handle IN (?) AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["rare", "U01", "\"zebra\"", "%zebra%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH u USING INDEX sqlite_autoindex_users_2 (handle=?)"
+            },
+            {
+              "id": 20,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 21,
+              "parent": 20,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 25,
+              "parent": 21,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 27,
+              "parent": 25,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 47,
+              "parent": 21,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 52,
+              "parent": 20,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 57,
+              "parent": 52,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 59,
+              "parent": 57,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 83,
+              "parent": 52,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 94,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 97,
+              "parent": 94,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 106,
+              "parent": 94,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 118,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 121,
+              "parent": 118,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 132,
+              "parent": 118,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 144,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 152,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 156,
+              "parent": 152,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 188,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH u USING INDEX sqlite_autoindex_users_2 (handle=?)"
+        },
+        {
+          "id": 17,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 21,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 24,
+          "parent": 21,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 27,
+          "parent": 24,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 29,
+          "parent": 27,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 33,
+          "parent": 29,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 38,
+          "parent": 29,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 45,
+          "parent": 29,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 54,
+          "parent": 27,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 58,
+          "parent": 54,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 107,
+          "parent": 21,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 126,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 134,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 138,
+          "parent": 134,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        }
+      ]
+    },
+    {
+      "text": "zebra from:@u00",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 20,
+      "production": {
+        "p50": 0.5555000000022119,
+        "p95": 2.3646000000007916,
+        "samples": [
+          0.5177999999978056, 0.5491000000001804, 0.4981000000007043, 0.5555000000022119,
+          0.5194000000010419, 0.5051000000021304, 0.4746000000013737, 0.5714000000007218,
+          0.5033000000003085, 0.7171999999991385, 0.9263000000028114, 0.6859999999978754,
+          2.3646000000007916, 0.8706999999994878, 0.8868000000002212
+        ]
+      },
+      "unionCandidate": {
+        "p50": 0.5181000000011409,
+        "p95": 1.1427000000003318,
+        "samples": [
+          0.4765999999981432, 0.49689999999827705, 0.5275000000001455, 0.43879999999990105,
+          0.4768000000003667, 0.4382999999979802, 0.5234999999993306, 0.5181000000011409,
+          0.5026000000034401, 0.4697999999989406, 0.8415000000022701, 0.8095000000030268,
+          0.7984999999971478, 0.6313999999983935, 1.1427000000003318
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"zebra\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND u.handle IN (?) AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["u00", "U01", "\"zebra\"", "%zebra%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH u USING INDEX sqlite_autoindex_users_2 (handle=?)"
+            },
+            {
+              "id": 20,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 21,
+              "parent": 20,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 25,
+              "parent": 21,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 27,
+              "parent": 25,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 47,
+              "parent": 21,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 52,
+              "parent": 20,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 57,
+              "parent": 52,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 59,
+              "parent": 57,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 83,
+              "parent": 52,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 94,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 97,
+              "parent": 94,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 106,
+              "parent": 94,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 118,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 121,
+              "parent": 118,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 132,
+              "parent": 118,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 144,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 152,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 156,
+              "parent": 152,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 188,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017891496000000195000",
+            "M017859960000000185000",
+            "M017828424000000175000",
+            "M017796888000000165000",
+            "M017765352000000155000",
+            "M017733816000000145000",
+            "M017702280000000135000",
+            "M017670744000000125000",
+            "M017639208000000115000",
+            "M017607672000000105000",
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 85,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017891496000000195000",
+            "M017859960000000185000",
+            "M017828424000000175000",
+            "M017796888000000165000",
+            "M017765352000000155000",
+            "M017733816000000145000",
+            "M017702280000000135000",
+            "M017670744000000125000",
+            "M017639208000000115000",
+            "M017607672000000105000",
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017891496000000195000",
+            "M017859960000000185000",
+            "M017828424000000175000",
+            "M017796888000000165000",
+            "M017765352000000155000",
+            "M017733816000000145000",
+            "M017702280000000135000",
+            "M017670744000000125000",
+            "M017639208000000115000",
+            "M017607672000000105000",
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017891496000000195000",
+            "M017859960000000185000",
+            "M017828424000000175000",
+            "M017796888000000165000",
+            "M017765352000000155000",
+            "M017733816000000145000",
+            "M017702280000000135000",
+            "M017670744000000125000",
+            "M017639208000000115000",
+            "M017607672000000105000",
+            "M017576136000000095000",
+            "M017544600000000085000",
+            "M017513064000000075000",
+            "M017481528000000065000",
+            "M017449992000000055000",
+            "M017418456000000045000",
+            "M017386920000000035000",
+            "M017355384000000025000",
+            "M017323848000000015000",
+            "M017292312000000005000"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 89,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH u USING INDEX sqlite_autoindex_users_2 (handle=?)"
+        },
+        {
+          "id": 17,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 21,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 24,
+          "parent": 21,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 27,
+          "parent": 24,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 29,
+          "parent": 27,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 33,
+          "parent": 29,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 38,
+          "parent": 29,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 45,
+          "parent": 29,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 54,
+          "parent": 27,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 58,
+          "parent": 54,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 107,
+          "parent": 21,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 126,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 134,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 138,
+          "parent": 134,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        }
+      ]
+    },
+    {
+      "text": "zebra before:2025-01-01",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 3,
+      "production": {
+        "p50": 0.64259999999922,
+        "p95": 1.3810999999986961,
+        "samples": [
+          0.45979999999690335, 0.8019999999996799, 1.3810999999986961, 0.8201000000008207,
+          0.8871999999973923, 0.6794999999983702, 0.49209999999948195, 0.4606000000021595,
+          0.47450000000026193, 0.64259999999922, 0.6703000000015891, 0.45310000000245054,
+          0.5384000000012747, 0.7229000000006636, 0.46930000000065775
+        ]
+      },
+      "unionCandidate": {
+        "p50": 0.42550000000119326,
+        "p95": 1.6199000000015076,
+        "samples": [
+          0.41049999999813735, 0.4110000000000582, 1.6199000000015076, 0.6723999999994703,
+          0.7531999999991967, 0.7330000000001746, 0.42550000000119326, 0.40829999999914435,
+          0.4113000000033935, 0.47599999999874854, 0.5596000000005006, 0.5262000000002445,
+          0.40490000000136206, 0.4246000000021013, 0.4135999999998603
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"zebra\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND m.created_at < ? AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": [1735689600000, "U01", "\"zebra\"", "%zebra%", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 37,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 42,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 47,
+              "parent": 42,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 49,
+              "parent": 47,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 72,
+              "parent": 42,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 85,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 88,
+              "parent": 85,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 97,
+              "parent": 85,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 109,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 112,
+              "parent": 109,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 123,
+              "parent": 109,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 132,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 140,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 144,
+              "parent": 140,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 156,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 180,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": ["M017355384000000025000", "M017323848000000015000", "M017292312000000005000"],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 79,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 34,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": ["M017355384000000025000", "M017323848000000015000", "M017292312000000005000"],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 78,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?)",
+          "method": "all",
+          "args": ["M017355384000000025000", "M017323848000000015000", "M017292312000000005000"],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": ["M017355384000000025000", "M017323848000000015000", "M017292312000000005000"],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 77,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 38,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 116,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 124,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 128,
+          "parent": 124,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 140,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "contract type:pdf",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 5.344600000000355,
+        "p95": 8.493200000000797,
+        "samples": [
+          6.528800000000047, 4.641200000001845, 4.858700000000681, 8.493200000000797,
+          5.151099999999133, 4.4768999999978405, 5.344600000000355, 4.862399999998161,
+          5.6916999999994005, 5.977900000001682, 6.430599999999686, 4.288700000000972,
+          4.429899999999179, 6.1066000000028, 5.413399999997637
+        ]
+      },
+      "unionCandidate": {
+        "p50": 0.9739999999983411,
+        "p95": 1.507900000000518,
+        "samples": [
+          1.3590000000003783, 0.7829000000019732, 0.9739999999983411, 0.7820000000028813,
+          1.0331999999980326, 0.777299999997922, 1.507900000000518, 0.7426000000014028,
+          0.9906000000009954, 1.1012999999984459, 1.0956000000005588, 0.7629999999990105,
+          0.9403000000020256, 0.6833000000005995, 1.379000000000815
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"contract\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND EXISTS (SELECT 1 FROM files f WHERE f.message_id = m.id\n           AND (lower(f.mime) LIKE ? OR lower(f.name) LIKE ?)) AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\'))\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["application/pdf", "%.pdf", "U01", "\"contract\"", "%contract%", 21],
+          "plan": [
+            {
+              "id": 15,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 16,
+              "parent": 15,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 20,
+              "parent": 16,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 22,
+              "parent": 20,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 39,
+              "parent": 16,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 44,
+              "parent": 15,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 49,
+              "parent": 44,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 4"
+            },
+            {
+              "id": 51,
+              "parent": 49,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 72,
+              "parent": 44,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 83,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 86,
+              "parent": 83,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 95,
+              "parent": 83,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 107,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 4"
+            },
+            {
+              "id": 110,
+              "parent": 107,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 121,
+              "parent": 107,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 130,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 138,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 2"
+            },
+            {
+              "id": 142,
+              "parent": 138,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 154,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 158,
+              "parent": 0,
+              "notused": 61,
+              "detail": "SEARCH f EXISTS USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 194,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017906475600000199750",
+            "M017904898800000199250",
+            "M017903322000000198750",
+            "M017901745200000198250",
+            "M017900168400000197750",
+            "M017898591600000197250",
+            "M017897014800000196750",
+            "M017895438000000196250",
+            "M017893861200000195750",
+            "M017892284400000195250",
+            "M017890707600000194750",
+            "M017889130800000194250",
+            "M017887554000000193750",
+            "M017885977200000193250",
+            "M017884400400000192750",
+            "M017882823600000192250",
+            "M017881246800000191750",
+            "M017879670000000191250",
+            "M017878093200000190750",
+            "M017876516400000190250",
+            "M017874939600000189750"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 88,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017906475600000199750",
+            "M017904898800000199250",
+            "M017903322000000198750",
+            "M017901745200000198250",
+            "M017900168400000197750",
+            "M017898591600000197250",
+            "M017897014800000196750",
+            "M017895438000000196250",
+            "M017893861200000195750",
+            "M017892284400000195250",
+            "M017890707600000194750",
+            "M017889130800000194250",
+            "M017887554000000193750",
+            "M017885977200000193250",
+            "M017884400400000192750",
+            "M017882823600000192250",
+            "M017881246800000191750",
+            "M017879670000000191250",
+            "M017878093200000190750",
+            "M017876516400000190250",
+            "M017874939600000189750"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017906475600000199750",
+            "M017904898800000199250",
+            "M017903322000000198750",
+            "M017901745200000198250",
+            "M017900168400000197750",
+            "M017898591600000197250",
+            "M017897014800000196750",
+            "M017895438000000196250",
+            "M017893861200000195750",
+            "M017892284400000195250",
+            "M017890707600000194750",
+            "M017889130800000194250",
+            "M017887554000000193750",
+            "M017885977200000193250",
+            "M017884400400000192750",
+            "M017882823600000192250",
+            "M017881246800000191750",
+            "M017879670000000191250",
+            "M017878093200000190750",
+            "M017876516400000190250",
+            "M017874939600000189750"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017906475600000199750",
+            "M017904898800000199250",
+            "M017903322000000198750",
+            "M017901745200000198250",
+            "M017900168400000197750",
+            "M017898591600000197250",
+            "M017897014800000196750",
+            "M017895438000000196250",
+            "M017893861200000195750",
+            "M017892284400000195250",
+            "M017890707600000194750",
+            "M017889130800000194250",
+            "M017887554000000193750",
+            "M017885977200000193250",
+            "M017884400400000192750",
+            "M017882823600000192250",
+            "M017881246800000191750",
+            "M017879670000000191250",
+            "M017878093200000190750",
+            "M017876516400000190250",
+            "M017874939600000189750"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 92,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 16,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 19,
+          "parent": 16,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 24,
+          "parent": 22,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 28,
+          "parent": 24,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 33,
+          "parent": 24,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 40,
+          "parent": 24,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 49,
+          "parent": 22,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 53,
+          "parent": 49,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 102,
+          "parent": 16,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 118,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 126,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 130,
+          "parent": 126,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 142,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH f EXISTS USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 156,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "the",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 11.348299999997835,
+        "p95": 12.873900000002322,
+        "samples": [
+          11.445900000002439, 10.45850000000064, 12.873900000002322, 12.455299999997806,
+          8.86030000000028, 12.0583000000006, 11.520300000000134, 10.035900000002584,
+          10.705400000002555, 10.720499999999447, 10.229899999998452, 11.92109999999957,
+          9.902099999999336, 11.348299999997835, 11.754000000000815
+        ]
+      },
+      "unionCandidate": {
+        "p50": 112.28550000000178,
+        "p95": 124.19430000000284,
+        "samples": [
+          119.12090000000171, 113.04699999999866, 124.19430000000284, 122.18219999999928,
+          121.33529999999882, 121.32890000000043, 105.93919999999707, 110.5779999999977,
+          112.28550000000178, 105.87459999999919, 116.09969999999885, 110.33450000000084,
+          103.92919999999867, 102.08140000000276, 104.44770000000062
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"the\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT MIN(id) AS edge, MIN(position) AS low, COUNT(*) AS n FROM (\n           SELECT m.id, m.rowid AS position FROM messages m\n           \n           ORDER BY m.id DESC LIMIT ?\n         )",
+          "method": "get",
+          "args": [20000],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 8,
+              "parent": 2,
+              "notused": 210,
+              "detail": "SCAN m USING COVERING INDEX sqlite_autoindex_messages_1"
+            },
+            {
+              "id": 17,
+              "parent": 0,
+              "notused": 216,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (+m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND rowid >= ?)\n            OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\')) AND m.id >= ?\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["U01", "\"the\"", 180001, "%the%", "M017844192000000180000", 21],
+          "plan": [
+            {
+              "id": 10,
+              "parent": 0,
+              "notused": 203,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id>?)"
+            },
+            {
+              "id": 20,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 23,
+              "parent": 20,
+              "notused": 152,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1>"
+            },
+            {
+              "id": 35,
+              "parent": 20,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 47,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 50,
+              "parent": 47,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 61,
+              "parent": 47,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 72,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 80,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 84,
+              "parent": 80,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 96,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017907260846400199999",
+            "M017907257692800199998",
+            "M017907254539200199997",
+            "M017907245078400199994",
+            "M017907238771200199992",
+            "M017907232464000199990",
+            "M017907229310400199989",
+            "M017907226156800199988",
+            "M017907223003200199987",
+            "M017907219849600199986",
+            "M017907213542400199984",
+            "M017907210388800199983",
+            "M017907200928000199980",
+            "M017907188313600199976",
+            "M017907185160000199975",
+            "M017907182006400199974",
+            "M017907178852800199973",
+            "M017907175699200199972",
+            "M017907172545600199971",
+            "M017907166238400199969",
+            "M017907163084800199968"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 88,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017907260846400199999",
+            "M017907257692800199998",
+            "M017907254539200199997",
+            "M017907245078400199994",
+            "M017907238771200199992",
+            "M017907232464000199990",
+            "M017907229310400199989",
+            "M017907226156800199988",
+            "M017907223003200199987",
+            "M017907219849600199986",
+            "M017907213542400199984",
+            "M017907210388800199983",
+            "M017907200928000199980",
+            "M017907188313600199976",
+            "M017907185160000199975",
+            "M017907182006400199974",
+            "M017907178852800199973",
+            "M017907175699200199972",
+            "M017907172545600199971",
+            "M017907166238400199969",
+            "M017907163084800199968"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017907260846400199999",
+            "M017907257692800199998",
+            "M017907254539200199997",
+            "M017907245078400199994",
+            "M017907238771200199992",
+            "M017907232464000199990",
+            "M017907229310400199989",
+            "M017907226156800199988",
+            "M017907223003200199987",
+            "M017907219849600199986",
+            "M017907213542400199984",
+            "M017907210388800199983",
+            "M017907200928000199980",
+            "M017907188313600199976",
+            "M017907185160000199975",
+            "M017907182006400199974",
+            "M017907178852800199973",
+            "M017907175699200199972",
+            "M017907172545600199971",
+            "M017907166238400199969",
+            "M017907163084800199968"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017907260846400199999",
+            "M017907257692800199998",
+            "M017907254539200199997",
+            "M017907245078400199994",
+            "M017907238771200199992",
+            "M017907232464000199990",
+            "M017907229310400199989",
+            "M017907226156800199988",
+            "M017907223003200199987",
+            "M017907219849600199986",
+            "M017907213542400199984",
+            "M017907210388800199983",
+            "M017907200928000199980",
+            "M017907188313600199976",
+            "M017907185160000199975",
+            "M017907182006400199974",
+            "M017907178852800199973",
+            "M017907175699200199972",
+            "M017907172545600199971",
+            "M017907166238400199969",
+            "M017907163084800199968"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 92,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 122,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 126,
+          "parent": 122,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 138,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "the in:#small-3",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 13.963700000000244,
+        "p95": 17.733400000000984,
+        "samples": [
+          15.227199999997538, 11.487199999999575, 12.632299999997485, 14.068599999998696,
+          14.941299999998591, 17.49829999999929, 10.04109999999855, 13.63669999999911,
+          11.74539999999979, 15.988800000002811, 14.521199999999226, 17.733400000000984,
+          11.184199999999691, 13.963700000000244, 10.640999999999622
+        ]
+      },
+      "unionCandidate": {
+        "p50": 125.40230000000156,
+        "p95": 195.33889999999883,
+        "samples": [
+          133.50690000000031, 131.5073999999986, 125.40230000000156, 123.10729999999967,
+          123.88340000000244, 121.70550000000003, 126.93890000000101, 117.35699999999997,
+          143.66859999999724, 195.33889999999883, 141.84110000000146, 134.93089999999938,
+          108.23689999999988, 104.6375999999982, 116.10740000000078
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"the\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT MIN(id) AS edge, MIN(position) AS low, COUNT(*) AS n FROM (\n           SELECT m.id, m.rowid AS position FROM messages m\n           \n           ORDER BY m.id DESC LIMIT ?\n         )",
+          "method": "get",
+          "args": [20000],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 8,
+              "parent": 2,
+              "notused": 210,
+              "detail": "SCAN m USING COVERING INDEX sqlite_autoindex_messages_1"
+            },
+            {
+              "id": 17,
+              "parent": 0,
+              "notused": 216,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND c.name IN (?) AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (+m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND rowid >= ?)\n            OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\')) AND m.id >= ?\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": ["small-3", "U01", "\"the\"", 180001, "%the%", "M017844192000000180000", 21],
+          "plan": [
+            {
+              "id": 10,
+              "parent": 0,
+              "notused": 203,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id>?)"
+            },
+            {
+              "id": 20,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 23,
+              "parent": 20,
+              "notused": 152,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1>"
+            },
+            {
+              "id": 35,
+              "parent": 20,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 47,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 50,
+              "parent": 47,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 61,
+              "parent": 47,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 72,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 82,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 86,
+              "parent": 82,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 98,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017906242233600199676",
+            "M017906012020800199603",
+            "M017905706121600199506",
+            "M017905576824000199465",
+            "M017904835728000199230",
+            "M017903867572800198923",
+            "M017903599516800198838",
+            "M017903385072000198770",
+            "M017902659744000198540",
+            "M017902133092800198373",
+            "M017900688744000197915",
+            "M017899704820800197603",
+            "M017898049180800197078",
+            "M017897818968000197005",
+            "M017897513068800196908",
+            "M017897383771200196867",
+            "M017896642675200196632",
+            "M017895674520000196325",
+            "M017895406464000196240",
+            "M017895192019200196172",
+            "M017894466691200195942"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 88,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017906242233600199676",
+            "M017906012020800199603",
+            "M017905706121600199506",
+            "M017905576824000199465",
+            "M017904835728000199230",
+            "M017903867572800198923",
+            "M017903599516800198838",
+            "M017903385072000198770",
+            "M017902659744000198540",
+            "M017902133092800198373",
+            "M017900688744000197915",
+            "M017899704820800197603",
+            "M017898049180800197078",
+            "M017897818968000197005",
+            "M017897513068800196908",
+            "M017897383771200196867",
+            "M017896642675200196632",
+            "M017895674520000196325",
+            "M017895406464000196240",
+            "M017895192019200196172",
+            "M017894466691200195942"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017906242233600199676",
+            "M017906012020800199603",
+            "M017905706121600199506",
+            "M017905576824000199465",
+            "M017904835728000199230",
+            "M017903867572800198923",
+            "M017903599516800198838",
+            "M017903385072000198770",
+            "M017902659744000198540",
+            "M017902133092800198373",
+            "M017900688744000197915",
+            "M017899704820800197603",
+            "M017898049180800197078",
+            "M017897818968000197005",
+            "M017897513068800196908",
+            "M017897383771200196867",
+            "M017896642675200196632",
+            "M017895674520000196325",
+            "M017895406464000196240",
+            "M017895192019200196172",
+            "M017894466691200195942"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017906242233600199676",
+            "M017906012020800199603",
+            "M017905706121600199506",
+            "M017905576824000199465",
+            "M017904835728000199230",
+            "M017903867572800198923",
+            "M017903599516800198838",
+            "M017903385072000198770",
+            "M017902659744000198540",
+            "M017902133092800198373",
+            "M017900688744000197915",
+            "M017899704820800197603",
+            "M017898049180800197078",
+            "M017897818968000197005",
+            "M017897513068800196908",
+            "M017897383771200196867",
+            "M017896642675200196632",
+            "M017895674520000196325",
+            "M017895406464000196240",
+            "M017895192019200196172",
+            "M017894466691200195942"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 92,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 124,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 128,
+          "parent": 124,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 140,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "the before:2025-01-01",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 96.32580000000235,
+        "p95": 105.48459999999977,
+        "samples": [
+          87.83729999999923, 91.27840000000288, 97.48899999999776, 96.32580000000235,
+          93.79879999999685, 105.48459999999977, 99.98250000000189, 98.2419000000009,
+          96.63430000000153, 96.19059999999808, 91.75670000000173, 92.29379999999946, 85.6214,
+          97.1265999999996, 99.62609999999768
+        ]
+      },
+      "unionCandidate": {
+        "p50": 176.33169999999882,
+        "p95": 211.88160000000062,
+        "samples": [
+          188.78529999999955, 170.94859999999971, 179.33600000000297, 181.6030000000028,
+          166.44680000000153, 165.9940999999999, 187.64110000000073, 211.88160000000062,
+          179.5118999999977, 178.6330999999991, 167.4467999999979, 168.2367000000013,
+          169.10159999999814, 167.98489999999947, 176.33169999999882
+        ]
+      },
+      "productionPlans": [
+        {
+          "sql": "SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?)",
+          "method": "get",
+          "args": ["\"the\"", 5001],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 7,
+              "parent": 2,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 18,
+              "parent": 0,
+              "notused": 118,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT MIN(id) AS edge, MIN(position) AS low, COUNT(*) AS n FROM (\n           SELECT m.id, m.rowid AS position FROM messages m\n           \n           ORDER BY m.id DESC LIMIT ?\n         )",
+          "method": "get",
+          "args": [20000],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CO-ROUTINE (subquery-1)"
+            },
+            {
+              "id": 8,
+              "parent": 2,
+              "notused": 210,
+              "detail": "SCAN m USING COVERING INDEX sqlite_autoindex_messages_1"
+            },
+            {
+              "id": 17,
+              "parent": 0,
+              "notused": 216,
+              "detail": "SCAN (subquery-1)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND m.created_at < ? AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (+m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? AND rowid >= ?)\n            OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\')) AND m.id >= ?\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": [1735689600000, "U01", "\"the\"", 180001, "%the%", "M017844192000000180000", 21],
+          "plan": [
+            {
+              "id": 10,
+              "parent": 0,
+              "notused": 203,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id>?)"
+            },
+            {
+              "id": 20,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 23,
+              "parent": 20,
+              "notused": 152,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1>"
+            },
+            {
+              "id": 35,
+              "parent": 20,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 47,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 50,
+              "parent": 47,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 61,
+              "parent": 47,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 74,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 82,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 86,
+              "parent": 82,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 98,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT m.* FROM messages m\n           JOIN channels c ON c.id = m.channel_id\n           JOIN users u ON u.id = m.user_id\n           WHERE m.deleted_at IS NULL AND m.created_at < ? AND (c.type = 'public' OR EXISTS (\n         SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?\n       )) AND (m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) OR m.id IN (SELECT f.message_id FROM files f WHERE f.message_id IS NOT NULL\n               AND f.name LIKE ? ESCAPE '\\')) AND m.id < ?\n           ORDER BY m.id DESC LIMIT ?",
+          "method": "all",
+          "args": [1735689600000, "U01", "\"the\"", "%the%", "M017844192000000180000", 21],
+          "plan": [
+            {
+              "id": 11,
+              "parent": 0,
+              "notused": 0,
+              "detail": "MULTI-INDEX OR"
+            },
+            {
+              "id": 12,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 1"
+            },
+            {
+              "id": 16,
+              "parent": 12,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 18,
+              "parent": 16,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 39,
+              "parent": 12,
+              "notused": 91,
+              "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+            },
+            {
+              "id": 44,
+              "parent": 11,
+              "notused": 0,
+              "detail": "INDEX 2"
+            },
+            {
+              "id": 49,
+              "parent": 44,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 51,
+              "parent": 49,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 76,
+              "parent": 44,
+              "notused": 92,
+              "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+            },
+            {
+              "id": 89,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 2"
+            },
+            {
+              "id": 92,
+              "parent": 89,
+              "notused": 156,
+              "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+            },
+            {
+              "id": 101,
+              "parent": 89,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 113,
+              "parent": 0,
+              "notused": 0,
+              "detail": "LIST SUBQUERY 3"
+            },
+            {
+              "id": 116,
+              "parent": 113,
+              "notused": 216,
+              "detail": "SCAN f"
+            },
+            {
+              "id": 127,
+              "parent": 113,
+              "notused": 0,
+              "detail": "CREATE BLOOM FILTER"
+            },
+            {
+              "id": 138,
+              "parent": 0,
+              "notused": 46,
+              "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+            },
+            {
+              "id": 146,
+              "parent": 0,
+              "notused": 0,
+              "detail": "CORRELATED SCALAR SUBQUERY 1"
+            },
+            {
+              "id": 150,
+              "parent": 146,
+              "notused": 39,
+              "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+            },
+            {
+              "id": 162,
+              "parent": 0,
+              "notused": 44,
+              "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+            },
+            {
+              "id": 186,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017356891420800025478",
+            "M017356888267200025477",
+            "M017356885113600025476",
+            "M017356878806400025474",
+            "M017356875652800025473",
+            "M017356872499200025472",
+            "M017356863038400025469",
+            "M017356856731200025467",
+            "M017356853577600025466",
+            "M017356847270390025464",
+            "M017356837809600025461",
+            "M017356834656000025460",
+            "M017356825195200025457",
+            "M017356822041600025456",
+            "M017356818888000025455",
+            "M017356815734400025454",
+            "M017356803120000025450",
+            "M017356799966400025449",
+            "M017356790505600025446",
+            "M017356787352000025445",
+            "M017356784198400025444"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 106,
+              "detail": "SEARCH reactions USING INDEX sqlite_autoindex_reactions_1 (message_id=?)"
+            },
+            {
+              "id": 88,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT thread_root_id, COUNT(*) c FROM messages\n         WHERE thread_root_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND deleted_at IS NULL GROUP BY thread_root_id",
+          "method": "all",
+          "args": [
+            "M017356891420800025478",
+            "M017356888267200025477",
+            "M017356885113600025476",
+            "M017356878806400025474",
+            "M017356875652800025473",
+            "M017356872499200025472",
+            "M017356863038400025469",
+            "M017356856731200025467",
+            "M017356853577600025466",
+            "M017356847270390025464",
+            "M017356837809600025461",
+            "M017356834656000025460",
+            "M017356825195200025457",
+            "M017356822041600025456",
+            "M017356818888000025455",
+            "M017356815734400025454",
+            "M017356803120000025450",
+            "M017356799966400025449",
+            "M017356790505600025446",
+            "M017356787352000025445",
+            "M017356784198400025444"
+          ],
+          "plan": [
+            {
+              "id": 7,
+              "parent": 0,
+              "notused": 105,
+              "detail": "SEARCH messages USING INDEX idx_messages_thread_page (thread_root_id=?)"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT message_id FROM pins WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "method": "all",
+          "args": [
+            "M017356891420800025478",
+            "M017356888267200025477",
+            "M017356885113600025476",
+            "M017356878806400025474",
+            "M017356875652800025473",
+            "M017356872499200025472",
+            "M017356863038400025469",
+            "M017356856731200025467",
+            "M017356853577600025466",
+            "M017356847270390025464",
+            "M017356837809600025461",
+            "M017356834656000025460",
+            "M017356825195200025457",
+            "M017356822041600025456",
+            "M017356818888000025455",
+            "M017356815734400025454",
+            "M017356803120000025450",
+            "M017356799966400025449",
+            "M017356790505600025446",
+            "M017356787352000025445",
+            "M017356784198400025444"
+          ],
+          "plan": [
+            {
+              "id": 2,
+              "parent": 0,
+              "notused": 214,
+              "detail": "SCAN pins USING COVERING INDEX sqlite_autoindex_pins_1"
+            }
+          ]
+        },
+        {
+          "sql": "SELECT id, message_id, name, mime, size, width, height FROM files\n         WHERE message_id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at",
+          "method": "all",
+          "args": [
+            "M017356891420800025478",
+            "M017356888267200025477",
+            "M017356885113600025476",
+            "M017356878806400025474",
+            "M017356875652800025473",
+            "M017356872499200025472",
+            "M017356863038400025469",
+            "M017356856731200025467",
+            "M017356853577600025466",
+            "M017356847270390025464",
+            "M017356837809600025461",
+            "M017356834656000025460",
+            "M017356825195200025457",
+            "M017356822041600025456",
+            "M017356818888000025455",
+            "M017356815734400025454",
+            "M017356803120000025450",
+            "M017356799966400025449",
+            "M017356790505600025446",
+            "M017356787352000025445",
+            "M017356784198400025444"
+          ],
+          "plan": [
+            {
+              "id": 4,
+              "parent": 0,
+              "notused": 104,
+              "detail": "SEARCH files USING INDEX idx_files_message (message_id=?)"
+            },
+            {
+              "id": 92,
+              "parent": 0,
+              "notused": 0,
+              "detail": "USE TEMP B-TREE FOR ORDER BY"
+            }
+          ]
+        }
+      ],
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 92,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 12,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 15,
+          "parent": 12,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 20,
+          "parent": 18,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 24,
+          "parent": 20,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 0:M1"
+        },
+        {
+          "id": 29,
+          "parent": 20,
+          "notused": 45,
+          "detail": "SEARCH mf USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 36,
+          "parent": 20,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 45,
+          "parent": 18,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 49,
+          "parent": 45,
+          "notused": 222,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id>?)"
+        },
+        {
+          "id": 98,
+          "parent": 12,
+          "notused": 213,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 116,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 124,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 128,
+          "parent": 124,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 140,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    }
+  ]
+}

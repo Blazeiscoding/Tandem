@@ -1,0 +1,16 @@
+{
+  "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "capturedAt": "2026-10-02T11:16:24.1311824Z",
+  "scope": "Current installer Launch function only; all process and registry operations mocked, no install/uninstall",
+  "fixture": {
+    "legacyProfilePreexisted": true,
+    "newProcessCreatedModernProfile": true,
+    "gateReturnedLegacyProfile": true,
+    "selectedProfileContainsUpgradeMarker": true,
+    "activeProfileContainsUpgradeMarker": false,
+    "mockedStarts": 1,
+    "mockedStops": 1,
+    "mockedProtocolChecks": 3
+  },
+  "disposableDataCleaned": true
+}

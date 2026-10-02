@@ -1,0 +1,3 @@
+AUDIT {"phase":"result","mode":"integration_work_counts","rows":[{"subscriptions":1,"distinctBots":1,"eligibilityReads":1,"workspaceMetaReads":1,"sameEnvelopeSerializations":1,"enqueueCalls":1},{"subscriptions":10,"distinctBots":1,"eligibilityReads":10,"workspaceMetaReads":10,"sameEnvelopeSerializations":10,"enqueueCalls":10},{"subscriptions":100,"distinctBots":1,"eligibilityReads":100,"workspaceMetaReads":100,"sameEnvelopeSerializations":100,"enqueueCalls":100}],"method":"actual HTTP POST; delegating method and JSON.stringify counters; one synthetic bot with N eligible subscriptions; isolated outbound; counts only"}
+
+STDERR:

@@ -1,0 +1,15 @@
+AUDIT {"phase":"armed","mode":"gateway_heartbeat_failure","authenticatedSocket":true,"productionTrigger":"unaltered 30000ms Gateway heartbeat interval"}
+
+STDERR:
+F:\personal\MaybeProducts\SlackOSS\docs\research\2026-10-02-post-implementation\server-probes.mts:67
+    if (mode !== "gateway_heartbeat_control") server.store.isSessionActive = () => { throw new Error(`AUDIT_${mode.toUpperCase()}_SESSION_READ`); };
+                                                                                     ^
+
+Error: AUDIT_GATEWAY_HEARTBEAT_FAILURE_SESSION_READ
+    at Store.server2.store.isSessionActive (F:\personal\MaybeProducts\SlackOSS\docs\research\2026-10-02-post-implementation\server-probes.mts:67:92)
+    at <anonymous> (F:\personal\MaybeProducts\SlackOSS\packages\server\src\gateway.ts:476:29)
+    at Timeout._onTimeout (F:\personal\MaybeProducts\SlackOSS\packages\server\src\gateway.ts:59:14)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+
+Node.js v24.16.0

@@ -1,0 +1,1958 @@
+{
+  "revision": "f07ce84362257aedeab16c9ae4c2361193eb6442",
+  "capturedAt": "2026-10-02T11:07:31.475Z",
+  "machine": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-12400F",
+    "logicalCores": 12,
+    "memoryGiB": 15.842273712158203,
+    "platform": "win32",
+    "node": "v24.16.0"
+  },
+  "fixture": {
+    "messages": 200000,
+    "seed": 7,
+    "fileDensity": "1%",
+    "fileKinds": [
+      ["Q3 budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+      ["site photo.jpg", "image/jpeg"],
+      ["contract.pdf", "application/pdf"],
+      ["notes.txt", "text/plain"],
+      ["logs.zip", "application/zip"]
+    ],
+    "cache": "warm",
+    "samples": 15,
+    "limits": "Single quiet Windows host; no migration; candidate keeps current hydration and reparses SQL on every call as production does; reference uses simple ASCII words present in this synthetic fixture. Reference work outside timing. No low-spec or Electron-main claim."
+  },
+  "baseline": [
+    {
+      "text": "the",
+      "rows": 21,
+      "p50": 10.20010000000002,
+      "p95": 12.904700000000958,
+      "samples": [
+        10.26379999999881, 11.336999999999534, 9.005499999999302, 10.35189999999966,
+        12.904700000000958, 11.237299999998868, 9.018999999998414, 9.136800000000221,
+        10.20010000000002, 12.760099999999511, 9.505400000000009, 9.582100000001446,
+        12.3742000000002, 9.405300000000352, 9.036799999999857
+      ]
+    },
+    {
+      "text": "the",
+      "options": {
+        "cursor": true
+      },
+      "rows": 21,
+      "p50": 10.65560000000005,
+      "p95": 13.581000000000131,
+      "samples": [
+        10.856299999999464, 12.123999999999796, 9.841700000000856, 10.65560000000005,
+        12.406999999999243, 9.62829999999849, 9.95509999999922, 13.581000000000131,
+        10.380100000000311, 11.833300000000236, 10.530000000000655, 9.573699999999008,
+        12.775700000000143, 10.784100000000763, 9.816899999999805
+      ]
+    },
+    {
+      "text": "deploy",
+      "rows": 21,
+      "p50": 4.98739999999998,
+      "p95": 7.1106999999992695,
+      "samples": [
+        7.1106999999992695, 6.197899999999208, 4.89890000000014, 4.137899999999718,
+        4.409200000000055, 4.339700000000448, 5.959600000000137, 5.591199999998935,
+        4.98739999999998, 4.784200000000055, 5.487300000000687, 4.844100000000253,
+        6.445799999999508, 5.007599999999002, 4.68579999999929
+      ]
+    },
+    {
+      "text": "zebra",
+      "rows": 20,
+      "p50": 0.5580000000009022,
+      "p95": 0.959500000000844,
+      "samples": [
+        0.636899999999514, 0.5580000000009022, 0.54359999999906, 0.5754000000015367,
+        0.5609000000004016, 0.6189999999987776, 0.49430000000029395, 0.551500000001397,
+        0.5531999999984691, 0.5027999999983876, 0.5460000000002765, 0.5208000000002357,
+        0.8215000000000146, 0.959500000000844, 0.8659000000006927
+      ]
+    },
+    {
+      "text": "classified",
+      "rows": 0,
+      "p50": 9.184900000000198,
+      "p95": 12.904700000000958,
+      "samples": [
+        10.382100000000719, 12.904700000000958, 8.256600000000617, 9.192199999999502,
+        12.36030000000028, 8.309100000000399, 8.304599999999482, 9.184900000000198,
+        11.973500000000058, 8.147299999998722, 8.914999999999054, 11.822399999999107,
+        8.987199999999575, 8.204499999999825, 9.923200000001088
+      ]
+    },
+    {
+      "text": "from:@rare",
+      "rows": 21,
+      "p50": 14.654500000000553,
+      "p95": 20.462800000001153,
+      "samples": [
+        17.47060000000056, 14.233899999999267, 20.462800000001153, 14.654500000000553,
+        16.982899999999063, 16.51510000000053, 17.33729999999923, 12.634399999999005,
+        14.248099999998885, 14.795900000000984, 14.0070999999989, 14.765299999999115,
+        12.377000000000407, 14.35529999999926, 12.541900000000169
+      ]
+    },
+    {
+      "text": "in:#small-3",
+      "rows": 21,
+      "p50": 0.7579999999998108,
+      "p95": 1.2862000000004628,
+      "samples": [
+        1.2862000000004628, 0.7723000000005413, 0.7408000000013999, 0.790499999999156,
+        0.7070999999996275, 0.8384000000005472, 0.7583000000013271, 0.7579999999998108,
+        0.7188000000005559, 0.707300000000032, 0.6572000000014668, 0.7463999999999942,
+        0.6705999999994674, 0.7764999999999418, 0.8497999999999593
+      ]
+    },
+    {
+      "text": "the in:#small-3",
+      "rows": 21,
+      "p50": 13.29200000000128,
+      "p95": 16.38929999999891,
+      "samples": [
+        11.844900000000052, 11.654099999999744, 15.691899999999805, 13.29200000000128,
+        16.38929999999891, 12.493599999999788, 13.880499999999302, 14.14049999999952,
+        11.80450000000019, 15.224299999999857, 11.20679999999993, 14.930699999998978,
+        13.840500000000247, 10.045500000000175, 12.685900000000402
+      ]
+    },
+    {
+      "text": "has:file",
+      "rows": 21,
+      "p50": 0.9608000000007451,
+      "p95": 1.079200000000128,
+      "samples": [
+        0.967000000000553, 0.9883000000008906, 0.9356000000007043, 0.9277000000001863,
+        1.028599999999642, 1.0141999999996187, 1.079200000000128, 1.0136999999995169,
+        0.9608000000007451, 0.9295000000001892, 0.9065000000009604, 0.9515000000010332,
+        0.9911000000010972, 0.8825999999990017, 0.9543999999987136
+      ]
+    },
+    {
+      "text": "has:link",
+      "rows": 21,
+      "p50": 0.5627999999996973,
+      "p95": 4.304200000000492,
+      "samples": [
+        4.304200000000492, 0.7938000000012835, 0.5465000000003783, 0.5090000000000146,
+        0.6149000000004889, 0.7221000000008644, 0.6316999999999098, 0.5627999999996973,
+        0.5794999999998254, 0.5597000000016124, 0.510999999998603, 0.5632999999997992,
+        0.5465000000003783, 0.5414000000000669, 0.5519999999996799
+      ]
+    },
+    {
+      "text": "after:2026-08-31",
+      "rows": 21,
+      "p50": 0.2077000000008411,
+      "p95": 0.29910000000018044,
+      "samples": [
+        0.29910000000018044, 0.25789999999869906, 0.2857000000003609, 0.22839999999996508,
+        0.22710000000006403, 0.19659999999930733, 0.18579999999928987, 0.24939999999878637,
+        0.2264000000013766, 0.2018000000007305, 0.18629999999939173, 0.2077000000008411,
+        0.185300000001007, 0.17730000000119617, 0.17849999999998545
+      ]
+    },
+    {
+      "text": "before:2024-10-30",
+      "rows": 21,
+      "p50": 50.792599999998856,
+      "p95": 55.62780000000021,
+      "samples": [
+        50.792599999998856, 47.01369999999952, 53.83190000000104, 47.91150000000016,
+        54.98619999999937, 53.04789999999957, 51.84909999999945, 51.188200000000506,
+        46.32300000000032, 46.65090000000055, 50.45230000000083, 50.22809999999845, 53.195099999999,
+        55.62780000000021, 49.01090000000113
+      ]
+    },
+    {
+      "text": "zebra before:2024-10-30",
+      "rows": 1,
+      "p50": 0.7003999999997177,
+      "p95": 3.020700000000943,
+      "samples": [
+        0.5838999999996304, 0.45529999999962456, 0.4280000000017026, 3.020700000000943,
+        0.9961999999995896, 0.9079000000001543, 0.7690000000002328, 0.8744000000006054,
+        0.7397000000000844, 0.7136999999984255, 0.7003999999997177, 0.4724000000005617,
+        0.40429999999832944, 0.3953000000001339, 0.4158999999999651
+      ]
+    },
+    {
+      "text": "deploy",
+      "options": {
+        "channelId": "CSM2"
+      },
+      "rows": 21,
+      "p50": 2.754499999999098,
+      "p95": 4.045000000000073,
+      "samples": [
+        3.237600000000384, 4.045000000000073, 2.6774999999997817, 2.490700000000288,
+        2.4614000000001397, 3.4156000000002678, 3.943299999998999, 2.9362999999993917,
+        2.805099999999584, 2.9966000000003987, 2.754499999999098, 2.722700000000259,
+        2.385999999998603, 2.5437999999994645, 2.3401000000012573
+      ]
+    },
+    {
+      "text": "budget",
+      "rows": 21,
+      "p50": 5.790200000001278,
+      "p95": 9.36239999999998,
+      "samples": [
+        7.662500000000364, 5.531000000000859, 5.342899999999645, 5.110899999999674,
+        5.614799999999377, 4.903600000001461, 5.392199999998411, 5.790200000001278,
+        9.36239999999998, 7.206599999999526, 7.725500000000466, 5.955600000001141, 5.98739999999998,
+        8.974699999998847, 5.649800000001051
+      ]
+    },
+    {
+      "text": "contract pdf",
+      "rows": 21,
+      "p50": 6.313099999999395,
+      "p95": 9.14220000000023,
+      "samples": [
+        7.611700000001292, 8.503600000000006, 5.97570000000087, 4.557800000000498,
+        4.431200000000899, 4.859300000000076, 5.891700000000128, 9.14220000000023,
+        6.6163999999989755, 5.190399999999499, 6.313099999999395, 6.718199999999342,
+        8.898400000000038, 6.380600000000413, 5.102300000000469
+      ]
+    },
+    {
+      "text": "invoice",
+      "rows": 0,
+      "p50": 0.3239999999987049,
+      "p95": 0.5772000000015396,
+      "samples": [
+        0.48030000000107975, 0.3194000000003143, 0.27449999999953434, 0.2878000000000611,
+        0.25420000000121945, 0.2725000000009459, 0.27999999999883585, 0.5455000000001746,
+        0.433100000000195, 0.42849999999998545, 0.5772000000015396, 0.3639000000002852,
+        0.3239999999987049, 0.3466000000007625, 0.3202000000001135
+      ]
+    },
+    {
+      "text": "type:pdf",
+      "rows": 21,
+      "p50": 4.566100000000006,
+      "p95": 7.873100000000704,
+      "samples": [
+        5.328099999998813, 5.548399999999674, 5.435600000000704, 4.566100000000006,
+        5.33219999999892, 7.873100000000704, 4.551799999999275, 3.9561000000012427,
+        4.232500000000073, 4.114800000001196, 4.425800000000891, 3.8104999999995925,
+        7.214700000000448, 4.281100000000151, 4.579799999999523
+      ]
+    },
+    {
+      "text": "type:image the",
+      "rows": 21,
+      "p50": 18.956500000000233,
+      "p95": 21.558600000000297,
+      "samples": [
+        20.41450000000077, 18.40940000000046, 18.18000000000029, 21.558600000000297,
+        18.956500000000233, 17.66280000000006, 18.96019999999953, 19.495999999999185,
+        18.189700000000812, 17.864800000001196, 19.991799999999785, 17.15259999999944,
+        19.37329999999929, 16.76469999999972, 20.05580000000009
+      ]
+    },
+    {
+      "text": "budget type:spreadsheet",
+      "rows": 21,
+      "p50": 5.761099999999715,
+      "p95": 11.853800000000774,
+      "samples": [
+        5.612600000000384, 6.799699999999575, 6.331000000000131, 6.9421000000002095,
+        5.220500000001266, 5.511100000001534, 8.944999999999709, 6.996600000000399,
+        5.288399999999456, 5.061599999999089, 5.112300000000687, 6.154899999999543,
+        11.853800000000774, 5.404200000000856, 5.761099999999715
+      ]
+    }
+  ],
+  "experiment": [
+    {
+      "text": "zebra",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 20,
+      "production": {
+        "p50": 1.0656999999991967,
+        "p95": 2.3549999999995634,
+        "samples": [
+          1.0014000000010128, 1.139499999999316, 0.7265999999999622, 0.9555999999993219,
+          2.3549999999995634, 1.091500000000451, 0.8975000000009459, 1.28650000000016,
+          0.8789999999989959, 2.0120999999999185, 1.2163999999993393, 1.33849999999984,
+          0.6613000000015745, 1.0656999999991967, 0.7463000000007014
+        ]
+      },
+      "unionCandidate": {
+        "p50": 44.77570000000014,
+        "p95": 54.90610000000015,
+        "samples": [
+          43.16429999999855, 40.14249999999993, 44.16580000000067, 47.85020000000077,
+          44.232099999999264, 44.77570000000014, 47.7453000000005, 40.96799999999894,
+          48.2554999999993, 45.63709999999992, 54.90610000000015, 48.0023999999994,
+          44.41979999999967, 45.3130000000001, 43.47179999999935
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 104,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 112,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 116,
+          "parent": 112,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 128,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 152,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "classified",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 0,
+      "production": {
+        "p50": 11.456099999999424,
+        "p95": 17.489199999999983,
+        "samples": [
+          9.593300000000454, 9.090099999999438, 10.992500000000291, 9.006999999999607,
+          13.853900000000067, 12.545199999998658, 17.17239999999947, 14.31079999999929,
+          12.151099999999133, 8.96020000000135, 8.252699999999095, 13.453199999999924,
+          17.489199999999983, 9.073599999999715, 11.456099999999424
+        ]
+      },
+      "unionCandidate": {
+        "p50": 58.99459999999999,
+        "p95": 79.10130000000026,
+        "samples": [
+          52.712399999998524, 47.082000000000335, 52.677200000000084, 54.585399999999936,
+          65.4323000000004, 79.10130000000026, 72.19759999999951, 64.625, 58.99459999999999,
+          50.18379999999888, 58.5096999999987, 60.30400000000009, 66.3173999999999,
+          63.66159999999945, 47.843699999999444
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 104,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 112,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 116,
+          "parent": 112,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 128,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 152,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "invoice",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 0,
+      "production": {
+        "p50": 0.8148999999993976,
+        "p95": 4.038899999999558,
+        "samples": [
+          0.8536999999996624, 0.8148999999993976, 0.5272000000004482, 0.9701000000004569,
+          0.6965999999993073, 0.9207999999998719, 0.441900000001624, 0.9636000000009517,
+          0.557200000001103, 0.8285999999989144, 0.3743000000013126, 4.038899999999558,
+          0.7842999999993481, 1.2119000000002416, 0.6748999999999796
+        ]
+      },
+      "unionCandidate": {
+        "p50": 50.29869999999937,
+        "p95": 67.39439999999922,
+        "samples": [
+          44.772899999999936, 51.284999999999854, 54.70669999999882, 46.84109999999964,
+          48.785799999999654, 54.90849999999955, 51.72409999999945, 44.91569999999956,
+          44.14229999999952, 52.04529999999977, 42.5663999999997, 48.81890000000021,
+          58.1830000000009, 50.29869999999937, 67.39439999999922
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 104,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 112,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 116,
+          "parent": 112,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 128,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 152,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "budget",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 8.122299999999086,
+        "p95": 11.476599999998143,
+        "samples": [
+          10.046000000000276, 8.716800000000148, 6.3057000000007974, 8.20589999999902,
+          8.119599999999991, 5.257100000000719, 8.122299999999086, 6.383399999998801,
+          6.081099999999424, 9.817399999999907, 7.308899999999994, 11.476599999998143,
+          8.833699999999226, 8.235599999999977, 8.043799999999464
+        ]
+      },
+      "unionCandidate": {
+        "p50": 58.54060000000027,
+        "p95": 76.0141999999978,
+        "samples": [
+          60.34940000000097, 52.52529999999933, 51.700299999998606, 57.06869999999981,
+          73.79560000000129, 54.26729999999952, 51.4963000000007, 57.051400000000285,
+          53.094999999997526, 76.0141999999978, 59.93119999999908, 58.88769999999931,
+          60.589499999998225, 58.54060000000027, 61.78150000000096
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 104,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 112,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 116,
+          "parent": 112,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 128,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 152,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "contract pdf",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 5.971099999998842,
+        "p95": 7.215100000001257,
+        "samples": [
+          6.406299999998737, 5.635600000001432, 6.544400000002497, 5.414899999999761,
+          5.375899999999092, 5.971099999998842, 4.987499999999272, 7.1679000000003725,
+          6.790600000000268, 4.790499999999156, 4.767299999999523, 7.215100000001257,
+          6.635300000001735, 6.015699999999924, 5.198600000003353
+        ]
+      },
+      "unionCandidate": {
+        "p50": 5.780199999997421,
+        "p95": 8.279200000000856,
+        "samples": [
+          5.9461000000010245, 5.780199999997421, 6.392799999997806, 6.639400000000023,
+          5.063300000001618, 8.279200000000856, 4.8914999999979045, 4.442399999999907,
+          5.122699999999895, 4.828600000000733, 8.168899999996938, 6.22979999999734,
+          5.0723999999972875, 7.16530000000057, 4.689400000002934
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 36,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN f"
+        },
+        {
+          "id": 44,
+          "parent": 32,
+          "notused": 44,
+          "detail": "SEARCH m2 USING COVERING INDEX sqlite_autoindex_messages_1 (id=?)"
+        },
+        {
+          "id": 53,
+          "parent": 32,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 98,
+          "parent": 11,
+          "notused": 214,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 112,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 120,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 124,
+          "parent": 120,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 136,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 160,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "zebra",
+      "opts": {
+        "channelId": "CSM2"
+      },
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 0,
+      "production": {
+        "p50": 0.933099999998376,
+        "p95": 1.5767999999989115,
+        "samples": [
+          0.933099999998376, 0.9110000000000582, 0.5541000000011991, 1.2436999999990803,
+          0.5138999999981024, 1.4086999999999534, 0.781699999999546, 0.9700000000011642,
+          0.6320999999988999, 0.9423999999999069, 0.4644000000007509, 1.1754000000000815,
+          0.5332000000016706, 1.5767999999989115, 1.3086000000002969
+        ]
+      },
+      "unionCandidate": {
+        "p50": 46.42139999999927,
+        "p95": 56.71340000000055,
+        "samples": [
+          43.49339999999938, 42.4871000000021, 40.7628999999979, 44.93189999999959,
+          48.12670000000071, 48.403199999997014, 45.33139999999912, 47.87010000000009,
+          43.589599999999336, 46.42139999999927, 43.3028000000013, 51.551400000000285,
+          50.025000000001455, 56.71340000000055, 49.18050000000221
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 8,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 17,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 21,
+          "parent": 17,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 33,
+          "parent": 0,
+          "notused": 62,
+          "detail": "SEARCH m USING INDEX idx_messages_channel (channel_id=?)"
+        },
+        {
+          "id": 43,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 47,
+          "parent": 43,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 50,
+          "parent": 47,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 52,
+          "parent": 50,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 55,
+          "parent": 52,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 65,
+          "parent": 50,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 70,
+          "parent": 65,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 72,
+          "parent": 65,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 123,
+          "parent": 43,
+          "notused": 278,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 129,
+          "parent": 43,
+          "notused": 0,
+          "detail": "CREATE BLOOM FILTER"
+        },
+        {
+          "id": 139,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        }
+      ]
+    },
+    {
+      "text": "zebra",
+      "opts": {
+        "cursor": "M017591904000000100000"
+      },
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 10,
+      "production": {
+        "p50": 1.0521999999982654,
+        "p95": 1.9932000000007974,
+        "samples": [
+          1.304099999997561, 0.9488999999994121, 0.6422000000020489, 0.9695000000028813,
+          0.8535000000010768, 1.5995999999977357, 0.92870000000039, 1.0521999999982654,
+          1.465199999998731, 1.4631000000008498, 1.9932000000007974, 1.6509000000005472,
+          0.6856000000007043, 1.1163999999989755, 0.6660000000010768
+        ]
+      },
+      "unionCandidate": {
+        "p50": 45.17979999999807,
+        "p95": 53.849499999996624,
+        "samples": [
+          44.93370000000141, 43.15889999999854, 47.22239999999874, 45.17979999999807,
+          42.784599999999045, 45.98709999999846, 47.6688000000031, 46.51119999999719,
+          45.128600000000006, 46.9230000000025, 53.849499999996624, 51.0625, 40.123899999998685,
+          44.369299999998475, 41.105899999998655
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 106,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 118,
+          "parent": 114,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 130,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 154,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "deploy in:#small-3",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 29.673099999999977,
+        "p95": 36.03120000000126,
+        "samples": [
+          32.286199999998644, 33.64979999999923, 29.22479999999996, 33.030800000000454,
+          31.833800000000338, 29.1166000000012, 29.14470000000074, 29.55069999999978,
+          28.646199999999226, 29.673099999999977, 29.554400000000896, 31.136700000002747,
+          26.720499999999447, 36.03120000000126, 30.772000000000844
+        ]
+      },
+      "unionCandidate": {
+        "p50": 60.611800000002404,
+        "p95": 70.32690000000002,
+        "samples": [
+          60.336599999998725, 67.10419999999795, 62.439399999999296, 62.805099999997765,
+          67.71849999999904, 64.87129999999888, 55.282100000000355, 55.485099999998056,
+          54.6890999999996, 53.54530000000159, 60.73779999999897, 56.657600000002276,
+          57.63669999999911, 70.32690000000002, 60.611800000002404
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 104,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 118,
+          "parent": 114,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 130,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 154,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "zebra from:@rare",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 0,
+      "production": {
+        "p50": 0.8065999999998894,
+        "p95": 1.4141000000017812,
+        "samples": [
+          1.4141000000017812, 0.8149000000012165, 0.5577999999986787, 1.1336000000010245,
+          0.5274999999965075, 0.8065999999998894, 0.3927000000003318, 1.3941999999988184,
+          0.5289999999986321, 0.8217000000004191, 0.8165999999982887, 0.8100999999987835,
+          0.3912000000018452, 0.7906000000002678, 0.40380000000004657
+        ]
+      },
+      "unionCandidate": {
+        "p50": 44.606400000000576,
+        "p95": 48.207399999999325,
+        "samples": [
+          40.888199999997596, 38.074000000000524, 41.79699999999866, 44.73210000000108,
+          46.56200000000172, 44.68920000000071, 47.52590000000055, 48.207399999999325,
+          44.606400000000576, 43.60559999999896, 44.584499999997206, 42.348399999998946,
+          46.02479999999923, 46.74659999999858, 40.3778999999995
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 9,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH u USING INDEX sqlite_autoindex_users_2 (handle=?)"
+        },
+        {
+          "id": 16,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 20,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 23,
+          "parent": 20,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 26,
+          "parent": 23,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 28,
+          "parent": 26,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 31,
+          "parent": 28,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 41,
+          "parent": 26,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 46,
+          "parent": 41,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 48,
+          "parent": 41,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 99,
+          "parent": 20,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 116,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 124,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 128,
+          "parent": 124,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 160,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "zebra before:2025-01-01",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 3,
+      "production": {
+        "p50": 0.8768000000018219,
+        "p95": 2.4814000000005763,
+        "samples": [
+          1.1779000000024098, 0.9376000000011118, 0.5943999999981315, 0.8756999999968684,
+          0.5122000000010303, 0.871500000001106, 0.6185000000004948, 1.2860000000000582,
+          0.9203999999990629, 0.8768000000018219, 0.53519999999844, 0.9272999999993772,
+          0.5082000000002154, 2.4814000000005763, 1.1405999999988126
+        ]
+      },
+      "unionCandidate": {
+        "p50": 43.06140000000232,
+        "p95": 79.90209999999934,
+        "samples": [
+          45.49039999999877, 44.12960000000021, 42.492999999998574, 44.073599999999715,
+          41.93000000000029, 39.065200000000914, 43.06140000000232, 40.344199999999546,
+          41.35910000000149, 38.563500000000204, 46.97729999999865, 40.52890000000116,
+          49.134799999999814, 79.90209999999934, 76.95729999999821
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 106,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 118,
+          "parent": 114,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 130,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 154,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "contract type:pdf",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 8.301199999998062,
+        "p95": 11.199599999999919,
+        "samples": [
+          6.874399999996967, 5.852500000000873, 7.114099999998871, 9.469199999999546,
+          11.199599999999919, 6.482800000001589, 5.102999999999156, 9.511300000001938,
+          7.4025000000001455, 7.168499999999767, 10.354899999998452, 8.301199999998062,
+          10.112499999999272, 9.531800000000658, 9.78269999999975
+        ]
+      },
+      "unionCandidate": {
+        "p50": 56.85420000000158,
+        "p95": 68.09960000000137,
+        "samples": [
+          52.78190000000177, 52.818599999998696, 63.1846000000005, 66.11390000000029,
+          62.52010000000155, 54.08270000000266, 49.97780000000057, 47.41939999999886,
+          50.13489999999729, 53.727600000001985, 56.85420000000158, 65.71860000000015,
+          59.16330000000016, 60.574100000001636, 68.09960000000137
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 15,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 18,
+          "parent": 15,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 21,
+          "parent": 18,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 23,
+          "parent": 21,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 26,
+          "parent": 23,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 36,
+          "parent": 21,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 41,
+          "parent": 36,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 43,
+          "parent": 36,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 94,
+          "parent": 15,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 108,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 116,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 120,
+          "parent": 116,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 132,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH f EXISTS USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 146,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 172,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "the",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 12.302800000001298,
+        "p95": 22.874299999999494,
+        "samples": [
+          12.302800000001298, 22.874299999999494, 15.552700000000186, 16.5125999999982,
+          12.2570999999989, 15.740099999999074, 11.014900000001944, 13.973599999997532,
+          17.521700000001147, 11.432600000000093, 10.801799999997456, 12.372599999998783,
+          10.758700000002136, 11.364300000001094, 10.827500000003056
+        ]
+      },
+      "unionCandidate": {
+        "p50": 195.08949999999822,
+        "p95": 272.52690000000075,
+        "samples": [
+          210.564699999999, 244.9991000000009, 272.52690000000075, 251.36379999999917,
+          190.18410000000222, 205.6703000000016, 237.2586999999985, 245.94049999999697,
+          195.08949999999822, 177.89080000000104, 169.17989999999918, 174.24909999999727,
+          173.16100000000006, 176.01510000000053, 189.67239999999947
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 104,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 112,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 116,
+          "parent": 112,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 128,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 152,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "the in:#small-3",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 13.490600000000995,
+        "p95": 20.053200000002107,
+        "samples": [
+          20.053200000002107, 17.662799999998242, 19.093700000001263, 14.09139999999752,
+          11.22530000000188, 14.394899999999325, 11.128600000000006, 11.768400000000838,
+          9.952000000001135, 15.28150000000096, 10.25079999999798, 13.490600000000995,
+          10.807600000000093, 12.610100000001694, 18.6846000000005
+        ]
+      },
+      "unionCandidate": {
+        "p50": 121.47490000000107,
+        "p95": 151.02019999999902,
+        "samples": [
+          151.02019999999902, 143.09809999999925, 131.3610000000008, 120.38199999999779,
+          116.0038999999997, 121.47490000000107, 112.2489999999998, 110.34080000000176,
+          112.47039999999834, 111.8856999999989, 112.49120000000039, 129.1056000000026,
+          139.67799999999988, 132.37899999999718, 125.57179999999789
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 104,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 118,
+          "parent": 114,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 130,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 154,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "text": "the before:2025-01-01",
+      "opts": {},
+      "exactReference": true,
+      "fullHydratedEquality": true,
+      "rows": 21,
+      "production": {
+        "p50": 88.78399999999965,
+        "p95": 96.17689999999857,
+        "samples": [
+          87.37869999999748, 83.18710000000283, 89.30999999999767, 86.03039999999964,
+          85.8282999999974, 90.57990000000063, 88.78399999999965, 89.08160000000134,
+          90.35740000000078, 86.77770000000237, 86.08539999999994, 86.85070000000269,
+          92.58799999999974, 96.17689999999857, 92.83539999999994
+        ]
+      },
+      "unionCandidate": {
+        "p50": 108.0489000000016,
+        "p95": 121.59530000000086,
+        "samples": [
+          105.13750000000073, 103.48519999999917, 114.30799999999726, 115.69509999999718,
+          109.23859999999695, 103.79820000000109, 105.76710000000094, 108.0489000000016,
+          108.24759999999878, 105.420100000003, 103.4951000000001, 101.9445999999989,
+          120.91089999999895, 121.59530000000086, 117.04939999999988
+        ]
+      },
+      "candidatePlan": [
+        {
+          "id": 7,
+          "parent": 0,
+          "notused": 91,
+          "detail": "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 3"
+        },
+        {
+          "id": 14,
+          "parent": 11,
+          "notused": 0,
+          "detail": "MATERIALIZE matching"
+        },
+        {
+          "id": 17,
+          "parent": 14,
+          "notused": 0,
+          "detail": "MERGE (UNION)"
+        },
+        {
+          "id": 19,
+          "parent": 17,
+          "notused": 0,
+          "detail": "LEFT"
+        },
+        {
+          "id": 22,
+          "parent": 19,
+          "notused": 156,
+          "detail": "SCAN messages_fts VIRTUAL TABLE INDEX 64:M1"
+        },
+        {
+          "id": 32,
+          "parent": 17,
+          "notused": 0,
+          "detail": "RIGHT"
+        },
+        {
+          "id": 37,
+          "parent": 32,
+          "notused": 216,
+          "detail": "SCAN m2"
+        },
+        {
+          "id": 39,
+          "parent": 32,
+          "notused": 61,
+          "detail": "SEARCH f USING INDEX idx_files_message (message_id=?)"
+        },
+        {
+          "id": 90,
+          "parent": 11,
+          "notused": 248,
+          "detail": "SCAN matching"
+        },
+        {
+          "id": 106,
+          "parent": 0,
+          "notused": 46,
+          "detail": "SEARCH c USING INDEX sqlite_autoindex_channels_1 (id=?)"
+        },
+        {
+          "id": 114,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 118,
+          "parent": 114,
+          "notused": 39,
+          "detail": "SEARCH cm USING COVERING INDEX sqlite_autoindex_channel_members_1 (channel_id=? AND user_id=?)"
+        },
+        {
+          "id": 130,
+          "parent": 0,
+          "notused": 44,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_users_1 (id=?)"
+        },
+        {
+          "id": 154,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    }
+  ]
+}

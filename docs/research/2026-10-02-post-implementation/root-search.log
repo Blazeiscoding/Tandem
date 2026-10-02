@@ -1,0 +1,24 @@
+2,00,000 messages seeded in 9.2 s. f07ce84, 12th Gen Intel(R) Core(TM) i5-12400F, 12 threads, 16 GB, Node v24.16.0, win32.
+
+query                              rows   p50 ms   p95 ms
+the                                  21      9.4     14.2
+the (page 2)                         21     10.0     13.5
+deploy                               21      4.3      6.7
+zebra                                20      0.6      0.7
+classified                            0      9.6     15.1
+from:@rare                           21     11.7     15.0
+in:#small-3                          21      0.8      1.2
+the in:#small-3                      21     11.2     14.9
+has:file                             21      1.4      2.4
+has:link                             21      0.6      1.1
+after:2026-08-31                     21      0.4      0.8
+before:2024-10-30                    21     50.3     52.6
+zebra before:2024-10-30               1      0.4      1.3
+deploy (in one channel)              21      2.3      5.9
+budget                               21      4.6      8.4
+contract pdf                         21      5.3      8.3
+invoice                               0      0.3      0.3
+type:pdf                             21      4.0      5.2
+type:image the                       21     19.0     23.9
+budget type:spreadsheet              21      5.2      6.5
+Saved root-search.json; 15 exact-reference comparisons passed.
