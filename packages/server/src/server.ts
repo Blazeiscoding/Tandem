@@ -578,33 +578,45 @@ async function startWorkspaceServer(
       ...(root ? [root.userId] : []),
     ]);
     for (const userId of recipients) {
+      // Someone offline reads it from the handshake when they connect.
+      if (!gateway.isOnline(userId)) continue;
       const state = store.threadFollow(userId, event.message.threadRootId);
       if (state) gateway.sendToUser(userId, { type: "thread.follow", state });
     }
   };
   /**
    * Recomputes and sends unread mention counts. Only the people whose counts
-   * can have changed are told, so an ordinary message costs nothing.
+   * can have changed are told, so an ordinary message costs nothing, and only
+   * those connected now are counted (REV-06): anyone else gets their counts
+   * from the handshake when they connect, which reads the committed rows.
    */
   const pushMentionCounts = (userIds: Iterable<ID>): void => {
     for (const userId of new Set(userIds)) {
+      if (!gateway.isOnline(userId)) continue;
       gateway.sendToUser(userId, { type: "mentions", counts: store.unreadMentionCounts(userId) });
     }
   };
 
   /**
-   * A message arriving or leaving changes the counts of whoever it names.
+   * Whose counts a message arriving or leaving changes: whoever it names.
    * Deletion is read from the event's own copy, since the row is already gone.
    */
-  const publishMentionChanges = (envelope: EventEnvelope): void => {
+  const mentionRecipients = (envelope: EventEnvelope, channelsRead: Set<ID>): ID[] => {
     const event = envelope.event;
-    if (event.type === "message.created") {
-      pushMentionCounts(
-        store.mentionedMemberIds(event.message.channelId, event.message.text, event.message.userId),
+    if (event.type === "message.created")
+      return store.mentionedMemberIds(
+        event.message.channelId,
+        event.message.text,
+        event.message.userId,
       );
-    } else if (event.type === "message.deleted" && event.channelId) {
-      pushMentionCounts(store.memberIds(event.channelId));
+    if (event.type === "message.deleted" && event.channelId) {
+      // Offline members are skipped anyway; with nobody connected, skip the read
+      // too, and read a channel's members once however many of its messages went.
+      if (gateway.socketCount() === 0 || channelsRead.has(event.channelId)) return [];
+      channelsRead.add(event.channelId);
+      return store.memberIds(event.channelId);
     }
+    return [];
   };
 
   /**
@@ -675,10 +687,17 @@ async function startWorkspaceServer(
       }
     }
     if (events.length > 0) inBackground("event deliveries", flushEventDeliveries);
+    // One recount per person per committed change, however many of its
+    // events touched their counts: deleting a thread is one change (REV-06).
+    const recount = new Set<ID>();
+    const channelsRead = new Set<ID>();
     for (const { envelope } of events) {
       afterCommitted("send thread follow states", () => publishThreadFollows(envelope));
-      afterCommitted("send mention counts", () => publishMentionChanges(envelope));
+      afterCommitted("find whose mention counts changed", () => {
+        for (const userId of mentionRecipients(envelope, channelsRead)) recount.add(userId);
+      });
     }
+    if (recount.size > 0) afterCommitted("send mention counts", () => pushMentionCounts(recount));
   };
   /** Commit synchronous state and its event log before exposing any side effects. */
   const mutate = <T>(
