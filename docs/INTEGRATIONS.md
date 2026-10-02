@@ -308,7 +308,15 @@ How it is delivered:
   counted as dropped and shown beside the subscription;
 - an endpoint that uses up its attempts has the rest of its queue given up with
   it. An administrator can retry the whole queue, in order, from Apps and
-  integrations.
+  integrations. Given-up events nobody asks to retry are kept for seven days;
+  a retry that has been asked for is kept until it is sent, however long the
+  queue stays full, or until the endpoint fails again, which starts its seven
+  days afresh;
+- a retry is a replay of history. Its events go out oldest first among
+  themselves, each taking a place in the queue as one frees up, but events
+  already waiting when the retry was asked for are not held back for it. So a
+  replayed event can arrive after newer ones: order by `slackoss.seq` (or
+  `event_id`) if your app needs the original order.
 
 What an edit or a deletion does to an event not yet delivered: a message's
 words are taken out of every event about it that is still waiting, or that

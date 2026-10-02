@@ -2894,12 +2894,14 @@ export class Store {
         .run(now, error.slice(0, 500), subscriptionId).changes,
     );
     // The endpoint failed again, so what was still waiting to be retried waits
-    // for another retry, kept with the rest of what was given up on.
+    // for another retry, kept with the rest of what was given up on. It is
+    // given up on now, so it is kept for the whole history window from now
+    // rather than expiring at once for having first failed long ago (F04).
     this.db
       .prepare(
-        "UPDATE event_deliveries SET retry_requested = 0 WHERE subscription_id = ? AND retry_requested = 1",
+        "UPDATE event_deliveries SET retry_requested = 0, failed_at = ? WHERE subscription_id = ? AND retry_requested = 1",
       )
-      .run(subscriptionId);
+      .run(now, subscriptionId);
     this.trimFailedEventDeliveries(subscriptionId);
     return abandoned;
   }
@@ -2968,8 +2970,16 @@ export class Store {
     return promoted;
   }
 
+  /**
+   * Forgets given-up events older than the history window. An event an
+   * administrator has asked to retry is not history but accepted work waiting
+   * for room, however long the queue stays full, so it stays until it goes
+   * out or the endpoint fails again (F04).
+   */
   pruneEventDeliveries(failedBefore: number): void {
-    this.db.prepare("DELETE FROM event_deliveries WHERE failed_at < ?").run(failedBefore);
+    this.db
+      .prepare("DELETE FROM event_deliveries WHERE failed_at < ? AND retry_requested = 0")
+      .run(failedBefore);
   }
 
   /**
