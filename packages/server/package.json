@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./backup": "./src/backup.ts",
     "./ownership": "./src/ownership.ts"
   },
   "scripts": {

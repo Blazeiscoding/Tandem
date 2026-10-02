@@ -20,7 +20,7 @@ import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./db.js";
 import { holdWorkspace, WorkspaceInUseError } from "./ownership.js";
-import { SERVER_VERSION } from "./server.js";
+import { SERVER_VERSION } from "./version.js";
 
 /** What a backup directory contains, and what it must still look like on restore. */
 export interface BackupManifest {

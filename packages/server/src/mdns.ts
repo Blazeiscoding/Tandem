@@ -1,6 +1,6 @@
 import { Bonjour } from "bonjour-service";
 import { MDNS_SERVICE_TYPE, PROTOCOL_VERSION, type DiscoveryTxt } from "@slackoss/protocol";
-import { SERVER_VERSION } from "./server.js";
+import { SERVER_VERSION } from "./version.js";
 
 export interface MdnsHandle {
   stop: () => void;
