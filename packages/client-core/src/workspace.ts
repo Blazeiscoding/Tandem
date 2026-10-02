@@ -677,12 +677,43 @@ export class WorkspaceClient {
     private token: string,
   ) {
     this.api = new Api(baseUrl, token);
-    this.files = new FileCache(this.api);
+    this.files = new FileCache(this.api, undefined, (fileId) => this.fileOwner(fileId));
     this.store = createStore<WorkspaceState>(() => ({ ...initialState }));
+    // A session that has ended keeps nothing it downloaded (F07).
+    this.store.subscribe((now, before) => {
+      if (
+        now.status !== before.status &&
+        (now.status === "auth_failed" || now.status === "password_change_required")
+      )
+        this.files.invalidateAll();
+    });
   }
 
   get state(): WorkspaceState {
     return this.store.getState();
+  }
+
+  /**
+   * The loaded message a file is attached to, asked when the file is first
+   * fetched, so the cache can let it go with that message or conversation
+   * after the history listing it is gone (F07).
+   */
+  private fileOwner(fileId: ID): { channelId: ID; messageId: ID } | null {
+    const state = this.state;
+    const carries = (m: Message) => m.files.some((f) => f.id === fileId);
+    for (const tl of Object.values(state.timelines)) {
+      const m = tl.items.find(carries);
+      if (m) return { channelId: m.channelId, messageId: m.id };
+    }
+    for (const replies of Object.values(state.threads)) {
+      const m = replies.find(carries);
+      if (m) return { channelId: m.channelId, messageId: m.id };
+    }
+    for (const page of Object.values(state.threadPages)) {
+      if (page.root && carries(page.root))
+        return { channelId: page.root.channelId, messageId: page.root.id };
+    }
+    return null;
   }
 
   connect(): void {
@@ -986,6 +1017,8 @@ export class WorkspaceClient {
         .filter((m) => m.channelId === channelId),
     ].flatMap((m) => m.files.map((f) => f.id));
     for (const id of fileIds) this.files.invalidate(id);
+    // And those it fetched earlier, from history that has since been let go (F07).
+    this.files.invalidateChannel(channelId);
     const without = <T>(values: Record<ID, T>) =>
       Object.fromEntries(Object.entries(values).filter(([id]) => id !== channelId));
     this.store.setState({
@@ -1159,6 +1192,8 @@ export class WorkspaceClient {
       }
       case "message.deleted": {
         this.onMessageDeleted?.(event.messageId);
+        // Its files go with it, whether or not its history is still loaded (F07).
+        this.files.invalidateMessage(event.messageId);
         const tl = s.timelines[event.channelId];
         if (tl?.loaded) {
           patch.timelines = {

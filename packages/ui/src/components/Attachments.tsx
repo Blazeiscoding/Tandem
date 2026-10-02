@@ -224,13 +224,14 @@ function saveUrl(url: string, name: string) {
   a.click();
 }
 
+const UNAVAILABLE = "File unavailable or you no longer have access.";
+
 function fileError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === "download_upgrade_required")
       return "Update the workspace server and app to download large files.";
     if (err.status === 401) return "Sign in again to download this file.";
-    if (err.status === 403 || err.status === 404)
-      return "File unavailable or you no longer have access.";
+    if (err.status === 403 || err.status === 404) return UNAVAILABLE;
   }
   if (err instanceof DOMException && err.name === "TimeoutError")
     return "The download timed out. Try again.";
@@ -263,8 +264,14 @@ function useFileResource(fileId: ID, enabled = true) {
       .catch((err) => {
         if (active) setState({ client, fileId, url: null, error: fileError(err) });
       });
+    // Deleted, or no longer readable: an open preview says so rather than
+    // going on showing it (F07).
+    const stop = client.files.onInvalidate((gone) => {
+      if (active && gone === fileId) setState({ client, fileId, url: null, error: UNAVAILABLE });
+    });
     return () => {
       active = false;
+      stop();
       client.files.release(fileId);
     };
   }, [client, fileId, attempt, enabled]);
