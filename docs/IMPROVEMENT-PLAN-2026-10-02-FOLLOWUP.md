@@ -6,7 +6,7 @@ Reviewed main: **`f07ce84362257aedeab16c9ae4c2361193eb6442`**, Tandem.
 
 ## Verified baseline
 
-Fresh forced builds/typechecks pass for all seven packages and three applications. The forced package suite passes **1,673 tests**, with two documented skips. Automation typechecking, **22 tooling tests**, **20 browser journeys**, and **four freshly packaged Windows journeys** pass. Tracked-file formatting passes. Turbo's real input check passes **15 mutations / 101 assertions**. Production dependency audit reports zero known vulnerabilities.
+Fresh forced typechecks pass for all seven workspace projects, and all three application builds pass. The forced package suite passes **1,673 tests**, with two documented skips. Automation typechecking, **22 tooling tests**, **20 browser journeys**, and **four freshly packaged Windows journeys** pass. Tracked-file formatting passes. Turbo's real input check passes **15 mutations / 101 assertions**. Production dependency audit reports zero known vulnerabilities.
 
 Web entry: **479,829 bytes**. Desktop entry: **481,509 bytes**. Both pass their guards. Fresh desktop archive: **1,741 files / 55 dependencies**, **11,166,773 bytes**, no forbidden data/workspace paths. Package and embedded-web manifests match the reviewed revision with source-input dirty false. Compression/content guards pass for web, CLI copy and packaged web.
 
