@@ -31,6 +31,7 @@ import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
 import { guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
+import { RENDERER_RECOVERY, RendererRecovery, isRendererLoadFailure } from "./rendererRecovery.js";
 import { pickScreen } from "./screenPicker.js";
 import { mergeOutboxSetting } from "./outboxStorage.js";
 import { mergeDraftsSetting } from "./draftsStorage.js";
@@ -897,11 +898,67 @@ function createWindow(): void {
     return { action: "deny" };
   });
 
-  if (isDev) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL!);
-  } else {
-    void mainWindow.loadFile(join(import.meta.dirname, "../renderer/index.html"));
-  }
+  // A page that dies or does not load is loaded again, a few times, then the
+  // person is asked (REV-09). Hosting runs in this process and carries on
+  // either way; what the page had saved comes back with it.
+  const recovery = new RendererRecovery();
+  const recover = async (what: string, fresh: boolean) => {
+    if (win.isDestroyed() || quitting) return;
+    rendererReady = false;
+    // A page that ran loads again where it was, its place kept in the address;
+    // one that never loaded starts again from the app's own page. Loading the
+    // address anew rather than reloading: a crashed page may have nothing to
+    // reload.
+    const where = win.webContents.getURL();
+    const reopen = () =>
+      fresh || !trustedRenderer(where)
+        ? loadRenderer(win)
+        : void win.loadURL(where).catch(() => {});
+    if (recovery.failed() === "reload") {
+      setTimeout(() => {
+        if (!win.isDestroyed() && !quitting) reopen();
+      }, RENDERER_RECOVERY.reloadDelayMs);
+      return;
+    }
+    const { response } = await dialog.showMessageBox(win, {
+      type: "error",
+      title: "Gatherline",
+      message: "Gatherline's window keeps stopping.",
+      detail: `${what} A hosted workspace keeps running, and messages saved on this computer come back with the window.`,
+      buttons: ["Try again", "Quit Gatherline"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (win.isDestroyed()) return;
+    if (response === 1) {
+      app.quit();
+      return;
+    }
+    recovery.reset();
+    loadRenderer(win);
+  };
+  win.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    console.error(`Gatherline: the window's page stopped (${details.reason}).`);
+    void recover("The window stopped unexpectedly.", false);
+  });
+  win.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
+    if (!isRendererLoadFailure(code, isMainFrame)) return;
+    console.error(`Gatherline: the window could not load (${description}).`);
+    void recover(`The window could not load (${description}).`, true);
+  });
+
+  loadRenderer(win);
+}
+
+/** Loads the app's own page into the window: the dev server's, or the built one. */
+function loadRenderer(win: BrowserWindow): void {
+  rendererReady = false;
+  // A failure is reported through did-fail-load, which decides what to do.
+  const loading = isDev
+    ? win.loadURL(process.env.ELECTRON_RENDERER_URL!)
+    : win.loadFile(join(import.meta.dirname, "../renderer/index.html"));
+  loading.catch(() => {});
 }
 
 void app.whenReady().then(async () => {
