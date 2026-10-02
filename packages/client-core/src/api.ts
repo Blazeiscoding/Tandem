@@ -597,7 +597,7 @@ export class Api {
     return this.request("DELETE", `/api/subscriptions/${id}`);
   }
 
-  retrySubscription(id: ID): Promise<{ ok: true; retried: number }> {
+  retrySubscription(id: ID): Promise<{ ok: true; retried: number; waiting?: number }> {
     return this.request("POST", `/api/subscriptions/${id}/retry`);
   }
 

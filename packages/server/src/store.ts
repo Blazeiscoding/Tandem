@@ -2626,6 +2626,7 @@ export class Store {
     dropped_count?: number;
     pending_count?: number;
     failed_count?: number;
+    retrying_count?: number;
     last_error?: string | null;
     last_failed_at?: number | null;
   }): EventSubscription {
@@ -2640,6 +2641,7 @@ export class Store {
             delivery: {
               pending: r.pending_count,
               failed: r.failed_count ?? 0,
+              retrying: r.retrying_count ?? 0,
               dropped: r.dropped_count ?? 0,
               lastError: r.last_error ?? null,
               lastFailedAt: r.last_failed_at ?? null,
@@ -2667,7 +2669,10 @@ export class Store {
           (SELECT COUNT(*) FROM event_deliveries d
            WHERE d.subscription_id = s.id AND d.failed_at IS NULL) AS pending_count,
           (SELECT COUNT(*) FROM event_deliveries d
-           WHERE d.subscription_id = s.id AND d.failed_at IS NOT NULL) AS failed_count,
+           WHERE d.subscription_id = s.id AND d.failed_at IS NOT NULL
+             AND d.retry_requested = 0) AS failed_count,
+          (SELECT COUNT(*) FROM event_deliveries d
+           WHERE d.subscription_id = s.id AND d.retry_requested = 1) AS retrying_count,
           (SELECT d.last_error FROM event_deliveries d
            WHERE d.subscription_id = s.id AND d.failed_at IS NOT NULL
            ORDER BY d.failed_at DESC, d.id DESC LIMIT 1) AS last_error,
@@ -2727,6 +2732,15 @@ export class Store {
    * as dropped instead, which is visible to an administrator and bounded.
    */
   static readonly MAX_PENDING_DELIVERIES = 500;
+  /**
+   * The most events given up on that one endpoint keeps for an administrator
+   * to retry (REV-15). A dead endpoint fails a full queue every few hours, so
+   * a week's history would otherwise be thousands of rows; past this the
+   * oldest go, counted as dropped. With message text capped at 4,000
+   * characters, an endpoint's waiting and given-up rows stay within tens of
+   * megabytes.
+   */
+  static readonly MAX_FAILED_DELIVERIES = 1_000;
 
   /** True if the event was queued, false if the backlog was already full. */
   enqueueEventDelivery(
@@ -2821,6 +2835,9 @@ export class Store {
 
   completeEventDelivery(id: ID, subscriptionId: ID): boolean {
     const done = this.db.prepare("DELETE FROM event_deliveries WHERE id = ?").run(id).changes > 0;
+    // A slot has freed up: an event waiting to be retried takes it before a
+    // new event can, so a retry drains however busy the workspace is.
+    if (done) this.promoteEventRetries(subscriptionId);
     // Events lost to a full backlog stop being current news once the endpoint
     // is answering again. The guard keeps this free on the usual path, where
     // there is nothing to clear.
@@ -2865,7 +2882,7 @@ export class Store {
    * makes "retry failed" the single way back, and it restores them in order.
    */
   abandonEventBacklog(subscriptionId: ID, error: string, now = Date.now()): number {
-    return Number(
+    const abandoned = Number(
       this.db
         .prepare(
           `UPDATE event_deliveries SET failed_at = ?, last_error = ?
@@ -2873,28 +2890,115 @@ export class Store {
         )
         .run(now, error.slice(0, 500), subscriptionId).changes,
     );
+    // The endpoint failed again, so what was still waiting to be retried waits
+    // for another retry, kept with the rest of what was given up on.
+    this.db
+      .prepare(
+        "UPDATE event_deliveries SET retry_requested = 0 WHERE subscription_id = ? AND retry_requested = 1",
+      )
+      .run(subscriptionId);
+    this.trimFailedEventDeliveries(subscriptionId);
+    return abandoned;
+  }
+
+  /**
+   * Keeps an endpoint's given-up events within MAX_FAILED_DELIVERIES, the
+   * newest kept, the rest counted as dropped (REV-15).
+   */
+  private trimFailedEventDeliveries(subscriptionId: ID): void {
+    const trimmed = Number(
+      this.db
+        .prepare(
+          `DELETE FROM event_deliveries WHERE id IN (
+             SELECT id FROM event_deliveries
+             WHERE subscription_id = ? AND failed_at IS NOT NULL AND retry_requested = 0
+             ORDER BY event_seq DESC, id DESC LIMIT -1 OFFSET ?)`,
+        )
+        .run(subscriptionId, Store.MAX_FAILED_DELIVERIES).changes,
+    );
+    if (trimmed > 0)
+      this.db
+        .prepare("UPDATE event_subscriptions SET dropped_count = dropped_count + ? WHERE id = ?")
+        .run(trimmed, subscriptionId);
+  }
+
+  /**
+   * Moves events waiting to be retried into the endpoint's queue as far as
+   * it has room under MAX_PENDING_DELIVERIES, oldest first (REV-15). Returns
+   * how many went in.
+   */
+  private promoteEventRetries(subscriptionId: ID, now = Date.now()): number {
+    const waiting = this.db
+      .prepare(
+        "SELECT 1 FROM event_deliveries WHERE subscription_id = ? AND retry_requested = 1 LIMIT 1",
+      )
+      .get(subscriptionId);
+    if (!waiting) return 0;
+    const { queued } = this.db
+      .prepare(
+        "SELECT COUNT(*) AS queued FROM event_deliveries WHERE subscription_id = ? AND failed_at IS NULL",
+      )
+      .get(subscriptionId) as { queued: number };
+    const room = Store.MAX_PENDING_DELIVERIES - queued;
+    if (room <= 0) return 0;
+    return Number(
+      this.db
+        .prepare(
+          `UPDATE event_deliveries SET attempts = 0, next_attempt_at = ?, failed_at = NULL,
+             last_error = NULL, retry_requested = 0
+           WHERE id IN (SELECT id FROM event_deliveries
+             WHERE subscription_id = ? AND retry_requested = 1
+             ORDER BY event_seq, id LIMIT ?)`,
+        )
+        .run(now, subscriptionId, room).changes,
+    );
+  }
+
+  /** Every endpoint's waiting retries, as far as each has room. Returns how many went in. */
+  promoteAllEventRetries(now = Date.now()): number {
+    const subscriptions = this.db
+      .prepare("SELECT DISTINCT subscription_id FROM event_deliveries WHERE retry_requested = 1")
+      .all() as { subscription_id: string }[];
+    let promoted = 0;
+    for (const { subscription_id } of subscriptions)
+      promoted += this.promoteEventRetries(subscription_id, now);
+    return promoted;
   }
 
   pruneEventDeliveries(failedBefore: number): void {
     this.db.prepare("DELETE FROM event_deliveries WHERE failed_at < ?").run(failedBefore);
   }
 
-  retryFailedEventDeliveries(subscriptionId: ID, now = Date.now()): number {
+  /**
+   * Asks for an endpoint's given-up events to be sent again (REV-15). They go
+   * back into its queue only as far as it has room, oldest first; the rest are
+   * kept, waiting, and take each slot that frees up as the endpoint answers.
+   * Returns how many were asked for, and how many still wait for room.
+   */
+  retryFailedEventDeliveries(
+    subscriptionId: ID,
+    now = Date.now(),
+  ): { retried: number; waiting: number } {
     const retried = Number(
       this.db
         .prepare(
-          `UPDATE event_deliveries SET attempts = 0, next_attempt_at = ?,
-             failed_at = NULL, last_error = NULL
-           WHERE subscription_id = ? AND failed_at IS NOT NULL`,
+          `UPDATE event_deliveries SET retry_requested = 1
+           WHERE subscription_id = ? AND failed_at IS NOT NULL AND retry_requested = 0`,
         )
-        .run(now, subscriptionId).changes,
+        .run(subscriptionId).changes,
     );
+    this.promoteEventRetries(subscriptionId, now);
+    const { waiting } = this.db
+      .prepare(
+        "SELECT COUNT(*) AS waiting FROM event_deliveries WHERE subscription_id = ? AND retry_requested = 1",
+      )
+      .get(subscriptionId) as { waiting: number };
     // The tally is what an administrator was shown before deciding to retry, so
     // clearing it here marks that report as read rather than losing it.
     this.db
       .prepare("UPDATE event_subscriptions SET dropped_count = 0 WHERE id = ?")
       .run(subscriptionId);
-    return retried;
+    return { retried, waiting };
   }
 
   // ---------- invites ----------
