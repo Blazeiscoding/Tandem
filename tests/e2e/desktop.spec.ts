@@ -56,10 +56,15 @@ test("packaged Windows app boots with sandbox, hosts a workspace, serves the web
   page.on("pageerror", (err) => errors.push(err.message));
   await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => typeof (window as any).slackoss.hostingStart)).toBe("function");
+  // What the window was really created with. Electron has this method but
+  // leaves it out of its types, so the one property read is named here.
+  type CreatedWith = { getLastWebPreferences(): { sandbox?: boolean } };
   expect(
     await app.evaluate(
       ({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()[0]!.webContents.getLastWebPreferences().sandbox,
+        (
+          BrowserWindow.getAllWindows()[0]!.webContents as unknown as CreatedWith
+        ).getLastWebPreferences().sandbox,
     ),
   ).toBe(true);
   // A test cannot click the tray, but its menu is rebuilt on every change, so

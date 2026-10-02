@@ -875,7 +875,9 @@ test("Gatherline keeps a capped live timeline pinned and supports keyboard and n
 
   // An image wider than a phone's column scales down instead of running off it.
   const upload = new FormData();
-  upload.append("file", new Blob([solidPng(640, 360)], { type: "image/png" }), "wide-mock.png");
+  // Copied into a plain Uint8Array: a Buffer may sit on shared memory, which a Blob does not take.
+  const png = new Uint8Array(solidPng(640, 360));
+  upload.append("file", new Blob([png], { type: "image/png" }), "wide-mock.png");
   const uploaded = await (
     await fetch(`${base}/api/channels/${channel.id}/files`, {
       method: "POST",
