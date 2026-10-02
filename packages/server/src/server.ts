@@ -93,6 +93,7 @@ import {
   resolveClientAddress,
 } from "./netTrust.js";
 import { SECURITY_HEADERS } from "./securityHeaders.js";
+import { isMissingAsset, webCacheControl } from "./webClient.js";
 import { eventActorId, signatureHeaders, toSlackEvent } from "./integrations.js";
 import { BUILTIN_COMMANDS } from "./commands.js";
 import { secretToken, ulid } from "./ids.js";
@@ -1262,7 +1263,16 @@ async function startWorkspaceServer(
 
   // Serve the browser client (if bundled) so teammates without the app can join.
   const servesWebClient = !!opts.webDistPath && existsSync(join(opts.webDistPath, "index.html"));
-  if (servesWebClient) await app.register(fastifyStatic, { root: opts.webDistPath! });
+  if (servesWebClient) {
+    const root = opts.webDistPath!;
+    // The build writes a Brotli and a gzip copy of each text file beside it;
+    // the plugin sends the one the browser accepts, with Vary: Accept-Encoding.
+    await app.register(fastifyStatic, {
+      root,
+      preCompressed: true,
+      setHeaders: (reply, file) => reply.header("cache-control", webCacheControl(root, file)),
+    });
+  }
   app.setNotFoundHandler((req, reply) => {
     const url = req.raw.url ?? "";
     // A Slack Web API method this server does not implement. Slack's answer is
@@ -1273,6 +1283,9 @@ async function startWorkspaceServer(
     }
     if (!servesWebClient || url.startsWith("/api/") || url.startsWith("/ws")) {
       return reply.status(404).send({ error: "not_found" });
+    }
+    if (isMissingAsset(url)) {
+      return reply.status(404).header("cache-control", "no-store").send({ error: "not_found" });
     }
     return reply.sendFile("index.html");
   });

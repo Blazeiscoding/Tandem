@@ -101,7 +101,17 @@ try {
   base = `http://${docker("port", name, "8543/tcp").split(/\r?\n/)[0]}`;
   await waitFor(async () => (await fetch(base + "/api/health")).ok, "healthy server");
   assert.notEqual(docker("exec", name, "id", "-u"), "0");
-  assert.match(await (await fetch(base)).text(), /<div id="root">/);
+  const page = await (await fetch(base)).text();
+  assert.match(page, /<div id="root">/);
+  // The image keeps the client's compressed copies (REV-13): the entry script
+  // arrives as Brotli, decodes to the same script, and is cached by its name.
+  const entry = new URL(page.match(/<script[^>]+src="([^"]+)"/)[1], base);
+  const compressed = await fetch(entry, { headers: { "accept-encoding": "br" } });
+  const plain = await fetch(entry, { headers: { "accept-encoding": "identity" } });
+  assert.equal(compressed.headers.get("content-encoding"), "br");
+  assert.equal(plain.headers.get("content-encoding"), null);
+  assert.equal(compressed.headers.get("cache-control"), "public, max-age=31536000, immutable");
+  assert.equal(await compressed.text(), await plain.text());
   const idle = docker("stats", "--no-stream", "--format", "{{.MemUsage}}", name);
   // Published ports reach the server through Docker's bridge, so claim the
   // workspace with the same startup secret a remote administrator needs.

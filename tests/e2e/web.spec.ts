@@ -2890,3 +2890,53 @@ test("a long thread left partway opens again where it was left, its newer replie
     await context.close().catch(() => {});
   }
 });
+
+test("the client arrives compressed, and a second visit reuses its hashed files", async ({
+  page,
+}) => {
+  // What the browser itself saw: whether each response came over the network
+  // or from its cache, and the headers it came with (REV-13).
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Network.enable");
+  type Seen = { url: string; cached: boolean; status: number; headers: Record<string, string> };
+  let seen: Seen[] = [];
+  const servedFromCache = new Set<string>();
+  cdp.on("Network.requestServedFromCache", ({ requestId }) => servedFromCache.add(requestId));
+  cdp.on("Network.responseReceived", ({ requestId, response }) => {
+    seen.push({
+      url: response.url,
+      cached: response.fromDiskCache || servedFromCache.has(requestId),
+      status: response.status,
+      headers: Object.fromEntries(
+        Object.entries(response.headers).map(([name, value]) => [name.toLowerCase(), value]),
+      ),
+    });
+  });
+  const entry = (visit: Seen[]) => visit.filter((r) => /\/assets\/index-[\w-]+\.js$/.test(r.url));
+  const pageItself = (visit: Seen[]) => visit.filter((r) => r.url === `${base}/`);
+
+  await page.goto(base);
+  await page.waitForLoadState("networkidle");
+  const first = seen;
+  expect(entry(first)).toHaveLength(1);
+  expect(entry(first)[0]).toMatchObject({
+    cached: false,
+    status: 200,
+    headers: {
+      "content-encoding": "br",
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
+  expect(entry(first)[0]!.headers.vary).toMatch(/accept-encoding/i);
+  expect(pageItself(first)[0]!.headers["cache-control"]).toBe("no-cache");
+
+  seen = [];
+  servedFromCache.clear();
+  await page.goto(base);
+  await page.waitForLoadState("networkidle");
+  // The page is asked about again; the script it names is not.
+  expect(pageItself(seen).every((r) => !r.cached)).toBe(true);
+  expect(entry(seen).length).toBeGreaterThan(0);
+  expect(entry(seen).every((r) => r.cached)).toBe(true);
+  await cdp.detach();
+});
