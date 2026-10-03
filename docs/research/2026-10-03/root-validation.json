@@ -1,0 +1,206 @@
+{
+  "reviewedRevision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+  "capturedAt": "2026-10-03T18:17:51.726Z",
+  "platform": "win32",
+  "node": "v24.16.0",
+  "pnpm": "10.23.0",
+  "install": "pnpm install --frozen-lockfile: exit 0",
+  "productSourceChanged": false,
+  "buildTypecheck": {
+    "command": "pnpm exec turbo run typecheck build --concurrency=2 --force",
+    "exitCode": 0,
+    "successfulTasks": 10,
+    "cachedTasks": 0,
+    "projects": 7,
+    "output": "root-build.txt"
+  },
+  "automationTypecheck": {
+    "command": "pnpm typecheck:automation",
+    "exitCode": 0
+  },
+  "units": {
+    "totalPassed": 1762,
+    "totalSkipped": 2,
+    "protocol": 27,
+    "server": 601,
+    "clientCore": 224,
+    "ui": 677,
+    "desktop": 233,
+    "completedReruns": true,
+    "firstCombinedRunExitCode": 1,
+    "firstFailure": "ownership.test.ts:149 admitted a second server while child was expected to hold the workspace; cause unresolved",
+    "subsequentOwnership": "8 passed / 1 skip focused; 601 passed / 1 skip full server",
+    "outputs": [
+      "root-tests.txt",
+      "root-client-desktop-tests.txt",
+      "server-ownership-rerun.txt",
+      "server-suite-rerun.txt"
+    ]
+  },
+  "tooling": {
+    "exitCode": 0,
+    "passed": 28,
+    "output": "root-tooling.txt"
+  },
+  "browsers": {
+    "exitCode": 0,
+    "passed": 22,
+    "output": "root-e2e.txt"
+  },
+  "nativeWindows": {
+    "exitCode": 0,
+    "passed": 6,
+    "packageMode": "fresh win-unpacked; no genuine installation",
+    "electron": "44.1.0",
+    "outputs": ["root-package.txt", "root-desktop-e2e.txt"]
+  },
+  "cacheInputs": {
+    "exitCode": 0,
+    "mutations": 15,
+    "assertions": 101,
+    "output": "root-cache.txt"
+  },
+  "productionAudit": {
+    "command": "pnpm audit --prod --json",
+    "exitCode": 0,
+    "knownVulnerabilities": 0,
+    "dependencies": 95
+  },
+  "bundleEntries": {
+    "web": [
+      {
+        "name": "index-BaSByakz.js",
+        "bytes": 490811
+      }
+    ],
+    "desktop": [
+      {
+        "name": "index-BPOMprVa.js",
+        "bytes": 493206
+      }
+    ],
+    "budgetBytes": 500000
+  },
+  "archive": {
+    "bytes": 7410893,
+    "files": 1163,
+    "dependencies": 55,
+    "forbiddenFileGuardExitCode": 0
+  },
+  "compressionGuards": {
+    "exitCode": 0,
+    "copies": [
+      "apps/web/dist",
+      "apps/server-cli/dist/web",
+      "apps/desktop/release/win-unpacked/resources/web"
+    ],
+    "filesPerCopy": 18
+  },
+  "freshness": {
+    "command": "node scripts/build-identity.mjs check web server desktop",
+    "exitCode": 0,
+    "builds": {
+      "apps/web/dist/build.json": {
+        "version": "0.1.0",
+        "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+        "dirty": false,
+        "inputs": "bc58afed95d49f30",
+        "builtAt": "2026-10-03T17:54:14.699Z"
+      },
+      "apps/server-cli/dist/build.json": {
+        "version": "0.1.0",
+        "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+        "dirty": false,
+        "inputs": "31bc1d5727bd3ac6",
+        "builtAt": "2026-10-03T17:44:45.402Z"
+      },
+      "apps/server-cli/dist/web/build.json": {
+        "version": "0.1.0",
+        "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+        "dirty": false,
+        "inputs": "bc58afed95d49f30",
+        "builtAt": "2026-10-03T17:44:40.713Z"
+      },
+      "apps/desktop/out/build.json": {
+        "version": "0.1.0",
+        "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+        "dirty": false,
+        "inputs": "2149d49eb5b0cb8b",
+        "builtAt": "2026-10-03T17:54:24.234Z"
+      },
+      "apps/desktop/release/win-unpacked/resources/web/build.json": {
+        "version": "0.1.0",
+        "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+        "dirty": false,
+        "inputs": "bc58afed95d49f30",
+        "builtAt": "2026-10-03T17:54:14.699Z"
+      },
+      "desktop archive:out/build.json": {
+        "version": "0.1.0",
+        "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+        "dirty": false,
+        "inputs": "2149d49eb5b0cb8b",
+        "builtAt": "2026-10-03T17:54:24.234Z"
+      }
+    }
+  },
+  "mixed": [
+    {
+      "params": {
+        "seed": 1,
+        "people": 12,
+        "devices": 2,
+        "history": 20000,
+        "rounds": 2,
+        "seconds": 5,
+        "expired": 200
+      },
+      "sourceChanged": false,
+      "errors": 0,
+      "posts": 425,
+      "postP50": 5.74,
+      "postP95": 15.26,
+      "exactReplays": 19,
+      "replaySnapshots": 0,
+      "expiredRemoved": 400,
+      "expiredFilesSeeded": 40,
+      "eventLoopMaxMs": 31.62,
+      "harnessReceiptsHeld": 0
+    },
+    {
+      "params": {
+        "seed": 1,
+        "people": 12,
+        "devices": 2,
+        "history": 20000,
+        "rounds": 2,
+        "seconds": 5,
+        "expired": 200
+      },
+      "sourceChanged": false,
+      "errors": 0,
+      "posts": 440,
+      "postP50": 5.51,
+      "postP95": 14.45,
+      "exactReplays": 21,
+      "replaySnapshots": 0,
+      "expiredRemoved": 400,
+      "expiredFilesSeeded": 40,
+      "eventLoopMaxMs": 24.63,
+      "harnessReceiptsHeld": 0
+    }
+  ],
+  "trackedFormatting": {
+    "exitCode": 0,
+    "output": "root-format-tracked.txt",
+    "excludesUntrackedPrivateFolder": true
+  },
+  "limits": [
+    "Docker Linux engine unavailable",
+    "No genuine installed upgrade/uninstall or published/downloaded release",
+    "No second-device/proxy/public-route run",
+    "No screen reader or physical microphone unplug test",
+    "No low-spec desktop-main/GPU reference",
+    "T3 screenshot snapshot failed; no screenshot claimed"
+  ]
+}

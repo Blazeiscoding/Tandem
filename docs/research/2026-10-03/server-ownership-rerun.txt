@@ -1,0 +1,9 @@
+
+ RUN  v3.2.7 F:/personal/MaybeProducts/SlackOSS/packages/server
+
+ ✓ test/ownership.test.ts (9 tests | 1 skipped) 738ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed | 1 skipped (9)
+   Start at  23:23:30
+   Duration  2.01s (transform 306ms, setup 0ms, collect 931ms, tests 738ms, environment 0ms, prepare 119ms)

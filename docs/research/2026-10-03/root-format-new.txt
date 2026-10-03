@@ -1,0 +1,33 @@
+README.md 125ms (unchanged)
+docs/IMPROVEMENT-PLAN-2026-10-03.md 38ms
+docs/research/2026-10-03/client-files-evidence.json 19ms (unchanged)
+docs/research/2026-10-03/client-files.test.ts 79ms (unchanged)
+docs/research/2026-10-03/client-node.config.mts 7ms (unchanged)
+docs/research/2026-10-03/client-report.md 32ms (unchanged)
+docs/research/2026-10-03/client-state-evidence.json 2ms (unchanged)
+docs/research/2026-10-03/client-state.test.ts 27ms (unchanged)
+docs/research/2026-10-03/client-ui-evidence.json 2ms (unchanged)
+docs/research/2026-10-03/client-ui.config.mts 3ms (unchanged)
+docs/research/2026-10-03/client-ui.dom.test.tsx 47ms (unchanged)
+docs/research/2026-10-03/desktop-artifact-identity.json 1ms (unchanged)
+docs/research/2026-10-03/desktop-lifecycle-fixtures.json 3ms
+docs/research/2026-10-03/desktop-lifecycle-fixtures.mjs 33ms (unchanged)
+docs/research/2026-10-03/desktop-native-close-uninstrumented.json 4ms (unchanged)
+docs/research/2026-10-03/desktop-native-close.json 4ms (unchanged)
+docs/research/2026-10-03/desktop-native-close.mjs 23ms (unchanged)
+docs/research/2026-10-03/desktop-report.md 32ms (unchanged)
+docs/research/2026-10-03/README.md 17ms
+docs/research/2026-10-03/root-browser-storage.json 2ms (unchanged)
+docs/research/2026-10-03/root-collect.mjs 10ms
+docs/research/2026-10-03/root-mixed-1.json 3ms
+docs/research/2026-10-03/root-mixed-2.json 3ms
+docs/research/2026-10-03/root-storage-evidence.json 1ms (unchanged)
+docs/research/2026-10-03/root-storage-report.md 11ms (unchanged)
+docs/research/2026-10-03/root-storage.config.mts 5ms (unchanged)
+docs/research/2026-10-03/root-storage.dom.test.tsx 20ms
+docs/research/2026-10-03/server-logging-control.json 1ms (unchanged)
+docs/research/2026-10-03/server-logging-control.mts 14ms (unchanged)
+docs/research/2026-10-03/server-probes.mts 46ms (unchanged)
+docs/research/2026-10-03/server-report.md 35ms (unchanged)
+docs/research/2026-10-03/server-results-initial.json 1ms
+docs/research/2026-10-03/server-results.json 4ms (unchanged)

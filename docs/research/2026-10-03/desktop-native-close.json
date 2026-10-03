@@ -1,0 +1,191 @@
+{
+  "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+  "capturedAt": "2026-10-03T18:02:09.906Z",
+  "scope": "Fresh unpacked Windows app, hidden test mode, normal quit/window close, synthetic sign-ins/workspaces; native confirmation responses instrumented",
+  "cases": [
+    {
+      "mode": "wait-for-persistence",
+      "visibleBeforeClose": true,
+      "persistedBeforeClose": true,
+      "persistedAfterCleanExit": true,
+      "draftKeys": ["local:v1:01M41EWFH3NKDBHG80DPD94T64:01M41EWFR4K1DYH1SBZWZXQHJ3:drafts"],
+      "exitCode": 0,
+      "trace": [
+        {
+          "kind": "draft-invoke-start",
+          "key": "local:v1:01M41EWFH3NKDBHG80DPD94T64:01M41EWFR4K1DYH1SBZWZXQHJ3:drafts"
+        },
+        {
+          "kind": "draft-invoke-complete"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "will-quit"
+        }
+      ]
+    },
+    {
+      "mode": "quit-immediately",
+      "visibleBeforeClose": true,
+      "persistedBeforeClose": false,
+      "persistedAfterCleanExit": false,
+      "draftKeys": ["local:v1:01M41EWJ7S3YAD75JAYRZWP4GA:01M41EWJEJXY45AEJD5SAA7YZN:drafts"],
+      "exitCode": 0,
+      "trace": [
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "draft-invoke-start",
+          "key": "local:v1:01M41EWJ7S3YAD75JAYRZWP4GA:01M41EWJEJXY45AEJD5SAA7YZN:drafts"
+        },
+        {
+          "kind": "will-quit"
+        }
+      ]
+    },
+    {
+      "mode": "quit-immediately-repeat",
+      "visibleBeforeClose": true,
+      "persistedBeforeClose": false,
+      "persistedAfterCleanExit": false,
+      "draftKeys": ["local:v1:01M41EWM1VGB82B88HTHD08JQK:01M41EWM8C9P3839QKH5BS215C:drafts"],
+      "exitCode": 0,
+      "trace": [
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "draft-invoke-start",
+          "key": "local:v1:01M41EWM1VGB82B88HTHD08JQK:01M41EWM8C9P3839QKH5BS215C:drafts"
+        },
+        {
+          "kind": "will-quit"
+        }
+      ]
+    },
+    {
+      "mode": "plain-close-immediately",
+      "visibleBeforeClose": true,
+      "persistedBeforeClose": false,
+      "persistedAfterCleanExit": false,
+      "draftKeys": ["local:v1:01M41EWNX0J2WZK12HDX22A4FP:01M41EWP3MS9FAV2X2Q1RMMFD4:drafts"],
+      "exitCode": 0,
+      "trace": [
+        {
+          "kind": "draft-invoke-start",
+          "key": "local:v1:01M41EWNX0J2WZK12HDX22A4FP:01M41EWP3MS9FAV2X2Q1RMMFD4:drafts"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "will-quit"
+        }
+      ]
+    },
+    {
+      "mode": "explicit-pagehide-then-quit",
+      "visibleBeforeClose": true,
+      "persistedBeforeClose": false,
+      "persistedAfterCleanExit": false,
+      "draftKeys": ["local:v1:01M41EWQQJAPBD7VQWJWG056TP:01M41EWQY4047C8VD9DJ3NCFRZ:drafts"],
+      "exitCode": 0,
+      "trace": [
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "draft-invoke-start",
+          "key": "local:v1:01M41EWQQJAPBD7VQWJWG056TP:01M41EWQY4047C8VD9DJ3NCFRZ:drafts"
+        },
+        {
+          "kind": "will-quit"
+        }
+      ]
+    },
+    {
+      "mode": "explicit-pagehide-await-persistence",
+      "visibleBeforeClose": true,
+      "persistedBeforeClose": true,
+      "persistedAfterCleanExit": true,
+      "draftKeys": ["local:v1:01M41EWRNCZ9FV3GNT79W4XHCX:01M41EWRWBM7QHX6TMYB81KZRX:drafts"],
+      "exitCode": 0,
+      "trace": [
+        {
+          "kind": "draft-invoke-start",
+          "key": "local:v1:01M41EWRNCZ9FV3GNT79W4XHCX:01M41EWRWBM7QHX6TMYB81KZRX:drafts"
+        },
+        {
+          "kind": "draft-invoke-complete"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "before-quit"
+        },
+        {
+          "kind": "will-quit"
+        }
+      ]
+    }
+  ],
+  "artifactIdentity": {
+    "version": "0.1.0",
+    "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+    "dirty": false,
+    "inputs": "2149d49eb5b0cb8b",
+    "builtAt": "2026-10-03T17:54:24.234Z"
+  },
+  "runtime": {
+    "node": "24.19.0",
+    "acorn": "8.17.0",
+    "ada": "3.4.4",
+    "amaro": "1.1.10",
+    "ares": "1.34.6",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.2",
+    "llhttp": "9.4.3",
+    "merve": "1.2.2",
+    "modules": "149",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.69.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "0.0.0",
+    "simdjson": "4.6.4",
+    "simdutf": "7.7.0",
+    "sqlite": "3.53.3",
+    "tz": "2025c",
+    "undici": "7.29.0",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "15.2.124.18-electron.0",
+    "zlib": "1.3.2.1-motley",
+    "zstd": "1.6.0",
+    "electron": "44.1.0",
+    "chrome": "152.0.7977.65"
+  }
+}

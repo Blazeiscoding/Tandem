@@ -1,0 +1,92 @@
+# Desktop lifecycle review after the remote update
+
+Reviewed revision: **`cd3af584ba46adace45465cb5e5c66afb238b01c`** on main, including the F01–F15 implementation pulled during this investigation. Windows x64, Electron **44.1.0** / embedded Node **24.19.0**; source fixtures use Node **24.16.0**. Investigation date: 2026-10-03.
+
+The current package fixes the previously reported Saved messages recovery and foreign-window outbound IPC failures. This review finds a remaining ordinary-exit draft loss, a narrower restored-workspace isolation failure under damaged metadata, and two cleanup branches that forget a resource when stopping it fails. No product source was changed.
+
+## Evidence and scope
+
+| Check                                      | Result                                                                                                                                                                                                                                            | Evidence                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Root's current desktop baseline            | 233 desktop unit tests and all six fresh packaged Windows journeys pass, including F08/F09.                                                                                                                                                       | Coordinated root verification; not duplicated here.                                          |
+| Package identity                           | Embedded revision equals the reviewed revision; source inputs dirty false. Archive SHA-256 recorded.                                                                                                                                              | [Identity](desktop-artifact-identity.json)                                                   |
+| Ordinary exit, without IPC instrumentation | Four cases lose newly typed visible text after exit 0; two controls preserve it.                                                                                                                                                                  | [Native JSON](desktop-native-close-uninstrumented.json)                                      |
+| Ordinary exit, with IPC instrumentation    | The same four cases lose text. Draft IPC starts, then `will-quit` occurs before its completion. Both preservation controls complete the draft IPC before quitting.                                                                                | [Native trace](desktop-native-close.json), [harness](desktop-native-close.mjs)               |
+| Registry/isolation fixtures                | Invalid port/name/last-used metadata drops a persisted restore hold. Valid-row and unreadable-hold controls stay isolated; an unknown top-level version remains refused.                                                                          | [Lifecycle JSON](desktop-lifecycle-fixtures.json), [harness](desktop-lifecycle-fixtures.mjs) |
+| Resource ownership fixtures                | Failed cancellation cleanup leaves an unowned connector adapter alive after shutdown; failed cleanup of an accidental usual-port isolated server also loses ownership. Normal running-server shutdown correctly retains and retries its resource. | [Lifecycle JSON](desktop-lifecycle-fixtures.json)                                            |
+
+Native probes use the root's freshly built **unpacked** application, hidden through test mode, with synthetic accounts and fresh disposable profiles. They type into the real Composer and invoke ordinary native quit/window-close actions. Stop-hosting dialog responses are instrumented. One run wraps the real draft IPC handler only to record entry/completion; the independent run leaves that handler untouched. There is no forced process kill in the measured exit paths. Cleanup kills only owned test processes if still alive.
+
+The source fixtures bundle the current production hosting/settings controllers unchanged. They use real temporary settings files, SQLite identity databases and loopback HTTP resources, with injected resource-stop failures. The server/tunnel adapters are controlled substitutes: they establish ownership/state failures, not a live Cloudflare failure or actual integration delivery. Every temporary directory is checked as an owned child of the OS temp directory before recursive cleanup. No live profile, saved user sign-in, private audit data, installer, OS registry entry, release, commit or PR was modified. `.audit-client-143/data` was left alone.
+
+## D01 — P1: complete the renderer-to-storage handoff before ordinary exit
+
+**Confirmed in the current native package, with and without draft-handler instrumentation.** Each case begins in a real authenticated local workspace, with the textarea visible. A fresh text marker is entered through the actual textarea. The fixture verifies the marker is visible and absent from the saved settings immediately before closing.
+
+| Exit path, per independent run                                        | Newly typed text after clean exit |
+| --------------------------------------------------------------------- | --------------------------------- |
+| Ordinary `app.quit()` while hosting, immediate stop confirmation      | Missing, both attempts            |
+| Close main BrowserWindow after stopping hosting                       | Missing                           |
+| Dispatch the normal pagehide event, then immediately `app.quit()`     | Missing                           |
+| Wait until ordinary draft persistence completes, then quit            | Preserved                         |
+| Dispatch pagehide and wait for its persistence to complete, then quit | Preserved                         |
+
+Every measured process exits **0**. The traced loss cases all contain `draft-invoke-start` followed by `will-quit`, with no `draft-invoke-complete`. The uninstrumented run gives the same saved-file outcomes, so IPC tracing is not required for the failure. This is an ordinary exit loss of **unacknowledged final input**, not evidence that a previously acknowledged outbox send or draft disappears.
+
+Composer keeps new text locally for a 250 ms debounce and hands it over on pagehide/visibility change ([Composer.tsx:189](../../../packages/ui/src/components/Composer.tsx#L189), [Composer.tsx:212](../../../packages/ui/src/components/Composer.tsx#L212)). DraftPersistence initiates its flush at pagehide ([DraftPersistence.tsx:624](../../../packages/ui/src/components/DraftPersistence.tsx#L624)). Desktop `before-quit` waits for hosting shutdown and then marks quit ready ([index.ts:1065](../../../apps/desktop/src/main/index.ts#L1065), [index.ts:1077](../../../apps/desktop/src/main/index.ts#L1077)). It never waits for the separate settings queue. Settings writes themselves are appropriately serialized and await write/fsync/rename ([settings.ts:30](../../../apps/desktop/src/main/settings.ts#L30), [settings.ts:56](../../../apps/desktop/src/main/settings.ts#L56)). That promise cannot finish once the native process has exited.
+
+**Recommendation, medium:** add an explicit close preparation exchange while the renderer is still live. It must hand over the Composer's last input and await the account-scoped draft/outbox flush; then the main process drains accepted settings work before allowing renderer destruction and process exit. Apply the same exchange to a plain window close when it leads to application exit. Handle a failed/unresponsive preparation with a visible retry/quit choice, preserving the existing bounded recovery and shutdown policy. Draining the main queue alone is insufficient if the last text has not yet reached it; pagehide alone is insufficient because it starts asynchronous work during closing.
+
+**Acceptance:** packaged regressions type immediately before ordinary quit and plain window close, reopen the same synthetic profile and find the complete final draft in the correct account/conversation. Hold a settings write during close and require clean exit to wait for acknowledgement; fail the write and require actionable recovery. Cover hosting running/stopped and a window closed to the tray. Preserve prior acknowledged outbox work and exactly-once accepted sends. Forced process death, OS logoff/power loss and a hung renderer remain distinct conditions.
+
+**Relationship to earlier work:** this is a remaining Electron lifecycle portion of **F01 / GL-01–03**, not a rerun of the old browser read/merge/write or same-draft conflict defects. The new browser crash journey and the six current packaged desktop journeys do not cover this final-keystroke ordinary-exit handoff.
+
+## D02 — P1 conditional: preserve restored-copy isolation through row repair
+
+**Confirmed source/control-flow failure under syntactically valid damaged version-1 metadata.** The fixture writes a real SQLite workspace identity and a registry row with `restoredHold`. With a valid row, or with an unreadable hold value alone, listing reports `restored:true` and `start({ folder })` passes `isolated:true` to the server adapter. No activation is requested.
+
+Changing only **port to 65536**, **name to an empty string**, or **lastHostedAt to a string** changes that behavior. In all three cases, listing reports `restored:false`, the hold is absent in the subsequently saved row, and the same `start({ folder })` passes **no isolation flag**, although `activate:true` was never supplied. The current top-level newer-version control remains correctly refused and unchanged.
+
+`parseRegistry` drops an entire row for invalid name/port/time before preserving its hold ([registry.ts:225](../../../apps/desktop/src/main/registry.ts#L225), [registry.ts:242](../../../apps/desktop/src/main/registry.ts#L242)). `loadRegistry` then adopts the dropped row's folder and saves the adopted list ([hosting.ts:594](../../../apps/desktop/src/main/hosting.ts#L594), [hosting.ts:600](../../../apps/desktop/src/main/hosting.ts#L600)). Adoption does not carry any restore hold ([registry.ts:352](../../../apps/desktop/src/main/registry.ts#L352)). Hosting chooses isolation solely from the surviving row's hold ([hosting.ts:744](../../../apps/desktop/src/main/hosting.ts#L744)). The production adapter uses that isolation flag to bind loopback only and suppress announcements/queued outbound work ([index.ts:433](../../../apps/desktop/src/main/index.ts#L433)).
+
+**Impact and limit:** the host can be offered a normal start for a restored copy that has not been explicitly put back in use, potentially reactivating restored sessions, schedules or integrations. This review verifies the lost hold and nonisolated start request; it does **not** execute or claim an actual duplicate webhook/scheduled-message delivery. The prerequisite is damaged or hand-edited individual metadata in an otherwise readable version-1 settings document. A malformed entire JSON document and an unsupported top-level registry are separate boundaries which already fail closed.
+
+**Recommendation, small–medium:** preserve valid folder/identity safety metadata independently of optional descriptive fields, or quarantine malformed rows and exclude their folders from normal adoption. A row containing a hold must retain it until deliberate activation, even if unrelated metadata needs repair. Display the repair problem rather than silently rewriting that folder as an ordinary workspace.
+
+**Acceptance:** malformed descriptive fields in a held row yield either an explicitly isolated start or a refusal requiring repair; they never yield a normal start without `activate:true`. Verify the hold remains durable across restart, adoption and settings writes. Retain the valid-row, unreadable-hold and unknown-version controls. An integration fixture containing queued work should prove it remains inert until actual activation.
+
+**Relationship to earlier work:** the original unsupported-registry version defect is fixed. This narrower **individual-row drop → adoption → hold loss** path is additional recovery work; none of desktop F05/F08/F09/F15 addresses it.
+
+## D03 — P2: retain resource ownership when cleanup fails before a normal run
+
+**Confirmed in controlled lifecycle faults with real live loopback resource adapters.** Two branches discard the only controller handle before resource shutdown is confirmed.
+
+1. **Cancelled public opening.** The fixture holds a connector-opening result, requests `endOpenToAll()`, then releases that result. Its first `close()` rejects. Opening rejects with only “Opening to all was cancelled,” status has no public link, but the connector adapter is still alive. Retrying creates another live connector. Controller shutdown closes the new one and leaves the first alive; its close count remains **one**. The success control closes the first resource and leaves no orphan.
+2. **An isolated restored copy receives a port in the controller's usual-port set.** The fixture returns a real listener on such a port and injects its first stop failure. `start` rejects and status says **stopped / running:false**. `shutdown()` never retries that resource: it still answers HTTP 200 and its close count remains **one**. The separate normal-running-server control correctly retains ownership after a failed shutdown and closes it on a second try, with close count **two**.
+
+The cancellation branch swallows `opened.close()` rejection before the handle is stored ([hosting.ts:1865](../../../apps/desktop/src/main/hosting.ts#L1865), [hosting.ts:1887](../../../apps/desktop/src/main/hosting.ts#L1887)); failed publication uses the same swallowed-cleanup pattern ([hosting.ts:1882](../../../apps/desktop/src/main/hosting.ts#L1882)). The isolated-port branch sets `server = null` **before** awaiting the unwanted server's stop ([hosting.ts:792](../../../apps/desktop/src/main/hosting.ts#L792)). Normal `stopCurrent` retains its handle on failure and clears it only after success ([hosting.ts:1753](../../../apps/desktop/src/main/hosting.ts#L1753), [hosting.ts:1765](../../../apps/desktop/src/main/hosting.ts#L1765)). Cloudflared's production close function explicitly can reject when process exit cannot be confirmed, and supports retry ([tunnel.ts:564](../../../apps/desktop/src/main/tunnel.ts#L564), [tunnel.ts:567](../../../apps/desktop/src/main/tunnel.ts#L567)).
+
+**Recommendation, medium:** take ownership as soon as a resource is returned, before publishing or deciding to discard it. Keep unsuccessful cleanup handles in a retryable state, surface the reason and prevent another conflicting resource from starting until cleanup is resolved. Apply the existing successful running-server ownership rule to cancelled/opening connectors and replacement/isolated-port servers. Shutdown must drain all owned cleanup work, including resources never promoted to the normal running state.
+
+**Acceptance:** force close/stop to fail once in both paths; status remains truthful, retries close the same resource, and application shutdown cannot report success while one remains owned and alive. A second open/start must not silently duplicate it. Preserve successful cancellation and normal stop-retry controls. For a Cloudflare child, separately prove retry/escalation behavior with a controlled disposable child process.
+
+**Limits:** connector and server failures are injected into adapters, not observed failures of the real cloudflared binary or production server stop. The ephemeral-port case requires the OS-selected port to match a listed/usual port. No remotely reachable attack, actual public exposure or natural failure frequency is established. The live loopback listeners prove the controller's loss of ownership and missed retry, rather than merely a mock-call discrepancy.
+
+## Reviewed fixes and lower-priority boundaries
+
+- **F08/F09:** root's six fresh packaged journeys verify Saved messages through four crashes and rejection/no-push behavior for a native foreign window. Source now checkpoints route state and restricts pushes to the current trusted app window. They should remain recorded as fixed, with ordinary shutdown D01 considered separately.
+- **F05/F15:** package identity and the root's fresh packaging controls establish the reviewed archive. Release preparation, installer/genuine upgrade acceptance and dependency-size work are owned by the root review; this report does not reopen their previous findings without new evidence.
+- **Screen capture:** picker failure/cancel handling is explicit. The display-media callback checks the requesting frame's URL ([index.ts:905](../../../apps/desktop/src/main/index.ts#L905)), while inbound IPC checks live window and top-frame identity as well. Applying the shared sender/frame policy to media would make the boundary consistent. No native media request exploit or physical-device capture was attempted, so this remains a hardening candidate rather than a confirmed new vulnerability.
+- **Settings/account scope:** current draft/outbox/record operations use the main settings queue; no additional cross-account disclosure was established. D01 concerns completion at shutdown, not the merge rules or credential encryption.
+
+## Reproduction and closure
+
+Coordinate a fresh Windows unpacked package and native-run timing with the root agent, then run from the repository root:
+
+```powershell
+node docs/research/2026-10-03/desktop-native-close.mjs
+node docs/research/2026-10-03/desktop-native-close.mjs --no-trace
+node docs/research/2026-10-03/desktop-lifecycle-fixtures.mjs
+```
+
+The native harness now checks the archive's embedded revision before launch. The source fixture assertions deliberately recognize the current faulty outcomes and include successful controls; their passing means **reproduction succeeded**, not that the product is repaired. Prioritize D01, then D02's restore safety, then D03's fault ownership. Actual OS shutdown/logoff, installed upgrade/uninstall, physical capture/calling devices, off-device restores and reference-hardware performance remain separate acceptance tasks.

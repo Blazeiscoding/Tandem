@@ -1,0 +1,37 @@
+{
+  "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+  "scope": "Real disposable HTTP/WebSocket/SQLite/filesystem; actual production attachment cache. Search result not rendered in browser.",
+  "searchDeletion": {
+    "searchReturnedActualFile": true,
+    "timelineLoaded": false,
+    "freshServerStatus": 404,
+    "cachedUrlStillReturned": true,
+    "cachedBytesStillReadable": "Synthetic formerly available bytes"
+  },
+  "retention": {
+    "productionMaintenanceRemoved": 1,
+    "messageRemovedFromTimeline": true,
+    "freshServerStatus": 404,
+    "cachedUrlStillReturned": true,
+    "cachedBytesStillReadable": "Synthetic formerly available bytes"
+  },
+  "loadedDeletionControl": {
+    "cachedUrlRemoved": true,
+    "cachedBlobRevoked": true,
+    "freshServerStatus": 404
+  },
+  "fixtures": [
+    {
+      "path": "C:\\Users\\nikhi\\AppData\\Local\\Temp\\tandem-research-20261003-client-ILAYpl",
+      "removed": true
+    },
+    {
+      "path": "C:\\Users\\nikhi\\AppData\\Local\\Temp\\tandem-research-20261003-client-QDCoCa",
+      "removed": true
+    },
+    {
+      "path": "C:\\Users\\nikhi\\AppData\\Local\\Temp\\tandem-research-20261003-client-rRfdtM",
+      "removed": true
+    }
+  ]
+}

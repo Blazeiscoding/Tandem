@@ -1,0 +1,42 @@
+{
+  "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+  "scope": "Production React components in jsdom. Three focused synthetic controls plus one actual HTTP/socket/two-app callback journey; no real browser geometry or media.",
+  "replacedModalValues": {
+    "newView": "V_B",
+    "visibleValue": "Synthetic private words intended for app A",
+    "submittedViewId": "V_B",
+    "submittedValues": {
+      "details": {
+        "value": "Synthetic private words intended for app A"
+      }
+    }
+  },
+  "staleModalRefusal": {
+    "currentView": "V_B",
+    "displayedErrorFrom": "V_A",
+    "busyInheritedBeforeOldAnswer": true
+  },
+  "pendingJoinMutedRead": {
+    "clickableBeforeRead": true,
+    "firstJoin": {
+      "muted": false
+    },
+    "savedPreference": {
+      "joinMuted": true
+    },
+    "nextJoin": {
+      "muted": true
+    }
+  },
+  "realCrossAppModal": {
+    "transport": "Actual HTTP, production trigger checks, socket pushes, production ViewModal and real webhook callback",
+    "differentApps": true,
+    "viewA": "01M41F2373HAT0Q530NWK8KDE3",
+    "viewB": "01M41F23SB5PT3QCV88CT3MEAH",
+    "submittedView": "01M41F23SB5PT3QCV88CT3MEAH",
+    "deliveredTo": "/app-B",
+    "deliveredCallback": "Real synthetic app B",
+    "deliveredWords": "Synthetic private words for A only",
+    "prerequisite": "Same user invokes app B's valid action while A is open, e.g. through another window/device; then explicitly submits B."
+  }
+}

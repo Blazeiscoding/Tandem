@@ -1,0 +1,29 @@
+{
+  "revision": "cd3af584ba46adace45465cb5e5c66afb238b01c",
+  "scope": "Production session/client logic with synthetic media capture and request completions; no real media transport or server.",
+  "muteDuringReplacement": {
+    "mutedWhileCapturePending": true,
+    "mutedAfterReplacement": false,
+    "replacementTrackEnabled": true,
+    "replacementAttachedToSender": true,
+    "finalMediaSignal": {
+      "kind": "media",
+      "camera": false,
+      "screen": false,
+      "muted": false
+    }
+  },
+  "mutedReplacementControl": {
+    "replacementTrackEnabled": false,
+    "micMuted": true
+  },
+  "destroyedReplacementControl": {
+    "returnedTrackStopped": 1,
+    "replacementAccepted": false
+  },
+  "staleModalSubmission": {
+    "submittedViewId": "V_A",
+    "currentBeforeOldAnswer": "V_B",
+    "currentAfterOldAnswer": null
+  }
+}

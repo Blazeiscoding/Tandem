@@ -26,6 +26,7 @@ The [September update backlog](docs/UPDATE-PLAN-2026-09-30.md) retains detailed 
 The [optimization plan](docs/OPTIMIZATION-PLAN-2026-09-30.md) covers Electron, chat and server improvements researched from T3 Code and other applications.
 The [2 October improvement plan](docs/IMPROVEMENT-PLAN-2026-10-02.md) reviews the current code and prioritizes remaining reliability, performance and delivery work with evidence and acceptance checks.
 Its [deep investigation and reproducible evidence](docs/research/2026-10-02-deep/README.md) cover real failure paths, client lifecycle, desktop packaging/IPC, and measured optimization candidates.
+The [3 October review](docs/IMPROVEMENT-PLAN-2026-10-03.md) checks the latest fixes and records further storage, shutdown, microphone and integration lifecycle improvements with fresh reproducible evidence.
 
 Open-source team chat that **you** host. Run the server on a VPS, or click
 **"Host a workspace"** in the desktop app and serve your team straight from your
