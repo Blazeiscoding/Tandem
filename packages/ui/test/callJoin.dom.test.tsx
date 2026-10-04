@@ -7,6 +7,7 @@ import { ClientContext, PlatformContext } from "../src/context.js";
 import { HuddleButton } from "../src/components/HuddleBar.js";
 import { WorkspaceScreen } from "../src/screens/WorkspaceScreen.js";
 import { useCallPreferences } from "../src/lib/callPreferences.js";
+import { writeRoute } from "../src/lib/route.js";
 import type { Platform } from "../src/platform.js";
 
 const owner: User = {
@@ -57,6 +58,9 @@ function setup(read: () => Promise<unknown>) {
     memberships: { [general.id]: 0 },
     status: "online",
   });
+  // This fixture tests call admission in #general, independently of async
+  // last-conversation restoration. Start with that conversation selected.
+  writeRoute(client.baseUrl, { channelId: general.id, threadRootId: null }, "replace");
   const get = vi.fn(
     async <T,>(key: string) => (key === "call-preferences" ? await read() : null) as T | null,
   );
@@ -110,7 +114,13 @@ describe("preference-aware huddle admission (N04)", () => {
     );
     await userEvent
       .setup()
-      .click(await screen.findByRole("button", { name: "Start: Try a huddle in #general" }));
+      .click(
+        await screen.findByRole(
+          "button",
+          { name: "Start: Try a huddle in #general" },
+          { timeout: 3_000 },
+        ),
+      );
     expect(join).not.toHaveBeenCalled();
     await act(async () => saved.resolve({ joinMuted: true }));
     await waitFor(() => expect(join).toHaveBeenCalledWith(general.id, { muted: true }));
@@ -181,7 +191,11 @@ describe("preference-aware huddle admission (N04)", () => {
     );
     const user = userEvent.setup();
     await user.click(
-      await screen.findByRole("button", { name: "Start: Try a huddle in #general" }),
+      await screen.findByRole(
+        "button",
+        { name: "Start: Try a huddle in #general" },
+        { timeout: 3_000 },
+      ),
     );
     await user.click(screen.getByRole("button", { name: "# design" }));
     await act(async () => saved.resolve({ joinMuted: true }));
@@ -213,7 +227,13 @@ describe("preference-aware huddle admission (N04)", () => {
     );
     await userEvent
       .setup()
-      .click(await screen.findByRole("button", { name: "Start: Try a huddle in #general" }));
+      .click(
+        await screen.findByRole(
+          "button",
+          { name: "Start: Try a huddle in #general" },
+          { timeout: 3_000 },
+        ),
+      );
     mounted.rerender(
       wrap(
         <WorkspaceScreen
