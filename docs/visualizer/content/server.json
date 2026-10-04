@@ -1,0 +1,675 @@
+{
+  "area": "server",
+  "overview": "The server is the authority for accounts, conversation visibility, messages and durable events. One workspace folder holds SQLite plus attachment blobs; an exclusive writer hold keeps schedulers and storage accounting consistent. The protocol package supplies shared data shapes, request validation and small policies so web, desktop and server agree. Recent work removes redundant private content, contains malformed logging, bounds callback lifetimes and protects delayed replies. The further review's Q01 restore publication race is documented and remains open.",
+  "entries": [
+    {
+      "path": "packages/server/src/auth.ts",
+      "summary": "Derives password credentials and turns bearer tokens into database lookup keys.",
+      "details": [
+        "Passwords use asynchronous scrypt with a fresh 16-byte random salt and a 64-byte derived key; verification compares equal-length buffers with timingSafeEqual.",
+        "A new session returns a random 32-byte token to the caller and its SHA-256 hash for storage. Knowing a stored session hash does not provide the original bearer token.",
+        "The module contains cryptographic primitives; expiry, deactivation, session revocation and request admission belong to Store and server.ts."
+      ],
+      "concepts": ["authentication", "scrypt", "session hashing"]
+    },
+    {
+      "path": "packages/server/src/backup.ts",
+      "summary": "Captures, verifies, inventories and restores portable workspace backups.",
+      "details": [
+        "VACUUM INTO captures a consistent SQLite snapshot including committed WAL content. Only blobs referenced by that snapshot are copied; a disappearing or wrong-sized referenced blob fails capture.",
+        "A staged capture is checked before publication. The manifest records schema, counts, SHA-256 checksums and attachment sizes; verification also checks integrity, foreign keys, duplicate names and containment.",
+        "inventoryBackup reads older schemas without upgrading them and explains external app destinations, waiting schedules, undelivered events and surviving sessions before a copy is started.",
+        "Restore verifies source and staged bytes, moves the old workspace to a superseded folder and publishes the replacement. It preserves the old copy for recovery instead of deleting it.",
+        "OPEN Q01: the target hold is released before folder rename on Windows. Another server can claim the temporarily absent target; failed publication can leave that new workspace at the target while the original survives moved aside. Continuous admission through publication and rollback is follow-up work."
+      ],
+      "concepts": ["backup", "checksum", "WAL snapshot", "Q01 open finding"]
+    },
+    {
+      "path": "packages/server/src/blockKit.ts",
+      "summary": "Converts supported Slack Block Kit payloads into Tandem's text, buttons and modal fields.",
+      "details": [
+        "Headers, sections, context and dividers flatten into the existing mrkdwn renderer. Explicit nonempty text wins over blocks, matching the expected fallback behavior.",
+        "Only buttons from actions blocks become MessageAction records; labels, values and count are bounded, styles normalized and link URLs restricted to HTTP(S).",
+        "Modal parsing keeps plain text, multiline text and static selects, caps fields/options and reports dropped fields. A view with no usable inputs is refused by the server rather than presented as a misleading empty form.",
+        "This is a deliberate subset adapter, not a complete Slack UI renderer; unsupported controls are omitted."
+      ],
+      "concepts": ["Slack compatibility", "bounded payload", "modal parsing"]
+    },
+    {
+      "path": "packages/server/src/capabilities.ts",
+      "summary": "Keeps short-lived app permissions in a bounded in-memory map.",
+      "details": [
+        "Response URLs, triggers and open views carry expiresAt; get removes expired values before returning them.",
+        "Insertion sweeps expired entries from the oldest end, then evicts oldest entries above the ceiling. Equal lifetime within each map makes early-stop expiration sweeping valid.",
+        "Replacing a key moves it to the newest position. Eviction is treated like expiry, so memory cannot grow with every user and integration forever.",
+        "These capabilities intentionally disappear on server restart; they are separate from durable messages and event-delivery rows."
+      ],
+      "concepts": ["bounded memory", "capability lifetime", "expiration"]
+    },
+    {
+      "path": "packages/server/src/commands.ts",
+      "summary": "Provides built-in /shrug and /me commands before any integration is installed.",
+      "details": [
+        "A map holds description, usage hint and a function that returns the message text or null for invalid arguments.",
+        "/shrug escapes its backslash and underscores through the shared formatter so the visible arms survive mrkdwn parsing; /me wraps supplied text in italics.",
+        "Built-in names are reserved during app command registration, preventing an app from unexpectedly taking over these commands."
+      ],
+      "concepts": ["slash commands", "mrkdwn"]
+    },
+    {
+      "path": "packages/server/src/config.ts",
+      "summary": "Rejects unusable startup settings with actionable messages.",
+      "details": [
+        "Environment settings prefer TANDEM_, then GATHERLINE_, then SLACKOSS_ names, retaining compatibility with earlier deployments.",
+        "Port parsing requires a whole number from 0 to 65535; zero requests an available port. Count settings require safe nonnegative integers rather than silently rounded fractions.",
+        "Public URLs must use HTTP(S) without credentials, query or fragment because these addresses are handed to apps and shared as links.",
+        "Common bind failures are translated into suggestions such as choosing another port or a valid local interface."
+      ],
+      "concepts": ["configuration", "input validation", "compatibility"]
+    },
+    {
+      "path": "packages/server/src/db.ts",
+      "summary": "Defines the SQLite schema history and safely opens or upgrades a workspace.",
+      "details": [
+        "SQLite opens with WAL, foreign keys and a busy timeout. All needed migration steps run in one transaction, so failure rolls back to the original schema and releases the file handle.",
+        "An existing database receives a consistent pre-upgrade copy before migration by default. Up to three recognized restorable copies are retained; damaged or unrelated files do not displace a usable copy.",
+        "Schema 37 removes actions from deleted messages and superseded/purged replay copies, and blanks text/file IDs from sent schedules. Current live buttons and every unsent schedule remain usable.",
+        "Indexes support mention lookup, delegated managers and due cleanup/retry work instead of repeated broad scans.",
+        "A newer schema is refused by an older build. Logical cleanup affects active database records; it does not promise erasure of historical backups or freed disk bytes."
+      ],
+      "concepts": ["SQLite", "schema 37", "atomic migration", "content cleanup"]
+    },
+    {
+      "path": "packages/server/src/gateway.ts",
+      "summary": "Authenticates sockets, reconstructs state on reconnect and delivers authorized live events.",
+      "details": [
+        "An initial hello checks protocol version, token, account state and forced password change before the socket joins fan-out. The ready snapshot is read completely first.",
+        "A reconnect receives authorized missed events when its cursor remains replayable; otherwise the sync contract replaces history. syncVersion 1 ends with a synced marker so clients know catch-up finished.",
+        "Public channel events can reach all signed-in readers; private and DM events require current membership. Session authorization is rechecked after admission, including heartbeat and delivery paths.",
+        "byUser groups a person's sockets for targeted updates. Presence lists only online accounts, avoiding a second full offline-account listing at every handshake.",
+        "Huddles and typing are ephemeral. Signaling relays only between authorized participants in the same huddle; the server carries signaling, not media.",
+        "Socket callbacks contain thrown failures and close the affected connection with a retryable server error. Heartbeats, authentication timeout, payload limits and idempotent close bound abandoned connections."
+      ],
+      "concepts": ["WebSocket", "replay", "access control", "presence", "huddle"]
+    },
+    {
+      "path": "packages/server/src/ids.ts",
+      "summary": "Creates sortable entity IDs and random invitation/integration secrets.",
+      "details": [
+        "ULID-style IDs combine a Crockford-base32 timestamp with random characters, letting ordinary lexicographic comparisons support time-ordered history paging.",
+        "Invitation codes use a short readable alphabet; bot and webhook secrets use longer random hex tokens with an optional prefix.",
+        "An ID is a reference, while a secret token grants a specific authority. The two must not be treated as interchangeable by callers."
+      ],
+      "concepts": ["identity", "pagination", "random secrets"]
+    },
+    {
+      "path": "packages/server/src/imageSize.ts",
+      "summary": "Reads image dimensions from headers without loading a native decoder.",
+      "details": [
+        "PNG, GIF, WebP variants and JPEG frame headers are recognized; unsupported shapes return null.",
+        "The resulting dimensions are attached to file metadata so the client can reserve image space before decoding and reduce timeline layout jumps.",
+        "It extracts dimensions, not a proof that the whole file is a valid or trustworthy image."
+      ],
+      "concepts": ["attachment metadata", "layout stability"]
+    },
+    {
+      "path": "packages/server/src/index.ts",
+      "summary": "Defines the server package's public API for desktop embedding and tooling.",
+      "details": [
+        "Exports server creation/options, Store, workspace holds, backup/recovery-adjacent operations and shared security policies.",
+        "Consumers can embed a workspace server or perform offline backup operations without importing the CLI entry point and executing argument parsing.",
+        "Explicit type exports keep the package boundary readable and allow desktop adapters to depend on stable contracts."
+      ],
+      "concepts": ["package boundary", "embedded server"]
+    },
+    {
+      "path": "packages/server/src/integrations.ts",
+      "summary": "Signs outbound callbacks and adapts durable native events to Slack's event shape.",
+      "details": [
+        "HMAC-SHA256 signs v0:timestamp:body and emits both SlackOSS and Slack header names, allowing existing receiver verification libraries to work.",
+        "Message, reaction, pin, membership, channel and user events map to supported Slack Events API payloads; unsupported native events return null.",
+        "eventActorId identifies the account behind applicable events so the dispatcher can avoid feeding a bot its own actions and creating reply loops.",
+        "Receiver code still needs to enforce timestamp freshness and deduplication; signing alone does not eliminate replay or repeated delivery."
+      ],
+      "concepts": ["HMAC", "event adapter", "bot loop prevention"]
+    },
+    {
+      "path": "packages/server/src/limits.ts",
+      "summary": "Rations abusive workloads while allowing normal startup and offline-outbox bursts.",
+      "details": [
+        "Token buckets separate burst allowance from refill per minute and key budgets by account, handle, address or webhook as appropriate.",
+        "Correct password attempts clear the handle guessing budget; loose address budgets accommodate many people behind office NAT.",
+        "Refused operations report time until retry without spending another token. Periodic sweeping removes refilled buckets so memory follows active callers.",
+        "Per-account/per-app in-flight callback caps limit slow endpoints; separate ceilings limit response URLs, triggers and open forms.",
+        "Buckets are intentionally in memory: restart permits one fresh burst in exchange for avoiding a database write on every admission."
+      ],
+      "concepts": ["rate limits", "backpressure", "bounded memory"]
+    },
+    {
+      "path": "packages/server/src/main.ts",
+      "summary": "Runs the standalone server and its operator commands.",
+      "details": [
+        "Parses flags/environment, validates startup values, locates the built web client and chooses LAN or isolated loopback hosting.",
+        "Dispatches backup, verify-backup, restore and local account recovery commands before ordinary server startup.",
+        "Verification prints the consequences of starting a backup: app callbacks, queued messages, accepted sessions and host settings that must be configured again.",
+        "Ordinary startup reports reachable addresses and first-owner claim information, advertises discovery when enabled and handles process shutdown.",
+        "This is an executable entry point; desktop embedding uses the library API instead."
+      ],
+      "concepts": ["CLI", "self-hosting", "operator workflow"]
+    },
+    {
+      "path": "packages/server/src/mdns.ts",
+      "summary": "Publishes a workspace discovery announcement on the local network.",
+      "details": [
+        "Bonjour advertises the shared service type, port, workspace name, server/protocol versions and per-start instance ID.",
+        "The instance ID can be compared with /api/health to distinguish the intended local server from another listener on the same port.",
+        "The returned stop handle removes the service and destroys Bonjour resources during server shutdown.",
+        "Discovery helps locate a server; it does not authenticate a person or grant channel access."
+      ],
+      "concepts": ["LAN discovery", "instance identity"]
+    },
+    {
+      "path": "packages/server/src/netTrust.ts",
+      "summary": "Separates trusted connection identity from caller-controlled forwarding headers.",
+      "details": [
+        "originFromConnection builds an origin from the socket's local address/port, correctly bracketing IPv6 rather than trusting Host.",
+        "A loopback browser origin must match host and port for first-owner local admission; a different service on the same computer is not the same origin.",
+        "Rate-limit identity normally uses the socket peer. An explicitly trusted loopback proxy may supply a valid Cloudflare address or the rightmost forwarded hop.",
+        "Ambiguous or invalid forwarded values are rejected, and non-loopback peers cannot gain proxy trust by writing those headers."
+      ],
+      "concepts": ["proxy trust", "first-owner claim", "network identity"]
+    },
+    {
+      "path": "packages/server/src/outbound.ts",
+      "summary": "Makes bounded integration POST requests while protecting the host's private network.",
+      "details": [
+        "Private IPv4/IPv6 ranges and literal private hosts are blocked by default. DNS checks run inside the actual socket lookup, closing the check/connect gap used by DNS rebinding.",
+        "Redirects are not followed because a public endpoint could redirect to a private target. The host may deliberately allow private hooks for LAN bots.",
+        "Responses have a byte ceiling plus inactivity and whole-request deadlines, preventing an endpoint from holding a connection indefinitely with a slow stream.",
+        "Shutdown AbortSignal cancels calls and releases listeners; typed errors distinguish blocked, unreachable, timeout, too-large and aborted failures."
+      ],
+      "concepts": ["SSRF defense", "deadline", "cancellation"]
+    },
+    {
+      "path": "packages/server/src/ownership.ts",
+      "summary": "Ensures one process owns a writable workspace folder at a time.",
+      "details": [
+        "A small SQLite lock database holds BEGIN IMMEDIATE for the owner's lifetime before the workspace database and blob accounting are opened.",
+        "OS file locking releases the hold after a crash; no stale PID heuristic is needed. Alternate spellings or filesystem aliases reach the same underlying lock.",
+        "A separate owner description supplies useful process/host/purpose/port information when a second writer is refused; the description is not the locking authority.",
+        "release is safe to repeat. The guarantee depends on filesystem lock behavior, so a network share that does not honor SQLite locking cannot provide it.",
+        "This protects a folder while held; Q01 concerns admission when restore releases the hold to rename that folder."
+      ],
+      "concepts": ["exclusive writer", "resource ownership", "Q01 open finding"]
+    },
+    {
+      "path": "packages/server/src/recover.ts",
+      "summary": "Restores access to a human account from the machine that owns the workspace files.",
+      "details": [
+        "Recovery refuses a workspace already held by a server and opens the database directly under an exclusive hold; no unauthenticated remote recovery endpoint exists.",
+        "It issues a temporary password, revokes all existing sessions, reactivates the account if needed and forces a new password before ordinary workspace use.",
+        "Optional makeOwner demotes any prior owner to admin and promotes the recovered human account, preserving a path back when an owner has left.",
+        "The changes and host-origin audit entry are transactional; handles close and the hold releases on every exit. Bot accounts are refused because they use tokens."
+      ],
+      "concepts": ["account recovery", "forced password change", "audit"]
+    },
+    {
+      "path": "packages/server/src/redact.ts",
+      "summary": "Keeps request logs useful without copying URL and header credentials.",
+      "details": [
+        "Sensitive path segments cover invitation codes, incoming webhook tokens and command response capabilities. Sensitive query values include download, token, ticket, code and secret.",
+        "Authorization, cookies and signature headers are removed by logger configuration; request URLs are serialized through redactUrl.",
+        "N01 catches malformed percent encoding in a query name and masks both name and value instead of throwing before the route error boundary.",
+        "The real child-server regression verifies subsequent requests still succeed. New secret-bearing routes must be added to this explicit inventory."
+      ],
+      "concepts": ["N01", "logging", "credential redaction"]
+    },
+    {
+      "path": "packages/server/src/rtc.ts",
+      "summary": "Validates host-supplied STUN/TURN configuration for browser peer connections.",
+      "details": [
+        "The schema allows bounded STUN, STUNS, TURN and TURNS URLs with optional username/credential, capped numbers of configurations and URLs.",
+        "Environment JSON is parsed once with an actionable configuration error when malformed.",
+        "The server exposes authorized configuration; peer media uses WebRTC directly or the configured relay rather than flowing through Gateway."
+      ],
+      "concepts": ["WebRTC", "ICE configuration"]
+    },
+    {
+      "path": "packages/server/src/securityHeaders.ts",
+      "summary": "Defines browser and desktop content policies that fit a multi-workspace chat client.",
+      "details": [
+        "Scripts are restricted to self; object embedding and framing are denied. Blob/data image and worker sources support previews and compiled assets.",
+        "Connections intentionally allow different workspace addresses because one static client may join servers other than the page host.",
+        "The desktop meta policy omits frame-ancestors because browsers cannot enforce that directive through a meta element.",
+        "No-referrer reduces URL-token leakage on external navigation; nosniff and X-Frame-Options supplement the CSP."
+      ],
+      "concepts": ["CSP", "browser security", "multi-workspace"]
+    },
+    {
+      "path": "packages/server/src/server.ts",
+      "summary": "Composes the workspace HTTP API, authorization, background work and lifecycle.",
+      "details": [
+        "Creates the exclusive workspace owner, upgraded Store, Fastify routes, Gateway, attachment budget and timers. Shared validation and permission checks enforce auth, membership, roles and password-change restrictions.",
+        "Message creation atomically validates target/thread/files, checks account-scoped nonce identity, writes the message, send key and event, and completes a schedule when applicable. Fan-out happens after commit.",
+        "Event subscribers are queued inside the event transaction; per-event actor, bot membership and body work is reused across subscribers. Delivery and file-removal pumps have limits, retries and operational failure reporting.",
+        "Retention removes whole eligible threads in bounded passes and publishes history.removed after commit. Upload streams reserve chunks before writing so simultaneous uploads cannot exceed the storage budget.",
+        "N08 permits one callback in flight per modal ID, returns 409 view_submitting to overlap, and releases exclusion for correction/retry. A foreign account cannot consume the owner's form.",
+        "N09 checks a pressed message's text/edit/actions fingerprint before delayed replace/delete. A missing or externally changed origin is a no-op; the same response URL can advance its own result.",
+        "Shutdown stops new work, aborts outbound requests and closes sockets/listeners/database/ownership in coordinated retryable cleanup. The library also exposes operations used by desktop hosting.",
+        "The file is an orchestration boundary with many domains; narrower modules carry SQL, crypto, networking and parsing. Callback exclusion cannot promise exactly-once business effects after an uncertain external retry."
+      ],
+      "concepts": ["HTTP API", "transactional publication", "N08", "N09", "background queues"]
+    },
+    {
+      "path": "packages/server/src/socketSchema.ts",
+      "summary": "Checks socket payloads at the server boundary before Gateway trusts them.",
+      "details": [
+        "A discriminated union admits hello, ping, typing, huddle join/leave and signaling with bounded IDs, tokens and cursors.",
+        "Offer/answer SDP, ICE candidates and media state have explicit size and numeric constraints, keeping untrusted JSON within supported shapes.",
+        "Protocol TypeScript types alone cannot validate a remote caller; this Zod schema provides runtime enforcement without importing browser DOM types."
+      ],
+      "concepts": ["runtime validation", "WebSocket", "bounded payload"]
+    },
+    {
+      "path": "packages/server/src/storageBudget.ts",
+      "summary": "Accounts for stored blobs and reserves upload bytes before concurrent writes.",
+      "details": [
+        "Startup inventories regular blob files; reserve adds each accepted chunk to that file's accounting only if the total remains within the configured ceiling.",
+        "release removes all counted bytes for a blob after failed upload or successful cleanup, and storedIds enables database/blob reconciliation.",
+        "Chunk reservation permits many small uploads without pessimistically reserving the maximum file size for each.",
+        "Two uploads can each reserve part of the remaining space and both need retry; recoverable refusal is the tradeoff for never overspending the limit."
+      ],
+      "concepts": ["storage cap", "concurrent upload", "resource accounting"]
+    },
+    {
+      "path": "packages/server/src/store.ts",
+      "summary": "Maps workspace rules to transactional SQLite records and authorized query results.",
+      "details": [
+        "Owns account/session/channel/membership CRUD, per-user read/follow/save state, messages/files, invitations, audit records, integrations and durable queues. Visibility checks remain part of history and search queries.",
+        "Message hydration batches reactions, reply counts, pins and file metadata for a page instead of running one query per message. Indexed mentions support unread counts without reparsing the entire history.",
+        "Search combines safe quoted FTS terms, filename matches and structured filters. Rare terms start from matches; common terms try a newest-message window first and fill from older matches, preserving ordering and visibility.",
+        "N06 soft deletion blanks words and actions, clears associated reaction/pin/save/mention state and redacts older event copies, including file names/buttons. Event sequence records remain so reconnect order still works.",
+        "N07 markScheduledSent keeps status and message linkage while clearing text/file IDs and releasing scheduled-file holds in the message transaction.",
+        "Whole-thread purge uses a temporary ID table, retains only minimal send-key tombstones to prevent retry resurrection, queues blob deletions and redacts event/delivery copies together.",
+        "Due cleanup and app delivery queries isolate retrying/rejected rows so a failing item does not block healthy work. Follow-state revisions prevent stale authoritative echoes from replacing newer state.",
+        "Already delivered app copies and prior backups are outside active-store cleanup; the SQL rules do not constitute physical disk erasure."
+      ],
+      "concepts": ["SQLite data layer", "N06", "N07", "adaptive search", "batch hydration"]
+    },
+    {
+      "path": "packages/server/src/version.ts",
+      "summary": "Names the server version and exposes source identity stamped into builds.",
+      "details": [
+        "A small standalone module avoids loading HTTP, sockets and discovery just to label a backup or announcement.",
+        "Built output includes revision and dirty state; source execution reports no build stamp rather than inventing one.",
+        "Version describes the release interface while revision/dirty identifies the actual source behind an artifact."
+      ],
+      "concepts": ["build identity", "lightweight imports"]
+    },
+    {
+      "path": "packages/server/src/webClient.ts",
+      "summary": "Applies cache rules that keep static delivery fast and upgrades coherent.",
+      "details": [
+        "Content-hashed assets receive a one-year immutable cache lifetime because changing content produces a different filename.",
+        "HTML and other stable names use no-cache so a browser revalidates the page that points to the current asset hashes.",
+        "A missing /assets/ request returns a genuine asset miss rather than the single-page application's HTML; an obsolete JavaScript chunk should not be delivered as HTML."
+      ],
+      "concepts": ["HTTP caching", "static assets", "upgrade coherence"]
+    },
+    {
+      "path": "packages/protocol/src/discovery.ts",
+      "summary": "Shares LAN discovery and invitation-link addressing conventions.",
+      "details": [
+        "Defines the mDNS service type, default port and TXT fields including the per-start instance ID used by health verification.",
+        "hostWithPort brackets IPv6 literals correctly; isLinkableAddress excludes zone-specific and link-local addresses that ordinary browser URLs cannot use.",
+        "Tandem is the primary deep-link scheme; Gatherline and SlackOSS schemes remain accepted so old invitations keep opening."
+      ],
+      "concepts": ["shared protocol", "LAN discovery", "IPv6", "compatibility"]
+    },
+    {
+      "path": "packages/protocol/src/entities.ts",
+      "summary": "Defines the shared vocabulary of workspace records and feature metadata.",
+      "details": [
+        "Models users/roles, room types, memberships, messages, files, actions, invitations, audits, sessions, schedules, apps and forms without coupling the server to React or browser DOM objects.",
+        "Message seq identifies its creation event; a live payload can have seq 0 until the client applies the envelope's sequence. Thread replies and channel-broadcast replies remain the same underlying message.",
+        "Follow records include revision and unread-hold state; operational status models storage, queues, retention, connections and event-loop delay.",
+        "Optional capability/metadata fields allow older servers and clients to interoperate without assuming support.",
+        "The shared 30-day send retry window aligns client automatic retries with server retention of minimal send keys after content is removed."
+      ],
+      "concepts": ["shared entities", "compatibility", "idempotency", "read cursors"]
+    },
+    {
+      "path": "packages/protocol/src/events.ts",
+      "summary": "Defines durable replay events and private/live socket messages.",
+      "details": [
+        "WorkspaceEvent covers durable message, channel, membership and user changes; EventEnvelope adds monotonically increasing seq for reconnect replay.",
+        "history.removed names whole thread roots so clients can invalidate removed root/reply content and files even when history is evicted.",
+        "EphemeralEvent carries presence, typing, read/unread changes, private saves/preferences/follows, correlated huddle admission and one-user app replies/forms; these are never replayed as durable history.",
+        "ReadySnapshot describes current visible state and replayFrom, while synced marks completion. A null replay cursor replaces cached history; resync is the legacy fallback.",
+        "The distinction lets a lost ephemeral notice recover through a new snapshot without preserving private/transient UI messages forever."
+      ],
+      "concepts": ["durable events", "ephemeral state", "reconnect", "N10 contract"]
+    },
+    {
+      "path": "packages/protocol/src/format.ts",
+      "summary": "Shares literal mrkdwn escaping and room-wide mention interpretation.",
+      "details": [
+        "escapeMrkdwn prefixes formatting delimiters and backslashes so generated text such as /shrug is displayed literally.",
+        "broadcastsIn recognizes Slack-compatible <!channel>, <!here> and <!everyone> tokens, normalizing everyone to channel.",
+        "broadcastLabel turns wire tokens into user-facing labels; choosing who is eligible for notification remains an authorization/presence decision elsewhere."
+      ],
+      "concepts": ["mrkdwn", "mentions", "shared utility"]
+    },
+    {
+      "path": "packages/protocol/src/huddle.ts",
+      "summary": "Describes peer-call signaling and deterministic offer ownership.",
+      "details": [
+        "Offer, answer, ICE and explicit camera/screen/muted messages are plain serializable objects usable by both server and browser.",
+        "Explicit media flags distinguish an active camera from a silent negotiated slot; a receiver track's muted flag alone is not evidence that frames exist.",
+        "shouldInitiateOffer uses user-ID ordering so two peers discovering each other do not both offer simultaneously.",
+        "HuddleState lists live participants. The protocol carries handshake/control state rather than audio or video bytes."
+      ],
+      "concepts": ["WebRTC", "offer tie-break", "media state"]
+    },
+    {
+      "path": "packages/protocol/src/index.ts",
+      "summary": "Exports the common protocol modules through one package entry.",
+      "details": [
+        "Re-exports entity, event, REST validation, discovery, search, formatting, huddle and permission contracts.",
+        "Server, client and UI consume the same names instead of copying request shapes or subtly different policies.",
+        "Runtime helper/schema imports can affect bundling, so constants needed by lightweight consumers are kept outside schema-heavy definitions where practical."
+      ],
+      "concepts": ["package boundary", "shared protocol"]
+    },
+    {
+      "path": "packages/protocol/src/permissions.ts",
+      "summary": "Shares channel-management policy between server enforcement and UI affordances.",
+      "details": [
+        "Owner/admin, creator and delegated member managers receive different management powers; active human status and room type are checked.",
+        "Delegated management ends with membership. Removing someone is not a public-room ban, and an administrator's management role does not grant visibility into private rooms.",
+        "Removal protects self, owner, admins and privileged managers according to the actor's authority; manager assignment rejects inappropriate bot/deactivated/creator targets.",
+        "Visibility must be checked separately by the server even when a management helper returns true."
+      ],
+      "concepts": ["authorization", "delegated managers", "shared policy"]
+    },
+    {
+      "path": "packages/protocol/src/rest.ts",
+      "summary": "Validates the shared HTTP request bodies and paging/search parameters.",
+      "details": [
+        "Zod schemas bound handles, passwords, profile fields, channel types, message text/files, scheduling, integration URLs, form values, administrative updates and cursor formats.",
+        "Messages require words or attachments; DM creation has a fixed counterpart count and group DMs have a bounded participant list.",
+        "Scheduling carries a stable nonce; editing a scheduled message carries expectedText so a conflicting edit can be refused.",
+        "Integration URLs reject embedded credentials and non-HTTP(S) schemes. Modal submissions bound nested IDs and values before echoing them to an app.",
+        "Types are inferred from the schemas, keeping compile-time client contracts aligned with the server's runtime parsing. Parsed shape alone does not imply authorization."
+      ],
+      "concepts": ["Zod", "runtime validation", "request contract"]
+    },
+    {
+      "path": "packages/protocol/src/search.ts",
+      "summary": "Parses search syntax and calendar-day filters identically on client and server.",
+      "details": [
+        "Splits recognized from/in/has/type/before/after modifiers from free terms, records invalid calendar dates and normalizes handles/channel names.",
+        "Attachment categories map to MIME patterns and filename extensions for server SQL, letting UI hints describe the same filters the server applies.",
+        "before excludes the named day; after starts at the following day in the reader's IANA timezone. Day boundaries account for daylight-saving transitions instead of assuming 24 hours.",
+        "A bounded cache keeps at most 32 Intl.DateTimeFormat instances, avoiding repeated construction while preventing arbitrary timezone inputs from growing memory indefinitely.",
+        "This parser returns criteria; Store still adds current conversation visibility and safe query parameter handling."
+      ],
+      "concepts": ["search syntax", "time zones", "bounded cache"]
+    }
+  ],
+  "flows": [
+    {
+      "id": "server-auth-reconnect",
+      "title": "From password sign-in to a synchronized workspace",
+      "summary": "Authentication produces a session; the socket handshake turns it into visible current state plus any safe replay.",
+      "steps": [
+        {
+          "title": "Validate and ration the request",
+          "description": "REST schemas check the login body. Separate address and handle allowances bound guessing; proxy headers only count under explicit loopback trust.",
+          "files": [
+            "packages/protocol/src/rest.ts",
+            "packages/server/src/server.ts",
+            "packages/server/src/limits.ts",
+            "packages/server/src/netTrust.ts"
+          ]
+        },
+        {
+          "title": "Verify credentials and create a session",
+          "description": "scrypt verification checks the stored salt/hash. Only a random bearer token leaves the server; the session row stores its hash, expiry and account identity.",
+          "files": ["packages/server/src/auth.ts", "packages/server/src/store.ts"]
+        },
+        {
+          "title": "Authenticate hello before joining fan-out",
+          "description": "The socket schema validates protocol/version/cursor. Gateway checks the session and forced password-change state and reads the full snapshot before registering the connection.",
+          "files": [
+            "packages/server/src/socketSchema.ts",
+            "packages/server/src/gateway.ts",
+            "packages/protocol/src/events.ts"
+          ]
+        },
+        {
+          "title": "Replay or replace",
+          "description": "Store filters replay to current public/member access. If the cursor is pruned, invalid or beyond the replay budget, ready requests replacement; otherwise missed events replay and synced finishes catch-up.",
+          "files": [
+            "packages/server/src/store.ts",
+            "packages/server/src/gateway.ts",
+            "packages/protocol/src/events.ts"
+          ]
+        },
+        {
+          "title": "Continue checking authorization",
+          "description": "Delivery and heartbeats recheck sessions; revocation disconnects affected sockets. Ephemeral presence is derived from live socket groups and rebuilt at reconnect.",
+          "files": ["packages/server/src/gateway.ts", "packages/server/src/server.ts"]
+        }
+      ]
+    },
+    {
+      "id": "server-message-transaction",
+      "title": "A message, its retry key and its event commit together",
+      "summary": "The same posting path handles direct sends and due schedules so persistence and live publication agree.",
+      "steps": [
+        {
+          "title": "Validate target and attachments",
+          "description": "Parse bounded message input, check active account/current channel access, archived state and a valid root. Files must belong to this account/channel and cannot be promised to another schedule.",
+          "files": [
+            "packages/protocol/src/rest.ts",
+            "packages/server/src/server.ts",
+            "packages/server/src/store.ts"
+          ]
+        },
+        {
+          "title": "Resolve repeated send intent",
+          "description": "Hash the request shape under the account-scoped nonce. An identical retry returns its message; conflicting content or a key for deleted/retained history is refused rather than creating a second post.",
+          "files": [
+            "packages/server/src/server.ts",
+            "packages/server/src/store.ts",
+            "packages/protocol/src/entities.ts"
+          ]
+        },
+        {
+          "title": "Commit message plus event",
+          "description": "Create and hydrate the message, attach files, record its request key and append message.created in one synchronous transaction. Eligible app delivery rows are queued with that event.",
+          "files": [
+            "packages/server/src/server.ts",
+            "packages/server/src/store.ts",
+            "packages/protocol/src/events.ts"
+          ]
+        },
+        {
+          "title": "Complete scheduled work without another content copy",
+          "description": "For a scheduled send, the same transaction marks the schedule sent, links the message and clears queue text/file IDs. A crash cannot commit only one side.",
+          "files": [
+            "packages/server/src/server.ts",
+            "packages/server/src/store.ts",
+            "packages/server/src/db.ts"
+          ]
+        },
+        {
+          "title": "Publish after commit",
+          "description": "Gateway fans out only committed events under current visibility. Targeted follow/mention updates are coalesced, while app deliveries run through the bounded retry pump.",
+          "files": [
+            "packages/server/src/server.ts",
+            "packages/server/src/gateway.ts",
+            "packages/server/src/integrations.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-interactive-app",
+      "title": "A button opens a form and the app answers safely",
+      "summary": "Short-lived capabilities tie actions to the right app/person and current access, while N08/N09 control overlapping and delayed replies.",
+      "steps": [
+        {
+          "title": "Represent only supported controls",
+          "description": "Block Kit text/actions become bounded native text and HTTP(S) link or callback buttons. The pressed message determines the owning bot and conversation.",
+          "files": [
+            "packages/server/src/blockKit.ts",
+            "packages/server/src/server.ts",
+            "packages/protocol/src/entities.ts"
+          ]
+        },
+        {
+          "title": "Issue limited callback authority",
+          "description": "The callback receives an app-bound trigger and a response URL. Capability maps cap memory and expire permissions; outbound calls are signed, deadline-bounded and private-host-checked.",
+          "files": [
+            "packages/server/src/capabilities.ts",
+            "packages/server/src/limits.ts",
+            "packages/server/src/integrations.ts",
+            "packages/server/src/outbound.ts"
+          ]
+        },
+        {
+          "title": "Open a form for its intended person",
+          "description": "views.open consumes one matching trigger after current app, bot, person and channel checks. Supported fields become a view.open ephemeral event for the owner alone.",
+          "files": [
+            "packages/server/src/server.ts",
+            "packages/server/src/blockKit.ts",
+            "packages/protocol/src/events.ts"
+          ]
+        },
+        {
+          "title": "Exclude simultaneous submission",
+          "description": "The server verifies form ownership, required values and select options. One modal ID may have one callback in flight; overlap receives 409 view_submitting, and finally releases exclusion for correction or deliberate retry.",
+          "files": ["packages/server/src/server.ts", "packages/protocol/src/rest.ts"]
+        },
+        {
+          "title": "Fence delayed mutation of the original",
+          "description": "Before replace/delete, current text/edit/actions must match the pressed revision. A disappeared or changed origin is ignored; successful updates through the same response URL advance its own expected revision.",
+          "files": ["packages/server/src/server.ts", "packages/server/src/store.ts"]
+        },
+        {
+          "title": "Understand the remaining retry boundary",
+          "description": "The server prevents overlap and rechecks revocation, but an endpoint may perform its business effect before a transport failure. An app should deduplicate a retried view_submission by view ID.",
+          "files": [
+            "packages/server/src/server.ts",
+            "packages/server/test/integrationLifetime.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-content-retention",
+      "title": "Deleting history also cleans its remaining active copies",
+      "summary": "N06/N07 and earlier retention work remove redundant words, actions and file references while preserving replay order and retry safety.",
+      "steps": [
+        {
+          "title": "Choose the removal",
+          "description": "Soft deletion clears one message's words/actions and associated live state. Retention chooses roots only when their newest reply is old enough and removes the whole thread within a bounded pass.",
+          "files": ["packages/server/src/store.ts", "packages/server/src/server.ts"]
+        },
+        {
+          "title": "Commit logical cleanup together",
+          "description": "A temporary ID table handles large threads without bind-count limits. Message/file references, minimal purged send keys, queued blob deletions and redacted event/delivery copies commit together.",
+          "files": ["packages/server/src/store.ts", "packages/server/src/db.ts"]
+        },
+        {
+          "title": "Keep sequence continuity without old content",
+          "description": "Superseded event rows stay in the ordered replay log but lose text, file metadata and button labels/values/URLs. Schema 37 repairs earlier deleted/superseded copies and sent schedules.",
+          "files": [
+            "packages/server/src/store.ts",
+            "packages/server/src/db.ts",
+            "packages/protocol/src/events.ts"
+          ]
+        },
+        {
+          "title": "Tell connected clients what was removed",
+          "description": "After commit, message.deleted or history.removed reaches authorized sockets. Whole-thread root IDs let clients invalidate evicted root/reply caches and pending attachment transfers.",
+          "files": [
+            "packages/server/src/server.ts",
+            "packages/server/src/gateway.ts",
+            "packages/protocol/src/events.ts"
+          ]
+        },
+        {
+          "title": "Remove bytes with retryable ownership",
+          "description": "The file pump deletes bounded pages and releases storage accounting only after success. Retry delay and rejected rows let healthy removals proceed while failures remain visible.",
+          "files": [
+            "packages/server/src/server.ts",
+            "packages/server/src/store.ts",
+            "packages/server/src/storageBudget.ts"
+          ]
+        },
+        {
+          "title": "Respect the scope of cleanup",
+          "description": "Active database copies are cleaned. Historical backups, freed storage blocks and payloads already delivered to external apps are not recalled or securely erased by these operations.",
+          "files": [
+            "packages/server/src/store.ts",
+            "packages/server/src/db.ts",
+            "docs/IMPLEMENTATION-2026-10-04.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-backup-restore",
+      "title": "A verified snapshot becomes a restored workspace",
+      "summary": "Backups are staged and validated before publication; restore preserves the original but has a documented Q01 admission gap during folder replacement.",
+      "steps": [
+        {
+          "title": "Capture a consistent database",
+          "description": "VACUUM INTO reads committed SQLite/WAL state; snapshot file inventory identifies required blobs. Missing concurrent-deleted blobs fail capture, so stopped-server capture is the way to guarantee completeness.",
+          "files": ["packages/server/src/backup.ts"]
+        },
+        {
+          "title": "Verify contents before publishing",
+          "description": "Staged database and files must match checksums/sizes, schema/counts, integrity and references, with no manifest duplicates or path escape. Only then is the complete capture renamed to its destination.",
+          "files": ["packages/server/src/backup.ts", "packages/server/src/db.ts"]
+        },
+        {
+          "title": "Inspect effects before starting a copy",
+          "description": "Read-only inventory reports app destinations, queued schedules, undelivered callbacks and surviving sessions. Isolated mode blocks app calls and schedule delivery while inspecting a restored copy.",
+          "files": [
+            "packages/server/src/backup.ts",
+            "packages/server/src/main.ts",
+            "packages/server/src/server.ts"
+          ]
+        },
+        {
+          "title": "Stage replacement while the original is held",
+          "description": "Restore refuses an already held workspace, copies the verified backup beside the target and verifies staged bytes. The old workspace is moved to a superseded folder for recovery.",
+          "files": ["packages/server/src/backup.ts", "packages/server/src/ownership.ts"]
+        },
+        {
+          "title": "OPEN Q01: protect the publication interval",
+          "description": "Current Windows code releases its hold to rename the folder. A concurrent server can create a fresh target during that gap; failed publication then cannot roll back over the new target. The original survives aside. A stable admission identity outside the renamed folder is proposed follow-up, not implemented here.",
+          "files": [
+            "packages/server/src/backup.ts",
+            "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+            "docs/research/2026-10-04-next/server/restore-gap.json"
+          ]
+        },
+        {
+          "title": "Open restored data under normal version rules",
+          "description": "A subsequent server opens with the exclusive writer hold and atomic migrations, taking pre-upgrade copies when needed. Local host settings such as public URL, retention and ICE configuration must be applied separately.",
+          "files": [
+            "packages/server/src/ownership.ts",
+            "packages/server/src/db.ts",
+            "packages/server/src/config.ts",
+            "packages/server/src/server.ts"
+          ]
+        }
+      ]
+    }
+  ]
+}
