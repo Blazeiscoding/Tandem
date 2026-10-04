@@ -1,5 +1,7 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type RequestListener } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -15,6 +17,7 @@ import {
   readNamedTunnelConfig,
   resolvePublicAddress,
   validateNamedTunnelConfig,
+  TunnelCleanupError,
   type Tunnel,
 } from "../src/main/tunnel.js";
 
@@ -58,6 +61,41 @@ async function serve(handler: RequestListener): Promise<{ url: string; close(): 
       }),
   };
 }
+
+it("returns cleanup ownership when opening fails and the child cannot be confirmed stopped", async () => {
+  vi.useFakeTimers();
+  const child = Object.assign(new EventEmitter(), {
+    pid: 123,
+    exitCode: null,
+    signalCode: null,
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => true),
+  });
+  try {
+    const opening = openQuickTunnel({
+      command: "fake-cloudflared",
+      port: 8543,
+      timeoutMs: 10,
+      launch: () => child as unknown as ChildProcess,
+    });
+    const result = opening.catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(4_010);
+    const failure = await result;
+    expect(failure).toBeInstanceOf(TunnelCleanupError);
+    expect((failure as Error).message).toContain("cloudflared did not stop");
+    expect(child.kill.mock.calls).toEqual([[], ["SIGKILL"]]);
+    // An eventual exit can be confirmed by the retained handle, without launching another child.
+    child.emit("exit", 0, null);
+    await (failure as TunnelCleanupError).tunnel.close();
+    expect(child.kill).toHaveBeenCalledTimes(2);
+  } finally {
+    child.emit("exit", 0, null);
+    child.stdout.destroy();
+    child.stderr.destroy();
+    vi.useRealTimers();
+  }
+});
 
 describe("finding cloudflared", () => {
   const present =

@@ -198,7 +198,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   // conversation being left, while the refs hold what was typed into it.
   const typed = useRef({ text, savedDraft });
   typed.current = { text, savedDraft };
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
       if (edited.current && typed.current.text !== typed.current.savedDraft) {
         client.setDraft(draftKey, typed.current.text);
@@ -220,11 +220,13 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     };
     window.addEventListener("pagehide", handOver, true);
     document.addEventListener("visibilitychange", onHide, true);
+    const stopPreparing = platform.onPrepareClose?.("capture", handOver);
     return () => {
       window.removeEventListener("pagehide", handOver, true);
       document.removeEventListener("visibilitychange", onHide, true);
+      stopPreparing?.();
     };
-  }, [client, draftKey]);
+  }, [client, draftKey, platform]);
 
   /** Attaches files, up to ten; `note` is said beside any word about the limit. */
   function addFiles(files: FileList | File[] | null, note?: string) {

@@ -53,6 +53,8 @@ export interface SlackossBridge {
   rememberPlace: (url: string, state: unknown) => Promise<void>;
   /** The history entry a recovered page starts from, if this load is one. */
   takePlace: () => Promise<unknown>;
+  onPrepareClose: (cb: (id: number) => void) => () => void;
+  preparedClose: (id: number, saved: boolean) => Promise<void>;
 }
 
 const bridge: SlackossBridge = {
@@ -124,6 +126,12 @@ const bridge: SlackossBridge = {
   revealWindow: () => ipcRenderer.invoke("window:reveal"),
   rememberPlace: (url, state) => ipcRenderer.invoke("window:rememberPlace", url, state),
   takePlace: () => ipcRenderer.invoke("window:takePlace"),
+  onPrepareClose: (cb) => {
+    const listener = (_event: unknown, id: number) => cb(id);
+    ipcRenderer.on("window:prepareClose", listener);
+    return () => ipcRenderer.removeListener("window:prepareClose", listener);
+  },
+  preparedClose: (id, saved) => ipcRenderer.invoke("window:preparedClose", id, saved),
 };
 
 contextBridge.exposeInMainWorld("slackoss", bridge);

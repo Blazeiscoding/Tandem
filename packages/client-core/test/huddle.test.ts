@@ -404,6 +404,77 @@ describe("HuddleSession", () => {
       session.destroy();
     });
 
+    it.each([
+      { initiallyMuted: false, toggles: 1, muted: true },
+      { initiallyMuted: true, toggles: 1, muted: false },
+      { initiallyMuted: false, toggles: 3, muted: true },
+    ])(
+      "uses the latest mute choice while capture is held: $initiallyMuted / $toggles",
+      async ({ initiallyMuted, toggles, muted }) => {
+        const { session, sent, ask, pc } = await inCall(track());
+        try {
+          if (initiallyMuted) session.toggleMic();
+          let finish!: (stream: MediaStream) => void;
+          ask.mockReturnValueOnce(
+            new Promise<MediaStream>((resolve) => {
+              finish = resolve;
+            }),
+          );
+          const recovery = session.recoverMicrophone();
+          for (let i = 0; i < toggles; i++) session.toggleMic();
+          const next = track();
+          finish(stream(next));
+          expect(await recovery).toBe(true);
+          expect(next.enabled).toBe(!muted);
+          expect(pc.transceivers[0]!.sender.track).toBe(next);
+          expect(session.state().micMuted).toBe(muted);
+          expect(sent.at(-1)!.signal).toMatchObject({ kind: "media", muted });
+        } finally {
+          session.destroy();
+        }
+      },
+    );
+
+    it("keeps a mute made during failed recovery for the later retry", async () => {
+      const { session, ask, pc } = await inCall(track());
+      try {
+        let refuse!: (reason: Error) => void;
+        ask.mockReturnValueOnce(
+          new Promise<MediaStream>((_resolve, reject) => {
+            refuse = reject;
+          }),
+        );
+        const recovery = session.recoverMicrophone();
+        session.toggleMic();
+        refuse(new Error("Microphone not available"));
+        expect(await recovery).toBe(false);
+        expect(session.state()).toMatchObject({ micMuted: true, micLost: true });
+        const next = track();
+        ask.mockResolvedValueOnce(stream(next));
+        expect(await session.recoverMicrophone()).toBe(true);
+        expect(next.enabled).toBe(false);
+        expect(pc.transceivers[0]!.sender.track).toBe(next);
+      } finally {
+        session.destroy();
+      }
+    });
+
+    it("releases a replacement microphone returned after leaving", async () => {
+      const { session, ask } = await inCall(track());
+      let finish!: (stream: MediaStream) => void;
+      ask.mockReturnValueOnce(
+        new Promise<MediaStream>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const recovery = session.recoverMicrophone();
+      session.destroy();
+      const next = track();
+      finish(stream(next));
+      expect(await recovery).toBe(false);
+      expect(next.stop).toHaveBeenCalledOnce();
+    });
+
     it("says so when there is none, tells the others it is muted, and takes the next plugged in", async () => {
       const unplugged = track();
       const { session, sent, ask, pc } = await inCall(unplugged);

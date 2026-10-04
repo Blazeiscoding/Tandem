@@ -1,0 +1,15 @@
+{
+  "fixture": "restore-publication-gap",
+  "platform": "win32",
+  "heldTargetRejected": true,
+  "heldTargetIdentityPreserved": true,
+  "normalRestoreIdentityMatches": true,
+  "normalRestoreUsers": ["replacement"],
+  "concurrentStartAdmitted": true,
+  "restore": "rejected",
+  "errorCode": "EPERM",
+  "targetNameAfterRejectedRestore": "Concurrent Fresh Workspace",
+  "targetIdChanged": true,
+  "targetUsers": ["concurrent"],
+  "originalMovedAside": true
+}

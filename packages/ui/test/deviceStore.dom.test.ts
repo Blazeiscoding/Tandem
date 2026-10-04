@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   JOURNAL_PREFIX,
   LEGACY_PREFIX,
+  OWNER_KEY,
+  CHANGE_KEY,
   deviceStore,
   type DeviceStore,
   type StoreOp,
@@ -21,7 +23,10 @@ beforeEach(() => {
   globalThis.indexedDB = new IDBFactory();
   localStorage.clear();
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 const draftsOp = (put: Record<string, string>, base?: Record<string, string | null>): StoreOp => ({
   kind: "drafts",
@@ -70,15 +75,15 @@ describe("device storage in IndexedDB (F01)", () => {
     expect(Object.keys((await value(tabs[0]!, "record:k")) as object)).toHaveLength(60);
   });
 
-  it("moves a value across from localStorage once, then keeps its own", async () => {
+  it("migrates legacy drafts and preserves both versions from an older fallback", async () => {
     localStorage.setItem(`${LEGACY_PREFIX}drafts:k`, JSON.stringify({ C1: "from before" }));
     const tab = deviceStore();
     expect(await value(tab, "drafts:k")).toEqual({ C1: "from before" });
     expect(localStorage.getItem(`${LEGACY_PREFIX}drafts:k`)).toBe(null);
-    // A client from before, still open, writes its copy; this one does not read it.
+    // An old fallback may have acknowledged different words. Neither copy is disposable.
     localStorage.setItem(`${LEGACY_PREFIX}drafts:k`, JSON.stringify({ C1: "stale" }));
     await tab.apply("drafts:k", draftsOp({ C2: "new" }));
-    expect(await value(tab, "drafts:k")).toEqual({ C1: "from before", C2: "new" });
+    expect(await value(tab, "drafts:k")).toEqual({ C1: "stale\n\nfrom before", C2: "new" });
     expect(localStorage.getItem(`${LEGACY_PREFIX}drafts:k`)).toBe(null);
   });
 
@@ -238,19 +243,16 @@ describe("the web platform over device storage (F01)", () => {
 });
 
 describe("without IndexedDB (F01)", () => {
-  it("uses localStorage when the database never opens", async () => {
+  it("reports a timed-out opening instead of choosing an empty alternative", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       // Opened, and never answered.
       vi.spyOn(indexedDB, "open").mockReturnValue({} as IDBOpenDBRequest);
       const tab = deviceStore();
-      const chosen = tab.backend;
+      const chosen = expect(tab.backend).rejects.toThrow("did not open");
       await vi.advanceTimersByTimeAsync(5_000);
-      expect(await chosen).toBe("localstorage");
-      await tab.apply("drafts:k", draftsOp({ C1: "hello" }));
-      expect(JSON.parse(localStorage.getItem(`${LEGACY_PREFIX}drafts:k`)!)).toEqual({
-        C1: "hello",
-      });
+      await chosen;
+      expect(localStorage.getItem(`${LEGACY_PREFIX}drafts:k`)).toBeNull();
     } finally {
       vi.useRealTimers();
     }

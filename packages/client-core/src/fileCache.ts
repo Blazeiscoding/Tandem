@@ -5,6 +5,8 @@ import type { Api } from "./api.js";
 export interface FileOwner {
   channelId: ID;
   messageId: ID;
+  /** Root of the whole thread retention removes; absent for a top-level message. */
+  threadRootId?: ID | null;
 }
 
 /**
@@ -184,7 +186,19 @@ export class FileCache {
   /** Takes away every file attached to a message that has been deleted (F07). */
   invalidateMessage(messageId: ID): void {
     for (const [id, owner] of [...this.owners])
-      if (owner?.messageId === messageId) this.invalidate(id);
+      if (owner === null || owner.messageId === messageId) this.invalidate(id);
+  }
+
+  /** Retention removes complete threads, including cached replies with evicted history. */
+  invalidateRoots(channelId: ID, rootIds: readonly ID[]): void {
+    if (rootIds.length === 0) return;
+    const gone = new Set(rootIds);
+    for (const [id, owner] of [...this.owners])
+      if (
+        owner === null ||
+        (owner.channelId === channelId && gone.has(owner.threadRootId ?? owner.messageId))
+      )
+        this.invalidate(id);
   }
 
   /**

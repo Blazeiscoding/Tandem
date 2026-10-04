@@ -52,11 +52,17 @@ export function redactUrl(url: string): string {
   if (!query) return path;
   const parts = query.split("&").map((pair) => {
     const eq = pair.indexOf("=");
-    if (eq === -1) return pair;
-    const name = pair.slice(0, eq);
-    return SECRET_QUERY_PARAMS.has(decodeURIComponent(name).toLowerCase())
-      ? `${name}=${MASK}`
-      : pair;
+    const name = eq === -1 ? pair : pair.slice(0, eq);
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(name).toLowerCase();
+    } catch {
+      // Request logging runs before the handler's error boundary. A name
+      // that cannot be decoded must neither throw nor expose its value in
+      // a fallback log; even the malformed name may contain private data.
+      return eq === -1 ? MASK : `${MASK}=${MASK}`;
+    }
+    return SECRET_QUERY_PARAMS.has(decoded) ? `${name}=${MASK}` : pair;
   });
   return `${path}?${parts.join("&")}`;
 }

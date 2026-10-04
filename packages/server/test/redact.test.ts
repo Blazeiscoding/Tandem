@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createWorkspaceServer, type WorkspaceServer } from "../src/index.js";
 import { redactUrl } from "../src/redact.js";
 
@@ -49,6 +51,61 @@ describe("redacting a url", () => {
       "/api/files/01ABC?Download=REDACTED",
     );
   });
+
+  it("masks undecodable names and values, including pairs without an equals sign", () => {
+    expect(redactUrl("/api/health?%=private&%E0%A4=private&%bad&limit=5")).toBe(
+      "/api/health?REDACTED=REDACTED&REDACTED=REDACTED&REDACTED&limit=5",
+    );
+    expect(redactUrl("/api/health?%74oken=private&DOWNLOAD&empty=&q=notes")).toBe(
+      "/api/health?%74oken=REDACTED&DOWNLOAD=REDACTED&empty=&q=notes",
+    );
+  });
+
+  it("keeps a logged real process serving after malformed query encodings", async () => {
+    const serverModule = new URL("../src/server.ts", import.meta.url).href;
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `
+        import { createWorkspaceServer } from ${JSON.stringify(serverModule)};
+        import { Writable } from "node:stream";
+        const lines = [];
+        const stream = new Writable({ write(chunk, _encoding, done) { lines.push(String(chunk)); done(); } });
+        const server = await createWorkspaceServer({ dataDir: ":memory:", host: "127.0.0.1", port: 0, mdns: false, logger: { stream } });
+        try {
+          const base = "http://127.0.0.1:" + server.port;
+          const statuses = [];
+          for (const query of ["?%=fixture-value", "?%E0%A4=fixture-value", "?%bad", "?%74oken=fixture-value", ""]) {
+            const response = await fetch(base + "/api/health" + query, { signal: AbortSignal.timeout(3000) });
+            statuses.push(response.status);
+            await response.text();
+          }
+          console.log(JSON.stringify({ statuses, leaked: lines.join("").includes("fixture-value") }));
+        } finally { await server.stop(); }
+      `,
+      ],
+      {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let output = "",
+      errors = "";
+    child.stdout!.on("data", (chunk) => (output += String(chunk)));
+    child.stderr!.on("data", (chunk) => (errors += String(chunk)));
+    const timer = setTimeout(() => child.kill(), 12_000);
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", resolve);
+    }).finally(() => clearTimeout(timer));
+    expect({ code, errors }).toEqual({ code: 0, errors: "" });
+    expect(JSON.parse(output)).toEqual({ statuses: [200, 200, 200, 200, 200], leaked: false });
+  }, 15_000);
 });
 
 describe("what actually reaches the log", () => {

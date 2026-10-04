@@ -2869,10 +2869,14 @@ async function startWorkspaceServer(
      * immediate answer turned "Approve" into a second message instead.
      */
     originMessageId?: ID;
+    /** The version pressed: a delayed reply cannot replace a subsequent edit. */
+    originRevision?: { value: string };
     expiresAt: number;
     usesLeft: number;
   }
   const responseTargets = new CapabilityMap<ResponseTarget>(CAPABILITIES_ALIVE.responseUrls);
+  const messageRevision = (message: Message): string =>
+    hashToken(JSON.stringify([message.text, message.editedAt, message.actions]));
 
   const newResponseUrl = (
     target: Omit<ResponseTarget, "expiresAt" | "usesLeft">,
@@ -2962,18 +2966,26 @@ async function startWorkspaceServer(
       (payload.replace_original === true || payload.delete_original === true)
     ) {
       const existing = store.getMessage(originMessageId);
-      if (existing) {
-        if (payload.delete_original === true) {
-          removeMessage(existing);
-          void flushFileDeletions();
-          return;
-        }
-        const replacement = payloadToText(payload);
-        if (replacement) {
-          updateMessage(existing, replacement, true);
-        }
+      // Replacement/deletion is a no-op when the origin disappeared or
+      // changed while the app answered. Never reinterpret it as a new post.
+      if (
+        !existing ||
+        (target.originRevision && target.originRevision.value !== messageRevision(existing))
+      )
+        return;
+      if (payload.delete_original === true) {
+        removeMessage(existing);
+        void flushFileDeletions();
         return;
       }
+      const replacement = payloadToText(payload);
+      if (replacement) {
+        const updated = updateMessage(existing, replacement, true);
+        // An app may use this response URL again to update its own result;
+        // only intervening changes from another operation invalidate it.
+        if (target.originRevision) target.originRevision.value = messageRevision(updated);
+      }
+      return;
     }
 
     const text = payloadToText(payload);
@@ -3407,6 +3419,7 @@ async function startWorkspaceServer(
     expiresAt: number;
   }
   const openViews = new CapabilityMap<OpenView>(CAPABILITIES_ALIVE.openViews);
+  const submittingViews = new Set<ID>();
 
   /**
    * Slack's views.open. The trigger_id decides who sees it, so an app cannot
@@ -3466,7 +3479,8 @@ async function startWorkspaceServer(
     const open = openViews.get(req.params.id);
     // A view belongs to the one person it was opened for.
     if (!open || open.userId !== me.id || open.expiresAt < Date.now()) {
-      openViews.delete(req.params.id);
+      // A request from another account must not consume the owner's view.
+      if (!open || open.expiresAt < Date.now()) openViews.delete(req.params.id);
       throw new HttpError(404, "view_not_found");
     }
     const owner = store.getApp(open.appId);
@@ -3509,7 +3523,14 @@ async function startWorkspaceServer(
     // should never have to defend against a submission the form itself forbids.
     if (Object.keys(missing).length > 0) return { ok: false, errors: missing };
 
+    if (submittingViews.has(open.view.id))
+      throw new HttpError(
+        409,
+        "view_submitting",
+        "This form is already being submitted. Wait for its answer before trying again.",
+      );
     const release = admitAppCall(me.id, owner.id);
+    submittingViews.add(open.view.id);
     try {
       const payload = JSON.stringify({
         type: "view_submission",
@@ -3576,6 +3597,7 @@ async function startWorkspaceServer(
         return { ok: false, errors: {}, message: `That did not go through: ${why}.` };
       }
     } finally {
+      submittingViews.delete(open.view.id);
       release();
     }
   });
@@ -3685,6 +3707,7 @@ async function startWorkspaceServer(
         invokerId: me.id,
         botUserId: owner.botUserId,
         threadRootId: message.threadRootId,
+        originRevision: { value: messageRevision(message) },
       };
       const responseUrl = newResponseUrl(
         { ...target, originMessageId: message.id },

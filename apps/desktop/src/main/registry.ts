@@ -191,8 +191,9 @@ export function newFolder(): string {
 /**
  * Reads the registry back. Only `undefined` means the key is absent and may
  * be migrated from legacy folders. A present registry with an unreadable
- * format fails closed; malformed individual version-1 entries are dropped so
- * the rest stays usable.
+ * format fails closed. A restored row keeps its hold when descriptive fields
+ * need repair; an uncertain held identity fails closed instead of being
+ * dropped and adopted as an ordinary workspace (N11).
  */
 export function parseRegistry(value: unknown): HostedWorkspace[] {
   if (value === undefined) return [];
@@ -220,20 +221,30 @@ export function parseRegistry(value: unknown): HostedWorkspace[] {
       autoBackup,
       restoredHold,
     } = raw as Record<string, unknown>;
-    if (typeof folder !== "string" || !FOLDER.test(folder) || folders.has(folder)) continue;
-    if (id !== null && (typeof id !== "string" || !id || ids.has(id))) continue;
-    if (typeof name !== "string" || !name.trim() || name.length > 80) continue;
-    if (typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > 65535) continue;
-    if (typeof lastHostedAt !== "number" || !Number.isFinite(lastHostedAt)) continue;
+    const held = restoredHold !== undefined;
+    if (
+      typeof folder !== "string" ||
+      !FOLDER.test(folder) ||
+      folders.has(folder) ||
+      (id !== null && (typeof id !== "string" || !id || ids.has(id)))
+    ) {
+      if (held) throw new RegistryFormatError("invalid");
+      continue;
+    }
+    const validName = typeof name === "string" && !!name.trim() && name.length <= 80;
+    const validPort =
+      typeof port === "number" && Number.isInteger(port) && port >= 0 && port <= 65535;
+    const validTime = typeof lastHostedAt === "number" && Number.isFinite(lastHostedAt);
+    if (!held && (!validName || !validPort || !validTime)) continue;
     folders.add(folder);
     if (id) ids.add(id);
     entries.push({
       id,
       folder,
-      name,
-      port,
+      name: validName ? (name as string) : folder,
+      port: validPort ? (port as number) : 0,
       ...(typeof portChosen === "boolean" ? { portChosen } : {}),
-      lastHostedAt,
+      lastHostedAt: validTime ? (lastHostedAt as number) : 0,
       ...(typeof lastBackupAt === "number" && Number.isFinite(lastBackupAt)
         ? { lastBackupAt }
         : {}),

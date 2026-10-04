@@ -19,6 +19,8 @@ export interface SettingsStorage {
    * the two. Gives back what was written. Not for saved sign-ins.
    */
   update(key: string, change: (current: unknown) => unknown): Promise<unknown>;
+  /** Waits for accepted work, including anything queued while waiting; rejects an unfinished failure. */
+  drain(): Promise<void>;
 }
 
 /** All callers share one queue so a legacy migration cannot race another settings write. */
@@ -83,6 +85,13 @@ export function createSettingsStorage(
   }
 
   return {
+    async drain() {
+      for (;;) {
+        const accepted = pending;
+        await accepted;
+        if (accepted === pending) return;
+      }
+    },
     get(key, options) {
       return serialized(async () => {
         try {

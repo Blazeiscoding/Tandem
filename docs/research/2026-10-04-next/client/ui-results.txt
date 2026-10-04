@@ -1,0 +1,15 @@
+
+ RUN  v3.2.7 F:/personal/MaybeProducts/SlackOSS
+
+ ✓ docs/research/2026-10-04-next/client/client-ui.dom.test.tsx > new authoritative result invalidation diagnostics > an open search retains removed text after real delete 703ms
+ ✓ docs/research/2026-10-04-next/client/client-ui.dom.test.tsx > new authoritative result invalidation diagnostics > an open search retains removed text after real retention 520ms
+ ✓ docs/research/2026-10-04-next/client/client-ui.dom.test.tsx > new authoritative result invalidation diagnostics > an open search retains old text after a real edit until the reader searches again 464ms
+ ✓ docs/research/2026-10-04-next/client/client-ui.dom.test.tsx > new authoritative result invalidation diagnostics > pins after real deletion with timeline loaded=false 183ms
+ ✓ docs/research/2026-10-04-next/client/client-ui.dom.test.tsx > new authoritative result invalidation diagnostics > pins after real deletion with timeline loaded=true 154ms
+ ✓ docs/research/2026-10-04-next/client/client-ui.dom.test.tsx > new dismissed-action ownership diagnostics > a dismissed Profile still invokes its navigation callback, while New message does not 263ms
+ ✓ docs/research/2026-10-04-next/client/client-ui.dom.test.tsx > new dismissed-action ownership diagnostics > a dismissed real Profile request reopens the old DM after navigating elsewhere in WorkspaceScreen 1144ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  19:19:56
+   Duration  6.35s (transform 681ms, setup 168ms, collect 1.89s, tests 3.43s, environment 635ms, prepare 76ms)

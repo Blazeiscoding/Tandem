@@ -540,6 +540,20 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_event_deliveries_retry
     ON event_deliveries(subscription_id, event_seq, id) WHERE retry_requested = 1;
   `,
+  // v37 — remove redundant content from old completion/tombstone records
+  // (N06/N07). Preserve current message buttons and every unsent schedule;
+  // older message versions, including purged messages, are replay metadata.
+  `
+  UPDATE messages SET actions = '[]' WHERE deleted_at IS NOT NULL;
+  UPDATE events SET payload = json_set(payload, '$.message.actions', json('[]'))
+    WHERE type IN ('message.created', 'message.updated') AND json_valid(payload)
+      AND message_id IS NOT NULL AND (
+        NOT EXISTS (SELECT 1 FROM messages m WHERE m.id = events.message_id AND m.deleted_at IS NULL)
+        OR EXISTS (SELECT 1 FROM events newer WHERE newer.message_id = events.message_id
+          AND newer.type IN ('message.created', 'message.updated') AND newer.seq > events.seq)
+      );
+  UPDATE scheduled_messages SET text = '', file_ids = '[]' WHERE status = 'sent';
+  `,
 ];
 
 /** The schema this build understands. A workspace above it cannot be opened. */

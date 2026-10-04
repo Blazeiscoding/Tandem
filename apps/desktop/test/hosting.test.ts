@@ -24,7 +24,7 @@ import {
   writeWorkspaceName,
   type HostedWorkspace,
 } from "../src/main/registry.js";
-import type { Tunnel } from "../src/main/tunnel.js";
+import { TunnelCleanupError, type Tunnel } from "../src/main/tunnel.js";
 import {
   backupWorkspace,
   createWorkspaceServer,
@@ -95,6 +95,7 @@ function harness(
     publicAddress?: () => { setting?: string; url?: string; managed?: boolean; error?: string };
     savePublicAddress?: (address: string | null) => Promise<void> | void;
     verifyLoopback?: (port: number, instanceId?: string) => Promise<boolean>;
+    cleanupTimeoutMs?: number;
     /** Share a profile and settings with an earlier harness, as a second launch would. */
     root?: string;
     settings?: Map<string, unknown>;
@@ -157,6 +158,7 @@ function harness(
     changes: [] as HostingSnapshot[],
     /** Runs as each server binds; throw to fail that attempt, or return a promise to hold it. */
     beforeBind: (_port: number): Promise<void> | void => {},
+    failNextStop: false,
     saveFails: false,
     notifyFails: false,
     accountCount: 1,
@@ -170,6 +172,7 @@ function harness(
     tunnels: [] as FakeTunnel[],
     events: [] as string[],
     beforeTunnel: (_port: number, _signal: AbortSignal): Promise<void> | void => {},
+    failNextTunnelClose: 0,
     controller: undefined as unknown as ReturnType<typeof createHostingController>,
   };
   /** The fake servers' databases first, then any real one a test wrote. */
@@ -296,6 +299,10 @@ function harness(
             }
           : {}),
       };
+      if (h.failNextStop) {
+        h.failNextStop = false;
+        server.stop.mockRejectedValueOnce(new Error("drain failed"));
+      }
       h.servers.push(server);
       return server;
     },
@@ -319,6 +326,10 @@ function harness(
               },
               drop: (reason) => listener?.(reason),
             };
+            while (h.failNextTunnelClose > 0) {
+              h.failNextTunnelClose--;
+              tunnel.close.mockRejectedValueOnce(new Error("process still running"));
+            }
             h.tunnels.push(tunnel);
             return tunnel;
           },
@@ -326,6 +337,7 @@ function harness(
       : {}),
     ...(options.publicAddress ? { publicAddress: options.publicAddress } : {}),
     ...(options.verifyLoopback ? { verifyLoopback: options.verifyLoopback } : {}),
+    ...(options.cleanupTimeoutMs ? { cleanupTimeoutMs: options.cleanupTimeoutMs } : {}),
     savePublicAddress: async (address: string | null) => {
       await options.savePublicAddress?.(address);
       h.savedPublicAddresses.push(address);
@@ -907,6 +919,72 @@ describe("hosting a workspace from the desktop app", () => {
       });
     });
 
+    it("keeps a cancelled connector owned when closing fails, blocks reopening and retries shutdown", async () => {
+      const h = harness({ publicAccess: true });
+      const answer = deferred();
+      h.beforeTunnel = () => answer.promise;
+      h.failNextTunnelClose = 2;
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      const opening = expect(h.controller.openToAll({ inviteOnly: false })).rejects.toThrow(
+        "process still running",
+      );
+      await vi.waitFor(() => expect(h.tunnelStarts).toHaveLength(1));
+      const ending = h.controller.endOpenToAll();
+      answer.resolve();
+      await opening;
+      // A second failure keeps the same handle and makes shutdown retryable.
+      await expect(ending).rejects.toThrow("process still running");
+      expect(h.controller.status()).toMatchObject({
+        running: true,
+        inviteOnly: true,
+        openToAllError: expect.stringMatching(/could not finish closing/),
+      });
+      await expect(h.controller.openToAll({ inviteOnly: false })).rejects.toThrow(/finish closing/);
+      await expect(h.controller.setInviteOnly(false)).rejects.toThrow(/Finish stopping/);
+      expect(h.tunnels).toHaveLength(1);
+      await h.controller.shutdown();
+      expect(h.tunnels[0]!.close).toHaveBeenCalledTimes(3);
+      expect(h.servers[0]!.stop).toHaveBeenCalledOnce();
+      expect(h.controller.status().running).toBe(false);
+    });
+
+    it("adopts cleanup ownership returned by a failed native connector opening", async () => {
+      const h = harness({ publicAccess: true });
+      const orphan: Tunnel = { url: "", close: vi.fn(async () => {}), onUnexpectedExit: () => {} };
+      h.beforeTunnel = () => {
+        throw new TunnelCleanupError("connector did not stop", orphan);
+      };
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await expect(h.controller.openToAll({ inviteOnly: false })).rejects.toThrow(
+        "connector did not stop",
+      );
+      expect(h.controller.status()).toMatchObject({
+        inviteOnly: true,
+        openToAllError: expect.stringMatching(/retry cleanup/),
+      });
+      await expect(h.controller.openToAll({})).rejects.toThrow(/finish closing/);
+      await h.controller.shutdown();
+      expect(orphan.close).toHaveBeenCalledOnce();
+    });
+
+    it("retains a connector when failed publication also cannot clean it up", async () => {
+      const h = harness({ publicAccess: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      const server = h.servers[0] as unknown as { setPublicUrl: (url: string | null) => void };
+      server.setPublicUrl = (url) => {
+        if (url) throw new Error("publication refused");
+      };
+      h.failNextTunnelClose = 1;
+      await expect(h.controller.openToAll({})).rejects.toThrow("process still running");
+      expect(h.controller.status()).toMatchObject({
+        inviteOnly: true,
+        openToAllError: expect.stringMatching(/setup failed/),
+      });
+      await expect(h.controller.openToAll({})).rejects.toThrow(/finish closing/);
+      await h.controller.shutdown();
+      expect(h.tunnels[0]!.close).toHaveBeenCalledTimes(2);
+    });
+
     it("removes a dropped public address and reports why it ended", async () => {
       const h = harness({ publicAccess: true });
       await h.controller.start({ workspaceName: "Rocket Team" });
@@ -946,6 +1024,34 @@ describe("hosting a workspace from the desktop app", () => {
       });
 
       await expect(h.controller.endOpenToAll()).resolves.not.toHaveProperty("openToAll");
+    });
+
+    it("keeps an established connector pending after a timed-out close until the same handle is retried", async () => {
+      const h = harness({ publicAccess: true, cleanupTimeoutMs: 20 });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.openToAll({ inviteOnly: false });
+      let finish!: () => void;
+      const closing = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      h.tunnels[0]!.close.mockReturnValue(closing);
+
+      await expect(h.controller.endOpenToAll()).rejects.toThrow("did not finish closing in time");
+      await expect(h.controller.openToAll({ inviteOnly: false })).rejects.toThrow(
+        "finish closing the previous public link",
+      );
+      await expect(h.controller.setInviteOnly(false)).rejects.toThrow("Finish stopping");
+      expect(h.tunnelStarts).toHaveLength(1);
+      expect(h.inviteOnly).toBe(true);
+      expect(h.controller.status()).toHaveProperty("openToAllError");
+
+      finish();
+      await h.controller.endOpenToAll();
+      expect(h.tunnels[0]!.close).toHaveBeenCalledTimes(2);
+      await h.controller.setInviteOnly(false);
+      await h.controller.openToAll({ inviteOnly: true });
+      expect(h.tunnelStarts).toHaveLength(2);
+      await h.controller.shutdown();
     });
 
     it("closes the public link before the workspace it points at stops", async () => {
@@ -1039,6 +1145,18 @@ describe("hosting a workspace from the desktop app", () => {
       expect(h.servers).toHaveLength(1);
       expect(h.servers[0]!.stop).toHaveBeenCalledTimes(2);
       expect(h.controller.status()).toEqual({ running: false, phase: "stopped" });
+    });
+
+    it("bounds an unanswered stop while retaining its server for recovery", async () => {
+      const h = harness({ cleanupTimeoutMs: 20 });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      const stop = deferred();
+      h.servers[0]!.stop.mockImplementationOnce(() => stop.promise);
+      await expect(h.controller.shutdown()).rejects.toThrow(/in time/);
+      expect(h.controller.status()).toMatchObject({ running: true, phase: "running" });
+      stop.resolve();
+      await h.controller.shutdown();
+      expect(h.servers[0]!.stop).toHaveBeenCalledTimes(2);
     });
   });
 });
@@ -1642,6 +1760,82 @@ describe("restoring a backup in the desktop app", () => {
       /restored from a backup and has not been put back in use/,
     );
     expect(later.starts).toEqual([]);
+  });
+
+  it("retains an isolated server whose accidental usual-port cleanup fails", async () => {
+    const h = harness({ publicAccess: true });
+    workspaceDb(join(h.dataRoot, "held-copy"), "held-id", "Restored Team");
+    h.settings.set("hostedWorkspaces", {
+      version: 1,
+      workspaces: [
+        {
+          id: "held-id",
+          folder: "held-copy",
+          name: "Restored Team",
+          port: 9001,
+          lastHostedAt: 5,
+          restoredHold: 2,
+        },
+      ],
+    });
+    h.freePorts = [9001];
+    h.failNextStop = true;
+    await expect(h.controller.start({ folder: "held-copy" })).rejects.toThrow("drain failed");
+    expect(h.controller.status()).toMatchObject({
+      running: true,
+      phase: "running",
+      isolated: true,
+      port: 9001,
+    });
+    await expect(h.controller.start({ folder: "held-copy" })).rejects.toThrow(/Finish stopping/);
+    await expect(h.controller.openToAll({})).rejects.toThrow(/restored copy/);
+    await h.controller.shutdown();
+    expect(h.servers).toHaveLength(1);
+    expect(h.servers[0]!.stop).toHaveBeenCalledTimes(2);
+    expect(h.controller.status().running).toBe(false);
+  });
+
+  it.each([{ name: "" }, { port: 65536 }, { lastHostedAt: "unreadable" }])(
+    "keeps a restored row isolated when descriptive metadata needs repair: %j",
+    async (damage) => {
+      const h = harness();
+      workspaceDb(join(h.dataRoot, "held-copy"), "held-id", "Restored Team");
+      h.settings.set("hostedWorkspaces", {
+        version: 1,
+        workspaces: [
+          {
+            id: "held-id",
+            folder: "held-copy",
+            name: "Restored Team",
+            port: 9001,
+            lastHostedAt: 5,
+            restoredHold: 2,
+            ...damage,
+          },
+        ],
+      });
+      expect((await h.controller.list()).workspaces[0]).toMatchObject({ restored: true });
+      expect(await h.controller.start({ folder: "held-copy" })).toMatchObject({ isolated: true });
+      expect(h.starts[0]).toMatchObject({ isolated: true, port: 0 });
+      await h.controller.stop();
+      const later = harness({ root: join(h.dataRoot, ".."), settings: h.settings });
+      expect((await later.controller.list()).workspaces[0]).toMatchObject({ restored: true });
+      expect(registryOf(later)[0]).toHaveProperty("restoredHold", 2);
+      await later.controller.start({ folder: "held-copy" });
+      expect(later.starts[0]).toHaveProperty("isolated", true);
+      await later.controller.stop();
+    },
+  );
+
+  it("refuses a held row with an uncertain identity instead of adopting its folder", async () => {
+    const h = harness();
+    workspaceDb(join(h.dataRoot, "held-copy"), "held-id", "Restored Team");
+    const saved = { version: 1, workspaces: [{ id: 42, folder: "held-copy", restoredHold: 2 }] };
+    h.settings.set("hostedWorkspaces", saved);
+    await expect(h.controller.list()).rejects.toThrow(/invalid/);
+    await expect(h.controller.start({ folder: "held-copy" })).rejects.toThrow(/invalid/);
+    expect(h.settings.get("hostedWorkspaces")).toEqual(saved);
+    expect(h.starts).toEqual([]);
   });
 
   /** The list of an earlier computer: Rocket Team, chosen to start with Tandem, its folder gone. */

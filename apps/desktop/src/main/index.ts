@@ -31,6 +31,7 @@ import { createWorkspaceServer } from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
+import { ClosePreparation } from "./closePreparation.js";
 import { appRecipients, guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
 import { writeGateReport } from "./releaseGate.js";
 import {
@@ -204,6 +205,51 @@ const settings = createSettingsStorage(join(app.getPath("userData"), "settings.j
   encryptString: (value) => safeStorage.encryptString(value),
   decryptString: (value) => safeStorage.decryptString(value),
 });
+const closePreparation = new ClosePreparation();
+handle("window:preparedClose", (event, id: unknown, saved: unknown) =>
+  closePreparation.acknowledge(event.sender.id, id, saved),
+);
+
+/** Input stays in the live window until its owners and settings have acknowledged it (N03). */
+async function prepareLocalWrites(win: BrowserWindow | null, forQuit: boolean): Promise<boolean> {
+  for (;;) {
+    if (win && !win.isDestroyed()) win.setEnabled(false);
+    try {
+      const active = win && !win.isDestroyed() ? win : null;
+      await closePreparation.prepare(
+        active?.webContents.id ?? null,
+        (id) => {
+          if (!active || appRecipients(active, trustedRenderer).length === 0)
+            throw new Error("Unavailable window");
+          active.webContents.send("window:prepareClose", id);
+        },
+        () => settings.drain(),
+      );
+      return true;
+    } catch {
+      if (win && !win.isDestroyed()) {
+        win.setEnabled(true);
+        if (!isTest) win.show();
+      }
+      const choice = await dialog.showMessageBox({
+        type: "warning",
+        title: "Local work could not finish saving",
+        message: "Keep Tandem open to protect your final words?",
+        detail:
+          "Some drafts or queued messages could not finish saving. Retry saving, or keep the window open to copy your words. Leaving without saving may lose that unfinished work.",
+        buttons: [
+          "Retry saving",
+          "Keep open to copy",
+          forQuit ? "Quit without saving" : "Close without saving",
+        ],
+        defaultId: 1,
+        cancelId: 1,
+      });
+      if (choice.response === 1) return false;
+      if (choice.response === 2) return true;
+    }
+  }
+}
 
 handle("storage:get", (_e, key: unknown, options?: { strict?: boolean }) =>
   settings.get(settingKey(key), { strict: options?.strict === true }),
@@ -861,17 +907,36 @@ function createWindow(): void {
 
   mainWindow.setMenuBarVisibility(false);
   const win = mainWindow;
+  let closeAllowed = false;
+  let windowCloseTask: Promise<void> | null = null;
   rendererReady = false;
   win.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) rendererReady = false;
   });
   win.on("close", (event) => {
-    if (quitReady) return;
+    if (quitReady || closeAllowed) return;
     if (quitting || hosting.status().phase !== "stopped") {
       event.preventDefault();
       if (hostingStatus().backgroundAvailable) win.hide();
       else win.minimize();
+      return;
     }
+    event.preventDefault();
+    if (process.platform !== "darwin") {
+      app.quit();
+      return;
+    }
+    if (windowCloseTask) return;
+    windowCloseTask = (async () => {
+      if (await prepareLocalWrites(win, false)) {
+        closeAllowed = true;
+        win.close();
+      }
+    })().finally(() => {
+      windowCloseTask = null;
+      if (!win.isDestroyed()) win.setEnabled(true);
+    });
+    void windowCloseTask.catch(() => {});
   });
   win.on("closed", () => {
     if (mainWindow === win) {
@@ -1074,6 +1139,11 @@ app.on("before-quit", (event) => {
       updateTray();
       return;
     }
+    if (!(await prepareLocalWrites(mainWindow, true))) {
+      quitting = false;
+      updateTray();
+      return;
+    }
     await hosting.shutdown();
     quitReady = true;
     tray?.destroy();
@@ -1098,6 +1168,7 @@ app.on("before-quit", (event) => {
         app.exit(1);
       } else {
         quitting = false;
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setEnabled(true);
         showMainWindow();
         updateTray();
       }
@@ -1109,6 +1180,7 @@ app.on("before-quit", (event) => {
         showMainWindow();
         updateTray();
       }
+      if (!quitReady && mainWindow && !mainWindow.isDestroyed()) mainWindow.setEnabled(true);
     });
   void quitTask.catch(() => {});
 });

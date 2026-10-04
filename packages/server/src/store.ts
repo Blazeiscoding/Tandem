@@ -987,7 +987,7 @@ export class Store {
   deleteMessage(id: ID): void {
     // Soft-delete, and blank the text so it drops out of the FTS index.
     this.db
-      .prepare("UPDATE messages SET deleted_at = ?, text = '' WHERE id = ?")
+      .prepare("UPDATE messages SET deleted_at = ?, text = '', actions = '[]' WHERE id = ?")
       .run(Date.now(), id);
     this.db.prepare("DELETE FROM reactions WHERE message_id = ?").run(id);
     this.db.prepare("DELETE FROM pins WHERE message_id = ?").run(id);
@@ -2254,7 +2254,8 @@ export class Store {
   markScheduledSent(id: ID, messageId: ID): void {
     this.db
       .prepare(
-        "UPDATE scheduled_messages SET status = 'sent', message_id = ?, failure_reason = NULL WHERE id = ?",
+        `UPDATE scheduled_messages SET status = 'sent', message_id = ?, failure_reason = NULL,
+           text = '', file_ids = '[]' WHERE id = ?`,
       )
       .run(messageId, id);
     this.db.prepare("DELETE FROM scheduled_files WHERE scheduled_id = ?").run(id);
@@ -3281,6 +3282,9 @@ export class Store {
       event.message.text = "";
       // A filename is often as telling as the message it was attached to.
       event.message.files = [];
+      // Labels, values and URLs can be as revealing as the message's words.
+      // Superseded/deleted copies must not transmit their buttons on replay.
+      event.message.actions = [];
       const after = JSON.stringify(event);
       if (after === before) continue;
       update.run(after, row.seq);

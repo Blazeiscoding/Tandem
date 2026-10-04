@@ -698,20 +698,24 @@ export class WorkspaceClient {
    * fetched, so the cache can let it go with that message or conversation
    * after the history listing it is gone (F07).
    */
-  private fileOwner(fileId: ID): { channelId: ID; messageId: ID } | null {
+  private fileOwner(fileId: ID): { channelId: ID; messageId: ID; threadRootId: ID | null } | null {
     const state = this.state;
     const carries = (m: Message) => m.files.some((f) => f.id === fileId);
     for (const tl of Object.values(state.timelines)) {
       const m = tl.items.find(carries);
-      if (m) return { channelId: m.channelId, messageId: m.id };
+      if (m) return { channelId: m.channelId, messageId: m.id, threadRootId: m.threadRootId };
     }
     for (const replies of Object.values(state.threads)) {
       const m = replies.find(carries);
-      if (m) return { channelId: m.channelId, messageId: m.id };
+      if (m) return { channelId: m.channelId, messageId: m.id, threadRootId: m.threadRootId };
     }
     for (const page of Object.values(state.threadPages)) {
       if (page.root && carries(page.root))
-        return { channelId: page.root.channelId, messageId: page.root.id };
+        return {
+          channelId: page.root.channelId,
+          messageId: page.root.id,
+          threadRootId: page.root.threadRootId,
+        };
     }
     return null;
   }
@@ -1165,6 +1169,7 @@ export class WorkspaceClient {
       }
       case "history.removed": {
         // Whole threads went, first message and replies: what is held of them goes too.
+        this.files.invalidateRoots(event.channelId, event.rootIds);
         const gone = new Set(event.rootIds);
         const kept = (m: Message) =>
           !gone.has(m.id) && !(m.threadRootId && gone.has(m.threadRootId));
@@ -1539,7 +1544,8 @@ export class WorkspaceClient {
   // ---------- actions ----------
 
   /** Closes the form without answering it; the app is told nothing, as in Slack. */
-  dismissModal(): void {
+  dismissModal(viewId = this.state.modal?.id): void {
+    if (this.state.modal?.id !== viewId) return;
     this.store.setState({ modal: null });
   }
 
@@ -1549,11 +1555,13 @@ export class WorkspaceClient {
    */
   async submitModal(
     values: Record<string, Record<string, string>>,
+    viewId = this.state.modal?.id,
   ): Promise<{ ok: boolean; errors?: Record<string, string>; message?: string }> {
     const modal = this.state.modal;
-    if (!modal) return { ok: true };
+    if (!modal || modal.id !== viewId)
+      return { ok: false, message: "This form is no longer available." };
     const result = await this.api.submitView(modal.id, values);
-    if (result.ok) this.store.setState({ modal: null });
+    if (result.ok) this.dismissModal(modal.id);
     return result;
   }
 

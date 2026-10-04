@@ -254,6 +254,8 @@ function WorkspaceInner({
   const [activeChannelId, setActiveChannelId] = useState<ID | null>(
     initialTarget?.channelId ?? initialRoute?.channelId ?? null,
   );
+  const huddleRoom = useRef(activeChannelId);
+  huddleRoom.current = activeChannelId;
   const [highlightMessageId, setHighlightMessageId] = useState<ID | null>(
     initialTarget?.messageId ?? null,
   );
@@ -856,9 +858,14 @@ function WorkspaceInner({
             activeChannelName={activeChannel && isRoom ? `#${activeChannel.name}` : null}
             onTryHuddle={() => {
               if (!activeChannelId) return;
+              const ticket = navigation.current;
               setSidebarOpen(false);
-              clientFromCtx
-                .joinHuddle(activeChannelId, { muted: calls.joinMuted })
+              calls
+                .joinHuddle(
+                  clientFromCtx,
+                  activeChannelId,
+                  () => ticket === navigation.current && huddleRoom.current === activeChannelId,
+                )
                 .catch((err: unknown) => {
                   setNavigationError(
                     err instanceof Error

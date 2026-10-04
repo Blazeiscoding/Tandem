@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveObjectURL } from "node:buffer";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createWorkspaceServer, type WorkspaceServer } from "@slackoss/server";
 import { Api, WorkspaceClient } from "../src/index.js";
 import { FileCache } from "../src/fileCache.js";
@@ -43,6 +43,7 @@ beforeEach(async () => {
     port: 0,
     mdns: false,
     rateLimits: false,
+    retentionDays: 1,
   });
   const base = `http://127.0.0.1:${server.port}`;
   const api = new Api(base);
@@ -64,7 +65,10 @@ beforeEach(async () => {
 afterEach(async () => {
   client?.destroy();
   await server?.stop();
-  rmSync(dataDir, { recursive: true, force: true });
+  const owned = resolve(dataDir);
+  if (dirname(owned) !== resolve(tmpdir()) || !basename(owned).startsWith("tandem-files-"))
+    throw new Error("Refused cleanup outside the owned attachment fixture");
+  rmSync(owned, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
 
@@ -122,6 +126,111 @@ describe("cached attachments (F07)", () => {
     await client.files.get(file.id);
     client.store.setState({ status: "auth_failed" });
     expect(client.files.peek(file.id)).toBeUndefined();
+  });
+
+  it("revokes retained root and reply files after actual history eviction and retention", async () => {
+    const rootFile = await upload(general, "expired root bytes");
+    const replyFile = await upload(general, "expired reply bytes");
+    const root = (await owner.sendMessage(general, { text: "old root", fileIds: [rootFile.id] }))
+      .message;
+    const reply = (
+      await owner.sendMessage(general, {
+        text: "old reply",
+        threadRootId: root.id,
+        fileIds: [replyFile.id],
+      })
+    ).message;
+    await client.loadTimeline(general);
+    await client.loadThread(root.id, general);
+    const rootUrl = await client.files.get(rootFile.id);
+    const replyUrl = await client.files.get(replyFile.id);
+    const db = (server.store as unknown as { db: { exec(sql: string): void } }).db;
+    db.exec("UPDATE messages SET created_at = created_at - 172800000");
+    const recentFile = await upload(general, "recent authorized bytes");
+    const recent = (
+      await owner.sendMessage(general, { text: "recent message", fileIds: [recentFile.id] })
+    ).message;
+    await expect
+      .poll(() =>
+        client.state.timelines[general]!.items.some((message) => message.id === recent.id),
+      )
+      .toBe(true);
+    const recentUrl = await client.files.get(recentFile.id);
+    // Evict both the timeline and the loaded thread through normal navigation.
+    for (let i = 0; i < 20; i++) {
+      const channel = (await owner.createChannel({ type: "public", name: `retention-room-${i}` }))
+        .channel;
+      await expect.poll(() => client.state.channels[channel.id]).toBeTruthy();
+      await client.loadTimeline(channel.id);
+      const newRoot = (await owner.sendMessage(channel.id, { text: "a recent root" })).message;
+      await client.loadThread(newRoot.id, channel.id);
+    }
+    expect(client.state.timelines[general]).toBeUndefined();
+    expect(client.state.threadPages[root.id]).toBeUndefined();
+    const told = vi.fn();
+    client.files.onInvalidate(told);
+    expect(server.applyRetention()).toBe(2);
+    await expect.poll(() => client.state.removedHistory[general]).toBeGreaterThan(0);
+    expect(client.files.peek(rootFile.id)).toBeUndefined();
+    expect(client.files.peek(replyFile.id)).toBeUndefined();
+    expect(resolveObjectURL(rootUrl)).toBeUndefined();
+    expect(resolveObjectURL(replyUrl)).toBeUndefined();
+    expect(told).toHaveBeenCalledWith(rootFile.id);
+    expect(told).toHaveBeenCalledWith(replyFile.id);
+    expect(client.files.peek(recentFile.id)).toBe(recentUrl);
+    await expect(client.api.fetchFile(rootFile.id)).rejects.toMatchObject({ status: 404 });
+    await expect(client.api.fetchFile(replyFile.id)).rejects.toMatchObject({ status: 404 });
+    expect(server.store.getMessage(reply.id)).toBeNull();
+  });
+
+  it("cannot reinstall a held reply transfer after its thread is retained away", async () => {
+    const file = await upload(general, "expired late bytes");
+    const root = (await owner.sendMessage(general, { text: "old root" })).message;
+    await owner.sendMessage(general, {
+      text: "old reply",
+      threadRootId: root.id,
+      fileIds: [file.id],
+    });
+    await client.loadThread(root.id, general);
+    const original = client.api.fetchFile.bind(client.api);
+    let acquired!: () => void;
+    const received = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let callerSignal: AbortSignal | undefined;
+    vi.spyOn(client.api, "fetchFile").mockImplementation(async (id, signal) => {
+      callerSignal = signal;
+      const blob = await original(id, signal);
+      acquired();
+      await held;
+      return blob;
+    });
+    const loading = client.files.get(file.id);
+    await received;
+    const db = (server.store as unknown as { db: { exec(sql: string): void } }).db;
+    db.exec("UPDATE messages SET created_at = created_at - 172800000");
+    expect(server.applyRetention()).toBe(2);
+    await expect.poll(() => client.state.removedHistory[general]).toBeGreaterThan(0);
+    expect(callerSignal?.aborted).toBe(true);
+    release();
+    await expect(loading).rejects.toMatchObject({ message: "File access was invalidated" });
+    expect(client.files.peek(file.id)).toBeUndefined();
+  });
+
+  it("revalidates a deleted file obtained without loaded message history", async () => {
+    const file = await upload(general, "unknown owner bytes");
+    const message = (
+      await owner.sendMessage(general, { text: "searchable attachment", fileIds: [file.id] })
+    ).message;
+    expect((await client.api.search("searchable")).messages[0]!.files[0]!.id).toBe(file.id);
+    const url = await client.files.get(file.id);
+    await owner.deleteMessage(message.id);
+    await expect.poll(() => client.files.peek(file.id)).toBeUndefined();
+    expect(resolveObjectURL(url)).toBeUndefined();
   });
 });
 
