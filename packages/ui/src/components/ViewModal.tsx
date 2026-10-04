@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ModalField } from "@slackoss/protocol";
+import type { ModalField, ModalView } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { Mrkdwn } from "./Mrkdwn.js";
@@ -11,8 +11,13 @@ import { buttonClass } from "./Button.js";
  * workspace: nothing here is stored, and closing it tells the app nothing.
  */
 export function ViewModal() {
-  const client = useClient();
   const view = useWorkspace((s) => s.modal);
+  // The newest form replaces the old one, with independent answers and results.
+  return view ? <AppForm key={view.id} view={view} /> : null;
+}
+
+function AppForm({ view }: { view: ModalView }) {
+  const client = useClient();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -21,15 +26,22 @@ export function ViewModal() {
   const [busy, setBusy] = useState(false);
   /** Set by a refused submission, so the first field the app refused takes focus. */
   const showError = useRef(false);
+  const alive = useRef(true);
+  const submitting = useRef(false);
 
   useEffect(() => {
-    if (!showError.current || !view) return;
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showError.current) return;
     showError.current = false;
     const refused = view.fields.find((field) => errors[field.blockId]);
     if (refused) document.getElementById(fieldId(refused))?.focus();
   }, [errors, view]);
-
-  if (!view) return null;
 
   // Keyed by block as well: an action id need only be unique within its block,
   // and two fields sharing one would otherwise share a value.
@@ -38,15 +50,14 @@ export function ViewModal() {
     setValues((v) => ({ ...v, [fieldId(field)]: value }));
 
   function close() {
-    setValues({});
-    setErrors({});
-    setMessage(null);
-    client.dismissModal();
+    alive.current = false;
+    client.dismissModal(view.id);
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!view) return;
+    if (!alive.current || submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     setMessage(null);
     // Nested the way the app will read it back: block id, then action id.
@@ -55,7 +66,8 @@ export function ViewModal() {
       payload[field.blockId] = { ...payload[field.blockId], [field.actionId]: valueOf(field) };
     }
     try {
-      const result = await client.submitModal(payload);
+      const result = await client.submitModal(payload, view.id);
+      if (!alive.current) return;
       if (result.ok) {
         setValues({});
         setErrors({});
@@ -65,9 +77,10 @@ export function ViewModal() {
         setMessage(result.message ?? null);
       }
     } catch {
-      setMessage("That did not go through.");
+      if (alive.current) setMessage("That did not go through.");
     } finally {
-      setBusy(false);
+      submitting.current = false;
+      if (alive.current) setBusy(false);
     }
   }
 

@@ -1202,6 +1202,74 @@ test("unsent words outlast two tabs typing at once, and a tab closed straight af
   }
 });
 
+test("database failure keeps saved work private and retries without an empty fallback (N02)", async ({
+  context,
+  page,
+}) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(window, "BroadcastChannel", { value: undefined, configurable: true });
+    const open = indexedDB.open.bind(indexedDB);
+    indexedDB.open = (name, version) => {
+      if (sessionStorage.getItem("fixture-storage-refused") === "yes")
+        throw new DOMException("Storage temporarily refused", "UnknownError");
+      return open(name, version);
+    };
+  });
+  await signIn(page, "alice");
+  const composer = (tab: Page) =>
+    tab.getByRole("textbox", { name: "Message #general", exact: true });
+  const notifications = async (tab: Page) => {
+    await tab.getByRole("button", { name: "Workspace", exact: true }).click();
+    await tab.getByRole("menuitem", { name: "Account settings" }).click();
+    const settings = tab.getByRole("dialog", { name: "Account settings" });
+    await settings.getByRole("tab", { name: "Notifications", exact: true }).click();
+    return settings.getByRole("group", { name: "What notifications show" });
+  };
+  const firstChoices = await notifications(page);
+  await firstChoices.getByRole("radio", { name: /^Nothing about it/ }).click();
+  await expect(firstChoices.getByRole("radio", { name: /^Nothing about it/ })).toBeChecked();
+  const second = await context.newPage();
+  await second.goto(base);
+  const secondChoices = await notifications(second);
+  await expect(secondChoices.getByRole("radio", { name: /^Nothing about it/ })).toBeChecked();
+  await firstChoices.getByRole("radio", { name: /^Only who sent it/ }).click();
+  await expect(secondChoices.getByRole("radio", { name: /^Only who sent it/ })).toBeChecked();
+  await secondChoices.getByRole("radio", { name: /^Nothing about it/ }).click();
+  await expect(firstChoices.getByRole("radio", { name: /^Nothing about it/ })).toBeChecked();
+  await page.keyboard.press("Escape");
+  await second.keyboard.press("Escape");
+  await composer(page).fill("First window's saved words");
+  await composer(second).fill("Second window's saved words");
+  const both =
+    /(?:First window's saved words\n\nSecond window's saved words|Second window's saved words\n\nFirst window's saved words)/;
+  await expect(composer(page)).toHaveValue(both);
+  await expect(composer(second)).toHaveValue(both);
+  const servers = await deviceValue<unknown>(page, "servers");
+  const privateChoices = await deviceValue<unknown>(page, "notification-previews");
+  await second.close();
+  await page.evaluate((saved) => {
+    // A legacy sign-in copy isolated the original privacy regression. It may
+    // not authorize treating the unreadable canonical store as empty.
+    localStorage.setItem("slackoss:servers", JSON.stringify(saved));
+    sessionStorage.setItem("fixture-storage-refused", "yes");
+  }, servers);
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Saved sign-ins could not be opened" }),
+  ).toBeVisible();
+  await expect(composer(page)).toHaveCount(0);
+  expect(
+    await page.evaluate(() => localStorage.getItem("slackoss:notification-previews")),
+  ).toBeNull();
+  await page.evaluate(() => sessionStorage.removeItem("fixture-storage-refused"));
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(composer(page)).toHaveValue(both);
+  const recoveredChoices = await notifications(page);
+  await expect(recoveredChoices.getByRole("radio", { name: /^Nothing about it/ })).toBeChecked();
+  expect(await deviceValue(page, "notification-previews")).toEqual(privateChoices);
+  expect((await deviceValues(page)).legacy).toEqual({});
+});
+
 test("an app's button calls it back and rewrites the message it sits on", async ({
   browser,
 }, info) => {

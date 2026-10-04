@@ -72,6 +72,8 @@ interface SlackossBridge {
   revealWindow: () => Promise<void>;
   rememberPlace: (url: string, state: unknown) => Promise<void>;
   takePlace: () => Promise<unknown>;
+  onPrepareClose: (cb: (id: number) => void) => () => void;
+  preparedClose: (id: number, saved: boolean) => Promise<void>;
 }
 
 declare global {
@@ -95,8 +97,31 @@ function plainly<T>(call: Promise<T>): Promise<T> {
 
 export function electronPlatform(): Platform {
   const bridge = window.slackoss;
+  const preparing = {
+    capture: new Set<() => void | Promise<void>>(),
+    persist: new Set<() => void | Promise<void>>(),
+  };
+  bridge.onPrepareClose?.((id) => {
+    void (async () => {
+      let saved = false;
+      try {
+        for (const capture of [...preparing.capture]) await capture();
+        await Promise.all([...preparing.persist].map((persist) => persist()));
+        saved = true;
+      } catch {
+        // Failure is handed back to the native close decision; it must not silently quit.
+      }
+      await bridge.preparedClose(id, saved).catch(() => {});
+    })();
+  });
   return {
     kind: "desktop",
+    onPrepareClose: (phase, prepare) => {
+      preparing[phase].add(prepare);
+      return () => {
+        preparing[phase].delete(prepare);
+      };
+    },
     downloadFile: (url) => bridge.downloadFile(url),
     storage: {
       get: async <T>(key: string, options?: { strict?: boolean }) =>

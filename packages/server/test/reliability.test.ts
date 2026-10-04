@@ -414,7 +414,8 @@ describe("editing a scheduled message's text", () => {
     const late = await edit(queued.id, "Too late", "Edited in time");
     expect(late.status).toBe(404);
     expect(posted().find((m) => m.id === sent.messageId)!.text).toBe("Edited in time");
-    expect(server.store.getScheduled(queued.id)!.text).toBe("Edited in time");
+    // Completion keeps the message identity, not another copy of its words.
+    expect(server.store.getScheduled(queued.id)!.text).toBe("");
   });
 
   it("keeps a held message held, with its reason and attempts, when its text changes", async () => {

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import type { Tunnel } from "./tunnel.js";
+import { TunnelCleanupError, type Tunnel } from "./tunnel.js";
 import {
   REGISTRY_KEY,
   RegistryFormatError,
@@ -247,6 +247,8 @@ interface HostingOptions {
    * port does not prove the port reaches us. Absent where nothing can check.
    */
   verifyLoopback?(port: number, instanceId?: string): Promise<boolean>;
+  /** A stop that never answers stays owned and can be retried, rather than blocking quit forever. */
+  cleanupTimeoutMs?: number;
 }
 
 type StartRequest = ({ workspaceName: string } | { folder: string }) & {
@@ -417,6 +419,8 @@ export function createHostingController(options: HostingOptions) {
   let closing = false;
   let shutdownPromise: Promise<void> | null = null;
   let tunnel: Tunnel | null = null;
+  /** A connector returned before cancellation/setup failed, not safe to publish or forget. */
+  let cleanupTunnel: Tunnel | null = null;
   /** The current address is carried by a process outside this app's control. */
   let externalCarrier = false;
   /** Set while a tunnel is opening, so stopping or quitting need not wait for it. */
@@ -534,8 +538,13 @@ export function createHostingController(options: HostingOptions) {
   }
 
   async function endTunnel(): Promise<void> {
-    const current = tunnel;
+    const current = tunnel ?? cleanupTunnel;
     if (!current) return;
+    const previousInviteOnly =
+      tunnel === current && !externalCarrier ? server?.inviteOnly?.() : undefined;
+    // A close may reject or time out while its connector is still exiting.
+    // Keep every public-access mutation gated until that same handle closes.
+    cleanupTunnel = current;
     // Remove the public address from new links before asking the connector to
     // drain. Keep its handle/status until exit is confirmed so closing can be
     // retried if the child process refuses to stop.
@@ -543,12 +552,31 @@ export function createHostingController(options: HostingOptions) {
       closeReach(server);
       // Stopping our use of an external route cannot stop that route. Keep it
       // from becoming an open-registration endpoint if it is still running.
-      if (externalCarrier) server.setInviteOnly?.(true);
+      if (externalCarrier || cleanupTunnel) server.setInviteOnly?.(true);
     }
-    await current.close();
+    await finishCleanup(current.close(), "The public link did not finish closing in time.");
     if (tunnel === current) {
       tunnel = null;
       externalCarrier = false;
+    }
+    if (cleanupTunnel === current) {
+      cleanupTunnel = null;
+    }
+    if (previousInviteOnly !== undefined) server?.setInviteOnly?.(previousInviteOnly);
+  }
+
+  async function finishCleanup(work: Promise<void>, message: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        work,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), options.cleanupTimeoutMs ?? 30_000);
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -657,7 +685,8 @@ export function createHostingController(options: HostingOptions) {
     }
     return serialized(async () => {
       if (server) {
-        if (stopFailed) throw new Error("Finish stopping the workspace before starting it again.");
+        if (stopFailed || cleanupTunnel)
+          throw new Error("Finish stopping the workspace before starting it again.");
         const same =
           "folder" in requested
             ? requested.folder === workspace?.folder
@@ -790,8 +819,11 @@ export function createHostingController(options: HostingOptions) {
         // with. A restored copy then gives it back and asks again.
         for (let tries = 1; isolated && usualPorts.has(server.port); tries++) {
           const unwanted = server;
+          await finishCleanup(
+            unwanted.stop(),
+            "The restored workspace did not finish stopping in time.",
+          );
           server = null;
-          await unwanted.stop();
           if (tries === 3)
             throw new Error(
               `Tandem could not find a free port for looking inside ${entry.name}. Try again.`,
@@ -799,6 +831,16 @@ export function createHostingController(options: HostingOptions) {
           server = await options.startServer({ ...serverOptions, port: 0 });
         }
       } catch (error) {
+        if (server) {
+          // A rejected replacement-port cleanup still owns its live server (N12).
+          isolatedRun = isolated;
+          stopFailed = true;
+          phase = "running";
+          warning =
+            "The restored workspace could not finish stopping. Stop it before trying again.";
+          changed();
+          throw startFailure(error);
+        }
         // The caller reports the failure. A lasting warning would repeat it, and
         // would still be showing long after the next attempt was made elsewhere.
         phase = "stopped";
@@ -1751,7 +1793,7 @@ export function createHostingController(options: HostingOptions) {
     }
     openError = undefined;
     try {
-      await server.stop();
+      await finishCleanup(server.stop(), "The workspace did not finish stopping in time.");
     } catch (error) {
       phase = "running";
       stopFailed = true;
@@ -1807,6 +1849,10 @@ export function createHostingController(options: HostingOptions) {
         );
       if (stopFailed)
         throw new Error("Finish stopping the workspace before changing its public access.");
+      if (cleanupTunnel)
+        throw new Error(
+          "Stop hosting to finish closing the previous public link before opening another.",
+        );
       if (!options.openTunnel) throw new Error("Opening to all is not available in this app.");
       // A configured stable address that cannot be used has to be corrected.
       // Falling back would publish a temporary link nobody was given. An
@@ -1843,6 +1889,16 @@ export function createHostingController(options: HostingOptions) {
       try {
         opened = await options.openTunnel(target.port, attempt.signal, target.instanceId);
       } catch (error) {
+        if (error instanceof TunnelCleanupError) {
+          cleanupTunnel = error.tunnel;
+          target.setInviteOnly(true);
+          closeReach(target);
+          openError =
+            "The public link could not finish closing. Stop hosting to retry cleanup before opening another.";
+          if (opening === attempt) opening = null;
+          changed();
+          throw error;
+        }
         try {
           target.setInviteOnly(closedInviteOnly);
         } catch {
@@ -1855,14 +1911,19 @@ export function createHostingController(options: HostingOptions) {
         changed();
         throw error;
       }
+      cleanupTunnel = opened;
       if (opening === attempt) opening = null;
       if (attempt.signal.aborted || request !== publicRequest || closing) {
+        target.setInviteOnly(true);
         try {
-          target.setInviteOnly(closedInviteOnly);
-        } catch {
-          // Closing the newly opened connector still removes public access.
+          await endTunnel();
+        } catch (error) {
+          openError =
+            "The cancelled public link could not finish closing. Stop hosting to retry cleanup before opening another.";
+          changed();
+          throw error;
         }
-        await opened.close().catch(() => {});
+        target.setInviteOnly(closedInviteOnly);
         changed();
         throw new Error("Opening to all was cancelled.");
       }
@@ -1874,17 +1935,22 @@ export function createHostingController(options: HostingOptions) {
         target.setIceServers(OPEN_TO_ALL_ICE_SERVERS);
       } catch (error) {
         closeReach(target);
+        target.setInviteOnly(true);
         try {
-          target.setInviteOnly(closedInviteOnly);
-        } catch {
-          // The public connector is still closed below.
+          await endTunnel();
+        } catch (cleanupError) {
+          openError =
+            "The public link could not finish closing after setup failed. Stop hosting to retry cleanup before opening another.";
+          changed();
+          throw cleanupError;
         }
-        await opened.close().catch(() => {});
+        target.setInviteOnly(closedInviteOnly);
         openError = "The workspace could not take its public address. Try opening it to all again.";
         changed();
         throw error;
       }
       tunnel = opened;
+      cleanupTunnel = null;
       externalCarrier = carriedElsewhere;
       publicReopened();
       opened.onUnexpectedExit((reason) => {
@@ -1929,7 +1995,7 @@ export function createHostingController(options: HostingOptions) {
     return serialized(async () => {
       if (!server?.setInviteOnly || phase !== "running")
         throw new Error("Start hosting the workspace before changing who can join.");
-      if (stopFailed)
+      if (stopFailed || cleanupTunnel)
         throw new Error("Finish stopping the workspace before changing who can join.");
       server.setInviteOnly(value);
       changed();
@@ -1947,7 +2013,7 @@ export function createHostingController(options: HostingOptions) {
       return Promise.reject(new Error("Saving a public address is not available in this app."));
     return serialized(async () => {
       if (closing) throw new Error("The app is quitting.");
-      if (tunnel || opening)
+      if (tunnel || opening || cleanupTunnel)
         throw new Error("Stop using the current public address before changing it.");
       if (server && phase === "running") server.setInviteOnly?.(true);
       await options.savePublicAddress!(value);

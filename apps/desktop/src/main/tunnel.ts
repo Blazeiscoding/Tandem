@@ -50,6 +50,17 @@ export interface Tunnel {
   onUnexpectedExit(listener: (reason: string) => void): void;
 }
 
+/** Opening failed, but its connector is still owned until a later close succeeds (N12). */
+export class TunnelCleanupError extends Error {
+  constructor(
+    message: string,
+    readonly tunnel: Tunnel,
+  ) {
+    super(message);
+    this.name = "TunnelCleanupError";
+  }
+}
+
 /** The address a quick tunnel prints once Cloudflare has handed one out. */
 const QUICK_TUNNEL_URL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/;
 /** Printed once Cloudflare's edge can reach the tunnel, so the address works. */
@@ -593,7 +604,16 @@ function openTunnel(
         (stopError: unknown) => {
           completed = true;
           const detail = stopError instanceof Error ? ` ${stopError.message}` : "";
-          reject(new Error(`${message}${detail}`));
+          reject(
+            new TunnelCleanupError(`${message}${detail}`, {
+              url: url ?? "",
+              close: terminate,
+              onUnexpectedExit: (listener) => {
+                if (unexpectedReason) queueMicrotask(() => listener(unexpectedReason!));
+                else if (!didExit) listeners.push(listener);
+              },
+            }),
+          );
         },
       );
     };

@@ -1,0 +1,51 @@
+{
+  "revision": "7886b4aeea6289164ce92460f708cb4a4886705a",
+  "capturedAt": "2026-10-04T09:56:05.266Z",
+  "runtime": "24.16.0",
+  "scope": "Current dirty source; unchanged AST-extracted desktop startup adapter; real server/SQLite/settings on owned loopback profiles. Injected SQLite write failure and held backup adapter, no native app or installer.",
+  "cases": [
+    {
+      "name": "normal-start-shutdown-control",
+      "startError": null,
+      "controllerStatusAfterStart": {
+        "running": true,
+        "phase": "running",
+        "workspaceName": "My Workspace",
+        "folder": "workspace",
+        "dataDir": "C:\\Users\\nikhi\\AppData\\Local\\Temp\\tandem-desktop-next-oIFTtl\\invite-write-control\\hosted\\workspace",
+        "port": 52408,
+        "lanUrls": [],
+        "instanceId": "f5a1b975-a23b-4f87-8316-a496c9f88f25",
+        "inviteOnly": true,
+        "connected": 0
+      },
+      "listenerBeforeShutdown": 200,
+      "listenerAfterReportedShutdown": null,
+      "workspaceStillHeldAfterShutdown": false,
+      "actualInviteOnly": null
+    },
+    {
+      "name": "post-listen-invite-policy-write-failure",
+      "startError": "Injected invite policy write refusal",
+      "controllerStatusAfterStart": {
+        "running": false,
+        "phase": "stopped"
+      },
+      "listenerBeforeShutdown": 200,
+      "listenerAfterReportedShutdown": 200,
+      "workspaceStillHeldAfterShutdown": true,
+      "actualInviteOnly": false
+    },
+    {
+      "name": "held-backup-blocks-before-cleanup-deadline",
+      "cleanupTimeoutMs": 20,
+      "observedBeforeBackupRelease": {
+        "shutdownSettled": false,
+        "health": 200,
+        "phase": "running",
+        "elapsedDeadlineMultiples": 6
+      },
+      "healthAfterReleaseAndShutdown": null
+    }
+  ]
+}

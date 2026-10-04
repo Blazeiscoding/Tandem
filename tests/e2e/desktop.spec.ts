@@ -674,19 +674,80 @@ test("a window whose page crashes comes back by itself, and hosting carries on (
 async function launchApp(prefix: string) {
   const data = mkdtempSync(join(tmpdir(), prefix));
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
+  const env = {
+    ...inherited,
+    SLACKOSS_TEST: "1",
+    SLACKOSS_TEST_MEDIA: "1",
+    SLACKOSS_USER_DATA_DIR: data,
+  };
   const app = await electron.launch({
     executablePath: resolve("apps/desktop/release/win-unpacked/Tandem.exe"),
-    env: {
-      ...inherited,
-      SLACKOSS_TEST: "1",
-      SLACKOSS_TEST_MEDIA: "1",
-      SLACKOSS_USER_DATA_DIR: data,
-    },
+    env,
   });
   launched = { app, data };
   const page = await app.firstWindow();
   await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
-  return { app, page };
+  return { app, page, data, env };
+}
+
+for (const closing of ["app quit", "stopped-hosting window close"] as const) {
+  test(`the last visible composer edit survives ${closing} and profile restart (N03)`, async () => {
+    const first = await launchApp("slackoss-desktop-final-draft-");
+    let app = first.app;
+    let page = first.page;
+    await page.getByRole("button", { name: "Host a workspace on this computer" }).click();
+    await page.getByPlaceholder("Workspace name (e.g. Rocket Team)").fill("Final Draft Test");
+    await page.getByRole("button", { name: "Start hosting", exact: true }).click();
+    await page.getByLabel("Username", { exact: true }).fill("draftowner");
+    await page.getByLabel("Display name", { exact: true }).fill("Draft Owner");
+    await page.getByLabel("Password", { exact: true }).fill("password123");
+    await page.getByRole("button", { name: "Join workspace", exact: true }).click();
+    await expect(page.locator("textarea")).toBeVisible();
+    // Only the hosting confirmation is accepted automatically. A saving failure
+    // must keep the window open and make this ordinary-close regression fail.
+    await app.evaluate(({ dialog }) => {
+      dialog.showMessageBox = (async (...args: unknown[]) => {
+        const options = args.at(-1) as { title?: string };
+        return {
+          response:
+            options.title === "Stop hosting and quit?" ||
+            options.title === "Local work could not finish saving"
+              ? 1
+              : 0,
+          checkboxChecked: false,
+        };
+      }) as unknown as typeof dialog.showMessageBox;
+    });
+    if (closing === "stopped-hosting window close")
+      await page.evaluate(() => (window as any).slackoss.hostingStop());
+    const marker = `the last keystroke before ${closing}`;
+    // Neither the 250 ms composer debounce nor the 600 ms storage debounce is
+    // awaited: the native close must capture and save the actual visible text.
+    await page.locator("textarea").fill(marker);
+    expect(readFileSync(join(first.data, "settings.json"), "utf8")).not.toContain(marker);
+    const exited = app.waitForEvent("close");
+    await app.evaluate(({ app, BrowserWindow }, closing) => {
+      setTimeout(() => {
+        if (closing === "app quit") app.quit();
+        else BrowserWindow.getAllWindows()[0]!.close();
+      }, 0);
+    }, closing);
+    await exited;
+    expect(
+      JSON.stringify(JSON.parse(readFileSync(join(first.data, "settings.json"), "utf8"))),
+    ).toContain(marker);
+
+    app = await electron.launch({
+      executablePath: resolve("apps/desktop/release/win-unpacked/Tandem.exe"),
+      env: first.env,
+    });
+    launched = { app, data: first.data };
+    page = await app.firstWindow();
+    await expect(page.getByText("Find your workspace", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Start hosting Final Draft Test" }).click();
+    await expect(page.locator("textarea")).toHaveValue(marker);
+    await page.evaluate(() => (window as any).slackoss.hostingStop());
+  });
 }
 
 test("a window that loads the app's preload elsewhere is refused, and told nothing (REV-14, F09)", async () => {

@@ -1,0 +1,33 @@
+{
+  "composerReadRefusal": {
+    "savedEnterSends": false,
+    "loadedEnterSends": true,
+    "error": null,
+    "sends": 1
+  },
+  "notificationInitialReply": {
+    "durable": "none",
+    "displayed": "full"
+  },
+  "notificationSaveReply": {
+    "durable": "none",
+    "receivedWhileSaving": "none",
+    "displayedAfterReply": "full"
+  },
+  "firstAddressRace": {
+    "absentReads": 2,
+    "mounted": ["http://127.0.0.1:9", "http://127.0.0.1:10"],
+    "secondDraft": {
+      "C1": "private draft at the first address"
+    },
+    "finalTrust": {
+      "version": 1,
+      "addresses": ["http://127.0.0.1:10"]
+    }
+  },
+  "firstAddressSequentialControl": {
+    "address": "http://127.0.0.1:10",
+    "addresses": ["http://127.0.0.1:9"],
+    "allowed": false
+  }
+}

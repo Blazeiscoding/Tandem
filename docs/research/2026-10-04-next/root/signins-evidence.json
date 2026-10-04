@@ -1,0 +1,11 @@
+{
+  "forgottenSignInReturns": {
+    "afterAcknowledgedForget": ["http://127.0.0.1:10"],
+    "afterOtherWindowSwitch": ["http://127.0.0.1:10", "http://127.0.0.1:9"],
+    "forgottenTokenRestored": true
+  },
+  "newSignInLost": {
+    "otherWindowSaved": "http://127.0.0.1:11",
+    "afterFirstWindowSwitch": ["http://127.0.0.1:10", "http://127.0.0.1:9"]
+  }
+}

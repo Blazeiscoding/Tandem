@@ -133,6 +133,8 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     let disposed = false;
     let loaded = false;
     let loading = false;
+    let restoring: Promise<void> | null = null;
+    const writes = new Set<Promise<unknown>>();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let currentDrafts = client.state.drafts;
     const editedDrafts = new Set<string>();
@@ -237,10 +239,13 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
           );
         if (loaded) keepUnstored();
       };
-      return write.then(
+      const completion = write.then(
         () => settle(true),
         () => settle(false),
       );
+      writes.add(completion);
+      void completion.then(() => writes.delete(completion));
+      return completion;
     };
 
     const forget = (nonce: string, rev: number) => {
@@ -558,10 +563,10 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     };
 
     const restore = () => {
-      if (loading) return;
+      if (loading) return restoring!;
       loading = true;
       setError(null);
-      void Promise.all([
+      restoring = Promise.all([
         readWorkspaceDrafts(platform, draftKey),
         readWorkspaceOutbox(platform, outboxKey),
         readWorkspaceStorage<unknown>(platform, unstoredKey),
@@ -614,6 +619,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
         .finally(() => {
           loading = false;
         });
+      return restoring;
     };
     // Once restored, memory is authoritative. Re-reading after a failed save
     // could resurrect cleared drafts or send a message the author discarded.
@@ -626,6 +632,28 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
     };
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onHide);
+    const stopPreparing = platform.onPrepareClose?.("persist", async () => {
+      if (!loaded) await restore();
+      if (!loaded)
+        throw new Error("Saved local work could not be read. Keep the window open and retry.");
+      flush();
+      // Completion can enqueue a recovery/draft write; keep following the owned work.
+      while (writes.size) await Promise.all([...writes]);
+      // A later no-op merge can settle after an earlier failed write. Compare
+      // with confirmed storage as well, so that no-op cannot acknowledge lost words.
+      const remaining = draftChanges(currentDrafts, baseDrafts);
+      if (
+        !(await unstoredWrite) ||
+        failing.size ||
+        Object.keys(remaining.put).length ||
+        remaining.remove.length
+      ) {
+        setError(
+          "Could not save drafts and queued messages on this device. Keep it open and retry.",
+        );
+        throw new Error("Local work could not be saved. Keep the window open and retry.");
+      }
+    });
     return () => {
       if (retry.current === retryPersistence) retry.current = null;
       releaseKeeper();
@@ -634,6 +662,7 @@ export function DraftPersistence({ platform }: { platform: Platform }) {
       unwatchDrafts();
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onHide);
+      stopPreparing?.();
       disposed = true;
       flush();
     };

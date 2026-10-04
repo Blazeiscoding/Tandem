@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ID, User } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
@@ -150,18 +150,38 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const calls = useCallPreferences();
+  const currentRoom = useRef({ client, channelId });
+  currentRoom.current = { client, channelId };
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const count = participants?.length ?? 0;
 
   async function join() {
     setError(null);
     setJoining(true);
     try {
-      await client.joinHuddle(channelId, { muted: calls.joinMuted });
+      await calls.joinHuddle(
+        client,
+        channelId,
+        () =>
+          mounted.current &&
+          currentRoom.current.client === client &&
+          currentRoom.current.channelId === channelId,
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not join this huddle.");
-      setTimeout(() => setError(null), 4000);
+      if (mounted.current) {
+        setError(err instanceof Error ? err.message : "Could not join this huddle.");
+        setTimeout(() => {
+          if (mounted.current) setError(null);
+        }, 4000);
+      }
     } finally {
-      setJoining(false);
+      if (mounted.current) setJoining(false);
     }
   }
 

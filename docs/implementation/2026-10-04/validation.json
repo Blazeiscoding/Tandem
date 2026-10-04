@@ -1,0 +1,96 @@
+{
+  "recordedAt": "2026-10-04T09:26:45.364Z",
+  "baseRevision": "7886b4aeea6289164ce92460f708cb4a4886705a",
+  "branch": "fix/review-lifecycle-2026-10-04",
+  "productSourceChanged": true,
+  "node": "v24.16.0",
+  "unitTests": {
+    "passed": 1847,
+    "skipped": 2,
+    "protocol": 27,
+    "server": 616,
+    "client": 235,
+    "ui": 716,
+    "desktop": 253
+  },
+  "toolingTests": {
+    "passed": 28
+  },
+  "buildTypecheck": {
+    "successfulTasks": 10,
+    "cachedTasks": 0,
+    "forced": true
+  },
+  "automationTypecheckPassed": true,
+  "cacheChecks": {
+    "mutations": 15,
+    "assertions": 101
+  },
+  "browser": {
+    "verifiedScenarios": 23,
+    "firstFullPassed": 22,
+    "firstFullFailed": 1,
+    "initialHarnessIssue": "Radio check asserted before asynchronous storage acknowledgement; corrected to click then wait.",
+    "finalAffectedRunPassed": 4
+  },
+  "nativeWindows": {
+    "verifiedScenarios": 8,
+    "firstFullPassed": 7,
+    "firstFullFailed": 1,
+    "initialHarnessIssue": "New app-quit fixture selected Cancel for the hosting confirmation; corrected exact-title approval.",
+    "finalCloseRunPassed": 2,
+    "packageMode": "win-unpacked"
+  },
+  "builds": {
+    "apps/web/dist/build.json": {
+      "version": "0.1.0",
+      "revision": "7886b4aeea6289164ce92460f708cb4a4886705a",
+      "dirty": true,
+      "inputs": "13d0db8dee596ac4",
+      "builtAt": "2026-10-04T09:23:10.464Z"
+    },
+    "apps/server-cli/dist/build.json": {
+      "version": "0.1.0",
+      "revision": "7886b4aeea6289164ce92460f708cb4a4886705a",
+      "dirty": true,
+      "inputs": "1b609023b3becf41",
+      "builtAt": "2026-10-04T09:21:38.548Z"
+    },
+    "apps/desktop/out/build.json": {
+      "version": "0.1.0",
+      "revision": "7886b4aeea6289164ce92460f708cb4a4886705a",
+      "dirty": true,
+      "inputs": "6120bb63fe96c215",
+      "builtAt": "2026-10-04T09:23:14.501Z"
+    },
+    "desktop archive:out/build.json": {
+      "version": "0.1.0",
+      "revision": "7886b4aeea6289164ce92460f708cb4a4886705a",
+      "dirty": true,
+      "inputs": "6120bb63fe96c215",
+      "builtAt": "2026-10-04T09:23:14.501Z"
+    }
+  },
+  "bundleEntries": {
+    "web": [
+      {
+        "name": "index-CuPQuYBd.js",
+        "bytes": 496783
+      }
+    ],
+    "desktop": [
+      {
+        "name": "index-DeH9mSMa.js",
+        "bytes": 499463
+      }
+    ],
+    "budgetBytes": 500000
+  },
+  "limits": [
+    "Synthetic microphone recovery controls; no physical unplug.",
+    "No genuine installation/upgrade/uninstall or OS logoff/power-loss test.",
+    "Loopback injected connector failures; no real Cloudflare orphan reproduction.",
+    "Existing backups and freed database bytes are outside active-record cleanup.",
+    "Uncertain external callback retries can repeat business effects."
+  ]
+}

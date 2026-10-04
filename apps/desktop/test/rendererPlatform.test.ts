@@ -30,6 +30,63 @@ afterEach(() => {
   delete (globalThis as { window?: unknown }).window;
 });
 
+describe("handing over final local work before close", () => {
+  function preparingPlatform() {
+    let prepare!: (id: number) => void;
+    const prepared = vi.fn(async (_id: number, _saved: boolean) => {});
+    (globalThis as { window?: unknown }).window = {
+      slackoss: {
+        onPrepareClose: (listener: (id: number) => void) => {
+          prepare = listener;
+          return () => {};
+        },
+        preparedClose: prepared,
+      } as unknown as Bridge,
+    };
+    return { platform: electronPlatform(), prepared, prepare: (id: number) => prepare(id) };
+  }
+
+  it("captures every visible composer before persistence and holds the reply until writes finish", async () => {
+    const { platform, prepared, prepare } = preparingPlatform();
+    const calls: string[] = [];
+    let finish!: () => void;
+    const writing = new Promise<void>((done) => {
+      finish = done;
+    });
+    platform.onPrepareClose!("persist", async () => {
+      calls.push("persist");
+      await writing;
+    });
+    platform.onPrepareClose!("capture", () => {
+      calls.push("channel");
+    });
+    platform.onPrepareClose!("capture", () => {
+      calls.push("thread");
+    });
+    prepare(51);
+    await vi.waitFor(() => expect(calls).toEqual(["channel", "thread", "persist"]));
+    expect(prepared).not.toHaveBeenCalled();
+    finish();
+    await vi.waitFor(() => expect(prepared).toHaveBeenCalledWith(51, true));
+  });
+
+  it("reports a refused write, retries, and excludes owners that unmounted", async () => {
+    const { platform, prepared, prepare } = preparingPlatform();
+    const oldAccount = vi.fn();
+    platform.onPrepareClose!("capture", oldAccount)();
+    let failing = true;
+    platform.onPrepareClose!("persist", async () => {
+      if (failing) throw new Error("disk full");
+    });
+    prepare(61);
+    await vi.waitFor(() => expect(prepared).toHaveBeenCalledWith(61, false));
+    failing = false;
+    prepare(62);
+    await vi.waitFor(() => expect(prepared).toHaveBeenCalledWith(62, true));
+    expect(oldAccount).not.toHaveBeenCalled();
+  });
+});
+
 describe("what the renderer shows when the main process refuses", () => {
   it("shows the sentence the main process wrote, not the channel it arrived on", async () => {
     const platform = platformRejecting(

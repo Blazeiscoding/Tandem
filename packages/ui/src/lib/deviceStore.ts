@@ -2,6 +2,11 @@ import {
   applyDraftChanges,
   applyOutboxChanges,
   applyRecordChanges,
+  isDraftChanges,
+  isRecordChanges,
+  readStoredOutbox,
+  unwrapStoredDrafts,
+  unwrapStoredOutbox,
   type DraftChanges,
   type OutboxChanges,
   type RecordChanges,
@@ -28,11 +33,11 @@ import {
  * change still being finished and that tab has made newer ones since. Other
  * tabs are told of each change over a BroadcastChannel.
  *
- * Without IndexedDB or BroadcastChannel (some private windows, some
- * embedded browsers), or when it cannot be opened, values stay in
- * localStorage as before. Values from before IndexedDB are moved across the
- * first time each key is met: none is left behind in localStorage, so a
- * sign-in forgotten here is not still kept there.
+ * IndexedDB ownership does not depend on BroadcastChannel. Opening failure
+ * is unreadability, never an empty alternative store; later calls may retry.
+ * Browsers without IndexedDB can use localStorage only until this profile
+ * has used IndexedDB. Old fallback drafts/outbox are reconciled rather than
+ * discarded. Other conflicting legacy copies remain until an explicit set.
  */
 
 /** One change to one key, as data, so it can be written down and made again. */
@@ -87,8 +92,10 @@ export function applyOp(stored: unknown, op: StoreOp): { value: unknown; result:
 export const LEGACY_PREFIX = "slackoss:";
 /** Changes written down before they are made. */
 export const JOURNAL_PREFIX = "slackoss-journal:";
-/** How long a change written down is tried again for, if it cannot be made. */
-const JOURNAL_KEPT_MS = 24 * 60 * 60 * 1000;
+/** Backend ownership survives reloads and capability changes. */
+export const OWNER_KEY = "slackoss-device-owner";
+/** Invalidation only, without putting stored content in another transport. */
+export const CHANGE_KEY = "slackoss-device-changed";
 const DATABASE = "tandem-device";
 const VALUES = "values";
 /** For each key, the last change each tab made to it: `{ [tab]: [seq, at] }`. */
@@ -139,12 +146,20 @@ interface Backend {
 }
 
 function localBackend(): Backend {
+  const checkOwner = () => {
+    if (localStorage.getItem(OWNER_KEY) !== "localstorage")
+      throw new Error("The saved device storage is unavailable. Please try again.");
+  };
   return {
     kind: "localstorage",
-    read: async (key) => localStorage.getItem(LEGACY_PREFIX + key),
+    read: async (key) => {
+      checkOwner();
+      return localStorage.getItem(LEGACY_PREFIX + key);
+    },
     // Read, merged and written with nothing awaited between, so nothing in
     // this tab comes between; and at once, so a closing page still writes it.
     apply: async (key, op) => {
+      checkOwner();
       const name = LEGACY_PREFIX + key;
       const raw = localStorage.getItem(name);
       const { value, result } = applyOp(parsed(raw), op);
@@ -155,7 +170,7 @@ function localBackend(): Backend {
   };
 }
 
-/** How long opening the database may take before localStorage is used instead. */
+/** How long opening may take before reporting unreadability. */
 const OPEN_TIMEOUT_MS = 5_000;
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -167,7 +182,14 @@ function openDatabase(): Promise<IDBDatabase> {
       late = true;
       reject(new Error("The device storage did not open."));
     }, OPEN_TIMEOUT_MS);
-    const request = indexedDB.open(DATABASE, 2);
+    let request: IDBOpenDBRequest;
+    try {
+      request = indexedDB.open(DATABASE, 2);
+    } catch (error) {
+      clearTimeout(timer);
+      reject(error);
+      return;
+    }
     request.onupgradeneeded = () => {
       for (const name of [VALUES, MADE])
         if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name);
@@ -188,18 +210,84 @@ function openDatabase(): Promise<IDBDatabase> {
       reject(request.error);
     };
     request.onblocked = () => {
+      late = true;
       clearTimeout(timer);
       reject(new Error("The device storage is in use by an older tab."));
     };
   });
 }
 
-function forgetLegacy(key: string) {
+function forgetLegacy(key: string, raw: string) {
   try {
-    localStorage.removeItem(LEGACY_PREFIX + key);
+    // A still-open older client may have written again during this transaction.
+    if (localStorage.getItem(LEGACY_PREFIX + key) === raw)
+      localStorage.removeItem(LEGACY_PREFIX + key);
   } catch {
     // Nothing to forget.
   }
+}
+
+/** Recover old fallback work without overwriting the database's newer work. */
+function reconcileLegacy(key: string, raw: string, legacy: string): string | null {
+  try {
+    const stored: unknown = JSON.parse(raw);
+    const earlier: unknown = JSON.parse(legacy);
+    const enveloped = key.startsWith("local:v1:");
+    const kind = enveloped ? key.split(":")[4] : key.split(":")[0];
+    if (kind === "drafts") {
+      const current = unwrapStoredDrafts(stored, enveloped);
+      const drafts = unwrapStoredDrafts(earlier, enveloped);
+      if (!current || !drafts) return null;
+      return JSON.stringify(
+        applyDraftChanges(
+          stored,
+          {
+            put: drafts,
+            remove: [],
+            base: Object.fromEntries(Object.keys(drafts).map((k) => [k, null])),
+          },
+          enveloped,
+        ).value,
+      );
+    }
+    if (kind === "outbox") {
+      const current = unwrapStoredOutbox(stored, enveloped);
+      const recovered = unwrapStoredOutbox(earlier, enveloped);
+      if (!current || !recovered) return null;
+      const baseline = {
+        ...current,
+        compactedThrough: Math.max(current.compactedThrough ?? 0, recovered.compactedThrough ?? 0),
+      };
+      return JSON.stringify(
+        applyOutboxChanges(
+          enveloped ? { version: 1, value: baseline } : baseline,
+          { put: recovered.entries, remove: recovered.removed },
+          enveloped,
+        ).value,
+      );
+    }
+    if (
+      key === "notification-previews" &&
+      stored &&
+      earlier &&
+      typeof stored === "object" &&
+      typeof earlier === "object" &&
+      !Array.isArray(stored) &&
+      !Array.isArray(earlier)
+    ) {
+      const ranks: Record<string, number> = { none: 0, sender: 1, full: 2 };
+      const next = { ...stored } as Record<string, unknown>;
+      for (const [account, choice] of Object.entries(earlier)) {
+        const mine = next[account];
+        if (mine === undefined || (ranks[String(choice)] ?? 0) < (ranks[String(mine)] ?? 0))
+          next[account] = choice;
+      }
+      return JSON.stringify(next);
+    }
+  } catch {
+    // Unrecognized copies remain recoverable; they cannot replace known data.
+  }
+  return null;
 }
 
 function indexedBackend(db: IDBDatabase): Backend {
@@ -212,16 +300,16 @@ function indexedBackend(db: IDBDatabase): Backend {
     work: (
       values: IDBObjectStore,
       done: (result: T) => void,
-      moved: Set<string>,
+      moved: Map<string, string>,
       made: IDBObjectStore,
     ) => void,
   ): Promise<T> =>
     new Promise((resolve, reject) => {
       let result: { value: T } | null = null;
-      const moved = new Set<string>();
+      const moved = new Map<string, string>();
       const tx = db.transaction([VALUES, MADE], "readwrite");
       tx.oncomplete = () => {
-        for (const key of moved) forgetLegacy(key);
+        for (const [key, raw] of moved) forgetLegacy(key, raw);
         if (result) resolve(result.value);
         else reject(new Error("The device storage did not answer."));
       };
@@ -241,7 +329,7 @@ function indexedBackend(db: IDBDatabase): Backend {
   const current = (
     values: IDBObjectStore,
     key: string,
-    moved: Set<string>,
+    moved: Map<string, string>,
     then: (raw: string | null) => void,
   ) => {
     const request = values.get(key);
@@ -253,14 +341,20 @@ function indexedBackend(db: IDBDatabase): Backend {
         // Nothing to bring across.
       }
       if (typeof request.result === "string") {
-        // Left by a page that closed before it could forget it, or written
-        // since by a client from before: what is stored here stands.
-        if (legacy !== null) moved.add(key);
+        if (legacy !== null) {
+          const recovered =
+            legacy === request.result ? legacy : reconcileLegacy(key, request.result, legacy);
+          if (recovered !== null) {
+            if (recovered !== request.result) values.put(recovered, key);
+            moved.set(key, legacy);
+            return then(recovered);
+          }
+        }
         return then(request.result);
       }
       if (legacy !== null) {
         values.put(legacy, key);
-        moved.add(key);
+        moved.set(key, legacy);
       }
       then(legacy);
     };
@@ -284,12 +378,34 @@ function indexedBackend(db: IDBDatabase): Backend {
             }
             const { value, result } = applyOp(parsed(raw), op);
             const next = JSON.stringify(value);
+            if (op.kind === "set") {
+              // Explicit replacement/forgetting also retires a conflicting copy.
+              try {
+                const legacy = localStorage.getItem(LEGACY_PREFIX + key);
+                if (legacy !== null) moved.set(key, legacy);
+              } catch {
+                /* No accessible legacy copy. */
+              }
+            }
             // Written even when empty, so an emptied key is never filled again
             // from what localStorage held before.
             if (next !== raw) values.put(next, key);
             record[origin.tab] = [origin.seq, now];
+            // An acknowledged operation may still be journaled if retiring
+            // its localStorage entry failed. Its deduplication must outlive
+            // that copy, or replay could restore a forgotten sign-in.
+            let unfinished: Set<string> | null = null;
+            try {
+              unfinished = new Set(
+                Object.keys(localStorage)
+                  .filter((name) => name.startsWith(JOURNAL_PREFIX))
+                  .map((name) => name.slice(JOURNAL_PREFIX.length).split(":")[0]!),
+              );
+            } catch {
+              /* Keep origins if the journal cannot be inspected. */
+            }
             for (const [tab, [, at]] of Object.entries(record))
-              if (now - at > MADE_KEPT_MS) delete record[tab];
+              if (now - at > MADE_KEPT_MS && unfinished && !unfinished.has(tab)) delete record[tab];
             made.put(record, key);
             done({ raw: next, result, made: true });
           };
@@ -307,6 +423,36 @@ interface JournalEntry {
   tab: string;
 }
 
+function validOp(op: unknown): op is StoreOp {
+  if (!op || typeof op !== "object" || !("kind" in op)) return false;
+  switch (op.kind) {
+    case "set":
+    case "initialize":
+      return "value" in op;
+    case "drafts":
+      return (
+        "changes" in op &&
+        isDraftChanges(op.changes) &&
+        "enveloped" in op &&
+        typeof op.enveloped === "boolean"
+      );
+    case "outbox": {
+      const changes = "changes" in op ? (op.changes as Partial<OutboxChanges> | null) : null;
+      return (
+        !!changes &&
+        typeof changes === "object" &&
+        readStoredOutbox({ outbox: 2, entries: changes.put, removed: changes.remove }) !== null &&
+        "enveloped" in op &&
+        typeof op.enveloped === "boolean"
+      );
+    }
+    case "record":
+      return "changes" in op && isRecordChanges(op.changes);
+    default:
+      return false;
+  }
+}
+
 /** The journal's entries, oldest first, by their localStorage names. */
 function journalEntries(): [name: string, entry: JournalEntry][] {
   const found: [string, JournalEntry][] = [];
@@ -318,7 +464,14 @@ function journalEntries(): [name: string, entry: JournalEntry][] {
         const entry = JSON.parse(localStorage.getItem(name) ?? "null") as JournalEntry | null;
         // Named `<tab>:<seq>`, which says whose change it is should it not.
         const [tab] = name.slice(JOURNAL_PREFIX.length).split(":");
-        if (entry && typeof entry.key === "string" && entry.op && typeof entry.seq === "number")
+        if (
+          entry &&
+          typeof entry.key === "string" &&
+          validOp(entry.op) &&
+          Number.isSafeInteger(entry.seq) &&
+          entry.seq > 0 &&
+          Number.isFinite(entry.at)
+        )
           found.push([name, { ...entry, tab: typeof entry.tab === "string" ? entry.tab : tab! }]);
         else localStorage.removeItem(name);
       } catch {
@@ -347,40 +500,66 @@ export function deviceStore(options: { tab?: string } = {}): DeviceStore {
   // Named afresh for every page; a test may name one to stand for a tab already met.
   const tab = options.tab ?? Math.random().toString(36).slice(2, 10);
   let seq = 0;
-  const canIndex = typeof indexedDB !== "undefined" && typeof BroadcastChannel === "function";
-  const channel = canIndex ? new BroadcastChannel(CHANNEL) : null;
+  const canIndex = typeof indexedDB !== "undefined";
+  let channel: BroadcastChannel | null = null;
+  try {
+    if (typeof BroadcastChannel === "function") channel = new BroadcastChannel(CHANNEL);
+  } catch {
+    // Ownership stays in IndexedDB; storage invalidations can notify instead.
+  }
   // Known at once without IndexedDB, so each write still happens within the
   // call that asks for it, as a closing page needs.
   let backend: Backend | null = canIndex ? null : localBackend();
-  const opened: Promise<Backend> = backend
-    ? Promise.resolve(backend)
-    : openDatabase()
-        .then(indexedBackend)
-        .catch(() => {
-          channel?.close();
-          return localBackend();
-        });
+  let pending: Promise<Backend> | null = null;
+  const notify = (key: string, raw: string) => {
+    try {
+      if (channel) {
+        channel.postMessage({ key, raw });
+        return;
+      }
+    } catch {
+      /* A failed notification does not undo an acknowledged write. */
+    }
+    try {
+      localStorage.setItem(CHANGE_KEY, JSON.stringify({ key, tab, seq: ++seq }));
+    } catch {
+      // Watchers also refresh on focus; no private content is mirrored here.
+    }
+  };
   // Changes a closing page left unfinished are made before any other here.
   // One another open tab is still making is made once all the same, by
   // whichever of the two comes first.
-  const ready = opened.then(async (chosen) => {
-    for (const [name, entry] of journalEntries()) {
-      try {
+  const ready = (): Promise<Backend> => {
+    if (pending) return pending;
+    pending = (async () => {
+      if (canIndex) {
+        // Even a refused/blocked open does not authorize an alternate backend.
+        if (localStorage.getItem(OWNER_KEY) !== "indexeddb")
+          localStorage.setItem(OWNER_KEY, "indexeddb");
+      }
+      const chosen = canIndex ? indexedBackend(await openDatabase()) : backend!;
+      if (!canIndex) {
+        const owner = localStorage.getItem(OWNER_KEY);
+        if (owner !== null && owner !== "localstorage")
+          throw new Error("The saved device storage is unavailable. Please try again.");
+        if (owner !== "localstorage") localStorage.setItem(OWNER_KEY, "localstorage");
+      }
+      for (const [name, entry] of journalEntries()) {
+        // A failure stops replay before newer sequences can suppress older work.
+        // Nothing expires merely because storage remained unavailable.
         const { raw, made } = await chosen.apply(entry.key, entry.op, entry);
-        if (made && chosen.kind === "indexeddb") channel?.postMessage({ key: entry.key, raw });
-      } catch {
-        // Not made: tried again next time, unless it has been failing for a day.
-        if (Date.now() - entry.at < JOURNAL_KEPT_MS) continue;
+        if (made && chosen.kind === "indexeddb") notify(entry.key, raw);
+        crossOut(name);
       }
-      try {
-        localStorage.removeItem(name);
-      } catch {
-        // Tried again next time, which changes nothing.
-      }
-    }
-    backend = chosen;
-    return chosen;
-  });
+      backend = chosen;
+      return chosen;
+    })().catch((error) => {
+      pending = null;
+      if (canIndex) backend = null;
+      throw error;
+    });
+    return pending;
+  };
 
   /** Written down at once, while it may be the last thing a closing page does. */
   const writeDown = (key: string, op: StoreOp, origin: Origin): string | null => {
@@ -403,37 +582,104 @@ export function deviceStore(options: { tab?: string } = {}): DeviceStore {
     }
   };
 
+  const unavailable = () => {
+    if (canIndex) {
+      backend = null;
+      pending = null;
+    }
+  };
+  const initial = ready().then((chosen) => chosen.kind);
+  // Most callers only use read/apply; exposing backend must not create an
+  // unhandled rejection when their strict read correctly handles the failure.
+  void initial.catch(() => {});
   return {
-    backend: ready.then((chosen) => chosen.kind),
-    read: async (key) => (backend?.kind === "localstorage" ? backend : await ready).read(key),
+    backend: initial,
+    read: async (key) => {
+      try {
+        return await (backend ?? (await ready())).read(key);
+      } catch (error) {
+        unavailable();
+        throw error;
+      }
+    },
     apply: async (key, op) => {
       const origin = { tab, seq: ++seq };
       const name = writeDown(key, op, origin);
       try {
-        const chosen = backend?.kind === "localstorage" ? backend : await ready;
+        const chosen = backend ?? (await ready());
         const { raw, result, made } = await chosen.apply(key, op, origin);
-        if (made && chosen.kind === "indexeddb") channel?.postMessage({ key, raw });
-        return result;
-      } finally {
         crossOut(name);
+        if (made && chosen.kind === "indexeddb") notify(key, raw);
+        return result;
+      } catch (error) {
+        unavailable();
+        // Keep the journaled operation for recovery; this write was not acknowledged.
+        throw error;
       }
     },
     watch: (key, cb) => {
+      let alive = true;
+      let generation = 0;
       const fromTab = (event: MessageEvent<{ key: string; raw: string }>) => {
-        if (event.data?.key === key) cb(told(event.data.raw));
+        if (event.data?.key === key) {
+          generation++;
+          cb(told(event.data.raw));
+        }
       };
-      // Without IndexedDB, other tabs' writes arrive as storage events.
+      const refresh = () => {
+        const ticket = ++generation;
+        void (backend ? Promise.resolve(backend) : ready())
+          .then((chosen) => chosen.read(key))
+          .then((raw) => {
+            if (alive && ticket === generation) cb(told(raw));
+          })
+          .catch(() => {});
+      };
+      // Without BroadcastChannel, storage events carry invalidations only.
       const fromStorage = (event: StorageEvent) => {
-        if (backend?.kind !== "localstorage" || event.storageArea !== localStorage) return;
+        if (event.storageArea !== localStorage) return;
+        if (
+          event.key === OWNER_KEY &&
+          backend?.kind === "localstorage" &&
+          event.newValue !== "localstorage"
+        ) {
+          generation++;
+          cb("The saved device storage is unavailable.");
+          return;
+        }
+        if (event.key === CHANGE_KEY) {
+          try {
+            if (JSON.parse(event.newValue ?? "null")?.key === key) refresh();
+          } catch {
+            /* Ignore unrelated malformed notices. */
+          }
+          return;
+        }
+        if (backend?.kind !== "localstorage") return;
         if (event.key !== LEGACY_PREFIX + key) return;
+        try {
+          if (localStorage.getItem(OWNER_KEY) !== "localstorage") {
+            generation++;
+            cb("The saved device storage is unavailable.");
+            return;
+          }
+        } catch {
+          generation++;
+          cb("The saved device storage is unavailable.");
+          return;
+        }
         // Left as text when unreadable, which nothing reads as its value.
         cb(told(event.newValue));
       };
       channel?.addEventListener("message", fromTab);
       window.addEventListener("storage", fromStorage);
+      window.addEventListener("focus", refresh);
       return () => {
+        alive = false;
+        generation++;
         channel?.removeEventListener("message", fromTab);
         window.removeEventListener("storage", fromStorage);
+        window.removeEventListener("focus", refresh);
       };
     },
   };

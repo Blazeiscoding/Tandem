@@ -1,0 +1,18 @@
+
+ RUN  v3.2.7 F:/personal/MaybeProducts/SlackOSS
+
+ ✓ docs/research/2026-10-04-next/root/join.dom.test.tsx > diagnostic assertions for sign-in cancellation > a cancelled saved sign-in completes and navigates after a different workspace is selected 195ms
+ ✓ docs/research/2026-10-04-next/root/join.dom.test.tsx > diagnostic assertions for sign-in cancellation > cancelling an ordinary address probe ignores its late success 59ms
+ ✓ docs/research/2026-10-04-next/root/join.dom.test.tsx > diagnostic assertions for sign-in cancellation > an abandoned password submission still reports a connected session after its form unmounts 93ms
+ ✓ docs/research/2026-10-04-next/root/preferences.dom.test.tsx > diagnostic assertions for new preference/identity boundaries > turns a saved newline preference into Enter-to-send on a refused IndexedDB record read 150ms
+ ✓ docs/research/2026-10-04-next/root/preferences.dom.test.tsx > diagnostic assertions for new preference/identity boundaries > drops a stricter cross-window update while the initial notification read reply is held 249ms
+ ✓ docs/research/2026-10-04-next/root/preferences.dom.test.tsx > diagnostic assertions for new preference/identity boundaries > applies an old save reply over a newer private choice received from another window 232ms
+ ✓ docs/research/2026-10-04-next/root/preferences.dom.test.tsx > diagnostic assertions for new preference/identity boundaries > admits two distinct first addresses without approval and hands the second the first address's migrated draft 232ms
+ ✓ docs/research/2026-10-04-next/root/preferences.dom.test.tsx > diagnostic assertions for new preference/identity boundaries > refuses the second address once the first registration is already committed 1ms
+ ✓ docs/research/2026-10-04-next/root/signins.dom.test.tsx > diagnostic assertions for saved sign-ins in separate windows > a stale window puts back a sign-in explicitly forgotten in the other window 494ms
+ ✓ docs/research/2026-10-04-next/root/signins.dom.test.tsx > diagnostic assertions for saved sign-ins in separate windows > a later first-window save erases a second window's newly acknowledged sign-in 28ms
+
+ Test Files  3 passed (3)
+      Tests  10 passed (10)
+   Start at  15:28:57
+   Duration  6.07s (transform 379ms, setup 520ms, collect 1.17s, tests 1.74s, environment 2.01s, prepare 205ms)

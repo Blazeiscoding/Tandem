@@ -79,6 +79,8 @@ export class HuddleSession {
   private peers = new Map<ID, Peer>();
   private connected = new Set<ID>();
   private localStream: MediaStream | null = null;
+  /** The person's latest choice, even while the microphone is being replaced. */
+  private muted = false;
   private micLost = false;
   private recoveringMic: Promise<boolean> | null = null;
   private cameraTrack: MediaStreamTrack | null = null;
@@ -114,20 +116,21 @@ export class HuddleSession {
    */
   async startLocalAudio(muted = false): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
+    this.muted = muted;
     const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
     if (this.destroyed) {
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
-    this.adoptMicrophone(stream, muted);
+    this.adoptMicrophone(stream);
     this.startLevelPolling();
   }
 
   /** Makes this the microphone everyone hears, and watches for it stopping. */
-  private adoptMicrophone(stream: MediaStream, muted: boolean): void {
+  private adoptMicrophone(stream: MediaStream): void {
     const track = stream.getAudioTracks()[0];
     if (track) {
-      track.enabled = !muted;
+      track.enabled = !this.muted;
       // Stopping a track ourselves does not end it this way, so this is only
       // ever the device going, or its permission.
       track.onended = () => void this.recoverMicrophone();
@@ -150,7 +153,7 @@ export class HuddleSession {
   async recoverMicrophone(): Promise<boolean> {
     if (this.destroyed || !this.localStream) return false;
     if (this.recoveringMic) return this.recoveringMic;
-    const attempt = this.replaceMicrophone(this.micMuted);
+    const attempt = this.replaceMicrophone();
     this.recoveringMic = attempt;
     void attempt.finally(() => {
       if (this.recoveringMic === attempt) this.recoveringMic = null;
@@ -158,7 +161,7 @@ export class HuddleSession {
     return attempt;
   }
 
-  private async replaceMicrophone(muted: boolean): Promise<boolean> {
+  private async replaceMicrophone(): Promise<boolean> {
     try {
       const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
       if (this.destroyed) {
@@ -166,7 +169,7 @@ export class HuddleSession {
         return false;
       }
       for (const track of this.localStream?.getTracks() ?? []) track.stop();
-      this.adoptMicrophone(stream, muted);
+      this.adoptMicrophone(stream);
       this.stopWaitingForMicrophone();
       await Promise.all(
         [...this.peers.values()].map((peer) =>
@@ -254,14 +257,14 @@ export class HuddleSession {
   }
 
   get micMuted(): boolean {
-    const track = this.localStream?.getAudioTracks()[0];
-    return track ? !track.enabled : false;
+    return this.muted;
   }
 
   toggleMic(): void {
     const track = this.localStream?.getAudioTracks()[0];
-    if (!track) return;
-    track.enabled = !track.enabled;
+    if (this.destroyed || !track) return;
+    this.muted = !this.muted;
+    track.enabled = !this.muted;
     // Everyone else needs to know, or a muted person just looks silent.
     this.announceMedia();
     this.onChange?.();

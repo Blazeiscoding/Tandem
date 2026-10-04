@@ -158,6 +158,11 @@ export interface HostingStatus {
 export interface Platform {
   /** "desktop" gets the frameless titlebar spacing; "web" does not. */
   kind: "desktop" | "web";
+  /** Desktop close first captures current input, then awaits every account-scoped persistence owner. */
+  onPrepareClose?: (
+    phase: "capture" | "persist",
+    prepare: () => void | Promise<void>,
+  ) => () => void;
   storage: {
     /** Strict reads must reject unreadable data instead of treating it as absent. */
     get: <T>(key: string, options?: { strict?: boolean }) => Promise<T | null>;

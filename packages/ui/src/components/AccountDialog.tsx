@@ -332,6 +332,16 @@ export function AccountDialog({
                   {calls.error}
                 </p>
               )}
+              {calls.unreadable && (
+                <button
+                  type="button"
+                  disabled={!calls.loaded || calls.saving}
+                  onClick={() => void calls.retryLoad()}
+                  className={buttonClass("secondary", "mt-2")}
+                >
+                  Retry loading call preferences
+                </button>
+              )}
               <MicrophoneCheck />
             </section>
           )}
