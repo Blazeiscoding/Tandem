@@ -14,7 +14,11 @@
     "test:e2e": "playwright test",
     "test:desktop": "playwright test --config playwright.desktop.config.ts",
     "format": "prettier --write .",
-    "typecheck:automation": "tsc -p tsconfig.automation.json"
+    "typecheck:automation": "tsc -p tsconfig.automation.json",
+    "visualizer:build": "node scripts/generate-project-visualizer.mjs",
+    "visualizer:check": "node scripts/generate-project-visualizer.mjs --check",
+    "visualizer:test": "node --test scripts/generate-project-visualizer.test.mjs",
+    "visualizer:serve": "node scripts/serve-project-visualizer.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

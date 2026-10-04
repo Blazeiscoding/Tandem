@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="An offline, interactive guide to Tandem's code, architecture, optimizations and evidence."
+    />
+    <title>Tandem • Project atlas</title>
+    <style>
+      /* VISUALIZER_STYLES */
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="shell">
+      <aside class="rail" aria-label="Project navigation">
+        <a href="#overview" class="brand" aria-label="Tandem project atlas home"
+          ><span class="brand-mark" aria-hidden="true">t.</span
+          ><span>Tandem<small>PROJECT ATLAS</small></span></a
+        >
+        <div class="rail-label">THE CODE, EXPLAINED</div>
+        <nav id="navigation">
+          <a href="#overview" data-view="overview"><span aria-hidden="true">◈</span> Overview</a>
+          <a href="#files" data-view="files"
+            ><span aria-hidden="true">⌘</span> File explorer <b id="nav-count"></b
+          ></a>
+          <a href="#flows" data-view="flows"><span aria-hidden="true">⇢</span> How it works</a>
+          <a href="#improvements" data-view="improvements"
+            ><span aria-hidden="true">↗</span> Improvements</a
+          >
+          <a href="#evidence" data-view="evidence"
+            ><span aria-hidden="true">✓</span> Evidence & limits</a
+          >
+        </nav>
+        <div class="rail-note">
+          <span class="live-dot"></span> Offline documentation<br /><small
+            >Source, explanations and evidence<br />travel together in this one file.</small
+          >
+        </div>
+        <div class="rail-bottom">
+          <span>SNAPSHOT BASE</span
+          ><a id="revision-link" target="_blank" rel="noopener noreferrer"></a
+          ><small id="snapshot-digest"></small>
+        </div>
+      </aside>
+      <div class="workspace">
+        <header class="topbar">
+          <div class="breadcrumb">
+            Tandem <span>/</span> <strong id="breadcrumb">Overview</strong>
+          </div>
+          <div class="top-actions">
+            <span class="offline-pill">● OFFLINE READY</span
+            ><button id="open-search" class="quiet-button" type="button">
+              Find a file <kbd>/</kbd>
+            </button>
+          </div>
+        </header>
+        <main id="main" tabindex="-1"></main>
+        <footer>
+          Built from the repository, with reviewed runtime explanations.
+          <a href="#evidence">Read the scope and limits</a>.<span id="footer-hash"></span>
+        </footer>
+      </div>
+    </div>
+    <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+    <noscript
+      ><p>
+        This visualizer needs JavaScript. All source data is embedded; it makes no network requests.
+        Enable JavaScript and reopen this file.
+      </p></noscript
+    >
+    <script id="project-data" type="application/json">
+      /* VISUALIZER_DATA */
+    </script>
+    <script>
+      /* VISUALIZER_APP */
+    </script>
+  </body>
+</html>

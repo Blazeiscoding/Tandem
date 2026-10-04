@@ -1,5 +1,10 @@
 # Tandem
 
+[Explore the project atlas](docs/PROJECT-VISUALIZER.html): an offline, interactive
+guide to every tracked file, the code's architecture and flows, implemented
+improvements, measured optimizations and open findings. Download/open the HTML in
+a browser, or run `pnpm visualizer:serve`. [Regeneration guide](docs/visualizer/README.md).
+
 Your people. Your place. Your server. Previously named SlackOSS.
 
 The product and Windows executable are now **Tandem**. Existing `@slackoss/*`

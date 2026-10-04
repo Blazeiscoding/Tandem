@@ -1,0 +1,1774 @@
+{
+  "items": [
+    {
+      "id": "OPT-10",
+      "title": "Seek directly through thread history",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Schema v28 replaces the old single-column reply index with (thread_root_id, id), speeding sparse old-thread tail reads.",
+      "before": "A thread tail without a cursor could scan a channel's unrelated newer messages and sort before finding the requested replies.",
+      "after": "The SQLite plan seeks the requested thread's ordered range directly; the old index is replaced rather than retained alongside a duplicate.",
+      "mechanism": "The composite index matches both the equality filter and message-order range used by thread pages and has-more probes.",
+      "files": [
+        "packages/server/src/db.ts",
+        "packages/server/src/store.ts",
+        "scripts/measure-thread-index.mts",
+        "packages/server/test/queryPlans.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/OPTIMIZATION-PLAN-2026-09-30.md",
+          "label": "OPT-10 measured index decision and costs"
+        },
+        {
+          "path": "scripts/measure-thread-index.mts",
+          "label": "Successful HTTP/index comparison fixture"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Old thread newest page, 200k messages, warm p50",
+          "before": 92.01,
+          "after": 3.02,
+          "unit": "ms"
+        },
+        {
+          "label": "Old thread newest page, warm p95",
+          "before": 111.6,
+          "after": 5.24,
+          "unit": "ms"
+        },
+        {
+          "label": "VACUUM database",
+          "before": 38.6,
+          "after": 40.7,
+          "unit": "MB"
+        },
+        {
+          "label": "10k inserts in one transaction",
+          "before": 236,
+          "after": 256,
+          "unit": "ms"
+        }
+      ],
+      "limits": [
+        "Historical Linux Xeon/Node 24.21 fixture with 30 warm HTTP samples; not a current installation capacity claim.",
+        "Cursor-bounded pages were already fast and showed no comparable gain. Extra index space/build/write cost is part of the decision."
+      ]
+    },
+    {
+      "id": "OPT-05",
+      "title": "Render only rows whose displayed entities changed",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Message rows subscribe to the author, mentioned/reacting users, referenced channels and primitive self identity/role instead of entire maps.",
+      "before": "An unrelated user's profile edit, other-channel membership or own status change rendered all 300 loaded rows.",
+      "after": "Unrelated changes render zero rows; renaming an author updates only rows that show that author, while permission changes still update the affected controls.",
+      "mechanism": "Stable derived entity selectors preserve object references while unchanged maps/entries remain semantically equal.",
+      "files": [
+        "packages/ui/src/components/MessageItem.tsx",
+        "packages/ui/src/lib/messageReferences.ts",
+        "packages/ui/test/rowCommits.dom.test.tsx",
+        "packages/ui/test/measureRowRenders.dom.test.tsx"
+      ],
+      "evidence": [
+        {
+          "path": "docs/OPTIMIZATION-PLAN-2026-09-30.md",
+          "label": "OPT-05 production React/jsdom measurements and selector cost"
+        },
+        {
+          "path": "packages/ui/test/rowCommits.dom.test.tsx",
+          "label": "Semantic update and row-commit regressions"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Rows rendered for an unrelated profile change",
+          "before": 300,
+          "after": 0,
+          "unit": "rows"
+        },
+        {
+          "label": "Rows rendered when author of 60 rows is renamed",
+          "before": 300,
+          "after": 60,
+          "unit": "rows"
+        },
+        {
+          "label": "Unrelated-profile flush p50",
+          "before": "106–117",
+          "after": "0.41–0.42",
+          "unit": "ms"
+        }
+      ],
+      "limits": [
+        "Historical React production build under jsdom measures React work without real layout/paint.",
+        "Selectors add small per-event work and the change added about 1 kB to that historical entry."
+      ]
+    },
+    {
+      "id": "OPT-12",
+      "title": "Start unread mention work from the mentions index",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Schema v31 materializes message-to-recipient mention membership instead of scanning every channel message for each account's count.",
+      "before": "Every recount rechecked message text across joined channels; a room-wide mention repeated that work for every member.",
+      "after": "Counts and Activity start from the account's direct or room-wide mention candidates, then apply the shared channel/thread read rule.",
+      "mechanism": "Store updates message_mentions transactionally on create/edit/delete; retention cascades its rows. The migration parses existing text under the same mention rules.",
+      "files": [
+        "packages/server/src/db.ts",
+        "packages/server/src/store.ts",
+        "packages/server/test/mentionIndex.test.ts",
+        "scripts/measure-unread-counts.mts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/OPTIMIZATION-PLAN-2026-09-30.md",
+          "label": "OPT-12 count, Activity, send and database measurements"
+        },
+        {
+          "path": "packages/server/test/mentionIndex.test.ts",
+          "label": "Randomized indexed-count/reference equivalence"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "One account unread count, 200k messages",
+          "before": 68,
+          "after": 1.2,
+          "unit": "ms"
+        },
+        {
+          "label": "Activity mentions first page",
+          "before": 20,
+          "after": "2.0–2.1",
+          "unit": "ms"
+        },
+        {
+          "label": "Room-wide mention HTTP, 51 recounts",
+          "before": 3659,
+          "after": "76–86",
+          "unit": "ms"
+        },
+        {
+          "label": "10k Store sends",
+          "before": 1776,
+          "after": "1891–1917",
+          "unit": "ms"
+        }
+      ],
+      "limits": [
+        "Historical seeded measurements; text scanning/index maintenance raises send work and slightly increases database size.",
+        "Thread unread semantics remain authoritative; older clients may not understand later unreadHold additions."
+      ]
+    },
+    {
+      "id": "OPT-13",
+      "title": "Build snapshots with batched managers and sparse presence",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Schema v34 and batched list reads remove two handshake costs that scaled with the account/member count.",
+      "before": "The channel list made one manager/member query per channel; manager lookups scanned ordinary members. Presence reloaded all users to mark them offline.",
+      "after": "A partial manager index and two shared reads build visible channel metadata; the presence map names only online accounts.",
+      "mechanism": "Only is_manager=1 membership rows enter the new index. Missing presence already means offline in the client, and snapshots replace the map rather than merge stale online entries.",
+      "files": [
+        "packages/server/src/db.ts",
+        "packages/server/src/store.ts",
+        "packages/server/src/gateway.ts",
+        "packages/server/test/snapshotChannels.test.ts",
+        "packages/server/test/snapshotPresence.test.ts",
+        "scripts/measure-snapshot.mts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/OPTIMIZATION-PLAN-2026-09-30.md",
+          "label": "OPT-13 component, handshake, size and herd measurements"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Snapshot/handshake, 10k members and 300 channels",
+          "before": 251,
+          "after": 60,
+          "unit": "ms"
+        },
+        {
+          "label": "Snapshot payload, same fixture",
+          "before": 2398,
+          "after": 2203,
+          "unit": "kB"
+        },
+        {
+          "label": "100-handshake herd, same fixture",
+          "before": 25.6,
+          "after": 6.4,
+          "unit": "s"
+        }
+      ],
+      "limits": [
+        "Historical workload and host; the complete users list still dominates large snapshots.",
+        "Lean account bootstrap/paged People would require a further protocol decision, not just this query optimization."
+      ]
+    },
+    {
+      "id": "OPT-11",
+      "title": "Keep common-word search bounded and sparse/name search selective",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Two delivered search changes choose the appropriate query shape while preserving exact page content and access filters.",
+      "before": "A common word required resolving, joining and sorting every matching message for one page; filename eligibility was repeatedly evaluated in sparse queries.",
+      "after": "Common full-text terms use a newest-first scoped window with exact fallback; sparse terms combine bounded text matches and filename rowids once.",
+      "mechanism": "A match count capped at 5,001 selects the path. Terms over the 5,000 threshold keep a 20,000-message window; the F13 sparse branch uses full-text rows UNION ALL file-message rows, then shared hydration/filtering.",
+      "files": [
+        "packages/server/src/store.ts",
+        "packages/server/test/searchPlans.test.ts",
+        "scripts/measure-search.mts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/OPTIMIZATION-PLAN-2026-09-30.md",
+          "label": "OPT-11 original common-word benchmark"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F13 selective rewrite, exactness matrix and rejected alternatives"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/README.md",
+          "label": "F13 26-query repeated measurements"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/search-before-1.txt",
+          "label": "Before query timing and page hashes"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/search-after-1.txt",
+          "label": "After query timing and identical page hashes"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Common word 'the', historical warm query",
+          "before": 122,
+          "after": 13.1,
+          "unit": "ms"
+        },
+        {
+          "label": "Filename 'budget', later F13 fixture",
+          "before": "8.2–8.5",
+          "after": "5.7–5.9",
+          "unit": "ms"
+        },
+        {
+          "label": "20k matching filenames, F13 fixture",
+          "before": "53–55",
+          "after": 39,
+          "unit": "ms"
+        }
+      ],
+      "limits": [
+        "The two comparisons use different historical revisions; their gains must not be added.",
+        "Rare/hidden/in-channel queries can pay small admission overhead. Blanket message-ID UNION and separate filename-statement experiments were rejected.",
+        "No rare-author/date index was rolled out from research candidates; benchmark promises are limited to tested fixtures."
+      ]
+    },
+    {
+      "id": "LAZY-UI",
+      "title": "Move first-use-only screens and dialogs out of the entry",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Join, profile and friends screens join other deferred dialogs/panels as lazy modules.",
+      "before": "Returning signed-in readers downloaded code for first-use screens that they did not need during initial chat rendering.",
+      "after": "Those modules load on use, restoring measured historical headroom under the 500 kB entry guard.",
+      "mechanism": "React lazy imports and Suspense boundaries split code while keeping the shared application route behavior and chunk-failure handling.",
+      "files": [
+        "packages/ui/src/App.tsx",
+        "packages/ui/src/screens/WorkspaceScreen.tsx",
+        "packages/ui/src/screens/JoinScreen.tsx",
+        "packages/ui/src/components/ProfileDialog.tsx",
+        "packages/ui/src/components/FriendsDialog.tsx",
+        "scripts/check-web-bundle.mjs"
+      ],
+      "evidence": [
+        {
+          "path": "docs/OPTIMIZATION-PLAN-2026-09-30.md",
+          "label": "OPT-01 recorded 1 October first-use split"
+        },
+        {
+          "path": "docs/implementation/2026-10-04/validation.json",
+          "label": "Later current implementation bundle identities and budgets"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Historical web entry after first-use split",
+          "before": 493.2,
+          "after": 465.2,
+          "unit": "kB"
+        },
+        {
+          "label": "Historical gzip entry",
+          "before": 150.1,
+          "after": 142.3,
+          "unit": "kB"
+        }
+      ],
+      "limits": [
+        "This is a historical bundle-byte comparison, not a measured startup improvement.",
+        "Later features consume the restored headroom: the N01–N12 build recorded web 496,783 and desktop 499,463 bytes against 500,000."
+      ]
+    },
+    {
+      "id": "REV-03",
+      "title": "Preserve unchanged thread and link-context references",
+      "category": "performance",
+      "status": "implemented",
+      "summary": "Client cache and hosting/link context updates avoid rebuilding unrelated visible content.",
+      "before": "An unrelated channel message could slice/replace every cached thread, and a connected-count/backup-status update could invalidate shared message-link context.",
+      "after": "Only relevant threads/pages and semantically changed link fields receive new references.",
+      "mechanism": "Route live events by message/root ownership; derive provider values from address-relevant fields rather than the entire hosting snapshot.",
+      "files": [
+        "packages/client-core/src/workspace.ts",
+        "packages/ui/src/components/ShareableServer.tsx",
+        "packages/client-core/test/threadReferences.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-03 implementation and scope"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "Post-implementation reference preservation verified"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Correct reference preservation is covered; the historical Profiler comparison was not rerun in the later follow-up review.",
+        "In-flight history still buffers ordered events under the snapshot watermark rules."
+      ]
+    },
+    {
+      "id": "REV-05-F14",
+      "title": "Share equivalent history requests and coalesce Activity refreshes",
+      "category": "performance",
+      "status": "implemented",
+      "summary": "Equivalent tail/older/thread/newer loads share a transfer, and automatic Activity updates collapse into bounded work.",
+      "before": "Repeated equivalent paging started duplicate requests and aborted one; a mention burst repeatedly blanked/refetched Activity.",
+      "after": "Equivalent cursor/window callers settle from one request, replaced windows cancel, and Activity remains visible until the new answer arrives.",
+      "mechanism": "Each history run has AbortController plus request/window identity; CoalescedLoader debounces automatic changes for 250 ms and permits at most one follow-up load while active. Explicit filter/page/Refresh loads remain immediate.",
+      "files": [
+        "packages/client-core/src/workspace.ts",
+        "packages/client-core/test/historyCancel.test.ts",
+        "packages/ui/src/lib/coalescedLoader.ts",
+        "packages/ui/src/components/ActivityPanel.tsx"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-05 burst/request behavior"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F14 equivalent newer-page coalescing"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Requests for the recorded ten-change Activity burst",
+          "before": 10,
+          "after": "at most 2",
+          "unit": "requests"
+        }
+      ],
+      "limits": [
+        "This records request-count and visible-state controls, not an end-to-end latency benchmark.",
+        "Changed cursors/windows, real network failures, live replay, ordering and destruction retain their existing semantics."
+      ]
+    },
+    {
+      "id": "REV-04",
+      "title": "Bound transient private app answers",
+      "category": "resources",
+      "status": "implemented",
+      "summary": "Private command replies retained by the client have count and text budgets, with replacement by repeated IDs.",
+      "before": "Long sessions could accumulate arbitrarily many or large private answers outside bounded durable history.",
+      "after": "The client keeps bounded transient answers and replaces an existing answer of the same identity rather than accumulating duplicates.",
+      "mechanism": "Admission/eviction operates on the private-answer collection, preserving durable workspace messages and the active visible reply behavior.",
+      "files": [
+        "packages/client-core/src/workspace.ts",
+        "packages/ui/test/privateAnswers.dom.test.tsx"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-04 resource policy"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "37-frame verification: nine retained answers / 320,427 characters"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "The recorded frame/control result is one fixture, not the configured limit or a whole-process memory guarantee.",
+        "Screen-reader/physical scrolling acceptance remains separate."
+      ]
+    },
+    {
+      "id": "REV-06-F10",
+      "title": "Avoid offline/repeated publication authorization and recount work",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Fan-out shares short-lived authorization/audience work inside a committed synchronous publication batch.",
+      "before": "Private deletion rebuilt a channel's audience per event even with no readers; multiple devices of the same session repeated the same session lookup.",
+      "after": "Offline private batches read no audience, and online batches share one channel read while still sending every durable deletion frame.",
+      "mechanism": "Gateway visits connected byUser recipients, memoizes session checks only within the publication and server batches replaceable recounts; it does not introduce long-lived authorization cache.",
+      "files": [
+        "packages/server/src/server.ts",
+        "packages/server/src/gateway.ts",
+        "packages/server/src/store.ts",
+        "packages/server/test/publicationCost.test.ts",
+        "scripts/measure-publication.mts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "REV-06 and F10 work-count controls"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/README.md",
+          "label": "Repeated real-server private publication timing"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/publication-before-1.json",
+          "label": "Before private deletion timings"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/publication-after-1.json",
+          "label": "After private deletion timings"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Offline audience reads for 21-message deletion",
+          "before": 21,
+          "after": 0,
+          "unit": "reads"
+        },
+        {
+          "label": "Two-reader audience reads for same batch",
+          "before": 22,
+          "after": 1,
+          "unit": "reads"
+        },
+        {
+          "label": "2k-member offline DELETE median, two runs",
+          "before": "41.9 / 42.2",
+          "after": "7.9 / 7.5",
+          "unit": "ms"
+        },
+        {
+          "label": "2k-member two-reader all-frame median",
+          "before": "52.2 / 45.0",
+          "after": "14.9 / 14.8",
+          "unit": "ms"
+        }
+      ],
+      "limits": [
+        "Single Linux host; actual timing depends on membership, readers and storage.",
+        "Membership/revocation checks remain authoritative; failed authorization closes the affected session and sends no dependent frame."
+      ]
+    },
+    {
+      "id": "F11",
+      "title": "Share integration eligibility and payload construction per event",
+      "category": "performance",
+      "status": "measured",
+      "summary": "One bot with many subscriptions reuses the same bot/channel eligibility and common event envelope.",
+      "before": "One event with 100 subscriptions repeated identical membership, workspace metadata and JSON serialization work 100 times.",
+      "after": "Distinct subscriptions still get their own durable delivery rows, but shared checks/read/body construction run once.",
+      "mechanism": "Group event preparation by bot/channel within the event, retain per-subscription filtering/admission/redaction, then insert the distinct delivery jobs.",
+      "files": [
+        "packages/server/src/store.ts",
+        "packages/server/src/server.ts",
+        "packages/server/test/publicationCost.test.ts",
+        "scripts/measure-publication.mts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F11 work-sharing behavior"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/README.md",
+          "label": "300-round successful posting comparison"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/posting-300-before-1.json",
+          "label": "Before posting evidence"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/posting-300-after-1.json",
+          "label": "After posting evidence"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "100-subscription POST median, repeated runs",
+          "before": "14.6 / 15.3",
+          "after": "13.2 / 13.3",
+          "unit": "ms"
+        },
+        {
+          "label": "Shared eligibility/read/serialization",
+          "before": 100,
+          "after": 1,
+          "unit": "operations each"
+        }
+      ],
+      "limits": [
+        "No clear timing change at one or ten subscriptions; row writes remain necessary.",
+        "Single-host measured result is not a general integration capacity claim."
+      ]
+    },
+    {
+      "id": "REV-07",
+      "title": "Keep heavy backup SQL off main and keep workers dependency-light",
+      "category": "performance",
+      "status": "implemented",
+      "summary": "Desktop backup/verify/inventory/restore workers import only the focused backup module.",
+      "before": "Full server-barrel imports pulled networking dependencies into jobs that only needed database/filesystem backup work.",
+      "after": "The emitted focused worker was verified at 44,577 bytes and packaged backup/restore paths passed their controls.",
+      "mechanism": "Move version/build constants to a light server module and export a dedicated backup entry; worker imports it directly and returns only result/error metadata.",
+      "files": [
+        "apps/desktop/src/main/backupWorker.ts",
+        "packages/server/src/backup.ts",
+        "packages/server/src/version.ts",
+        "packages/server/package.json",
+        "apps/desktop/test/backupWorker.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-07 dependency-light implementation"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "Focused emitted worker and packaged verification"
+        },
+        {
+          "path": "docs/research/2026-10-02-deep/desktop-worker-benchmark.json",
+          "label": "Earlier candidate-only import experiment"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "The earlier 684,998→38,858-byte and 180.66→74.46-ms candidate probe is not the final emitted-build measurement; no final total-job speedup is claimed here.",
+        "Ordinary embedded-server queries still run synchronously in Electron main; backend isolation remains an evidence-led future decision."
+      ]
+    },
+    {
+      "id": "REV-02",
+      "title": "Make attachment removal fair and promptly drain healthy backlog",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Schema v35 gives failed blob removals persistent eligibility/backoff so they cannot monopolize the first page.",
+      "before": "One hundred permanently failing paths could keep a healthy 101st blob queued across restart; healthy pages waited for each 15-second timer.",
+      "after": "Healthy removals continue on bounded later turns while individual failures back off, and permanent malformed names are visibly set aside.",
+      "mechanism": "Stable due ordering uses queue time, attempts and next-attempt time; backoff grows through one minute, five, thirty and two hours. File bytes remain accounted until physical deletion succeeds.",
+      "files": [
+        "packages/server/src/db.ts",
+        "packages/server/src/store.ts",
+        "packages/server/src/server.ts",
+        "packages/server/test/fileCleanup.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-02 schema/backoff/accounting policy"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "Real healthy blob behind 100 failed removals and restart control"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "This improves cleanup progress and correctness; no generic filesystem speedup is asserted.",
+        "Permanent failures remain visible and reserved storage is not falsely reclaimed."
+      ]
+    },
+    {
+      "id": "REV-13",
+      "title": "Serve precompressed assets and reuse hashed browser files",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Build-time Brotli/gzip and immutable hashed-asset caching reduce repeated-host delivery work and cold bytes.",
+      "before": "Hosts sent uncompressed client text and revalidated unchanged scripts with every visit; compressing at request time would add recurring CPU work.",
+      "after": "Browsers negotiate prebuilt variants, hashed assets cache for a year, the page revalidates, and missing old chunks return explicit 404/no-store.",
+      "mechanism": "Vite writes quality-11 Brotli/level-9 gzip sidecars once; @fastify/static serves variants with Vary. Integrity guards decode every copy and compare it to source.",
+      "files": [
+        "apps/web/precompress.ts",
+        "apps/web/vite.config.ts",
+        "packages/server/src/server.ts",
+        "scripts/check-web-precompressed.mjs",
+        "packages/server/test/webClient.test.ts",
+        "tests/e2e/web.spec.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-13 byte comparison and throttled browser experiment"
+        },
+        {
+          "path": "scripts/check-web-precompressed.mjs",
+          "label": "Decoded sidecar integrity gate"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Historical entry script + CSS, plain → Brotli",
+          "before": 519.5,
+          "after": 129.9,
+          "unit": "kB"
+        },
+        {
+          "label": "Cold first visible control, 200kB/s and 150ms RTT",
+          "before": 3502,
+          "after": 1981,
+          "unit": "ms"
+        },
+        {
+          "label": "Cold browser transfer",
+          "before": 547.1,
+          "after": 142.7,
+          "unit": "kB"
+        }
+      ],
+      "limits": [
+        "Median of seven throttled Chromium visits against earlier CLI output; later source changes alter byte totals.",
+        "Warm visible-control timing was effectively unchanged around 985 ms; API/attachment compression was not changed."
+      ]
+    },
+    {
+      "id": "F15",
+      "title": "Prune dependency TypeScript from the desktop package",
+      "category": "performance",
+      "status": "measured",
+      "summary": "Remove unused .ts/.cts/.mts files from packaged dependencies while preserving runtime JS, required metadata and licenses.",
+      "before": "The clean desktop ASAR still carried TypeScript sources/declarations inside node_modules that Node never loads there.",
+      "after": "Linux archive payload is smaller; both filtered and unfiltered packages retain working dependency/server/backup paths.",
+      "mechanism": "Electron Builder excludes those extensions under node_modules; the archive guard rejects their accidental reintroduction.",
+      "files": [
+        "apps/desktop/electron-builder.yml",
+        "scripts/check-desktop-archive.mjs",
+        "scripts/check-desktop-archive.test.mjs",
+        "scripts/measure-desktop-start.mts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F15 package and repeat runtime measurements"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/README.md",
+          "label": "15-round alternating packaged-start comparison"
+        },
+        {
+          "path": "docs/research/2026-10-02-followup-measurements/desktop-start-1.json",
+          "label": "Startup and process-memory evidence"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Linux archive payload",
+          "before": 11182495,
+          "after": 7403035,
+          "unit": "bytes"
+        },
+        {
+          "label": "Zod archive contents",
+          "before": 5.43,
+          "after": 2.18,
+          "unit": "MB"
+        }
+      ],
+      "limits": [
+        "Package-size gain only. Launch 1.42–1.46 s, hosting 1.48–1.53 s and memory ranges were indistinguishable between packages.",
+        "The excluded files were never read, so no startup or memory benefit is claimed."
+      ]
+    },
+    {
+      "id": "CI-REUSE",
+      "title": "Reuse verified task outputs and avoid unused installer stages",
+      "category": "tooling",
+      "status": "measured",
+      "summary": "Content-addressed Turbo reuse, bounded concurrency and installer-aware selection reduce redundant validation work.",
+      "before": "Independent commands rebuilt web output, package worker pools overlapped, and every Windows runtime PR generated an installer that native tests did not use.",
+      "after": "Task hashes cover complete source/config/test inputs; ordinary runtime PRs build unpacked Windows output while installer-sensitive changes retain NSIS.",
+      "mechanism": "Cache task outputs separately from dependency/browser downloads; run cache/format/bundle/browser guards independently, limit task/Vitest concurrency and fail safe to full packaging when the base diff is unavailable.",
+      "files": [
+        "turbo.json",
+        "scripts/check-ci-cache.mjs",
+        "scripts/desktop-ci-mode.mjs",
+        ".github/workflows/ci.yml",
+        ".github/workflows/desktop.yml",
+        "docs/CI.md"
+      ],
+      "evidence": [
+        {
+          "path": "docs/CI.md",
+          "label": "Measured local reuse and historical hosted timings"
+        },
+        {
+          "path": "scripts/check-ci-cache.mjs",
+          "label": "15 mutation / 101 hash assertion guard"
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Identical local repeat of all three task phases",
+          "before": "initial full execution",
+          "after": 1.09,
+          "unit": "s"
+        },
+        {
+          "label": "Cache invalidation controls",
+          "before": "not applicable",
+          "after": 101,
+          "unit": "assertions"
+        }
+      ],
+      "limits": [
+        "1.09 s excludes install/cache transfer, formatting, browser setup and E2E; it is not total Actions duration.",
+        "Recorded 73–89 s prior installer stages describe expected avoided work, not a measured new remote saving.",
+        "Cache scope/permissions and correct invalidation remain essential; task caches are not a security boundary."
+      ]
+    },
+    {
+      "id": "DOCKER-REUSE",
+      "title": "Separate lockfile dependency work from source-layer builds",
+      "category": "tooling",
+      "status": "implemented",
+      "summary": "Container builds fetch pinned packages before copying source and install only the shipped dependency closure.",
+      "before": "Any source change invalidated a stage that copied the whole repository before installation.",
+      "after": "Source-only edits can reuse dependency fetch/install inputs; lock/toolchain/install-policy changes intentionally invalidate them.",
+      "mechanism": "Multi-stage Node 24 image uses pnpm fetch, offline frozen filtered installation, stamped server/web builds and BuildKit Actions layer reuse. Final image copies only dist and runs as a non-root user.",
+      "files": [
+        "docker/Dockerfile",
+        ".dockerignore",
+        ".github/workflows/container.yml",
+        "tests/docker-reuse.mjs",
+        "tests/docker-smoke.mjs"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-08 container reuse and independent validation"
+        },
+        {
+          "path": "docker/Dockerfile",
+          "label": "Actual separated layers"
+        },
+        {
+          "path": ".github/workflows/container.yml",
+          "label": "Layer cache and smoke/reuse checks"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "No local before/after image timing is asserted; the documented Windows research environment lacked a usable Linux Docker engine.",
+        "Persistent-volume restart/socket and reuse smoke controls remain part of CI."
+      ]
+    },
+    {
+      "id": "IMP-08",
+      "title": "Bind tests and releases to matching source artifacts",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Stamped source-input identities, archive checks and repeatable release manifests prevent stale/unclean output from giving false test confidence.",
+      "before": "Browser/native tests could launch leftover bundles, malformed identities could fail badly, and repeated release preparation could checksum old notes before rewriting them.",
+      "after": "Tests reject missing/stale/malformed output with rebuild guidance; binary inputs are hashed exactly and release assets are a deliberate hash-bound set.",
+      "mechanism": "One identity module supplies version/revision/dirty/input hashes to web/server/desktop, manifests and diagnostics; install gates inspect the actual app's profile report.",
+      "files": [
+        "scripts/build-identity.mjs",
+        "scripts/release-manifest.mjs",
+        "scripts/release-install-gates.ps1",
+        "apps/desktop/src/main/releaseGate.ts",
+        "tests/e2e/fresh-builds.ts",
+        ".github/workflows/release.yml"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F05 implemented tooling versus genuine release/upgrade acceptance"
+        },
+        {
+          "path": "scripts/build-identity.test.mjs",
+          "label": "Identity mutation and malformed-manifest controls"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Assurance improvement, not a runtime speed claim.",
+        "A genuine upgrade from a published release and a real publication remain explicit acceptance work; unsigned packaging is not signed release proof."
+      ]
+    },
+    {
+      "id": "MEASUREMENT-BASELINES",
+      "title": "Make performance decisions from successful reproducible work",
+      "category": "measurement",
+      "status": "measured",
+      "summary": "Server mixed-load and browser startup/image-scroll scripts record revision, fixture, host/runtime, samples and errors.",
+      "before": "Earlier mixed probes could skip actual retention, accept incomplete replay and retain harness state that confounded memory/stalls.",
+      "after": "F12 seeds exact expired data, verifies deletion and ordered replay/snapshot, bounds receipts/sockets and records offered/completed load.",
+      "mechanism": "Workload scripts check correctness before/while timing; artifacts report latency distributions and scope rather than timing an error as successful work.",
+      "files": [
+        "scripts/measure-mixed.mts",
+        "scripts/measure-client.mts",
+        "scripts/measure-stall.mts",
+        "docs/research/2026-10-02-mixed/README.md"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F12 corrected workload acceptance"
+        },
+        {
+          "path": "docs/research/2026-10-02-mixed/README.md",
+          "label": "Historical baseline methodology and limitations"
+        },
+        {
+          "path": "docs/research/2026-10-03/root-mixed-1.json",
+          "label": "Later source-specific mixed evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "These are measurement tools and baselines, not optimization speedups or declared capacity.",
+        "Historical mixed/cloud/headless results must not be treated as low-spec desktop-main/GPU acceptance; reference-hardware profiling remains open."
+      ]
+    },
+    {
+      "id": "N01",
+      "title": "Make malformed query logging safe",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Invalid percent-encoded query names cannot terminate request logging.",
+      "before": "A malformed query name could throw while being decoded by the redactor and escape the logging path.",
+      "after": "Malformed names and their values are masked; the real child server keeps answering later requests.",
+      "mechanism": "Catch query-name decoding failure before classifying sensitive parameters, mask both sides, and retain ordinary secret redaction.",
+      "files": [
+        "packages/server/src/redact.ts",
+        "packages/server/test/redact.test.ts",
+        "packages/server/test/reliability.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N01 implemented behavior"
+        },
+        {
+          "path": "packages/server/test/reliability.test.ts",
+          "label": "Actual child-process survival regression"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "The regression proves the tested malformed-input boundary; no timing gain or natural crash frequency is claimed."
+      ]
+    },
+    {
+      "id": "N02",
+      "title": "Keep one durable browser storage owner and recover conflicts",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "IndexedDB failures remain visible/retryable, unfinished operations stay journaled and acknowledged operations are not reapplied, and multi-window recovery preserves local work.",
+      "before": "Failed IndexedDB opening could silently switch to empty localStorage; optional BroadcastChannel absence could alter backend choice; older migration copies could overwrite private/local work.",
+      "after": "Ownership is persisted before adoption, opening failure refuses alternate-backend writes, later calls can retry, and old conflicting drafts/outbox/privacy choices reconcile safely.",
+      "mechanism": "Transactions serialize updates across independent contexts. Persistent operation IDs/tombstones prevent stale replay; legacy draft conflicts retain both texts, outbox removals remain removed and privacy reconciliation chooses the more private value. Storage-event/focus invalidation works without BroadcastChannel and carries no private payload.",
+      "files": [
+        "packages/ui/src/lib/deviceStore.ts",
+        "packages/ui/test/deviceStore.dom.test.ts",
+        "packages/ui/test/deviceStoreRecovery.dom.test.tsx",
+        "tests/e2e/web.spec.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N02 owner/journal/migration policy"
+        },
+        {
+          "path": "packages/ui/test/deviceStoreRecovery.dom.test.tsx",
+          "label": "Recovery, denied ownership and local-only watcher controls"
+        },
+        {
+          "path": "docs/implementation/2026-10-04/validation.json",
+          "label": "Browser fault/retry, two-tab and browser-death validation scope"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Browser storage is not an OS power-loss guarantee.",
+        "Fresh profiles without IndexedDB can use localStorage until adoption; acknowledged IndexedDB ownership prevents later alternate fallback.",
+        "Q02/Q03/Q04/Q05 remain caller-level identity/preference/sign-in ordering findings; this backend fix does not close them."
+      ]
+    },
+    {
+      "id": "N03",
+      "title": "Save the visible final composer text before native exit",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Desktop window close/quit waits for current UI text, pending local work and the native settings queue.",
+      "before": "The last visible keystrokes could exist only in the renderer when native close destroyed the page.",
+      "after": "Normal close captures current text and acknowledges persistence before destruction; failure keeps copying/retry/explicit unsaved exit available.",
+      "mechanism": "Composer captures through layout cleanup, DraftPersistence drains restore/pending/failed/recovery work, preload sends a matching preparation reply, and main drains settings behind a window/request-bound handshake.",
+      "files": [
+        "apps/desktop/src/main/closePreparation.ts",
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/main/settings.ts",
+        "apps/desktop/src/preload/index.ts",
+        "apps/desktop/src/renderer/src/platform.ts",
+        "packages/ui/src/components/Composer.tsx",
+        "packages/ui/src/components/DraftPersistence.tsx",
+        "packages/ui/test/desktopClose.dom.test.tsx",
+        "tests/e2e/desktop.spec.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N03 exit behavior and harness corrections"
+        },
+        {
+          "path": "apps/desktop/test/closePreparation.test.ts",
+          "label": "Foreign/stale reply, failure and timeout controls"
+        },
+        {
+          "path": "docs/implementation/2026-10-04/validation.json",
+          "label": "Two final-text native close/restart controls"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Normal app close/quit verified on unpacked Windows output; forced process death, OS logoff and physical power loss are separate conditions."
+      ]
+    },
+    {
+      "id": "N04",
+      "title": "Apply the latest mute intent when adopting a microphone",
+      "category": "privacy",
+      "status": "implemented",
+      "summary": "Track replacement and both join entry points honor current acknowledged microphone preferences.",
+      "before": "Held/recovered capture could adopt an older unmuted value; a join route could run before preference initialization settled.",
+      "after": "Replacement tracks use the current desired-mute state; joins await the current initialization/save and unreadable preference state keeps capture muted with retry.",
+      "mechanism": "Separate intent from the physical track. Preference generations fence late older reads against newer retries/saves and lifetime checks prevent canceled/unmounted join completion.",
+      "files": [
+        "packages/client-core/src/huddle.ts",
+        "packages/client-core/test/huddle.test.ts",
+        "packages/ui/src/lib/callPreferences.ts",
+        "packages/ui/src/components/HuddleBar.tsx",
+        "packages/ui/src/screens/WorkspaceScreen.tsx",
+        "packages/ui/test/callJoin.dom.test.tsx"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N04 implemented mute/preference behavior"
+        },
+        {
+          "path": "packages/ui/test/callJoin.dom.test.tsx",
+          "label": "Held preference, muted join and entry-point regressions"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Synthetic media/held-capture controls do not establish physical unplug, real device selection or second-network calling acceptance."
+      ]
+    },
+    {
+      "id": "N05",
+      "title": "Give each app form its own asynchronous lifetime",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "A dismissed or replaced app form cannot receive an older submission's state or completion effects.",
+      "before": "An old form's success, validation refusal or network failure could close or contaminate a replacement form.",
+      "after": "Input, field errors and busy state belong to the active view; only that view's live request can update or close it.",
+      "mechanism": "Key AppForm by view ID, guard component/submission lifetime, and fence WorkspaceClient submit/dismiss actions by the modal identity.",
+      "files": [
+        "packages/ui/src/components/ViewModal.tsx",
+        "packages/client-core/src/workspace.ts",
+        "packages/ui/test/viewModal.dom.test.tsx",
+        "packages/client-core/test/modal.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N05 form isolation behavior"
+        },
+        {
+          "path": "packages/client-core/test/modal.test.ts",
+          "label": "Real app callback/socket lifetime regression"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "This owns UI/modal completion; server concurrent submission and external-effect deduplication are separate N08 limits."
+      ]
+    },
+    {
+      "id": "N06",
+      "title": "Strip action content from deleted and superseded message copies",
+      "category": "privacy",
+      "status": "implemented",
+      "summary": "Deletion cleanup now removes interactive button labels, values and URLs from active tombstones and superseded replay events.",
+      "before": "Text was cleaned while action payloads could retain user/app content after deletion or replacement.",
+      "after": "Deleted rows and old replay copies carry no action payload; current live message buttons remain intact.",
+      "mechanism": "Set actions to an empty array during soft deletion and replay redaction, then schema v37 cleans existing deleted/purged/superseded active database records.",
+      "files": [
+        "packages/server/src/store.ts",
+        "packages/server/src/db.ts",
+        "packages/server/test/contentCleanup.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N06 and schema37 active-copy cleanup"
+        },
+        {
+          "path": "packages/server/test/contentCleanup.test.ts",
+          "label": "Current-action preservation and historical-copy cleanup"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Active-record cleanup does not erase historical backups or freed SQLite disk pages."
+      ]
+    },
+    {
+      "id": "N07",
+      "title": "Remove completed schedule content while retaining completion metadata",
+      "category": "privacy",
+      "status": "implemented",
+      "summary": "Completed scheduled messages no longer keep a redundant text/file-ID copy in the schedule table.",
+      "before": "An already-sent schedule still retained message text and attachment references after its delivery purpose ended.",
+      "after": "Sent rows keep state/timing/completion identity without text or attachment IDs; queued unsent schedules retain what delivery requires.",
+      "mechanism": "On completion write empty text and file_ids, and schema v37 migrates old sent rows under the same content-minimization policy.",
+      "files": [
+        "packages/server/src/store.ts",
+        "packages/server/src/db.ts",
+        "packages/server/test/contentCleanup.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N07 sent-record minimization"
+        },
+        {
+          "path": "packages/server/test/contentCleanup.test.ts",
+          "label": "Sent cleanup and queued preservation controls"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Removing duplicate schedule content is a privacy/storage-lifecycle fix; no measured database-size or throughput saving is claimed.",
+        "Historical backups and freed bytes remain outside this cleanup."
+      ]
+    },
+    {
+      "id": "N08",
+      "title": "Exclude simultaneous duplicate app view submissions",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "One app view can have only one callback in flight, with correction/retry available after it settles.",
+      "before": "Concurrent requests for the same view could both reach the external application.",
+      "after": "A second active submission gets 409 view_submitting, while later validation correction and deliberate transport retry still work.",
+      "mechanism": "A per-view submitting Set is acquired before callback dispatch and released in finally; view/account ownership is validated independently.",
+      "files": [
+        "packages/server/src/server.ts",
+        "packages/server/test/integrationLifetime.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N08 callback exclusion and retry limits"
+        },
+        {
+          "path": "packages/server/test/integrationLifetime.test.ts",
+          "label": "Concurrent, correction, independent-view and owner controls"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "The Set prevents simultaneous dispatch, not exactly-once external business effects after an uncertain network reply. Apps should deduplicate by view ID."
+      ]
+    },
+    {
+      "id": "N09",
+      "title": "Fence delayed app replace/delete directives to their origin revision",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "An old response URL cannot replace/delete a message that disappeared or was changed since its callback origin.",
+      "before": "Late directives could act on the message's newer state after an edit/deletion race.",
+      "after": "Missing or changed origins make delayed replace/delete a no-op; an app can continue its own update chain through the same response URL.",
+      "mechanism": "Hash origin text/editedAt/actions, compare before mutation and advance the shared origin revision after a valid self-update.",
+      "files": [
+        "packages/server/src/server.ts",
+        "packages/server/test/integrationLifetime.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N09 origin revision behavior"
+        },
+        {
+          "path": "packages/server/test/integrationLifetime.test.ts",
+          "label": "Delayed edit/delete and same-response chain controls"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "The fingerprint covers the declared message fields; it is not a general cross-device revision protocol for all state."
+      ]
+    },
+    {
+      "id": "N10",
+      "title": "Invalidate cached attachment bytes when a whole thread is retained away",
+      "category": "privacy",
+      "status": "implemented",
+      "summary": "Retention removal reaches root and reply attachment ownership even after history eviction.",
+      "before": "Cached blob URLs or held transfers could outlive a thread removed by retention because reply ownership was absent from the loaded history.",
+      "after": "Root/reply bytes are canceled/released, a late transfer cannot reinstall them, and an active preview explains unavailability.",
+      "mechanism": "File ownership includes threadRootId independent of loaded history. history.removed invalidates those owners; unknown-owner entries are conservatively revalidated on removal.",
+      "files": [
+        "packages/client-core/src/fileCache.ts",
+        "packages/client-core/src/workspace.ts",
+        "packages/client-core/test/fileInvalidation.test.ts",
+        "packages/ui/src/components/AccountDialog.tsx",
+        "packages/ui/test/fileUnavailable.dom.test.tsx"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N10 whole-thread/evicted-history invalidation"
+        },
+        {
+          "path": "packages/client-core/test/fileInvalidation.test.ts",
+          "label": "Held-transfer and evicted-owner regressions"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Fresh server authorization already denied unavailable files; this fixes previously fetched local resources.",
+        "Previously downloaded/copied content cannot be retroactively unrevealed."
+      ]
+    },
+    {
+      "id": "N11",
+      "title": "Preserve restored-copy holds despite damaged registry metadata",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Malformed display fields cannot cause a held restored workspace to be adopted into ordinary hosting.",
+      "before": "A damaged name, port or timestamp could discard a registry row and lose the protection that kept a restored copy isolated.",
+      "after": "Hold state survives recoverable display damage; uncertain held identities remain blocked while ordinary new-folder adoption stays supported.",
+      "mechanism": "Parse safety-critical identity/hold metadata independently of optional presentation fields and fail closed when a held folder/identity cannot be established.",
+      "files": [
+        "apps/desktop/src/main/registry.ts",
+        "apps/desktop/src/main/hosting.ts",
+        "apps/desktop/test/hosting.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N11 preserved hold policy"
+        },
+        {
+          "path": "apps/desktop/test/hosting.test.ts",
+          "label": "Damaged metadata and adoption regressions"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "This closes registry-adoption behavior; Q01's restore publication lock gap remains separate."
+      ]
+    },
+    {
+      "id": "N12",
+      "title": "Retain connector/server ownership until cleanup actually succeeds",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Canceled/failed public setup cannot abandon handles that still need teardown.",
+      "before": "An unsuccessful connector close could be treated as finished, allowing another route/access change while the old resource remained alive.",
+      "after": "Failed cleanup stays pending, resource handles remain owned and reopening is gated until retry establishes cleanup.",
+      "mechanism": "TunnelCleanupError carries the connector to the controller, including canceled/setup-failed handles and accidental-port isolated listeners. Cleanup waits are bounded and retryable; established close failures also mark pending cleanup.",
+      "files": [
+        "apps/desktop/src/main/hosting.ts",
+        "apps/desktop/src/main/tunnel.ts",
+        "apps/desktop/test/hosting.test.ts",
+        "apps/desktop/test/tunnel.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPLEMENTATION-2026-10-04.md",
+          "label": "N12 cleanup ownership and local limits"
+        },
+        {
+          "path": "apps/desktop/test/tunnel.test.ts",
+          "label": "Connector teardown controls"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Loopback/injected connector failures do not establish a real Cloudflare orphan frequency.",
+        "Q12 remains a separate main-adapter handle gap after listening; Q13 remains a pre-cleanup queue wait gap."
+      ]
+    },
+    {
+      "id": "RESOURCE-BOUNDS",
+      "title": "Keep history, attachment transfer and socket work bounded",
+      "category": "resources",
+      "status": "implemented",
+      "summary": "The architecture already caps retained page/cache work and avoids materializing whole file bodies during transfer.",
+      "before": "Unbounded histories, independent duplicate file fetches or unchecked socket buffering would scale memory with session duration/load.",
+      "after": "Timeline/thread windows hold 300 messages, inactive caches have 20 entries per category, idle blobs have a 32 MiB budget, body fetches have four slots and slow sockets use a 2 MiB queued-byte cutoff.",
+      "mechanism": "LRU eviction protects active histories, file fetches deduplicate/cancel, image bodies load near the viewport, streaming server transfers preserve bounded body work, and reconnect uses durable replay/snapshot fallback.",
+      "files": [
+        "packages/client-core/src/workspace.ts",
+        "packages/client-core/src/fileCache.ts",
+        "packages/ui/src/components/Attachments.tsx",
+        "packages/server/src/gateway.ts",
+        "packages/server/src/server.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/OPTIMIZATION-PLAN-2026-09-30.md",
+          "label": "Existing optimization boundaries to preserve"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "These are configured bounds, not comparative speed/memory measurements.",
+        "Active blobs, decoded pixels, complete account snapshots, aggregate connections and database/WAL/staging storage need separate budgets and profiling."
+      ]
+    },
+    {
+      "id": "REV-01-F03",
+      "title": "Contain background jobs and socket callback failures",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Actual scheduled/delivery/timer and Gateway callback faults no longer escape as unhandled process-ending work.",
+      "before": "Read/rejection faults through native interval/immediate callbacks or socket heartbeat/message/close could terminate the host.",
+      "after": "Queue failures retain durable rows and retry on later turns; unreadable session authorization sends no dependent frame and closes for recovery.",
+      "mechanism": "Contain synchronous/asynchronous whole entry boundaries, report bounded queue failure metadata, deduplicate session checks within a batch and let explicit operational flush callers still learn that work failed.",
+      "files": [
+        "packages/server/src/server.ts",
+        "packages/server/src/gateway.ts",
+        "packages/server/test/backgroundQueues.test.ts",
+        "packages/server/test/gatewayFailures.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-01 real timer/child controls"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F03 complete Gateway callback containment"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Fault injection establishes survival/correct recovery at these boundaries, not the frequency of real disk failures.",
+        "Durable jobs remain authoritative and no transaction failure is treated as accepted publication."
+      ]
+    },
+    {
+      "id": "REV-15-F04",
+      "title": "Keep accepted integration retry intent and healthy endpoint progress",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Durable repair intent respects admission limits/expiry, and independent endpoints refill freed delivery slots without a slow-peer barrier.",
+      "before": "Retry could restore 1,500 rows into a 500-row ready queue; seven-day pruning could erase accepted waiting intent; one slow endpoint held back unrelated work.",
+      "after": "A bounded ready queue promotes requested retries as space frees, retains requested intent through restart/expiry, and healthy endpoints advance while another remains held.",
+      "mechanism": "Schema v36 records retry_requested; terminal-history pruning excludes accepted requested retry intent. The pump has at most ten concurrent operations and one per subscription, preserving per-subscription order.",
+      "files": [
+        "packages/server/src/db.ts",
+        "packages/server/src/store.ts",
+        "packages/server/src/server.ts",
+        "packages/server/test/deliveryRetry.test.ts",
+        "packages/server/test/deliveryPump.test.ts",
+        "docs/INTEGRATIONS.md"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-15 admission/pump mechanism and measured historical experiment"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F04 expiry/restart and replay ordering contract"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Retry replay is ordered within its subset after already queued events, not globally inserted back into historical sequence order.",
+        "Uncertain external responses can repeat consumer effects; global integration count/byte budgets are still an operating-envelope decision."
+      ]
+    },
+    {
+      "id": "F06",
+      "title": "Reconnect affected clients after failed access publication",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Committed revocation cannot leave the affected device indefinitely relying on stale cached access solely because its refresh notice failed.",
+      "before": "Fresh HTTP correctly refused the removed user, but failed post-commit publication left its existing client showing old channel/history until manual reconnect.",
+      "after": "Failure triggers resynchronization of the affected devices; handshake clears the revoked channel/history and preserves committed HTTP success.",
+      "mechanism": "Target affected sessions for reconnect after access-state fan-out failure instead of rolling back a durable mutation or suppressing later events.",
+      "files": [
+        "packages/server/src/server.ts",
+        "packages/server/src/gateway.ts",
+        "packages/client-core/src/workspace.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "F06 implemented real WorkspaceClient regression and scope"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "This removes previously fetched state after resynchronization; it does not undo data already downloaded or grant fresh unauthorized access."
+      ]
+    },
+    {
+      "id": "REV-11",
+      "title": "Serialize local choice writes and stop queued work after destruction",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Pins, saved items, snooze and preference choices have one active local write, a coalesced latest choice and explicit client lifetime.",
+      "before": "Reordered parallel writes or an old destroyed client's repair could overwrite its replacement client's newer choice.",
+      "after": "Latest intent waits behind the in-flight request; destroy drops queued/repair work and refuses new writes.",
+      "mechanism": "Per-item queues keep one request active, send the latest queued choice after it settles and guard corrections/echo reconciliation by client lifetime.",
+      "files": [
+        "packages/client-core/src/workspace.ts",
+        "packages/client-core/test/preferences.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02.md",
+          "label": "REV-11 serialized choices and destruction contract"
+        },
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "Post-implementation replacement-client verification"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "An already-delivered request cannot be recalled; cross-device ordering still needs a server revision contract.",
+        "Q09 shows Follow has a different unfixed ordering boundary and is not covered by this pin/save/snooze implementation."
+      ]
+    },
+    {
+      "id": "REV-09-F08",
+      "title": "Recover a failed renderer without stopping its host",
+      "category": "reliability",
+      "status": "implemented",
+      "summary": "Electron retries a crashed/failed page within a bounded budget and restores its validated route/history context.",
+      "before": "Renderer failures could leave a blank page; early retry restoration kept channel but lost Saved/thread/panel/query context.",
+      "after": "Up to three failures in a minute reload automatically, followed by Try again/explicit action; main-side hosting remains alive and valid place state is handed back once.",
+      "mechanism": "Separate renderer lifetime from native service ownership and retain a bounded trusted URL/history checkpoint outside renderer memory.",
+      "files": [
+        "apps/desktop/src/main/rendererRecovery.ts",
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/renderer/src/platform.ts",
+        "apps/desktop/test/rendererRecovery.test.ts",
+        "tests/e2e/desktop.spec.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/IMPROVEMENT-PLAN-2026-10-02-FOLLOWUP.md",
+          "label": "REV-09 and F08 packaged recovery behavior"
+        },
+        {
+          "path": "apps/desktop/src/main/rendererRecovery.ts",
+          "label": "Actual retry and checkpoint policy"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Recovered route state is validated against the account/workspace; it does not revive unauthorised local work.",
+        "Crash/power-loss durability remains subject to the separate acknowledged storage boundaries."
+      ]
+    },
+    {
+      "id": "Q01",
+      "title": "Keep exclusive restore ownership through folder publication",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "Restore drops target ownership before swapping folders, allowing a concurrent real host to create an unrelated workspace at that path.",
+      "before": "A controlled concurrent start causes restore publication to fail and leaves the original in a superseded folder.",
+      "after": "Follow-up: retain exclusive admission throughout publication and rollback, using a stable lock identity outside the folder being renamed.",
+      "mechanism": "Hold ownership until publication/rollback is complete; cover concurrent server start, two restores and failed rename without overwriting another target.",
+      "files": ["packages/server/src/backup.ts", "packages/server/src/ownership.ts"],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q01 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/server/restore-gap.json",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "The original survives; the evidence does not prove irrecoverable deletion.",
+        "This is a local restore concurrency boundary, not a public remote restore endpoint."
+      ]
+    },
+    {
+      "id": "Q02",
+      "title": "Make first trusted-address registration atomic",
+      "category": "privacy",
+      "status": "follow-up",
+      "summary": "Two windows can each admit a distinct address after both read the same trusted-identity record as absent.",
+      "before": "A second first-registration window can mount local-work consumers and read migrated text from the first address without approval.",
+      "after": "Follow-up: use the storage owner's conditional initialization/atomic update so exactly one first address is admitted automatically.",
+      "mechanism": "Replace the separate get/set absent check with an atomic owner operation; require deliberate approval for the losing distinct address before consumers mount.",
+      "files": [
+        "packages/ui/src/lib/workspaceAddressTrust.ts",
+        "packages/ui/src/lib/deviceStore.ts",
+        "packages/ui/src/lib/workspaceStorage.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q02 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/root/preferences-evidence.json",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Requires concurrent first registration; the ordinary second-address refusal control passes.",
+        "No alias approval bypass outside that race is established."
+      ]
+    },
+    {
+      "id": "Q03",
+      "title": "Fence stale notification preference replies",
+      "category": "privacy",
+      "status": "follow-up",
+      "summary": "Older initial-read/save completions can overwrite a newer private choice already received from another window.",
+      "before": "Durable storage is private, while the active window returns to full previews after a delayed reply.",
+      "after": "Follow-up: generation-fence replies against newer observed state and use an acknowledged current read if ordering is uncertain.",
+      "mechanism": "Track the preference request/watch generation, including watches arriving before initial load; stale async replies must not restore less-private active state.",
+      "files": ["packages/ui/src/lib/notificationPreview.ts", "packages/ui/src/lib/deviceStore.ts"],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q03 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/root/preferences-evidence.json",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "This is caller-level active-state ordering; N02's backend keeps the correct private durable value.",
+        "A passed diagnostic reproduces the failure and is not fix acceptance."
+      ]
+    },
+    {
+      "id": "Q04",
+      "title": "Keep unreadable composer preferences visible and safe",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "A refused browser composer-preference read is treated as first-use absence.",
+      "before": "A saved newline-on-Enter choice becomes Enter-to-send without an error and the actual composer invokes Send.",
+      "after": "Follow-up: strict validated preference reads keep newline behavior on unreadability and expose a retry.",
+      "mechanism": "Distinguish absent record from denied/corrupt read in the web adapter and composer preference owner; test held/refused reads and save acknowledgement.",
+      "files": [
+        "packages/ui/src/lib/composerPreferences.ts",
+        "packages/ui/src/platform.ts",
+        "packages/ui/src/components/Composer.tsx"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q04 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/root/preferences-evidence.json",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "The failure is conditional on record-specific unreadability.",
+        "The storage backend's owner/journal repair does not choose this caller's fallback UI behavior."
+      ]
+    },
+    {
+      "id": "Q05",
+      "title": "Merge saved sign-ins without reviving removals",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "App writes a stale in-memory servers list as a whole.",
+      "before": "A stale window switching workspaces can revive an explicitly forgotten sign-in or erase a sign-in newly stored by another window.",
+      "after": "Follow-up: account-aware atomic add/remove/token changes plus open-window subscriptions preserve explicit removal intent.",
+      "mechanism": "Use owner operations keyed by address/account and durable removals, then reconcile returned/current data without stale whole-list overwrite.",
+      "files": [
+        "packages/ui/src/App.tsx",
+        "packages/ui/src/lib/deviceStore.ts",
+        "apps/desktop/src/main/settings.ts",
+        "apps/desktop/src/main/credentials.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q05 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/root/signins-evidence.json",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Uses actual App and IndexedDB with synthetic credentials; no token-revocation bypass is demonstrated.",
+        "Browser/Desktop caller policy needs coverage even though native settings serializes writes."
+      ]
+    },
+    {
+      "id": "Q06",
+      "title": "End saved-sign-in and password attempts when canceled",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "Saved-sign-in and password completions can still invoke connected after their UI attempt is abandoned.",
+      "before": "A canceled request or dismissed form can navigate into its old workspace after the reader moves on.",
+      "after": "Follow-up: give these attempts cancellation/unmount identity guards like the existing address-probe control.",
+      "mechanism": "Capture attempt generation/account identity; late success/failure cannot call connected or overwrite a newer attempt once abandoned.",
+      "files": ["packages/ui/src/screens/JoinScreen.tsx"],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q06 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/root/join-evidence.json",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Ordinary canceled address probes already ignore late success.",
+        "The reproduction is asynchronous UI ownership, not a server authentication defect."
+      ]
+    },
+    {
+      "id": "Q07",
+      "title": "Keep open search results synchronized with content removal/edit",
+      "category": "privacy",
+      "status": "follow-up",
+      "summary": "SearchDialog owns copied results independently of authoritative socket changes.",
+      "before": "Deleted/retained or edited text remains in an already-open search until the reader repeats the query.",
+      "after": "Follow-up: observe deletion/retention/edit/revocation and fence held result installation independent of loaded timeline history.",
+      "mechanism": "Apply authoritative result invalidation or refresh to the search's copied rows and track request generation so late removed content cannot reinstall.",
+      "files": [
+        "packages/ui/src/components/SearchDialog.tsx",
+        "packages/client-core/src/workspace.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q07 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/client/ui-results.txt",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "This is previously fetched text; fresh unauthorized retrieval is not established.",
+        "Preserve unrelated authorized result rows and normal paging/search access filters."
+      ]
+    },
+    {
+      "id": "Q08",
+      "title": "Refresh Pins independently of loaded timeline state",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "Pins refresh reacts to loaded timeline pin data rather than every authoritative pin/deletion change.",
+      "before": "A deleted pinned message remains in an open Pins panel when that channel timeline is not loaded.",
+      "after": "Follow-up: subscribe to independent pin/removal changes and fence held panel results.",
+      "mechanism": "Use server/socket message/pin invalidation scoped to the panel's channel, retaining loaded-history controls and explicit Refresh behavior.",
+      "files": [
+        "packages/ui/src/components/MessageListPanel.tsx",
+        "packages/client-core/src/workspace.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q08 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/client/ui-results.txt",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Loaded-timeline and manual Refresh controls already clear the row.",
+        "This is stale previously fetched data, not a fresh access-grant bypass."
+      ]
+    },
+    {
+      "id": "Q09",
+      "title": "Order Follow/Unfollow by latest local intent",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "Opposite Follow requests can race on the network/server.",
+      "before": "Follow then Unfollow can finish followed when the older request reaches the server last; sequential calls finish unfollowed.",
+      "after": "Follow-up: serialize/coalesce per-thread follow intent or use an explicit server revision contract.",
+      "mechanism": "Keep one request active, send the latest queued choice, reconcile authoritative echoes and ensure failed older completion cannot roll back newer intent.",
+      "files": ["packages/client-core/src/workspace.ts", "packages/server/src/store.ts"],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q09 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/client/state-results.txt",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Actual HTTP/socket controls inject request ordering; natural frequency is unmeasured.",
+        "The completed pin/save/snooze queue does not cover Follow."
+      ]
+    },
+    {
+      "id": "Q10",
+      "title": "Identify unread rollback by request rather than cursor equality",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "Repeated identical Mark unread actions share the same optimistic cursor value.",
+      "before": "An older failure rolls local state back after a newer identical request succeeds, while SQLite remains unread.",
+      "after": "Follow-up: associate rollback ownership with a request identity/generation and current authoritative echo.",
+      "mechanism": "Only the still-owning failed request may restore its prior cursor; test repeated equal values, held failure, reconnect and multi-device updates.",
+      "files": [
+        "packages/client-core/src/workspace.ts",
+        "packages/client-core/test/unread.test.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q10 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/client/state-results.txt",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "The reproduced disagreement is local rollback; the server's stored unread state is correct."
+      ]
+    },
+    {
+      "id": "Q11",
+      "title": "Cancel Profile Message navigation ownership on dismissal",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "A Profile Message action keeps its navigation completion alive after the dialog closes.",
+      "before": "The old action opens its DM after the reader has navigated to another channel.",
+      "after": "Follow-up: lifetime-guard Profile action completion and rejection, matching the working New message cancellation behavior.",
+      "mechanism": "Dismiss/unmount increments action ownership; a late direct-message result must not navigate or contaminate the replacement view.",
+      "files": [
+        "packages/ui/src/components/ProfileDialog.tsx",
+        "packages/ui/src/screens/WorkspaceScreen.tsx"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q11 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/client/ui-results.txt",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Real component/full WorkspaceScreen control establishes the action boundary; ordinary New message already has a dismissal guard."
+      ]
+    },
+    {
+      "id": "Q12",
+      "title": "Close a created listener when post-start invite setup fails",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "Main's startup adapter starts listening before configured invite policy is enforced.",
+      "before": "A failed policy write loses the server handle before returning it to the controller; shutdown reports success while health still answers and ownership remains locked.",
+      "after": "Follow-up: retain the newly created server in a protected try/finally until startup either transfers ownership or closes it.",
+      "mechanism": "Acquire the handle immediately after create/listen, run policy checks inside a cleanup-protected block and transfer it to the controller only after complete success.",
+      "files": [
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/main/hosting.ts",
+        "packages/server/src/server.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q12 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/desktop/lifecycle-next.json",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "Actual extracted startup callback, real SQLite write-refusing trigger and loopback listener establish the controlled failure.",
+        "This is adjacent to N12's controller/connector fixes, which remain in place."
+      ]
+    },
+    {
+      "id": "Q13",
+      "title": "Bound shutdown waiting before it reaches cleanup",
+      "category": "reliability",
+      "status": "follow-up",
+      "summary": "Shutdown joins the hosting operation queue behind an outstanding backup.",
+      "before": "A held backup leaves the listener running beyond six injected cleanup deadline intervals because timed cleanup has not begun.",
+      "after": "Follow-up: define bounded cancellation/settlement for preceding queued/in-flight work while retaining resource ownership.",
+      "mechanism": "Start an overall shutdown policy before queue wait, distinguish accepted durable work from abortable work and retain handles until each cancellation/cleanup outcome is established.",
+      "files": [
+        "apps/desktop/src/main/hosting.ts",
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/main/backupWorker.ts"
+      ],
+      "evidence": [
+        {
+          "path": "docs/MORE-IMPROVEMENTS-2026-10-04.md",
+          "label": "Q13 confirmed remaining finding and acceptance scope"
+        },
+        {
+          "path": "docs/research/2026-10-04-next/desktop/lifecycle-next.json",
+          "label": "Disposable diagnostic/control evidence"
+        }
+      ],
+      "metrics": [],
+      "limits": [
+        "A held adapter proves queue behavior; it does not establish a real blocked network-share backup or observed native exit hang.",
+        "A timeout must not abandon the worker/server resource or silently claim unfinished backup success."
+      ]
+    }
+  ]
+}
