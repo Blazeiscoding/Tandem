@@ -159,9 +159,7 @@ export function AuditHistory() {
 
   return (
     <section ref={section} tabIndex={-1} className="mt-4 outline-none" aria-label="Recent changes">
-      <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-        Recent changes
-      </div>
+      <div className="mb-2 text-[13px] font-medium text-ink-dim">Recent changes</div>
       <ListStatus
         loading={busy}
         placeholder={entries === null}

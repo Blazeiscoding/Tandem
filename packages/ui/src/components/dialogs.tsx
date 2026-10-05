@@ -9,54 +9,145 @@ import { Dialog, inputCls } from "./Dialog.js";
 import { useConfirm } from "./Confirm.js";
 import { useShareableServer } from "./ShareableServer.js";
 import { buttonClass } from "./Button.js";
+import { Icon } from "./Icon.js";
 
 export function NewChannelDialog(props: { onClose: () => void; onCreated: (ch: Channel) => void }) {
   const client = useClient();
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const slug = name.trim().toLowerCase().replaceAll(/\s+/g, "-");
+  const [busy, setBusy] = useState(false);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const slug = name.trim().replace(/^#+/, "").toLowerCase().replaceAll(/\s+/g, "-");
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
+    // Say what is missing rather than refusing silently.
+    if (!slug) {
+      setError("Give the channel a name.");
+      nameInput.current?.focus();
+      return;
+    }
+    setBusy(true);
+    setError(null);
     try {
       const { channel } = await client.api.createChannel({
         type: isPrivate ? "private" : "public",
         name: slug,
+        ...(description.trim() ? { description: description.trim() } : {}),
       });
       props.onCreated(channel);
-    } catch {
-      setError("Couldn't create the channel — maybe the name is taken.");
+    } catch (err) {
+      setBusy(false);
+      setError(
+        err instanceof ApiError && err.code === "name_taken"
+          ? `#${slug} already exists. Choose another name.`
+          : "Couldn't create the channel. Check your connection and try again.",
+      );
+      nameInput.current?.focus();
     }
   }
 
+  const choice = (value: boolean, icon: "hash" | "lock", title: string, hint: string) => (
+    <label
+      className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3.5 py-3 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-copper ${
+        isPrivate === value ? "border-ink/30 bg-ink/[0.04]" : "border-edge hover:border-ink/20"
+      }`}
+    >
+      <input
+        type="radio"
+        name="channel-visibility"
+        checked={isPrivate === value}
+        onChange={() => setIsPrivate(value)}
+        className="sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border border-edge text-ink-dim"
+      >
+        <Icon name={icon} size={14} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-ink">{title}</span>
+        <span className="block text-[13px] text-ink-dim">{hint}</span>
+      </span>
+      <span
+        aria-hidden="true"
+        className={`mt-1 flex size-4 shrink-0 items-center justify-center rounded-full border ${
+          isPrivate === value ? "border-copper" : "border-edge"
+        }`}
+      >
+        {isPrivate === value && <span className="size-2 rounded-full bg-copper" />}
+      </span>
+    </label>
+  );
+
   return (
     <Dialog title="New channel" onClose={props.onClose}>
-      <form onSubmit={create} className="space-y-3">
-        <div className="relative">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint">
-            #
-          </span>
+      <form onSubmit={create} noValidate className="space-y-4">
+        <div>
+          <label
+            htmlFor="new-channel-name"
+            className="mb-1.5 block text-[13px] font-medium text-ink-dim"
+          >
+            Name
+          </label>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint">
+              #
+            </span>
+            <input
+              id="new-channel-name"
+              ref={nameInput}
+              autoFocus
+              value={name}
+              maxLength={80}
+              onChange={(e) => {
+                setName(e.target.value);
+                setError(null);
+              }}
+              placeholder="release-party"
+              aria-invalid={!!error || undefined}
+              aria-describedby="new-channel-name-hint"
+              className={`${inputCls} pl-7`}
+            />
+          </div>
+          <p id="new-channel-name-hint" className="mt-1.5 text-[12px] text-ink-faint">
+            {slug && slug !== name.trim()
+              ? `It will be #${slug}.`
+              : "Short and lowercase works best, such as #design or #launch-week."}
+          </p>
+        </div>
+        <div>
+          <label
+            htmlFor="new-channel-description"
+            className="mb-1.5 block text-[13px] font-medium text-ink-dim"
+          >
+            What is it for? <span className="font-normal text-ink-faint">(optional)</span>
+          </label>
           <input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="release-party"
-            className={`${inputCls} pl-7`}
+            id="new-channel-description"
+            value={description}
+            maxLength={500}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Planning the launch party"
+            className={inputCls}
           />
         </div>
-        <label className="flex cursor-pointer items-center gap-2.5 text-sm text-ink-dim">
-          <input
-            type="checkbox"
-            checked={isPrivate}
-            onChange={(e) => setIsPrivate(e.target.checked)}
-            className="accent-copper"
-          />
-          Private — only invited members can see it
-        </label>
-        {error && <p className="text-sm text-alert">{error}</p>}
-        <button type="submit" disabled={!slug} className={buttonClass("primary", "w-full")}>
-          Create {slug ? `#${slug}` : "channel"}
+        <fieldset className="space-y-2">
+          <legend className="mb-1.5 text-[13px] font-medium text-ink-dim">Who can see it</legend>
+          {choice(false, "hash", "Public", "Anyone in the workspace can find and join it.")}
+          {choice(true, "lock", "Private", "Only invited members can see it.")}
+        </fieldset>
+        {error && (
+          <p role="alert" className="text-sm text-alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" disabled={busy} className={buttonClass("primary", "w-full")}>
+          {busy ? "Creating…" : `Create ${slug ? `#${slug}` : "channel"}`}
         </button>
       </form>
     </Dialog>
@@ -286,70 +377,148 @@ export function NewDmDialog(props: {
     }
   }
 
+  const search = useRef<HTMLInputElement>(null);
+  const toggle = (id: ID, on: boolean) => {
+    setError(null);
+    setPicked((p) => (on ? [...p, id] : p.filter((x) => x !== id)));
+  };
+
   return (
     <Dialog title="New message" onClose={props.onClose}>
-      {props.initialMemberIds && (
-        <p className="mb-3 text-sm text-ink-dim">
-          History stays in the current conversation. A conversation originally started for the
-          selected people may reopen; otherwise a new one starts.
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="mb-3 text-sm text-alert">
-          {error}
-        </p>
-      )}
-      <p className="mb-2 text-xs text-ink-faint">
-        {picked.length === 0
-          ? "Choose up to 8 people. You're included."
-          : `${picked.length} of up to 8 chosen, plus you`}
-      </p>
-      <input
-        autoFocus
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search people"
-        className={`${inputCls} mb-3`}
-      />
-      <ul className="mb-4 max-h-[300px] space-y-0.5 overflow-y-auto">
-        {candidates.map((u) => (
-          <li key={u.id}>
-            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-ink/[0.05]">
-              <input
-                type="checkbox"
-                checked={picked.includes(u.id)}
-                disabled={busy || (!picked.includes(u.id) && picked.length >= 8)}
-                onChange={(e) =>
-                  setPicked((p) => (e.target.checked ? [...p, u.id] : p.filter((x) => x !== u.id)))
-                }
-                className="accent-copper"
-              />
-              <Avatar user={u} size={26} />
-              <span className="min-w-0 flex-1 truncate">
-                {u.displayName}
-                {u.deactivated && " (unavailable)"}
-              </span>
-              <span
-                className={`size-2 rounded-full ${presence[u.id] === "online" ? "bg-online" : "border border-ink-faint/60"}`}
-              />
-            </label>
-          </li>
-        ))}
-        {candidates.length === 0 && (
-          <p className="py-6 text-center text-sm text-ink-faint">
-            {Object.keys(users).length <= 1
-              ? "You're the only one here so far."
-              : "No one matches."}
+      <form
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          // Say what is missing rather than refusing silently.
+          if (picked.length === 0) {
+            setError("Choose at least one person to message.");
+            search.current?.focus();
+            return;
+          }
+          void start();
+        }}
+      >
+        {props.initialMemberIds && (
+          <p className="mb-3 text-sm text-ink-dim">
+            History stays in the current conversation. A conversation originally started for the
+            selected people may reopen; otherwise a new one starts.
           </p>
         )}
-      </ul>
-      <button
-        onClick={start}
-        disabled={busy || picked.length === 0 || picked.length > 8}
-        className={buttonClass("primary", "w-full")}
-      >
-        {busy ? "Opening…" : "Start conversation"}
-      </button>
+        <label
+          htmlFor="new-dm-search"
+          className="mb-1.5 block text-[13px] font-medium text-ink-dim"
+        >
+          To
+        </label>
+        <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-edge bg-ground px-2 py-1.5 transition-colors focus-within:border-copper hover:border-ink-faint/40">
+          {picked.map((id) => {
+            const u = users[id];
+            return (
+              <span
+                key={id}
+                className="flex h-7 items-center gap-1.5 rounded-full bg-ink/[0.07] pl-1 pr-1 text-[13px] font-medium"
+              >
+                {u && <Avatar user={u} size={20} />}
+                {u?.displayName ?? "Unknown"}
+                <button
+                  type="button"
+                  aria-label={`Remove ${u?.displayName ?? "this person"}`}
+                  disabled={busy}
+                  onClick={() => toggle(id, false)}
+                  className="flex size-5 items-center justify-center rounded-full text-ink-faint hover:bg-ink/10 hover:text-ink"
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              </span>
+            );
+          })}
+          <input
+            id="new-dm-search"
+            ref={search}
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              // Backspace in an empty box takes back the last person chosen.
+              if (e.key === "Backspace" && !q && picked.length > 0 && !busy)
+                toggle(picked[picked.length - 1]!, false);
+            }}
+            placeholder={picked.length === 0 ? "Search people" : "Add someone else"}
+            aria-describedby="new-dm-count"
+            className="h-7 min-w-[8rem] flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-ink-faint"
+          />
+        </div>
+        <p id="new-dm-count" className="mb-2 mt-1.5 text-[12px] text-ink-faint">
+          {picked.length === 0
+            ? "Choose up to 8 people. You're included."
+            : `${picked.length} of up to 8 chosen, plus you`}
+        </p>
+        <ul aria-label="People" className="-mx-1 mb-4 max-h-[300px] space-y-0.5 overflow-y-auto">
+          {candidates.map((u) => {
+            const chosen = picked.includes(u.id);
+            const online = presence[u.id] === "online";
+            return (
+              <li key={u.id}>
+                <label
+                  className={`flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-copper ${
+                    chosen ? "bg-ink/[0.06]" : "hover:bg-ink/[0.04]"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={chosen}
+                    disabled={busy || (!chosen && picked.length >= 8)}
+                    onChange={(e) => toggle(u.id, e.target.checked)}
+                    className="sr-only"
+                  />
+                  <span className="relative shrink-0">
+                    <Avatar user={u} size={28} />
+                    <span
+                      aria-hidden="true"
+                      className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-raised ${
+                        online ? "bg-online" : "bg-ink-faint/50"
+                      }`}
+                    />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-ink">
+                      {u.displayName}
+                      {u.deactivated && " (unavailable)"}
+                    </span>
+                    <span className="block truncate text-[12px] text-ink-faint">
+                      @{u.handle}
+                      {online ? " · Online" : ""}
+                    </span>
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={`flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                      chosen ? "border-copper bg-copper text-ground" : "border-edge"
+                    }`}
+                  >
+                    {chosen && <Icon name="check" size={12} />}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+          {candidates.length === 0 && (
+            <p className="py-6 text-center text-sm text-ink-faint">
+              {Object.keys(users).length <= 1
+                ? "You're the only one here so far. Invite people to start a conversation."
+                : `No one matches “${q.trim()}”.`}
+            </p>
+          )}
+        </ul>
+        {error && (
+          <p role="alert" className="mb-3 text-sm text-alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" disabled={busy} className={buttonClass("primary", "w-full")}>
+          {busy ? "Opening…" : "Start conversation"}
+        </button>
+      </form>
     </Dialog>
   );
 }
@@ -364,15 +533,25 @@ const INVITE_STATUS: Record<InviteStatus, string> = {
   creator_not_permitted: "Creator can no longer invite",
 };
 
-function InviteLink(props: { title: string; link: string; copyLabel: string; onCopy: () => void }) {
+function InviteLink(props: {
+  title: string;
+  link: string;
+  copyLabel: string;
+  onCopy: () => void;
+  primary?: boolean;
+}) {
   return (
-    <div className="mt-3 border-t border-edge pt-3">
-      <div className="mb-1 text-xs text-ink-faint">{props.title}</div>
-      <div className="flex items-center justify-between gap-2">
-        <code className="min-w-0 break-all font-mono text-xs text-ink">{props.link}</code>
+    <div className="border-t border-edge px-4 py-3">
+      <div className="mb-1.5 text-[13px] font-medium text-ink-dim">{props.title}</div>
+      <div className="flex items-center justify-between gap-3">
+        <code className="min-w-0 break-all font-mono text-xs leading-5 text-ink">{props.link}</code>
         <button
           onClick={props.onCopy}
-          className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05]"
+          className={
+            props.primary
+              ? buttonClass("primary", "h-8 shrink-0 px-3 text-[13px]")
+              : "h-8 shrink-0 rounded-lg px-2.5 text-[13px] font-medium text-ink-dim transition-colors hover:bg-ink/[0.06] hover:text-ink"
+          }
         >
           {props.copyLabel}
         </button>
@@ -485,17 +664,15 @@ export function InviteDialog(props: { onClose: () => void }) {
           ? "Send someone an invite link. It opens this workspace in their browser with the code already filled in."
           : "Anyone joining needs this workspace's address, and an invite code as well if the workspace is invite-only."}
       </p>
-      <div className="mb-4 rounded-lg border border-edge bg-ground p-3">
-        <div className="mb-1 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-          Server address
-        </div>
+      <div className="mb-4 rounded-xl border border-edge bg-ground px-4 py-3">
+        <div className="mb-1.5 text-[13px] font-medium text-ink-dim">Server address</div>
         <div className="flex items-center justify-between gap-2">
           {addresses.length > 1 ? (
             <select
               aria-label="Address used in links"
               value={serverUrl}
               onChange={(e) => setChosenAddress(e.target.value)}
-              className="min-w-0 rounded border border-edge bg-raised px-2 py-1 font-mono text-sm text-copper"
+              className="h-8 min-w-0 rounded-lg border border-edge bg-raised px-2 font-mono text-[13px] text-ink"
             >
               {addresses.map((address) => (
                 <option key={address} value={address}>
@@ -504,11 +681,11 @@ export function InviteDialog(props: { onClose: () => void }) {
               ))}
             </select>
           ) : (
-            <code className="min-w-0 break-all font-mono text-sm text-copper">{host}</code>
+            <code className="min-w-0 break-all font-mono text-[13px] text-ink">{host}</code>
           )}
           <button
             onClick={() => void copy(host, "host")}
-            className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05]"
+            className="h-8 shrink-0 rounded-lg px-2.5 text-[13px] font-medium text-ink-dim transition-colors hover:bg-ink/[0.06] hover:text-ink"
           >
             {label("Copy address", "Copied", "Copy failed", "host")}
           </button>
@@ -521,17 +698,18 @@ export function InviteDialog(props: { onClose: () => void }) {
         )}
       </div>
       {invite && canInvite && links ? (
-        <div className="rounded-lg border border-edge bg-ground p-3">
-          <div className="mb-1 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-            Invite code · valid 7 days
+        <div className="animate-pop-in overflow-hidden rounded-xl border border-edge bg-ground">
+          <div className="flex items-baseline justify-between px-4 pt-3">
+            <span className="text-[13px] font-medium text-ink-dim">Invite code</span>
+            <span className="text-[12px] text-ink-faint">Works for 7 days</span>
           </div>
-          <div className="flex items-center justify-between gap-2">
-            <code className="font-mono text-lg font-bold tracking-[0.2em] text-copper">
+          <div className="flex items-center justify-between gap-2 px-4 pb-3 pt-1">
+            <code className="font-mono text-lg font-semibold tracking-[0.2em] text-ink">
               {invite}
             </code>
             <button
               onClick={() => void copy(invite, "code")}
-              className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05]"
+              className="h-8 shrink-0 rounded-lg px-2.5 text-[13px] font-medium text-ink-dim transition-colors hover:bg-ink/[0.06] hover:text-ink"
             >
               {label("Copy code", "Copied", "Copy failed", "code")}
             </button>
@@ -541,6 +719,7 @@ export function InviteDialog(props: { onClose: () => void }) {
             link={links.browser}
             copyLabel={label("Copy link", "Copied", "Copy failed", "browser")}
             onCopy={() => void copy(links.browser, "browser")}
+            primary
           />
           <InviteLink
             title="Desktop app link"
@@ -558,7 +737,7 @@ export function InviteDialog(props: { onClose: () => void }) {
           Generate invite code
         </button>
       ) : (
-        <p className="rounded-lg border border-edge bg-ground p-3 text-sm text-ink-dim">
+        <p className="rounded-xl border border-edge bg-ground p-3 text-sm text-ink-dim">
           Creating invite codes needs permission from an administrator. Ask one to allow it, or to
           invite the person for you.
         </p>
@@ -569,10 +748,8 @@ export function InviteDialog(props: { onClose: () => void }) {
         </p>
       )}
       {invites && invites.length > 0 && (
-        <div className="mt-5">
-          <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-            Invite codes
-          </div>
+        <div className="mt-6">
+          <div className="mb-2 text-[13px] font-medium text-ink-dim">Invite codes</div>
           <ul className="max-h-60 space-y-1.5 overflow-y-auto" aria-label="Invite codes">
             {invites.map((inv) => {
               // A role change takes effect before a refreshed list returns.
@@ -590,7 +767,7 @@ export function InviteDialog(props: { onClose: () => void }) {
               return (
                 <li
                   key={inv.code}
-                  className="flex items-center gap-3 rounded-lg border border-edge px-3 py-2 text-sm"
+                  className="flex items-center gap-3 rounded-xl border border-edge px-3 py-2 text-sm"
                 >
                   <code className="font-mono text-[13px] tracking-[0.15em] text-ink">
                     {inv.code}
@@ -603,14 +780,17 @@ export function InviteDialog(props: { onClose: () => void }) {
                       : ""}
                   </span>
                   <span
-                    className={`text-xs ${status === "active" ? "text-online" : "text-ink-faint"}`}
+                    className={`flex items-center gap-1.5 text-xs ${status === "active" ? "text-online" : "text-ink-faint"}`}
                   >
+                    {status === "active" && (
+                      <span aria-hidden="true" className="size-1.5 rounded-full bg-online" />
+                    )}
                     {INVITE_STATUS[status]}
                   </span>
                   {status !== "revoked" && (
                     <button
                       onClick={() => void revoke(inv.code)}
-                      className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05] hover:text-alert"
+                      className="rounded-lg px-2 py-1 text-xs text-ink-dim transition-colors hover:bg-alert/10 hover:text-alert"
                       aria-label={`Revoke invite ${inv.code}`}
                     >
                       Revoke

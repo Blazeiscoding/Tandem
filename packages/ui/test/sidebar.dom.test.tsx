@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import type { User } from "@slackoss/protocol";
@@ -126,8 +126,40 @@ describe("the account menu", () => {
   it("keeps what concerns only you apart from the workspace's", async () => {
     const { user } = sidebar({ admin: true });
     const { menu, items } = await accountMenu(user);
-    expect(items).toEqual(["Profile and status", "Account settings", "Scheduled messages"]);
+    expect(items).toEqual([
+      "💬In a meeting",
+      "🎧Heads down",
+      "🍜Out for lunch",
+      "Profile and status",
+      "Account settings",
+      "Scheduled messages",
+    ]);
     expect(await accessibilityProblems(menu)).toEqual([]);
+  });
+
+  it("sets a common status in two clicks, and clears it the same way", async () => {
+    const { user, client } = sidebar({ admin: false });
+    const updateMe = vi
+      .spyOn(client.api, "updateMe")
+      .mockImplementation(async (body) => ({ user: { ...sam, ...body } }));
+    await accountMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Set status: In a meeting" }));
+    expect(updateMe).toHaveBeenCalledWith({ statusEmoji: "💬", statusText: "In a meeting" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    // With a status set, the menu offers to clear it, and not the one already set.
+    act(() =>
+      client.store.setState((state) => ({
+        self: { ...state.self!, statusEmoji: "💬", statusText: "In a meeting" },
+      })),
+    );
+    expect(screen.getByRole("button", { name: /, your account$/ })).toHaveTextContent(
+      "💬 In a meeting",
+    );
+    const { items } = await accountMenu(user);
+    expect(items.slice(0, 3)).toEqual(["Clear status", "🎧Heads down", "🍜Out for lunch"]);
+    await user.click(screen.getByRole("menuitem", { name: "Clear status, 💬 In a meeting" }));
+    expect(updateMe).toHaveBeenLastCalledWith({ statusEmoji: "", statusText: "" });
   });
 
   it("offers the shortcut sheet, diagnostics and scheduled messages when the screen can open them", async () => {
@@ -161,6 +193,9 @@ describe("the account menu", () => {
     const user = userEvent.setup();
     const { items } = await accountMenu(user);
     expect(items).toEqual([
+      "💬In a meeting",
+      "🎧Heads down",
+      "🍜Out for lunch",
       "Profile and status",
       "Account settings",
       "Scheduled messages",

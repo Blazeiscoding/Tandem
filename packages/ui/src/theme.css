@@ -204,6 +204,8 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  /* Checkboxes, radios and ranges in the accent, not the browser's blue. */
+  accent-color: var(--color-copper);
 }
 
 /* Times and counts line up as they change. */

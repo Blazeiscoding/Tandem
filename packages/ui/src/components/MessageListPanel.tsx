@@ -191,8 +191,8 @@ export function MessageListPanel(props: Props) {
           {messages?.length ?? 0}{" "}
           {messages?.length === 1
             ? (props.countNoun?.[0] ?? "message")
-            : (props.countNoun?.[1] ?? "messages")}{" "}
-          · Page {page + 1}
+            : (props.countNoun?.[1] ?? "messages")}
+          {(page > 0 || nextCursor) && ` · Page ${page + 1}`}
         </div>
         {(page > 0 || nextCursor) && (
           <div className="mt-2 flex justify-between text-xs">
