@@ -33,6 +33,7 @@ The [2 October improvement plan](docs/IMPROVEMENT-PLAN-2026-10-02.md) reviews th
 Its [deep investigation and reproducible evidence](docs/research/2026-10-02-deep/README.md) cover real failure paths, client lifecycle, desktop packaging/IPC, and measured optimization candidates.
 The [3 October review](docs/IMPROVEMENT-PLAN-2026-10-03.md) checks the latest fixes and records further storage, shutdown, microphone and integration lifecycle improvements with fresh reproducible evidence.
 The [4 October implementation](docs/IMPLEMENTATION-2026-10-04.md) addresses those twelve findings and records regression and integration validation.
+The [UI and UX improvement plan](docs/UX-PLAN-2026-10-05.md) reviews the desktop app and browser client screen by screen and orders hierarchy, navigation, first-run, search, settings and phone work into phases with acceptance checks.
 
 Open-source team chat that **you** host. Run the server on a VPS, or click
 **"Host a workspace"** in the desktop app and serve your team straight from your
