@@ -1,5 +1,9 @@
 /*
- * Tandem's look: quiet chrome, one warm accent, the conversation in front.
+ * Tandem's look, after chaicode.com (ui.chaicode.com): warm near-black,
+ * hairline cards with a faint fill instead of shadows, one orange for what
+ * needs you, a pale-cream highlight phrase, buttons with asymmetric corners,
+ * frosted menus and a faint hexagon glow behind it all. Quiet chrome, the
+ * conversation in front.
  *
  * Layout. The window is the darkest surface ("deep"). The sidebar sits on it
  * directly; the conversation and any side panel are cards set into it,
@@ -7,8 +11,8 @@
  * what people wrote rather than on the furniture around it. On a phone the
  * cards fill the screen and lose their margins.
  *
- * Two themes, each a full set of the tokens below: Onyx, near-black and
- * neutral, and White. "System" follows the device, and is the default.
+ * Two themes, each a full set of the tokens below: Onyx, warm near-black,
+ * and White, warm paper. "System" follows the device, and is the default.
  *
  * Surfaces, darkest to lightest in Onyx (lightest to darkest in White):
  * - deep: the window, the sidebar, the rail, the huddle stage behind video;
@@ -22,8 +26,9 @@
  * in messages keep the accent so they read as links.
  *
  * The rest of the system, written down:
- * - Type: Inter, bundled (a LAN workspace renders the same offline), with
- *   optical sizing. 10, 11, 12 and 13 px for metadata, labels and compact
+ * - Type: chaicode.com's faces, bundled (a LAN workspace renders the same
+ *   offline): Manrope to read, Montserrat for titles and the highlight
+ *   phrase, Onest for names, Geist Mono for code. 10, 11, 12 and 13 px for metadata, labels and compact
  *   controls; 14 px (text-sm) for the interface, dialogs and the sidebar; 15
  *   px for messages; 16 and 17 px for a conversation's and a dialog's name;
  *   text-xl and text-2xl for empty-state and page titles; 52 px once, for the
@@ -46,26 +51,30 @@
  * the icons repeat equal to Onyx's.
  */
 @theme {
-  --color-deep: #09090b; /* the window, the sidebar, the rail */
-  --color-ground: #0f0f12; /* the conversation card, the page */
-  --color-raised: #16161a; /* side panels, cards, dialogs */
-  --color-lifted: #212126; /* hover, menus, chips, the composer */
-  --color-edge: #26262c; /* hairline borders */
-  --color-ink: #ececf1; /* primary text */
-  --color-ink-dim: #a3a3ad; /* secondary text */
-  --color-ink-faint: #8b8b96; /* tertiary text, timestamps */
+  --color-deep: #0a0a0a; /* the window, the sidebar, the rail */
+  --color-ground: #100f0e; /* the conversation card, the page */
+  --color-raised: #171513; /* side panels, cards, dialogs */
+  --color-lifted: #221f1b; /* hover, menus, chips, the composer */
+  --color-edge: #2b2722; /* hairline borders */
+  --color-ink: #f6f1e9; /* primary text */
+  --color-ink-dim: #b3aba0; /* secondary text */
+  --color-ink-faint: #958d82; /* tertiary text, timestamps */
   /* Keep the token name compatible with existing integration components. */
-  /* Tandem's orange: what needs you, and the one primary action. */
-  --color-copper: #ff8b3d; /* accent */
-  --color-copper-deep: #eb8038; /* accent, pressed and hovered */
+  /* chaicode.com's orange: what needs you, and the one primary action. */
+  --color-copper: #f97316; /* accent */
+  --color-copper-deep: #ea670c; /* accent, pressed and hovered */
   --color-online: #4ade80; /* present, live huddles */
   --color-alert: #ff7b72; /* errors, leaving, destructive */
-  --color-mention: rgba(255, 139, 61, 0.07); /* a message that names you */
+  /* The highlight phrase: one per paragraph, pale cream. */
+  --color-cream: #f3d49b;
+  --color-mention: rgba(249, 115, 22, 0.08); /* a message that names you */
 
   --font-sans:
-    "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+    "Manrope Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
     "Helvetica Neue", sans-serif;
-  --font-mono: "Cascadia Code", ui-monospace, "JetBrains Mono", "SF Mono", Consolas, monospace;
+  --font-display: "Montserrat Variable", var(--font-sans);
+  --font-brand: "Onest Variable", var(--font-sans);
+  --font-mono: "Geist Mono Variable", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
 
   --shadow-float:
     0 0 0 1px rgb(0 0 0 / 0.04), 0 2px 4px -1px rgb(0 0 0 / 0.18),
@@ -108,6 +117,12 @@
 
 :root {
   color-scheme: dark;
+  /* chaicode.com's warm card: a hairline, a faint fill, a little blur. */
+  --card-edge: rgba(255, 214, 170, 0.09);
+  --card-edge-hover: rgba(255, 214, 170, 0.18);
+  --card-fill: rgba(255, 236, 214, 0.025);
+  --glow: rgba(249, 115, 22, 0.22);
+  --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(255,205,160,0.085)'/%3E%3C/svg%3E");
   --focus-ring-width: 2px;
   /* How far the conversation card sits in from the window's edges. */
   --inset: 8px;
@@ -116,38 +131,52 @@
 /* White, chosen, or the system's choice on a device that prefers light. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --color-deep: #f2f2f4;
-  --color-ground: #ffffff;
-  --color-raised: #f8f8fa;
-  --color-lifted: #ececef;
-  --color-edge: #e3e3e8;
-  --color-ink: #111114;
-  --color-ink-dim: #4b4b55;
-  --color-ink-faint: #626270;
-  /* The orange, deepened until it reads at 4.5:1 on white. */
-  --color-copper: #ac4e0e;
-  --color-copper-deep: #9b460d;
+  --color-deep: #f4efe6;
+  --color-ground: #fffdf9;
+  --color-raised: #faf6ef;
+  --color-lifted: #efe8dc;
+  --color-edge: #e5dccc;
+  --color-ink: #1c1917;
+  --color-ink-dim: #57514a;
+  --color-ink-faint: #6b6359;
+  /* The orange, deepened until it reads at 4.5:1 on warm paper. */
+  --color-copper: #a3470c;
+  --color-copper-deep: #8f3e0a;
   --color-online: #116b34;
   --color-alert: #c42b30;
-  --color-mention: rgba(172, 78, 14, 0.06);
+  /* The highlight phrase, steeped darker so it reads on paper. */
+  --color-cream: #7a4810;
+  --color-mention: rgba(163, 71, 12, 0.06);
+  --card-edge: rgba(120, 72, 24, 0.13);
+  --card-edge-hover: rgba(120, 72, 24, 0.24);
+  --card-fill: rgba(255, 252, 245, 0.55);
+  --glow: rgba(249, 115, 22, 0.12);
+  --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(140,82,24,0.08)'/%3E%3C/svg%3E");
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"] {
     color-scheme: light;
-    --color-deep: #f2f2f4;
-    --color-ground: #ffffff;
-    --color-raised: #f8f8fa;
-    --color-lifted: #ececef;
-    --color-edge: #e3e3e8;
-    --color-ink: #111114;
-    --color-ink-dim: #4b4b55;
-    --color-ink-faint: #626270;
-    /* The orange, deepened until it reads at 4.5:1 on white. */
-    --color-copper: #ac4e0e;
-    --color-copper-deep: #9b460d;
+    --color-deep: #f4efe6;
+    --color-ground: #fffdf9;
+    --color-raised: #faf6ef;
+    --color-lifted: #efe8dc;
+    --color-edge: #e5dccc;
+    --color-ink: #1c1917;
+    --color-ink-dim: #57514a;
+    --color-ink-faint: #6b6359;
+    /* The orange, deepened until it reads at 4.5:1 on warm paper. */
+    --color-copper: #a3470c;
+    --color-copper-deep: #8f3e0a;
     --color-online: #116b34;
     --color-alert: #c42b30;
-    --color-mention: rgba(172, 78, 14, 0.06);
+    /* The highlight phrase, steeped darker so it reads on paper. */
+    --color-cream: #7a4810;
+    --color-mention: rgba(163, 71, 12, 0.06);
+    --card-edge: rgba(120, 72, 24, 0.13);
+    --card-edge-hover: rgba(120, 72, 24, 0.24);
+    --card-fill: rgba(255, 252, 245, 0.55);
+    --glow: rgba(249, 115, 22, 0.12);
+    --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(140,82,24,0.08)'/%3E%3C/svg%3E");
   }
 }
 
@@ -300,7 +329,7 @@ textarea::placeholder {
 @media (min-width: 761px) and (min-height: 481px) {
   .workspace-main {
     margin: var(--inset) var(--inset) var(--inset) 0;
-    border: 1px solid var(--color-edge);
+    border: 1px solid var(--card-edge);
     border-radius: 12px;
     overflow: hidden;
   }
@@ -309,7 +338,7 @@ textarea::placeholder {
   /* Side panels are cards of their own beside the conversation. */
   .workspace-shell > aside {
     margin: var(--inset) var(--inset) var(--inset) 0;
-    border: 1px solid var(--color-edge) !important;
+    border: 1px solid var(--card-edge) !important;
     border-radius: 12px;
     overflow: hidden;
   }
@@ -330,10 +359,132 @@ textarea::placeholder {
   min-height: min-content;
 }
 
-/* Something set slightly apart and floating: menus, toolbars, the composer's pickers. */
+/*
+ * Something set slightly apart and floating: menus, toolbars, the composer's
+ * pickers. Frosted, as chaicode.com's menus are, with a warm hairline.
+ */
 .surface-float {
-  background: var(--color-lifted);
+  background: color-mix(in oklab, var(--color-lifted) 86%, transparent);
+  border: 1px solid var(--card-edge);
   box-shadow: var(--shadow-float);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+}
+
+/*
+ * chaicode.com's warm card: a hairline, a faint fill, a little blur, no
+ * shadow. A component, so a utility on the same element still wins.
+ */
+@layer components {
+  .card-warm {
+    border: 1px solid var(--card-edge);
+    background: var(--card-fill);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    transition:
+      border-color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .card-warm:is(a, button):hover {
+    border-color: var(--card-edge-hover);
+  }
+}
+
+/* The highlight phrase: one per paragraph at most, pale cream, in Montserrat. */
+.highlight {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-cream);
+}
+
+/* Titles in Montserrat, as chaicode.com's cards; a font utility still wins. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+}
+
+/* A button with its corners cut unevenly: chaicode.com's shape for actions. */
+.btn-shape {
+  border-radius: 4px 16px 4px 16px;
+}
+
+/*
+ * The page behind everything: a faint hexagon lattice under a warm glow that
+ * fades out towards the bottom, warm in White too.
+ */
+.hex-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(70% 55% at 50% -5%, var(--glow), transparent 70%), var(--hex);
+  -webkit-mask-image: linear-gradient(to bottom, black 35%, transparent 95%);
+  mask-image: linear-gradient(to bottom, black 35%, transparent 95%);
+}
+.workspace-shell {
+  isolation: isolate;
+}
+/* Beside the conversation the sidebar lets the glow through; as a drawer it covers. */
+@media (min-width: 761px) and (min-height: 481px) {
+  .workspace-sidebar {
+    background: transparent;
+  }
+}
+.workspace-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(40% 40% at 0% 0%, var(--glow), transparent 70%), var(--hex);
+  -webkit-mask-image: linear-gradient(to bottom, black 20%, transparent 80%);
+  mask-image: linear-gradient(to bottom, black 20%, transparent 80%);
+}
+
+/*
+ * chaicode.com's badge: a pill whose 1 px edge has an orange glint running
+ * round it. Still for anyone who asks for less motion.
+ */
+@property --glint-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.glint-badge {
+  position: relative;
+  isolation: isolate;
+  background: var(--card-fill);
+}
+.glint-badge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  padding: 1px;
+  border-radius: inherit;
+  background:
+    conic-gradient(
+      from var(--glint-angle),
+      transparent 0deg,
+      transparent 250deg,
+      var(--color-copper) 320deg,
+      transparent 360deg
+    ),
+    linear-gradient(var(--card-edge), var(--card-edge));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: glint 3.2s linear infinite;
+}
+@keyframes glint {
+  to {
+    --glint-angle: 360deg;
+  }
 }
 
 /* A soft field of light behind the sign-in card, drifting slowly. */
@@ -577,28 +728,28 @@ textarea::placeholder {
   border-radius: 6px;
 }
 .theme-swatch[data-swatch="dark"] {
-  background: #09090b;
+  background: #0a0a0a;
 }
 .theme-swatch[data-swatch="dark"]::after {
   grid-column: 2;
-  background: #0f0f12;
-  box-shadow: inset 0 0 0 1px #26262c;
+  background: #100f0e;
+  box-shadow: inset 0 0 0 1px #2b2722;
 }
 .theme-swatch[data-swatch="light"] {
-  background: #f2f2f4;
+  background: #f4efe6;
 }
 .theme-swatch[data-swatch="light"]::after {
   grid-column: 2;
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px #e3e3e8;
+  background: #fffdf9;
+  box-shadow: inset 0 0 0 1px #e5dccc;
 }
 .theme-swatch[data-swatch="system"] {
-  background: linear-gradient(120deg, #09090b 0 50%, #f2f2f4 50%);
+  background: linear-gradient(120deg, #0a0a0a 0 50%, #f4efe6 50%);
 }
 .theme-swatch[data-swatch="system"]::after {
   grid-column: 2;
-  background: linear-gradient(120deg, #0f0f12 0 38%, #ffffff 38%);
-  box-shadow: inset 0 0 0 1px #26262c;
+  background: linear-gradient(120deg, #100f0e 0 38%, #fffdf9 38%);
+  box-shadow: inset 0 0 0 1px #2b2722;
 }
 
 /* Window drag region for the frameless titlebar */

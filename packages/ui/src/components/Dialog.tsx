@@ -26,7 +26,7 @@ export function Dialog({
       dismissible={dismissible}
       describedBy={describedBy}
       backdropClassName="flex items-start justify-center bg-black/50 px-3 pt-[12vh] backdrop-blur-[2px] animate-fade-in"
-      className="max-h-[78vh] max-w-full animate-pop-in overflow-y-auto rounded-2xl border border-edge bg-raised p-6 shadow-[var(--shadow-dialog)] outline-none"
+      className="max-h-[78vh] max-w-full animate-pop-in overflow-y-auto rounded-2xl border border-[var(--card-edge)] bg-raised p-6 shadow-[var(--shadow-dialog)] outline-none"
       style={{ width }}
     >
       <div className="-mr-2 -mt-1.5 mb-4 flex items-center justify-between gap-3">
@@ -49,4 +49,4 @@ export function Dialog({
 }
 
 export const inputCls =
-  "w-full rounded-lg border border-edge bg-ground px-3 py-2 text-sm outline-none transition-colors placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper";
+  "w-full rounded-lg border border-edge bg-ground px-3 py-2 text-sm outline-none transition-colors placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper/70 focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-copper)_14%,transparent)]";

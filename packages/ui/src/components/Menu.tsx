@@ -301,7 +301,7 @@ function MenuPanel({
                       ? "bg-alert/10 text-alert"
                       : "text-alert"
                     : index === active && !item.disabled
-                      ? "bg-ink/[0.07] text-ink"
+                      ? "bg-copper/[0.12] text-ink"
                       : "text-ink-dim"
               } disabled:opacity-40`}
             >

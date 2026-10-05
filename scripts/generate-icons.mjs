@@ -46,7 +46,7 @@ try {
     const mark = maskable ? Math.round(size * 0.8) : size;
     await shot.setContent(
       `<style>body{margin:0;display:grid;place-items:center;width:${size}px;height:${size}px;` +
-        `background:${maskable ? "#ff8b3d" : "transparent"}}svg{width:${mark}px;height:${mark}px;display:block}</style>${svg}`,
+        `background:${maskable ? "#f97316" : "transparent"}}svg{width:${mark}px;height:${mark}px;display:block}</style>${svg}`,
     );
     await writeFile(new URL(file, web), await shot.screenshot({ omitBackground: !maskable }));
     await shot.close();

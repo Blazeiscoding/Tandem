@@ -240,7 +240,7 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
             </button>
             <button
               type="button"
-              className="rounded bg-copper px-3 py-1 font-medium text-ground disabled:opacity-40"
+              className="btn-shape bg-copper px-3 py-1 font-medium text-ground disabled:opacity-40"
               disabled={!draft.trim() || draft.length > MESSAGE_LIMIT}
               onClick={() => void save()}
             >

@@ -29,7 +29,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode; fallback?: R
     if (this.props.fallback) return this.props.fallback;
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <div className="max-w-[440px] rounded-2xl border border-edge bg-raised p-6 text-center">
+        <div className="card-warm max-w-[440px] rounded-2xl p-6 text-center">
           <h1 className="text-lg font-semibold">Something in this screen stopped working</h1>
           <p className="mt-2 text-sm leading-relaxed text-ink-dim">
             You are still signed in and connected. Nothing that was sent has been lost.
@@ -40,7 +40,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode; fallback?: R
           <div className="mt-5 flex justify-center gap-2">
             <button
               onClick={() => this.setState({ error: null })}
-              className="rounded-lg bg-copper px-4 py-2 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep"
+              className="btn-shape bg-copper px-4 py-2 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep"
             >
               Try again
             </button>

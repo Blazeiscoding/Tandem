@@ -121,7 +121,7 @@ export function Sidebar(props: Props) {
       )}
       <div className="sidebar-column flex min-w-0 flex-1 flex-col">
         <header className="titlebar-drag flex h-14 shrink-0 items-center gap-1 px-2.5">
-          <h1 className="min-w-0 flex-1 text-[15px] font-semibold">
+          <h1 className="min-w-0 flex-1 font-brand text-[15px] font-semibold">
             <WorkspaceMenu
               name={name}
               others={others}
@@ -152,7 +152,7 @@ export function Sidebar(props: Props) {
             onClick={props.onSearch}
             data-drawer-focus
             aria-keyshortcuts="Control+K Meta+K"
-            className="flex h-8 w-full items-center gap-2 rounded-lg border border-edge bg-ground px-2.5 text-[13px] text-ink-faint transition-colors hover:border-ink-faint/40 hover:text-ink-dim"
+            className="card-warm flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] text-ink-faint hover:text-ink-dim"
           >
             <Icon name="search" size={14} />
             <span className="flex-1 text-left">Jump to…</span>

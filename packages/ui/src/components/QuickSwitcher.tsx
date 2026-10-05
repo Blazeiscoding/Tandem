@@ -156,7 +156,7 @@ export function QuickSwitcher(props: {
       title="Jump to"
       onClose={props.onClose}
       backdropClassName="flex items-start justify-center bg-black/45 px-3 pt-[14vh] backdrop-blur-[2px]"
-      className="w-[560px] max-w-full overflow-hidden rounded-2xl border border-edge bg-raised shadow-[var(--shadow-dialog)] outline-none"
+      className="w-[560px] max-w-full overflow-hidden rounded-2xl border border-[var(--card-edge)] bg-raised shadow-[var(--shadow-dialog)] outline-none"
     >
       <div className="flex items-center gap-3 border-b border-edge px-4">
         <Icon name="search" size={18} className="text-ink-faint" />
@@ -191,7 +191,13 @@ export function QuickSwitcher(props: {
           <Icon name="close" size={16} />
         </button>
       </div>
-      <div className="max-h-[52vh] overflow-y-auto p-2">
+      {/* Scrolls when the actions run long, so a keyboard can reach it too. */}
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Results"
+        className="max-h-[52vh] overflow-y-auto p-2 outline-none focus-visible:ring-2 focus-visible:ring-copper/50"
+      >
         <ListStatus
           loading={opening !== null}
           loadingLabel={`Opening a conversation with ${opening?.label ?? ""}…`}

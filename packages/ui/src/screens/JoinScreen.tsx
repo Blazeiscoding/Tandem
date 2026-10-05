@@ -193,27 +193,33 @@ export function JoinScreen({
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-deep">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="aurora" />
+        <div className="hex-glow" />
         <div className="grain" />
       </div>
       {platform.kind === "desktop" && <div className="titlebar-drag relative h-10 shrink-0" />}
       <main className="relative flex flex-1 overflow-y-auto px-4 py-8 sm:px-8">
         <div className="join-layout m-auto w-full max-w-[440px] animate-rise-in">
-          <header className="mb-7 flex flex-col items-center text-center">
-            <div className="mb-5 flex items-center gap-2.5 text-[15px] font-semibold tracking-tight">
+          <header className="mb-8 flex flex-col items-center text-center">
+            <div className="mb-6 flex items-center gap-2.5 font-brand text-[17px] font-semibold tracking-tight">
               <span className="drop-shadow-[0_6px_18px_color-mix(in_oklab,var(--color-copper)_45%,transparent)]">
                 <BrandMark size={30} />
               </span>
               Tandem
             </div>
+            <span className="glint-badge mb-5 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-medium text-ink-dim">
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-online" />
+              Open source · Self-hosted
+            </span>
             {authing ? (
-              <p className="text-sm text-ink-dim">Your people. Your place. Your server.</p>
+              <p className="text-[15px] text-ink-dim">
+                Your people. Your place. <span className="highlight">Your server.</span>
+              </p>
             ) : (
               <>
-                <h1 className="text-3xl font-semibold leading-tight tracking-[-0.03em]">
-                  Find your workspace
+                <h1 className="text-4xl font-bold leading-tight tracking-[-0.025em]">
+                  Find your <span className="highlight">workspace</span>
                 </h1>
-                <p className="mt-2 max-w-sm text-sm leading-relaxed text-ink-dim">
+                <p className="mt-3 max-w-sm text-[15px] leading-relaxed text-ink-dim">
                   Join your team’s server, or host one right here on this computer.
                 </p>
               </>
@@ -254,8 +260,8 @@ export function JoinScreen({
             />
           )}
           <footer className="mt-8 flex items-center justify-center gap-2 text-[12px] text-ink-faint">
-            <span className="size-1.5 rounded-full bg-online" />
-            Open source · Self-hosted · Your data stays on your server
+            <Icon name="lock" size={12} />
+            Your messages and files stay on your server
           </footer>
         </div>
       </main>
@@ -306,7 +312,7 @@ function ResumeHosted(props: {
   return (
     <section aria-label="Hosted on this computer">
       <SectionLabel>Hosted on this computer</SectionLabel>
-      <div className="rounded-2xl border border-edge bg-raised/80 p-4 text-sm backdrop-blur">
+      <div className="card-warm rounded-2xl p-4 text-sm">
         <p className="text-ink">
           <span className="font-semibold">{workspaceName}</span> isn’t running. Its messages, files
           and accounts are still on this computer.
@@ -387,7 +393,7 @@ function BrowseCard(props: {
       {props.selfServed && (
         <section>
           <SectionLabel>This workspace</SectionLabel>
-          <ul className="overflow-hidden rounded-2xl border border-edge bg-raised/80 backdrop-blur">
+          <ul className="card-warm overflow-hidden rounded-2xl">
             <ServerRow
               title={props.selfServed.info.workspaceName}
               subtitle={host(props.selfServed.url)}
@@ -402,7 +408,7 @@ function BrowseCard(props: {
       {props.savedServers.length > 0 && (
         <section>
           <SectionLabel>Your workspaces</SectionLabel>
-          <ul className="overflow-hidden rounded-2xl border border-edge bg-raised/80 backdrop-blur">
+          <ul className="card-warm overflow-hidden rounded-2xl">
             {props.savedServers.map((s) => (
               <ServerRow
                 key={s.url}
@@ -426,7 +432,7 @@ function BrowseCard(props: {
           )}
         </SectionLabel>
         {lanNotSaved.length > 0 ? (
-          <ul className="overflow-hidden rounded-2xl border border-edge bg-raised/80 backdrop-blur">
+          <ul className="card-warm overflow-hidden rounded-2xl">
             {lanNotSaved.map((l) => {
               const address = hostWithPort(l.host, l.port);
               return (
@@ -475,7 +481,7 @@ function BrowseCard(props: {
             onChange={(e) => setAddress(e.target.value)}
             placeholder="192.168.1.42:8543 or chat.yourteam.dev"
             spellCheck={false}
-            className="h-10 min-w-0 flex-1 rounded-xl border border-edge bg-raised/80 px-3.5 text-sm outline-none backdrop-blur transition-colors placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper"
+            className="h-10 min-w-0 flex-1 rounded-xl border border-[var(--card-edge)] bg-[var(--card-fill)] px-3.5 text-sm outline-none backdrop-blur transition-colors placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper"
           />
           <button
             type="submit"
@@ -508,7 +514,7 @@ function BrowseCard(props: {
         ) : props.hostingStatus.running ||
           props.hostingStatus.phase === "starting" ||
           props.hostingStatus.phase === "stopping" ? (
-          <div className="flex items-center gap-3 rounded-2xl border border-edge bg-raised/80 px-4 py-3 text-sm backdrop-blur">
+          <div className="card-warm flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
             <span className="size-2 shrink-0 animate-pulse rounded-full bg-online" />
             <span className="min-w-0 flex-1 text-ink-dim">
               {props.hostingStatus.phase === "starting"
@@ -545,7 +551,7 @@ function HostCard(props: { onClick: () => void }) {
         onClick={props.onClick}
         aria-labelledby={`${id}-title`}
         aria-describedby={`${id}-body`}
-        className="group flex w-full items-center gap-3.5 rounded-2xl border border-edge bg-raised/80 p-4 text-left backdrop-blur transition-colors hover:border-ink-faint/40 hover:bg-ink/[0.05]"
+        className="card-warm group flex w-full items-center gap-3.5 rounded-2xl p-4 text-left hover:bg-ink/[0.03]"
       >
         <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-copper/12 text-copper">
           <Icon name="server" size={20} />
@@ -810,7 +816,7 @@ function AuthCard(props: {
   const submitCls = buttonClass("primary", "h-10 w-full rounded-xl");
 
   return (
-    <div className="rounded-3xl border border-edge bg-raised/85 p-6 shadow-[var(--shadow-dialog)] backdrop-blur-xl sm:p-7">
+    <div className="card-warm rounded-3xl p-6 sm:p-7">
       <div className="mb-6 flex flex-col items-center text-center">
         <span
           aria-hidden="true"
@@ -819,7 +825,9 @@ function AuthCard(props: {
         >
           {props.info.workspaceName[0]?.toUpperCase() ?? "?"}
         </span>
-        <h1 className="mt-4 text-2xl font-semibold tracking-tight">{props.info.workspaceName}</h1>
+        <h1 className="mt-4 font-brand text-2xl font-semibold tracking-tight">
+          {props.info.workspaceName}
+        </h1>
         <p className="mt-1 text-[13px] text-ink-faint">
           {props.url.replace(/^https?:\/\//, "")} ·{" "}
           {props.info.userCount === 0
