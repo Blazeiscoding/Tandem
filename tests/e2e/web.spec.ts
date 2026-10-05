@@ -2474,19 +2474,19 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     // reload keeps it.
     const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     // Nothing chosen yet follows the device, which is light here: White's
-    // page colour, then Onyx's.
-    expect(await background()).toBe("rgb(242, 242, 244)");
+    // warm paper, then Onyx's near-black.
+    expect(await background()).toBe("rgb(244, 239, 230)");
     await page.goto(`${origin}/#/c/${design.id}/d/account/appearance`);
     const appearance = page.getByRole("tabpanel", { name: "Appearance" });
     await appearance.getByRole("radio", { name: /^Onyx/ }).check();
-    await expect.poll(background).toBe("rgb(9, 9, 11)");
+    await expect.poll(background).toBe("rgb(10, 10, 10)");
     await page.reload();
     await expect(page.locator("textarea")).toBeVisible();
-    await expect.poll(background).toBe("rgb(9, 9, 11)");
+    await expect.poll(background).toBe("rgb(10, 10, 10)");
     await appearance.getByRole("radio", { name: /^White/ }).check();
-    await expect.poll(background).toBe("rgb(242, 242, 244)");
+    await expect.poll(background).toBe("rgb(244, 239, 230)");
     await appearance.getByRole("radio", { name: /^Match this device/ }).check();
-    await expect.poll(background).toBe("rgb(242, 242, 244)");
+    await expect.poll(background).toBe("rgb(244, 239, 230)");
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
 

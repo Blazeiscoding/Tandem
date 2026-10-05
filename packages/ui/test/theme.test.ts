@@ -96,12 +96,13 @@ describe("the colour tokens", () => {
         "copper-deep",
         "online",
         "alert",
+        "cream",
       ]),
     );
   });
 
   it("keep every ink readable on every surface", () => {
-    const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert"];
+    const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert", "cream"];
     const surfaces = ["deep", "ground", "raised", "lifted"];
     expect(
       unreadable(inks.flatMap((ink) => surfaces.map((s): [string, string] => [ink, s]))),
@@ -121,7 +122,7 @@ describe("the colour tokens", () => {
 });
 
 describe("the other themes", () => {
-  const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert"];
+  const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert", "cream"];
   const surfaces = ["deep", "ground", "raised", "lifted"];
   const everyPair = inks.flatMap((ink) => surfaces.map((s): [string, string] => [ink, s]));
   const fills: [string, string][] = [

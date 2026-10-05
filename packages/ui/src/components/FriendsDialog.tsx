@@ -141,7 +141,7 @@ export function FriendsDialog({
             </p>
           )}
           {rows.map((user) => (
-            <div key={user.id} className="rounded-xl border border-edge bg-ground p-3">
+            <div key={user.id} className="card-warm rounded-xl p-3">
               <button
                 onClick={() => onOpenProfile(user.id)}
                 className="mb-3 flex w-full items-center gap-3 text-left"

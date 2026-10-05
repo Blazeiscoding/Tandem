@@ -312,7 +312,7 @@ export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: 
                     await client.api.joinChannel(ch.id);
                     props.onOpen(ch.id);
                   }}
-                  className="rounded-lg bg-copper px-3 py-1 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep"
+                  className="btn-shape bg-copper px-3 py-1 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep"
                 >
                   Join
                 </button>
@@ -664,7 +664,7 @@ export function InviteDialog(props: { onClose: () => void }) {
           ? "Send someone an invite link. It opens this workspace in their browser with the code already filled in."
           : "Anyone joining needs this workspace's address, and an invite code as well if the workspace is invite-only."}
       </p>
-      <div className="mb-4 rounded-xl border border-edge bg-ground px-4 py-3">
+      <div className="card-warm mb-4 rounded-xl px-4 py-3">
         <div className="mb-1.5 text-[13px] font-medium text-ink-dim">Server address</div>
         <div className="flex items-center justify-between gap-2">
           {addresses.length > 1 ? (
@@ -698,7 +698,7 @@ export function InviteDialog(props: { onClose: () => void }) {
         )}
       </div>
       {invite && canInvite && links ? (
-        <div className="animate-pop-in overflow-hidden rounded-xl border border-edge bg-ground">
+        <div className="card-warm animate-pop-in overflow-hidden rounded-xl">
           <div className="flex items-baseline justify-between px-4 pt-3">
             <span className="text-[13px] font-medium text-ink-dim">Invite code</span>
             <span className="text-[12px] text-ink-faint">Works for 7 days</span>
@@ -737,7 +737,7 @@ export function InviteDialog(props: { onClose: () => void }) {
           Generate invite code
         </button>
       ) : (
-        <p className="rounded-xl border border-edge bg-ground p-3 text-sm text-ink-dim">
+        <p className="card-warm rounded-xl p-3 text-sm text-ink-dim">
           Creating invite codes needs permission from an administrator. Ask one to allow it, or to
           invite the person for you.
         </p>

@@ -62,7 +62,7 @@ export function ProfileDialog(props: {
       </div>
 
       {(user.statusEmoji || user.statusText) && (
-        <p className="mt-4 rounded-lg border border-edge bg-ground px-3 py-2 text-sm">
+        <p className="card-warm mt-4 rounded-lg px-3 py-2 text-sm">
           {user.statusEmoji && <span className="mr-1.5">{user.statusEmoji}</span>}
           {user.statusText}
         </p>

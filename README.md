@@ -12,8 +12,11 @@ package names, `SLACKOSS_*` settings, data locations, application ID, Docker vol
 names and `slackoss://` links are intentionally retained for compatibility. No data
 migration is needed. The working name has not been trademark-cleared.
 
-The interface is quiet by design: near-black Onyx and White themes that follow
-the device, one warm accent reserved for what needs you, bundled Inter type,
+The interface follows the [chaicode.com look](https://ui.chaicode.com/) and
+stays quiet: warm near-black Onyx and warm-paper White themes that follow the
+device, chaicode orange reserved for what needs you, a pale-cream highlight
+phrase, warm hairline cards, buttons with asymmetric corners, frosted menus and
+a faint hexagon glow, bundled Manrope, Montserrat, Onest and Geist Mono type,
 the conversation set as a card into the window, drawn line icons, menus split by
 what they concern (the workspace's name, or your own), keyboard-accessible
 controls, narrow-window navigation, and a capped live timeline that follows new

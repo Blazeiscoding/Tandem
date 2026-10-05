@@ -10,8 +10,12 @@ describe("the shared button", () => {
   it("says what kind of action it is through its variant, and keeps layout classes", () => {
     expect(buttonClass("primary")).toContain("bg-copper");
     expect(buttonClass("danger")).toContain("bg-alert");
-    expect(buttonClass("secondary")).toContain("border-edge");
+    expect(buttonClass("secondary")).toContain("border-[var(--card-edge-hover)]");
     expect(buttonClass("quiet")).not.toContain("border");
+    // chaicode.com's asymmetric corners mark an action; a quiet one has none.
+    for (const variant of ["primary", "secondary", "danger"] as const)
+      expect(buttonClass(variant)).toContain("btn-shape");
+    expect(buttonClass("quiet")).not.toContain("btn-shape");
     expect(buttonClass("primary", "w-full")).toBe(`${buttonClass("primary")} w-full`);
     for (const variant of ["primary", "secondary", "danger", "quiet"] as const)
       expect(buttonClass(variant)).toContain("disabled:opacity-40");

@@ -875,7 +875,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         className={`min-w-0 rounded-xl border bg-raised transition-[border-color,box-shadow] ${
           dragging
             ? "border-copper bg-copper/5"
-            : "border-edge focus-within:border-ink-faint/50 focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-ink)_6%,transparent)]"
+            : "border-[var(--card-edge-hover)] focus-within:border-copper/30 focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-copper)_7%,transparent)]"
         }`}
       >
         {preview && (
@@ -1035,7 +1035,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                 }}
                 disabled={(!text.trim() && attached.length === 0) || text.length > MESSAGE_LIMIT}
                 aria-label="Send message"
-                className="flex size-8 items-center justify-center rounded-lg bg-copper text-ground transition-all hover:bg-copper-deep disabled:bg-transparent disabled:text-ink-faint/60"
+                className="btn-shape flex size-8 items-center justify-center bg-copper text-ground transition-all hover:bg-copper-deep disabled:bg-transparent disabled:text-ink-faint/60"
               >
                 <Icon name="send" size={16} />
               </button>
@@ -1089,7 +1089,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                   <button
                     type="submit"
                     disabled={!customTime}
-                    className="h-8 w-full rounded-lg bg-copper text-[13px] font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+                    className="btn-shape h-8 w-full bg-copper text-[13px] font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
                   >
                     Schedule message
                   </button>

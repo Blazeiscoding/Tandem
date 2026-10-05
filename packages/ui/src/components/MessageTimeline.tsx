@@ -657,7 +657,7 @@ function ChannelIntro({
         {person ? (
           <Avatar user={person} size={48} />
         ) : (
-          <span className="flex size-12 items-center justify-center rounded-xl border border-edge bg-ink/[0.03] text-ink-dim">
+          <span className="card-warm flex size-12 items-center justify-center rounded-xl text-copper">
             <Icon
               name={isRoom ? (channel.type === "private" ? "lock" : "hash") : "friends"}
               size={22}
@@ -665,14 +665,24 @@ function ChannelIntro({
           </span>
         )}
       </div>
-      <h2 className="text-2xl font-semibold tracking-tight">{name}</h2>
+      <h2 className="text-2xl font-bold tracking-tight">{name}</h2>
       <p className="mt-1 max-w-xl text-[15px] leading-relaxed text-ink-dim">
-        {isRoom
-          ? channel.description ||
-            `This is the very beginning of #${channel.name}. Say something to get it going.`
-          : person
-            ? `This is the beginning of your conversation with ${person.displayName}.`
-            : "This conversation is just between you. It starts here."}
+        {/* One highlight phrase, as chaicode.com writes a paragraph. */}
+        {isRoom ? (
+          channel.description || (
+            <>
+              This is the very beginning of <span className="highlight">#{channel.name}</span>. Say
+              something to get it going.
+            </>
+          )
+        ) : person ? (
+          <>
+            This is the beginning of your conversation with{" "}
+            <span className="highlight">{person.displayName}</span>.
+          </>
+        ) : (
+          "This conversation is just between you. It starts here."
+        )}
       </p>
       {empty && isRoom && (onInvite || onDetails) && (
         <div className="mt-4 flex flex-wrap gap-2">

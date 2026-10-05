@@ -1341,14 +1341,14 @@ export function HostDialog(props: {
             />
           )}
           {status.isolated && (
-            <p role="status" className="rounded-xl border border-edge bg-ground p-3 text-sm">
+            <p role="status" className="card-warm rounded-xl p-3 text-sm">
               You are looking inside {status.workspaceName ?? "a restored workspace"}. Only this
               computer can reach it, nothing it had waiting is sent, and no app is called. Stop it,
               then choose Put back in use from the list when it is ready.
             </p>
           )}
           {props.hosting.openToAll && !status.isolated && (
-            <div className="rounded-xl border border-edge bg-ground p-3">
+            <div className="card-warm rounded-xl p-3">
               <div className="mb-1 flex items-center justify-between gap-3">
                 <h3 className="font-semibold text-ink">Open to all</h3>
                 {publicUrl && (
@@ -1858,7 +1858,7 @@ export function HostDialog(props: {
                               setActivating(null);
                               void launch({ folder: w.folder, activate: true });
                             }}
-                            className="rounded-lg bg-copper px-3 py-1.5 text-sm font-medium text-ground disabled:opacity-40"
+                            className="btn-shape bg-copper px-3 py-1.5 text-sm font-medium text-ground disabled:opacity-40"
                           >
                             Put back in use
                           </button>

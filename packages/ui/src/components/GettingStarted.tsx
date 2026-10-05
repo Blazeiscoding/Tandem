@@ -115,10 +115,7 @@ export function GettingStarted(props: {
 
   const done = steps.length - left;
   return (
-    <section
-      aria-labelledby="getting-started-title"
-      className="mb-4 rounded-xl border border-edge bg-ground p-3"
-    >
+    <section aria-labelledby="getting-started-title" className="card-warm mb-4 rounded-xl p-3">
       <div className="flex items-center justify-between gap-2">
         <h2 id="getting-started-title" className="text-[13px] font-semibold">
           Getting started
