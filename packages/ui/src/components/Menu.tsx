@@ -37,6 +37,12 @@ interface MenuProps {
   align?: "start" | "end";
   /** Told when the menu opens and closes, for a trigger that hides on its own. */
   onOpenChange?: (open: boolean) => void;
+  /** Opens and closes it from outside too, as a long press does. */
+  open?: boolean;
+  /** Shown above the items, such as a row of quick reactions. */
+  header?: (close: () => void) => React.ReactNode;
+  /** On a phone, rise from the bottom of the screen within a thumb's reach. */
+  sheet?: boolean;
 }
 
 /**
@@ -56,10 +62,14 @@ export function Menu({
   tooltip,
   align = "end",
   onOpenChange,
+  open: openProp,
+  header,
+  sheet = false,
 }: MenuProps) {
-  const [open, setOpenState] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
   const setOpen = (next: boolean) => {
-    setOpenState(next);
+    if (openProp === undefined) setOpenState(next);
     onOpenChange?.(next);
   };
   const trigger = useRef<HTMLButtonElement>(null);
@@ -88,6 +98,8 @@ export function Menu({
         <MenuPanel
           label={label}
           items={items}
+          header={header}
+          sheet={sheet}
           align={align}
           anchor={() => trigger.current?.getBoundingClientRect() ?? null}
           onClose={() => setOpen(false)}
@@ -97,15 +109,22 @@ export function Menu({
   );
 }
 
+/** Phones without a pointer get the sheet; everything else, a dropdown. */
+const SHEET_QUERY = "(hover: none) and (max-width: 760px)";
+
 function MenuPanel({
   label,
   items,
+  header,
+  sheet,
   align,
   anchor,
   onClose,
 }: {
   label: string;
   items: MenuItem[];
+  header?: (close: () => void) => React.ReactNode;
+  sheet: boolean;
   align: "start" | "end";
   anchor: () => DOMRect | null;
   onClose: () => void;
@@ -118,6 +137,10 @@ function MenuPanel({
   const panel = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
+  const [asSheet] = useState(
+    () =>
+      sheet && typeof window.matchMedia === "function" && window.matchMedia(SHEET_QUERY).matches,
+  );
 
   // Sit under the trigger, aligned to its end; above it when the bottom
   // would run off the screen. Fixed, because the portal lives on the body.
@@ -131,6 +154,8 @@ function MenuPanel({
       close.current();
       return;
     }
+    // A sheet is placed by its class: along the bottom, wherever the trigger is.
+    if (asSheet) return;
     const width = Math.max(200, Math.min(280, box.width));
     const height = Math.min(el.offsetHeight, window.innerHeight - 16);
     const roomBelow = window.innerHeight - box.bottom - 8;
@@ -187,113 +212,135 @@ function MenuPanel({
     item.onSelect();
   }
 
-  return (
-    <Modal
-      title={label}
-      onClose={onClose}
-      backdropClassName="bg-transparent"
-      className="fixed outline-none"
-    >
-      <div
-        ref={panel}
-        role="menu"
-        aria-label={label}
-        className="surface-float fixed max-h-[60vh] animate-pop-in overflow-y-auto rounded-xl p-1 outline-none"
-        onKeyDown={(event) => {
-          // Tab leaves menus rather than cycling them; stop it reaching the
-          // modal layer, which would trap it inside instead.
-          if (event.key === "Tab") {
-            event.stopPropagation();
-            event.preventDefault();
-            onClose();
-            return;
+  const menu = (
+    <div
+      ref={panel}
+      role="menu"
+      aria-label={label}
+      className={
+        asSheet
+          ? "surface-float max-h-[60vh] overflow-y-auto rounded-2xl p-1.5 outline-none"
+          : "surface-float fixed max-h-[60vh] animate-pop-in overflow-y-auto rounded-xl p-1 outline-none"
+      }
+      onKeyDown={(event) => {
+        // Tab leaves menus rather than cycling them; stop it reaching the
+        // modal layer, which would trap it inside instead.
+        if (event.key === "Tab") {
+          event.stopPropagation();
+          event.preventDefault();
+          onClose();
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          move(1);
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          move(-1);
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          const first = items.findIndex((item) => !item.disabled);
+          if (first !== -1) {
+            setActive(first);
+            list.current
+              ?.querySelector<HTMLElement>(`[data-menu-index="${first}"]`)
+              ?.focus({ preventScroll: true });
           }
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            move(1);
-          } else if (event.key === "ArrowUp") {
-            event.preventDefault();
-            move(-1);
-          } else if (event.key === "Home") {
-            event.preventDefault();
-            const first = items.findIndex((item) => !item.disabled);
-            if (first !== -1) {
-              setActive(first);
+        } else if (event.key === "End") {
+          event.preventDefault();
+          for (let i = items.length - 1; i >= 0; i--) {
+            if (!items[i]!.disabled) {
+              setActive(i);
               list.current
-                ?.querySelector<HTMLElement>(`[data-menu-index="${first}"]`)
+                ?.querySelector<HTMLElement>(`[data-menu-index="${i}"]`)
                 ?.focus({ preventScroll: true });
+              break;
             }
-          } else if (event.key === "End") {
-            event.preventDefault();
-            for (let i = items.length - 1; i >= 0; i--) {
-              if (!items[i]!.disabled) {
-                setActive(i);
-                list.current
-                  ?.querySelector<HTMLElement>(`[data-menu-index="${i}"]`)
-                  ?.focus({ preventScroll: true });
-                break;
-              }
-            }
-          } else if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            choose(active);
           }
-        }}
-      >
-        <div ref={list} className="flex flex-col">
-          {items.map((item, index) => (
-            <div key={item.id} className="contents">
-              {item.section && index > 0 && (
-                <div role="separator" className="mx-1.5 my-1 h-px bg-edge" />
-              )}
-              {typeof item.section === "string" && (
-                <div
-                  aria-hidden="true"
-                  className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-ink-faint"
-                >
-                  {item.section}
-                </div>
-              )}
-              <button
-                type="button"
-                role="menuitem"
-                data-menu-index={index}
-                tabIndex={-1}
-                disabled={item.disabled}
-                aria-disabled={item.disabled || undefined}
-                aria-label={item.ariaLabel}
-                onClick={() => choose(index)}
-                onMouseEnter={() => {
-                  if (!item.disabled) setActive(index);
-                }}
-                className={`flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors ${
-                  item.destructive
+        } else if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          choose(active);
+        }
+      }}
+    >
+      <div ref={list} className="flex flex-col">
+        {items.map((item, index) => (
+          <div key={item.id} className="contents">
+            {item.section && index > 0 && (
+              <div role="separator" className="mx-1.5 my-1 h-px bg-edge" />
+            )}
+            {typeof item.section === "string" && (
+              <div
+                aria-hidden="true"
+                className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-ink-faint"
+              >
+                {item.section}
+              </div>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              data-menu-index={index}
+              tabIndex={-1}
+              disabled={item.disabled}
+              aria-disabled={item.disabled || undefined}
+              aria-label={item.ariaLabel}
+              onClick={() => choose(index)}
+              onMouseEnter={() => {
+                if (!item.disabled) setActive(index);
+              }}
+              className={`flex items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors ${
+                asSheet ? "min-h-12 gap-3 px-3 text-[15px]" : "py-1.5 text-sm"
+              } ${
+                // A sheet answers a finger: it shows the press, not a choice
+                // made in advance, and the keyboard's place only when it is used.
+                asSheet
+                  ? `${item.destructive ? "text-alert" : "text-ink"} outline-none focus-visible:bg-ink/[0.07] active:bg-ink/[0.07]`
+                  : item.destructive
                     ? index === active && !item.disabled
                       ? "bg-alert/10 text-alert"
                       : "text-alert"
                     : index === active && !item.disabled
                       ? "bg-ink/[0.07] text-ink"
                       : "text-ink-dim"
-                } disabled:opacity-40`}
-              >
-                {item.icon && (
-                  <Icon
-                    name={item.icon}
-                    size={16}
-                    className={item.destructive ? "" : "text-ink-faint"}
-                  />
-                )}
-                {item.emoji && (
-                  <span aria-hidden="true" className="w-4 text-center text-[15px] leading-none">
-                    {item.emoji}
-                  </span>
-                )}
-                {item.label}
-              </button>
-            </div>
-          ))}
-        </div>
+              } disabled:opacity-40`}
+            >
+              {item.icon && (
+                <Icon
+                  name={item.icon}
+                  size={16}
+                  className={item.destructive ? "" : "text-ink-faint"}
+                />
+              )}
+              {item.emoji && (
+                <span aria-hidden="true" className="w-4 text-center text-[15px] leading-none">
+                  {item.emoji}
+                </span>
+              )}
+              {item.label}
+            </button>
+          </div>
+        ))}
       </div>
+    </div>
+  );
+
+  return (
+    <Modal
+      title={label}
+      onClose={onClose}
+      backdropClassName={asSheet ? "animate-fade-in bg-black/40" : "bg-transparent"}
+      className="fixed outline-none"
+    >
+      {asSheet ? (
+        // Along the bottom, in reach of a thumb, with anything quick above it.
+        <div className="menu-sheet fixed flex animate-rise-in flex-col gap-2">
+          {header && <div className="surface-float rounded-2xl p-2">{header(onClose)}</div>}
+          {menu}
+        </div>
+      ) : (
+        menu
+      )}
     </Modal>
   );
 }

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { Icon, type IconName } from "./Icon.js";
 
 interface Props {
   /** A load is running. */
@@ -19,6 +20,8 @@ interface Props {
   empty?: ReactNode;
   /** One thing to do about an empty list, such as clearing a filter. */
   emptyAction?: { label: string; run: () => void };
+  /** A mark for what the list holds, shown above an empty list's words. */
+  emptyIcon?: IconName;
   className?: string;
 }
 
@@ -68,16 +71,28 @@ export function ListStatus(props: Props) {
             </p>
           )
         ) : showEmpty ? (
-          <p className="px-2 py-6 text-center text-sm text-ink-faint">{props.empty}</p>
+          props.emptyIcon ? (
+            <div className="flex flex-col items-center px-6 pb-6 pt-12 text-center">
+              <span
+                aria-hidden="true"
+                className="mb-4 flex size-12 items-center justify-center rounded-2xl border border-edge bg-ink/[0.03] text-ink-faint"
+              >
+                <Icon name={props.emptyIcon} size={20} />
+              </span>
+              <p className="max-w-[17rem] text-sm leading-relaxed text-ink-dim">{props.empty}</p>
+            </div>
+          ) : (
+            <p className="px-2 py-6 text-center text-sm text-ink-faint">{props.empty}</p>
+          )
         ) : null}
       </div>
       {showEmpty && props.emptyAction && (
         <KeepsFocus home={root}>
-          <p className="-mt-4 pb-6 text-center">
+          <p className={`pb-6 text-center ${props.emptyIcon ? "" : "-mt-4"}`}>
             <button
               type="button"
               onClick={props.emptyAction.run}
-              className="rounded-lg border border-edge px-3 py-1 text-sm text-ink-dim transition-colors hover:border-ink-faint hover:text-ink"
+              className="h-8 rounded-full border border-edge px-3.5 text-[13px] font-medium text-ink-dim transition-colors hover:border-ink-faint hover:text-ink"
             >
               {props.emptyAction.label}
             </button>

@@ -12,6 +12,8 @@ import { usePanelFocus } from "../lib/usePanelFocus.js";
 interface Props {
   title: string;
   emptyHint: ReactNode;
+  /** The mark above an empty list's hint. */
+  emptyIcon?: IconName;
   /** One thing to do about an empty list, such as clearing its filter. */
   emptyAction?: { label: string; run: () => void };
   load: (
@@ -124,6 +126,7 @@ export function MessageListPanel(props: Props) {
           }
           onRetry={() => retry.current?.()}
           empty={messages?.length === 0 ? props.emptyHint : null}
+          emptyIcon={props.emptyIcon}
           emptyAction={props.emptyAction}
         />
         <ul className="space-y-2">
@@ -186,7 +189,11 @@ export function MessageListPanel(props: Props) {
             })}
         </ul>
       </div>
-      <footer className="border-t border-edge px-4 py-2 text-[12px] text-ink-faint">
+      <footer
+        // An empty list says so above; a count of nothing beneath it is noise.
+        hidden={messages?.length === 0 && page === 0 && !nextCursor}
+        className="border-t border-edge px-4 py-2 text-[12px] text-ink-faint"
+      >
         <div role="status">
           {messages?.length ?? 0}{" "}
           {messages?.length === 1
@@ -237,6 +244,7 @@ export function PinsPanel(props: {
   return (
     <MessageListPanel
       title="Pinned"
+      emptyIcon="pin"
       emptyHint="Nothing pinned here yet. Pin a message to keep it handy for everyone in the channel."
       load={(cursor, signal) => client.api.listPins(props.channelId, signal, cursor)}
       reloadKey={`${props.channelId}:${pinSignature}`}
@@ -258,6 +266,7 @@ export function SavedPanel(props: {
   return (
     <MessageListPanel
       title="Saved"
+      emptyIcon="bookmark"
       headerExtra={
         props.onScheduled && (
           <PanelLink icon="clock" label="Scheduled" onClick={props.onScheduled} />
@@ -300,6 +309,7 @@ export function ThreadsPanel(props: {
   return (
     <MessageListPanel
       title="Threads"
+      emptyIcon="thread"
       countNoun={["thread", "threads"]}
       emptyHint={
         unreadOnly

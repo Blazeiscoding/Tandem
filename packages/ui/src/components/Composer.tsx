@@ -99,7 +99,9 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const box = useRef<HTMLTextAreaElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
-  const dragDepth = useRef(0);
+  const shell = useRef<HTMLDivElement>(null);
+  /** Where files dragged over the conversation would land, while they are. */
+  const [dropArea, setDropArea] = useState<DOMRect | null>(null);
   /** True once the user has edited this conversation's draft in this session. */
   const edited = useRef(false);
   /** The conversation this box writes to now, for a send that settles later. */
@@ -252,6 +254,54 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       setAttached((prev) => [...prev, ...incoming].slice(0, 10));
     }
   }
+
+  // Files dropped anywhere on the conversation, or on the thread, come here,
+  // not only those that hit this box.
+  const latest = useRef({ addFiles, archived });
+  latest.current = { addFiles, archived };
+  useEffect(() => {
+    const own = shell.current;
+    if (!own) return;
+    const zone = own.closest<HTMLElement>("main, aside") ?? own;
+    let depth = 0;
+    const carriesFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("Files");
+    const end = () => {
+      depth = 0;
+      setDragging(false);
+      setDropArea(null);
+    };
+    const enter = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      depth++;
+      setDragging(true);
+      setDropArea(zone.getBoundingClientRect());
+    };
+    const over = (e: DragEvent) => {
+      if (carriesFiles(e)) e.preventDefault();
+    };
+    // Nested elements fire leave events; only the outermost one ends the drag.
+    const leave = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) end();
+    };
+    const drop = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      end();
+      if (!latest.current.archived) latest.current.addFiles(e.dataTransfer!.files);
+    };
+    zone.addEventListener("dragenter", enter);
+    zone.addEventListener("dragover", over);
+    zone.addEventListener("dragleave", leave);
+    zone.addEventListener("drop", drop);
+    return () => {
+      zone.removeEventListener("dragenter", enter);
+      zone.removeEventListener("dragover", over);
+      zone.removeEventListener("dragleave", leave);
+      zone.removeEventListener("drop", drop);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (!box.current) return;
@@ -652,28 +702,35 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }
 
   return (
-    <div
-      className="composer-shell relative shrink-0 px-4 pb-4"
-      onDragEnter={(e) => {
-        if (![...e.dataTransfer.types].includes("Files")) return;
-        dragDepth.current++;
-        setDragging(true);
-      }}
-      onDragOver={(e) => {
-        if ([...e.dataTransfer.types].includes("Files")) e.preventDefault();
-      }}
-      onDragLeave={() => {
-        // Nested elements fire leave events; only the outermost one ends the drag.
-        dragDepth.current = Math.max(0, dragDepth.current - 1);
-        if (dragDepth.current === 0) setDragging(false);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        dragDepth.current = 0;
-        setDragging(false);
-        if (!archived) addFiles(e.dataTransfer.files);
-      }}
-    >
+    <div ref={shell} className="composer-shell relative shrink-0 px-4 pb-4">
+      {dropArea && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed z-40 animate-fade-in p-2"
+          style={{
+            top: dropArea.top,
+            left: dropArea.left,
+            width: dropArea.width,
+            height: dropArea.height,
+          }}
+        >
+          <div className="flex size-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-copper/60 bg-deep/80 backdrop-blur-sm">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-copper/15 text-copper">
+              <Icon name="attach" size={22} />
+            </span>
+            <p className="text-[15px] font-medium text-ink">
+              {guest
+                ? "Guests cannot attach files"
+                : archived
+                  ? "This channel is archived"
+                  : `Drop to share in ${placeholder.startsWith("Message ") ? placeholder.slice(8) : "this thread"}`}
+            </p>
+            {!guest && !archived && (
+              <p className="text-[13px] text-ink-dim">Up to 10 files in one message</p>
+            )}
+          </div>
+        </div>
+      )}
       {archived && (
         <p role="status" className="mb-3 rounded-lg border border-edge p-3 text-sm text-ink-dim">
           This channel is archived. New posts and replies are paused; your draft is kept. A channel

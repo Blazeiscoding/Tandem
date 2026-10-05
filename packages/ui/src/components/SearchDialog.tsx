@@ -459,6 +459,7 @@ export function SearchDialog(props: {
         error={error}
         onRetry={() => failed.current?.()}
         empty={results?.messages.length === 0 ? "Nothing matched. Try different words." : null}
+        emptyIcon="search"
       />
       {results && (
         <>

@@ -179,6 +179,7 @@ export function ActivityPanel({
                   : "No mentions yet."
               : null
           }
+          emptyIcon={mode === "unread" ? "check" : "at"}
         />
         <ul className="space-y-1">
           {messages.map((message) => {
