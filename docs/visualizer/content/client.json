@@ -183,7 +183,8 @@
         "A browser quietly recognizes the workspace serving its own origin; desktop discovery subscribes to LAN announcements. Hosted-but-stopped workspaces can offer resume instead of an endless connection attempt.",
         "Address probing normalizes the input and checks application/protocol compatibility before presenting authentication. A probe-attempt number rejects success from an ordinary cancelled or superseded address probe.",
         "Saved sign-ins first validate their token and fall back to a password card when expired. The auth form handles registration, invites and initial-owner claiming through the typed API.",
-        "Q06 remains open: the saved-token path and an abandoned password form still lack the same completion ownership as ordinary probes, so late success can invoke the connected callback after the user moved on."
+        "Q06 remains open: the saved-token path and an abandoned password form still lack the same completion ownership as ordinary probes, so late success can invoke the connected callback after the user moved on.",
+        "Where the server advertises guest_allowed, Join as guest comes first and asks only for a display name, beside Sign in and Create account. An answer to an abandoned or superseded attempt is ignored, and a refusal leaves the form ready to retry."
       ],
       "concepts": [
         "LAN discovery",
@@ -809,7 +810,8 @@
       "details": [
         "A compact workspace rail and workspace menu expose remembered workspaces without presenting saved tokens to the visible navigation.",
         "Channel and DM rows show unread/muted/activity state and choose destinations supplied by the workspace screen. Admin actions appear only where the current account can use them.",
-        "Snooze controls compute actual resume times and use the client's latest-choice behavior. Menu grouping saves vertical space so short windows retain room for conversations."
+        "Snooze controls compute actual resume times and use the client's latest-choice behavior. Menu grouping saves vertical space so short windows retain room for conversations.",
+        "A guest's sidebar leaves out Friends, Scheduled, New channel and direct messages, says Guest under the name, and offers Create an account in place of invites and account settings."
       ],
       "concepts": ["workspace navigation", "unread state", "compact layout", "Do Not Disturb"]
     },
@@ -846,7 +848,8 @@
       "details": [
         "NewChannelDialog creates public/private channels; BrowseChannelsDialog lists and joins available channels; NewDmDialog chooses participants and opens a direct/group conversation.",
         "InviteDialog creates shareable invite links, lists their status and lets permitted users revoke them. Clipboard outcome and readable server refusal state are preserved.",
-        "These occasional forms are lazy-loaded by the workspace screen rather than required for every returning conversation view."
+        "These occasional forms are lazy-loaded by the workspace screen rather than required for every returning conversation view.",
+        "GuestAccountDialog keeps a guest's identity as an account; the new session token reopens the workspace as the same person."
       ],
       "concepts": ["channel creation", "direct messages", "invite links", "lazy forms"]
     },
@@ -919,7 +922,8 @@
         "The browser does not own a server; native Platform.hosting provides the operations this dialog presents. Existing workspace folders and new workspace names are separate start intents.",
         "Presents running/stopped/startup status, port and rename controls, LAN and public-address choices, connector failure and launch recovery actions.",
         "Lists hosted workspaces and backup schedules, supports backup/restore and explains a restored copy's pending apps, schedules, deliveries and sessions before activation.",
-        "N11/N12 fixes live in the desktop registry/controller: restored safety holds survive damaged metadata and cleanup ownership gates reopening. The dialog exposes those statuses; pending Q12/Q13 startup/queue gaps must not be claimed solved by the UI."
+        "N11/N12 fixes live in the desktop registry/controller: restored safety holds survive damaged metadata and cleanup ownership gates reopening. The dialog exposes those statuses; pending Q12/Q13 startup/queue gaps must not be claimed solved by the UI.",
+        "Who may join is two choices, Require an account to join and, under it, Require an invite link; clearing the first lets visitors join as guests. Before opening the choice travels with openToAll; while open it is applied with setAccessPolicy and shown as the workspace acknowledges it."
       ],
       "concepts": [
         "desktop hosting",

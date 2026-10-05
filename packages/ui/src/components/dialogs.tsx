@@ -63,6 +63,104 @@ export function NewChannelDialog(props: { onClose: () => void; onCreated: (ch: C
   );
 }
 
+/**
+ * A guest keeping who they are: a username and password turn this guest into
+ * an ordinary account, with the same messages and channels. The guest session
+ * ends, and the token given back replaces it.
+ */
+export function GuestAccountDialog(props: {
+  onClose: () => void;
+  onCreated: (token: string, handle: string) => void;
+}) {
+  const client = useClient();
+  const [handle, setHandle] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const alive = useRef(true);
+  useEffect(
+    () => () => {
+      alive.current = false;
+    },
+    [],
+  );
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (password.length < 8) {
+      setError("Use at least 8 characters for the password.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { token, user } = await client.api.createAccountFromGuest({
+        handle: handle.trim().toLowerCase(),
+        password,
+      });
+      // Even closed, the guest session it replaced has ended: carry on as the account.
+      props.onCreated(token, user.handle);
+    } catch (err) {
+      if (!alive.current) return;
+      setBusy(false);
+      setError(
+        err instanceof ApiError && err.code === "handle_taken"
+          ? "That username is taken. Choose another."
+          : err instanceof ApiError && err.code === "invalid_request"
+            ? "Usernames are lowercase letters and digits; passwords need 8+ characters."
+            : err instanceof ApiError && err.code === "invite_required"
+              ? "This workspace now needs an invite to create an account."
+              : "Could not create the account. Try again.",
+      );
+    }
+  }
+
+  return (
+    <Dialog title="Create an account" onClose={props.onClose} dismissible={!busy}>
+      <p className="mb-3 text-sm text-ink-dim">
+        You are here as a guest, for a day. An account keeps your name, messages and channels, and
+        lets you sign in again from anywhere.
+      </p>
+      <form onSubmit={create} className="space-y-3">
+        <label className="block text-sm font-medium">
+          Username
+          <input
+            autoFocus
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            autoComplete="username"
+            spellCheck={false}
+            autoCapitalize="none"
+            className={`${inputCls} mt-1`}
+          />
+        </label>
+        <label className="block text-sm font-medium">
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            className={`${inputCls} mt-1`}
+          />
+        </label>
+        {error && (
+          <p role="alert" className="text-sm text-alert">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={busy || !handle.trim() || !password}
+          className={buttonClass("primary", "w-full")}
+        >
+          {busy ? "Creating…" : "Create account"}
+        </button>
+      </form>
+    </Dialog>
+  );
+}
+
 export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: ID) => void }) {
   const client = useClient();
   const channels = useWorkspace((s) => s.channels);

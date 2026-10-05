@@ -4,6 +4,7 @@ import type {
   RecordChanges,
   StoredOutbox,
 } from "@slackoss/client-core";
+import type { AccessPolicy } from "@slackoss/protocol";
 import { deviceStore } from "./lib/deviceStore.js";
 import { parseDeepLink } from "./lib/deeplink.js";
 
@@ -127,6 +128,8 @@ export interface HostingStatus {
   publicAddressError?: string;
   /** Whether new accounts need an invite code. */
   inviteOnly?: boolean;
+  /** Who may join; absent from an app that predates guest access. */
+  accessPolicy?: AccessPolicy;
   /** The running workspace is the one chosen to start when Tandem opens. */
   startsOnLaunch?: boolean;
   /**
@@ -238,10 +241,16 @@ export interface Platform {
     start: (opts: HostingStart) => Promise<HostingStatus>;
     stop: () => Promise<void>;
     /** Publish/unpublish the hosted workspace at a public address. */
-    openToAll?: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
+    /** `accessPolicy`, where given, decides who may join instead of `inviteOnly`. */
+    openToAll?: (opts: {
+      inviteOnly: boolean;
+      accessPolicy?: AccessPolicy;
+    }) => Promise<HostingStatus>;
     endOpenToAll?: () => Promise<HostingStatus>;
     /** Change whether new accounts need an invite while the server is running. */
     setInviteOnly?: (inviteOnly: boolean) => Promise<HostingStatus>;
+    /** Change who may join while the server is running; turning guests off signs them out. */
+    setAccessPolicy?: (policy: AccessPolicy) => Promise<HostingStatus>;
     /**
      * Save an address something else already carries to this workspace, or
      * clear it with "" to go back to a temporary one. Rejects what cannot be

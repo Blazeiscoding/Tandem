@@ -256,7 +256,8 @@
         "N08 permits one callback in flight per modal ID, returns 409 view_submitting to overlap, and releases exclusion for correction/retry. A foreign account cannot consume the owner's form.",
         "N09 checks a pressed message's text/edit/actions fingerprint before delayed replace/delete. A missing or externally changed origin is a no-op; the same response URL can advance its own result.",
         "Shutdown stops new work, aborts outbound requests and closes sockets/listeners/database/ownership in coordinated retryable cleanup. The library also exposes operations used by desktop hosting.",
-        "The file is an orchestration boundary with many domains; narrower modules carry SQL, crypto, networking and parsing. Callback exclusion cannot promise exactly-once business effects after an uncertain external retry."
+        "The file is an orchestration boundary with many domains; narrower modules carry SQL, crypto, networking and parsing. Callback exclusion cannot promise exactly-once business effects after an uncertain external retry.",
+        "Who may join is an access policy (invite_only, account_required, guest_allowed) kept with the legacy invite_only flag in one write. POST /api/auth/guest admits a display name alone while guests are allowed and an owner exists, rationed by address and capped at 200 live guests; POST /api/auth/guest/account converts the same identity to a member and replaces its sessions. requireUser refuses a guest any route outside GUEST_ROUTES, so new routes start closed to guests; guests cannot be put in private rooms, DMs or friendships, sign in with a password, or be promoted or reset by an admin. Turning guests off revokes their sessions and sockets."
       ],
       "concepts": ["HTTP API", "transactional publication", "N08", "N09", "background queues"]
     },
@@ -292,7 +293,8 @@
         "N07 markScheduledSent keeps status and message linkage while clearing text/file IDs and releasing scheduled-file holds in the message transaction.",
         "Whole-thread purge uses a temporary ID table, retains only minimal send-key tombstones to prevent retry resurrection, queues blob deletions and redacts event/delivery copies together.",
         "Due cleanup and app delivery queries isolate retrying/rejected rows so a failing item does not block healthy work. Follow-state revisions prevent stale authoritative echoes from replacing newer state.",
-        "Already delivered app copies and prior backups are outside active-store cleanup; the SQL rules do not constitute physical disk erasure."
+        "Already delivered app copies and prior backups are outside active-store cleanup; the SQL rules do not constitute physical disk erasure.",
+        "Guest sessions keep their 24-hour expiry instead of sliding; canAccess and listChannelsVisibleTo give a guest public channels only, whatever membership it might hold. convertGuest turns a guest into a member in place, and revokeGuestSessions reports the ended tokens so their sockets close."
       ],
       "concepts": ["SQLite data layer", "N06", "N07", "adaptive search", "batch hydration"]
     },
@@ -334,7 +336,8 @@
         "Message seq identifies its creation event; a live payload can have seq 0 until the client applies the envelope's sequence. Thread replies and channel-broadcast replies remain the same underlying message.",
         "Follow records include revision and unread-hold state; operational status models storage, queues, retention, connections and event-loop delay.",
         "Optional capability/metadata fields allow older servers and clients to interoperate without assuming support.",
-        "The shared 30-day send retry window aligns client automatic retries with server retention of minimal send keys after content is removed."
+        "The shared 30-day send retry window aligns client automatic retries with server retention of minimal send keys after content is removed.",
+        "Role includes guest, and ServerInfo.accessPolicy says who may join; an older server omits it, which clients read as accounts only."
       ],
       "concepts": ["shared entities", "compatibility", "idempotency", "read cursors"]
     },

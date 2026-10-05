@@ -143,7 +143,8 @@ node slackoss-server.js --data ./data --name "My Team" --invite-only
 
 Requires Node 24+. The bundled file has zero dependencies — the database is
 Node's built-in SQLite. Flags: `--port`, `--host`, `--no-mdns`, `--web <dir>`,
-`--invite-only`, `--public-url`, `--allow-private-hooks`.
+`--invite-only`, `--access-policy` (`guest_allowed` lets people join with a
+display name alone), `--public-url`, `--allow-private-hooks`.
 
 ### Docker
 

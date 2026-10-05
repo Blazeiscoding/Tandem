@@ -15,6 +15,17 @@ export const registerBody = z.object({
   claimCode: z.string().max(128).optional(),
 });
 
+/** Joining as a guest, where the workspace allows it: a name and nothing else. */
+export const guestJoinBody = z.object({
+  displayName: z.string().trim().min(1).max(80),
+});
+
+/** A guest choosing to keep their identity as an ordinary account. */
+export const guestAccountBody = z.object({
+  handle: handleSchema,
+  password: z.string().min(8).max(256),
+});
+
 export const changePasswordBody = z.object({
   currentPassword: z.string().min(1).max(256),
   newPassword: z.string().min(8).max(256),
@@ -288,6 +299,8 @@ export const threadHistoryQuery = z
 
 export type RegisterBody = z.infer<typeof registerBody>;
 export type LoginBody = z.infer<typeof loginBody>;
+export type GuestJoinBody = z.infer<typeof guestJoinBody>;
+export type GuestAccountBody = z.infer<typeof guestAccountBody>;
 export type UpdateMeBody = z.infer<typeof updateMeBody>;
 export type CreateChannelBody = z.infer<typeof createChannelBody>;
 export type UpdateChannelBody = z.infer<typeof updateChannelBody>;

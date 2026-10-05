@@ -1033,6 +1033,33 @@ explicit member grant they held before promotion remains until removed.
 Without `--invite-only`, anyone who can reach the server can create an account,
 and a code is not asked for.
 
+## Guests
+
+`--access-policy` says who may join, and is saved for later starts:
+`invite_only` (as `--invite-only`), `account_required` (any account), or
+`guest_allowed`. With guests allowed, someone who reaches the server can join
+with a display name alone, and creating an account stays open and optional. In
+the desktop app, clear **Require an account to join** where the public link is
+opened. Guests let in for a public link leave with it: closing the link goes
+back to the rule from before.
+
+A guest reads and posts in public channels, with replies, reactions, files
+already shared, saved items, search and huddles. A guest cannot be in a private
+channel or a direct message, by its own doing or anyone else's, and cannot
+create rooms, upload files, pin, invite, schedule, use apps or commands, or
+change its password; the server refuses every request outside that list, so a
+route added later stays closed to guests until it is opened on purpose. Guests
+are marked as guests wherever they appear.
+
+A guest session lasts 24 hours from joining and does not extend with use;
+reloading resumes it until then. At most 200 guests can be signed in at once.
+Joining is limited per address like signing in. Requiring an account again signs
+every guest out at once, sockets included; what they wrote stays. A guest can
+**Create an account** from the Workspace menu while accounts can be created
+without an invite: it keeps the same identity, messages and channels. An
+administrator can deactivate a guest, but cannot make one a member or reset its
+password.
+
 ## Current boundaries
 
 Friends and accounts do not federate across servers. Account settings offers password

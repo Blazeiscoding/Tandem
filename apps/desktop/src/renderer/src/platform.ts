@@ -4,6 +4,7 @@ import type {
   RecordChanges,
   StoredOutbox,
 } from "@slackoss/client-core";
+import type { AccessPolicy } from "@slackoss/protocol";
 import type {
   AutoBackup,
   DiscoveredServer,
@@ -62,9 +63,13 @@ interface SlackossBridge {
     inventory?: RestoreInventory | null;
   } | null>;
   hostingStop: () => Promise<void>;
-  hostingOpenToAll: (opts: { inviteOnly: boolean }) => Promise<HostingStatus>;
+  hostingOpenToAll: (opts: {
+    inviteOnly: boolean;
+    accessPolicy?: AccessPolicy;
+  }) => Promise<HostingStatus>;
   hostingEndOpenToAll: () => Promise<HostingStatus>;
   hostingSetInviteOnly: (inviteOnly: boolean) => Promise<HostingStatus>;
+  hostingSetAccessPolicy: (policy: AccessPolicy) => Promise<HostingStatus>;
   hostingSetPublicAddress: (address: string) => Promise<HostingStatus>;
   onHostingStatus: (cb: (status: HostingStatus) => void) => () => void;
   consumeDeepLink: () => Promise<string | null>;
@@ -196,6 +201,7 @@ export function electronPlatform(): Platform {
       openToAll: (opts) => plainly(bridge.hostingOpenToAll(opts)),
       endOpenToAll: () => bridge.hostingEndOpenToAll(),
       setInviteOnly: (inviteOnly) => bridge.hostingSetInviteOnly(inviteOnly),
+      setAccessPolicy: (policy) => bridge.hostingSetAccessPolicy(policy),
       setPublicAddress: (address) => plainly(bridge.hostingSetPublicAddress(address)),
       subscribe: (cb) => bridge.onHostingStatus(cb),
     },

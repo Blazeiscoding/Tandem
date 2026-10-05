@@ -25,6 +25,8 @@ interface Props {
   onSwitchWorkspace: () => void;
   onEditProfile: () => void;
   onAccountSettings: () => void;
+  /** Guests only: keeping this identity as an account. */
+  onCreateAccount?: () => void;
   onShortcuts?: () => void;
   onDiagnostics?: () => void;
   /** Shown under the Jump button, such as the owner's first steps. */
@@ -58,6 +60,8 @@ export function Sidebar(props: Props) {
   const users = useWorkspace((s) => s.users);
   const presence = useWorkspace((s) => s.presence);
   const self = useWorkspace((s) => s.self);
+  // A guest has public channels only: no DMs, rooms of its own, friends or schedules.
+  const guest = self?.role === "guest";
   const drafts = useWorkspace((s) => s.drafts);
   const prefs = useWorkspace((s) => s.prefs);
   const huddles = useWorkspace((s) => s.huddles);
@@ -177,27 +181,33 @@ export function Sidebar(props: Props) {
                 )}
               </NavRow>
             </li>
-            <li>
-              <NavRow icon="friends" label="Friends" onClick={props.onFriends}>
-                {friendRequests > 0 && (
-                  <span className="rounded-full bg-copper/15 px-1.5 text-[11px] font-semibold text-copper">
-                    {friendRequests}
-                  </span>
-                )}
-              </NavRow>
-            </li>
+            {!guest && (
+              <li>
+                <NavRow icon="friends" label="Friends" onClick={props.onFriends}>
+                  {friendRequests > 0 && (
+                    <span className="rounded-full bg-copper/15 px-1.5 text-[11px] font-semibold text-copper">
+                      {friendRequests}
+                    </span>
+                  )}
+                </NavRow>
+              </li>
+            )}
             <li>
               <NavRow icon="bookmark" label="Saved" onClick={props.onSaved} />
             </li>
-            <li>
-              <NavRow icon="clock" label="Scheduled" onClick={props.onScheduled} />
-            </li>
+            {!guest && (
+              <li>
+                <NavRow icon="clock" label="Scheduled" onClick={props.onScheduled} />
+              </li>
+            )}
           </ul>
           <SectionHeader
             label="Channels"
             actions={[
               { label: "Browse", onClick: props.onBrowseChannels },
-              { label: "New channel", icon: "plus", onClick: props.onNewChannel },
+              ...(guest
+                ? []
+                : [{ label: "New channel", icon: "plus" as const, onClick: props.onNewChannel }]),
             ]}
           />
           <ul className="mb-4">
@@ -229,10 +239,12 @@ export function Sidebar(props: Props) {
             ))}
           </ul>
 
-          <SectionHeader
-            label="Direct messages"
-            actions={[{ label: "New message", icon: "plus", onClick: props.onNewDm }]}
-          />
+          {!guest && (
+            <SectionHeader
+              label="Direct messages"
+              actions={[{ label: "New message", icon: "plus", onClick: props.onNewDm }]}
+            />
+          )}
           <ul>
             {dms.map((ch) => {
               const others = (ch.memberIds ?? []).filter((id) => id !== self?.id);
@@ -261,7 +273,7 @@ export function Sidebar(props: Props) {
               );
             })}
           </ul>
-          {dms.length === 0 && (
+          {dms.length === 0 && !guest && (
             <button
               onClick={props.onNewDm}
               className="mx-1 mt-2 rounded-lg border border-dashed border-edge p-3 text-left text-xs leading-relaxed text-ink-faint hover:border-ink-faint hover:text-ink"
@@ -293,14 +305,17 @@ export function Sidebar(props: Props) {
                   {self?.displayName ?? "…"}
                 </span>
                 <span className="block truncate text-[11px] text-ink-faint">
-                  {self?.statusText || self?.statusEmoji
-                    ? `${self.statusEmoji} ${self.statusText}`.trim()
-                    : "Set a status"}
+                  {guest
+                    ? "Guest"
+                    : self?.statusText || self?.statusEmoji
+                      ? `${self.statusEmoji} ${self.statusText}`.trim()
+                      : "Set a status"}
                 </span>
               </span>
             </button>
             {!snoozed && <SnoozeControl />}
             <WorkspaceMenu
+              onCreateAccount={guest ? props.onCreateAccount : undefined}
               onInvite={props.onInvite}
               onManagePeople={props.onManagePeople}
               onManageApps={props.onManageApps}
@@ -429,6 +444,8 @@ function RailItem(props: {
  * four channel rows.
  */
 function WorkspaceMenu(props: {
+  /** Given for a guest, who has no account settings and cannot invite. */
+  onCreateAccount?: () => void;
   onInvite: () => void;
   onManagePeople?: () => void;
   onManageApps?: () => void;
@@ -436,12 +453,15 @@ function WorkspaceMenu(props: {
   onShortcuts?: () => void;
   onDiagnostics?: () => void;
 }) {
-  const items: MenuItem[] = [{ id: "invite", label: "Invite people", onSelect: props.onInvite }];
+  const items: MenuItem[] = props.onCreateAccount
+    ? [{ id: "create-account", label: "Create an account", onSelect: props.onCreateAccount }]
+    : [{ id: "invite", label: "Invite people", onSelect: props.onInvite }];
   if (props.onManagePeople)
     items.push({ id: "people", label: "People", onSelect: props.onManagePeople });
   if (props.onManageApps)
     items.push({ id: "apps", label: "Apps and integrations", onSelect: props.onManageApps });
-  items.push({ id: "account", label: "Account settings", onSelect: props.onAccountSettings });
+  if (!props.onCreateAccount)
+    items.push({ id: "account", label: "Account settings", onSelect: props.onAccountSettings });
   // Help: the shortcut sheet opened only with Ctrl+/, and nothing said so.
   if (props.onShortcuts)
     items.push({ id: "shortcuts", label: "Keyboard shortcuts", onSelect: props.onShortcuts });

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { ACCESS_POLICIES, type AccessPolicy } from "@slackoss/protocol";
 import { TunnelCleanupError, type Tunnel } from "./tunnel.js";
 import {
   REGISTRY_KEY,
@@ -53,6 +54,8 @@ export interface HostingSnapshot {
   publicAddressError?: string;
   /** Whether an account after the first needs an invite code. */
   inviteOnly?: boolean;
+  /** Who may join: invited accounts, any account, or guests too. */
+  accessPolicy?: AccessPolicy;
   /** The running workspace is the one chosen to start when Tandem opens. */
   startsOnLaunch?: boolean;
   /**
@@ -174,6 +177,8 @@ interface HostedServer {
   setIceServers?(servers: { urls: string }[]): void;
   inviteOnly?(): boolean;
   setInviteOnly?(inviteOnly: boolean): void;
+  accessPolicy?(): AccessPolicy;
+  setAccessPolicy?(policy: AccessPolicy): void;
   /** How many accounts exist, so opening to all can wait for the owner's. */
   accountCount?(): number;
 }
@@ -423,6 +428,11 @@ export function createHostingController(options: HostingOptions) {
   let cleanupTunnel: Tunnel | null = null;
   /** The current address is carried by a process outside this app's control. */
   let externalCarrier = false;
+  /**
+   * Who could join before the public link opened. Guests let in while it is
+   * open leave with it; any other rule chosen then stays, as it always has.
+   */
+  let policyBeforeOpen: AccessPolicy | undefined;
   /** Set while a tunnel is opening, so stopping or quitting need not wait for it. */
   let opening: AbortController | null = null;
   let openError: string | undefined;
@@ -472,6 +482,7 @@ export function createHostingController(options: HostingOptions) {
       ...(server ? { port: server.port, lanUrls: options.lanUrls(server.port) } : {}),
       ...(server?.instanceId ? { instanceId: server.instanceId } : {}),
       ...(server?.inviteOnly ? { inviteOnly: server.inviteOnly() } : {}),
+      ...(server?.accessPolicy ? { accessPolicy: server.accessPolicy() } : {}),
       ...(opening
         ? { openToAll: { phase: "opening" as const } }
         : tunnel
@@ -540,8 +551,13 @@ export function createHostingController(options: HostingOptions) {
   async function endTunnel(): Promise<void> {
     const current = tunnel ?? cleanupTunnel;
     if (!current) return;
-    const previousInviteOnly =
-      tunnel === current && !externalCarrier ? server?.inviteOnly?.() : undefined;
+    const openPolicy =
+      tunnel === current && !externalCarrier && server ? policyOf(server) : undefined;
+    const previousPolicy =
+      openPolicy === "guest_allowed" && policyBeforeOpen && policyBeforeOpen !== "guest_allowed"
+        ? policyBeforeOpen
+        : openPolicy;
+    policyBeforeOpen = undefined;
     // A close may reject or time out while its connector is still exiting.
     // Keep every public-access mutation gated until that same handle closes.
     cleanupTunnel = current;
@@ -562,7 +578,7 @@ export function createHostingController(options: HostingOptions) {
     if (cleanupTunnel === current) {
       cleanupTunnel = null;
     }
-    if (previousInviteOnly !== undefined) server?.setInviteOnly?.(previousInviteOnly);
+    if (previousPolicy !== undefined && server) applyPolicy(server, previousPolicy);
   }
 
   async function finishCleanup(work: Promise<void>, message: string): Promise<void> {
@@ -1826,14 +1842,16 @@ export function createHostingController(options: HostingOptions) {
    */
   function openToAll(value: unknown = {}): Promise<HostingSnapshot> {
     if (closing) return Promise.reject(new Error("The app is quitting."));
-    const inviteOnly =
+    const { inviteOnly, accessPolicy } =
       value && typeof value === "object" && !Array.isArray(value)
-        ? (value as { inviteOnly?: unknown }).inviteOnly
-        : undefined;
+        ? (value as { inviteOnly?: unknown; accessPolicy?: unknown })
+        : {};
     if (inviteOnly !== undefined && typeof inviteOnly !== "boolean")
       return Promise.reject(
         new Error("Say whether joining needs an invite code with true or false."),
       );
+    if (accessPolicy !== undefined && !isAccessPolicy(accessPolicy))
+      return Promise.reject(new Error(`Say who may join with one of ${ACCESS_POLICIES}.`));
     const request = publicRequest;
     // Asked for one run, it never opens another that started while it waited.
     const run = runs;
@@ -1871,11 +1889,12 @@ export function createHostingController(options: HostingOptions) {
       // would need the claim code to create their account. Theirs comes first.
       if (target.accountCount && target.accountCount() === 0)
         throw new Error("Create your own account in the workspace first, then open it to all.");
-      const previousInviteOnly = target.inviteOnly();
-      const requestedInviteOnly = inviteOnly ?? true;
-      const closedInviteOnly = carriedElsewhere ? true : previousInviteOnly;
+      const previousPolicy = policyOf(target);
+      const closedPolicy: AccessPolicy = carriedElsewhere ? "invite_only" : previousPolicy;
+      if (!tunnel) policyBeforeOpen = previousPolicy;
       openError = undefined;
-      target.setInviteOnly(requestedInviteOnly);
+      if (accessPolicy !== undefined) applyPolicy(target, accessPolicy);
+      else target.setInviteOnly(inviteOnly ?? true);
       if (tunnel) {
         publicReopened();
         changed();
@@ -1900,7 +1919,7 @@ export function createHostingController(options: HostingOptions) {
           throw error;
         }
         try {
-          target.setInviteOnly(closedInviteOnly);
+          applyPolicy(target, closedPolicy);
         } catch {
           // The original opening error remains the useful one to report.
         }
@@ -1923,7 +1942,7 @@ export function createHostingController(options: HostingOptions) {
           changed();
           throw error;
         }
-        target.setInviteOnly(closedInviteOnly);
+        applyPolicy(target, closedPolicy);
         changed();
         throw new Error("Opening to all was cancelled.");
       }
@@ -1944,7 +1963,7 @@ export function createHostingController(options: HostingOptions) {
           changed();
           throw cleanupError;
         }
-        target.setInviteOnly(closedInviteOnly);
+        applyPolicy(target, closedPolicy);
         openError = "The workspace could not take its public address. Try opening it to all again.";
         changed();
         throw error;
@@ -1982,6 +2001,24 @@ export function createHostingController(options: HostingOptions) {
         changed();
         throw error;
       }
+      changed();
+      return status();
+    });
+  }
+
+  /**
+   * Changes who may join the running workspace. Turning guests off signs every
+   * guest out; the status returned is what the server now holds.
+   */
+  function setAccessPolicy(value: unknown): Promise<HostingSnapshot> {
+    if (!isAccessPolicy(value))
+      return Promise.reject(new Error(`Say who may join with one of ${ACCESS_POLICIES}.`));
+    return serialized(async () => {
+      if (!server?.setAccessPolicy || phase !== "running")
+        throw new Error("Start hosting the workspace before changing who can join.");
+      if (stopFailed || cleanupTunnel)
+        throw new Error("Finish stopping the workspace before changing who can join.");
+      server.setAccessPolicy(value);
       changed();
       return status();
     });
@@ -2061,6 +2098,20 @@ export function createHostingController(options: HostingOptions) {
     openToAll,
     endOpenToAll,
     setInviteOnly,
+    setAccessPolicy,
     setPublicAddress,
   };
+}
+
+const isAccessPolicy = (value: unknown): value is AccessPolicy =>
+  ACCESS_POLICIES.includes(value as AccessPolicy);
+
+/** Who may join, as a value to put back later. An older server says it by invites alone. */
+function policyOf(target: HostedServer): AccessPolicy {
+  return target.accessPolicy?.() ?? (target.inviteOnly?.() ? "invite_only" : "account_required");
+}
+
+function applyPolicy(target: HostedServer, policy: AccessPolicy): void {
+  if (target.setAccessPolicy) target.setAccessPolicy(policy);
+  else target.setInviteOnly?.(policy === "invite_only");
 }

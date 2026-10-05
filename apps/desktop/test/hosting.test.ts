@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import type { AccessPolicy } from "@slackoss/protocol";
 import {
   existsSync,
   mkdirSync,
@@ -96,6 +97,8 @@ function harness(
     savePublicAddress?: (address: string | null) => Promise<void> | void;
     verifyLoopback?: (port: number, instanceId?: string) => Promise<boolean>;
     cleanupTimeoutMs?: number;
+    /** A server that says who may join as a policy, guests included, as current ones do. */
+    policies?: boolean;
     /** Share a profile and settings with an earlier harness, as a second launch would. */
     root?: string;
     settings?: Map<string, unknown>;
@@ -163,6 +166,7 @@ function harness(
     notifyFails: false,
     accountCount: 1,
     inviteOnly: false,
+    accessPolicy: "account_required" as AccessPolicy,
     policyCalls: [] as boolean[],
     proxyTrust: [] as boolean[],
     publicUrls: [] as (string | null)[],
@@ -296,6 +300,25 @@ function harness(
                 h.inviteOnly = value;
               },
               accountCount: () => h.accountCount,
+            }
+          : {}),
+        // As the server does: invites off keeps guests if they were allowed.
+        ...(options.policies
+          ? {
+              inviteOnly: () => h.accessPolicy === "invite_only",
+              setInviteOnly: (value: boolean) => {
+                h.events.push(`policy:${value}`);
+                h.accessPolicy = value
+                  ? "invite_only"
+                  : h.accessPolicy === "invite_only"
+                    ? "account_required"
+                    : h.accessPolicy;
+              },
+              accessPolicy: () => h.accessPolicy,
+              setAccessPolicy: (policy: AccessPolicy) => {
+                h.events.push(`access:${policy}`);
+                h.accessPolicy = policy;
+              },
             }
           : {}),
       };
@@ -763,6 +786,53 @@ describe("hosting a workspace from the desktop app", () => {
     await h.controller.stop();
     expect(h.servers[0]!.stop).toHaveBeenCalledOnce();
     expect(h.controller.status()).toEqual({ running: false, phase: "stopped" });
+  });
+
+  describe("who may join a hosted workspace", () => {
+    it("changes who may join while it runs, and refuses what is not a policy", async () => {
+      const h = harness({ publicAccess: true, policies: true });
+      await expect(h.controller.setAccessPolicy("guest_allowed")).rejects.toThrow(/Start hosting/);
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      expect(h.controller.status().accessPolicy).toBe("account_required");
+      const changed = await h.controller.setAccessPolicy("guest_allowed");
+      expect(changed).toMatchObject({ accessPolicy: "guest_allowed", inviteOnly: false });
+      await expect(h.controller.setAccessPolicy("everyone")).rejects.toThrow(/Say who may join/);
+      expect(h.accessPolicy).toBe("guest_allowed");
+    });
+
+    it("lets guests in only while the public link is open, when asked to on opening", async () => {
+      const h = harness({ publicAccess: true, policies: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.openToAll({ inviteOnly: false, accessPolicy: "guest_allowed" });
+      expect(h.events.slice(0, 2)).toEqual(["access:guest_allowed", "tunnel:open"]);
+      expect(h.controller.status().accessPolicy).toBe("guest_allowed");
+      // Closing puts back what the workspace had before, not the guests.
+      const closed = await h.controller.endOpenToAll();
+      expect(closed.accessPolicy).toBe("account_required");
+    });
+
+    it("keeps guests a host allowed before opening, through opening and closing", async () => {
+      const h = harness({ publicAccess: true, policies: true });
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.setAccessPolicy("guest_allowed");
+      // An older dialog says only that invites are off.
+      await h.controller.openToAll({ inviteOnly: false });
+      expect(h.controller.status().accessPolicy).toBe("guest_allowed");
+      expect((await h.controller.endOpenToAll()).accessPolicy).toBe("guest_allowed");
+    });
+
+    it("puts back the policy it had when the public link cannot open", async () => {
+      const h = harness({ publicAccess: true, policies: true });
+      h.beforeTunnel = () => {
+        throw new Error("cloudflared is not installed");
+      };
+      await h.controller.start({ workspaceName: "Rocket Team" });
+      await h.controller.setAccessPolicy("account_required");
+      await expect(
+        h.controller.openToAll({ inviteOnly: false, accessPolicy: "guest_allowed" }),
+      ).rejects.toThrow(/cloudflared/);
+      expect(h.accessPolicy).toBe("account_required");
+    });
   });
 
   describe("opening the hosted workspace to all", () => {

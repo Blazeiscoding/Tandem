@@ -56,6 +56,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const channelType = useWorkspace((s) => s.channels[channelId]?.type);
   const archived = useWorkspace((s) => s.channels[channelId]?.archived ?? false);
   const isRoom = channelType === "public" || channelType === "private";
+  // A guest writes, but does not upload, schedule or run an app's commands.
+  const guest = useWorkspace((s) => s.self?.role === "guest");
   // Threads keep their own draft slot so a channel draft isn't clobbered.
   const draftKey = threadRootId ? `${channelId}:${threadRootId}` : channelId;
   const scheduleStorageKey = useMemo(
@@ -232,6 +234,11 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   function addFiles(files: FileList | File[] | null, note?: string) {
     if (!files || scheduleLock.current || recoveryBlocksSend) return;
     const incoming = [...files];
+    if (guest) {
+      if (incoming.length > 0)
+        setAttachmentNote("Guests cannot attach files. Create an account to share them.");
+      return;
+    }
     if (incoming.length > 0) {
       const notes = [
         note,
@@ -327,10 +334,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
    */
   const commandCandidates = useMemo(() => {
     const m = /^\/([a-zA-Z0-9_-]*)$/.exec(text);
-    if (!m) return [];
+    if (!m || guest) return [];
     const q = m[1]!.toLowerCase();
     return commands.filter((c) => c.command.startsWith(q)).slice(0, 6);
-  }, [text, commands]);
+  }, [text, commands, guest]);
   const commandList = useListbox(commandCandidates.length);
   const mentionList = useListbox(mentionQuery ? candidates.length : 0);
 
@@ -914,16 +921,18 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         )}
         <div className="relative flex items-center justify-between px-2.5 pb-2">
           <span className="flex items-center gap-1">
-            <Tooltip label="Attach a file">
-              <button
-                onClick={() => filePicker.current?.click()}
-                aria-label="Attach a file"
-                className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-              >
-                <Icon name="attach" />
-              </button>
-            </Tooltip>
-            {(text.trim() || attached.length > 0) && (
+            {!guest && (
+              <Tooltip label="Attach a file">
+                <button
+                  onClick={() => filePicker.current?.click()}
+                  aria-label="Attach a file"
+                  className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                >
+                  <Icon name="attach" />
+                </button>
+              </Tooltip>
+            )}
+            {!guest && (text.trim() || attached.length > 0) && (
               <Tooltip label="Send later">
                 <button
                   onClick={() => setScheduleOpen((v) => !v)}
