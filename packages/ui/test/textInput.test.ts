@@ -91,9 +91,12 @@ describe("asking for less motion", () => {
 
   it("does not restore the caret a frame late, where a keystroke fits", () => {
     // requestAnimationFrame is the version of this that has the bug in it.
-    const composer = source("components/Composer.tsx");
-    expect(composer).not.toContain("requestAnimationFrame");
-    expect(composer).toContain("caretToRestore(");
+    for (const box of ["components/Composer.tsx", "components/MessageEditor.tsx"])
+      expect(source(box)).not.toContain("requestAnimationFrame");
+    // Both boxes rewrite through the mention field, which restores the caret.
+    expect(source("components/Composer.tsx")).toContain("useMentionField(");
+    expect(source("components/MessageEditor.tsx")).toContain("useMentionField(");
+    expect(source("lib/useMentionField.ts")).toContain("caretToRestore(");
   });
 });
 

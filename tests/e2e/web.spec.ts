@@ -831,13 +831,13 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   await expect(details).toHaveCount(0);
   await expect(composer).toHaveValue("A calmer space for our next big idea.");
 
-  // Completing a mention rewrites the whole field, and typing straight after
-  // has to carry on from where the completion left off.
+  // Completing a mention rewrites the field, and typing straight after has
+  // to carry on from where the completion left off.
   await composer.fill("");
   await composer.pressSequentially("Hi @may", { delay: 10 });
   await page.keyboard.press("Tab");
   const completed = await composer.inputValue();
-  expect(completed).toMatch(/^Hi <@[A-Z0-9]+> $/);
+  expect(completed).toBe("Hi @Maya Chen ");
   await composer.pressSequentially("ready?", { delay: 5 });
   expect(await composer.inputValue()).toBe(`${completed}ready?`);
 
@@ -1074,6 +1074,98 @@ async function launchProfile(profile: string) {
   };
   return { browser, context, open, kill };
 }
+
+test("the composer shows mentions as names while typing, and sends them as ids", async ({
+  page,
+}) => {
+  await signIn(page, "alice");
+  const composer = page.getByRole("textbox", { name: "Message #general", exact: true });
+  const login = (await (
+    await fetch(`${base}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: "bobby", password: "password123" }),
+    })
+  ).json()) as { token: string; user: { id: string } };
+  const bobby = login.user.id;
+  const { channels } = await (
+    await fetch(`${base}/api/channels`, { headers: { authorization: `Bearer ${login.token}` } })
+  ).json();
+  const general = channels.find((c: { name: string }) => c.name === "general");
+  /** What the server holds as the latest message in #general. */
+  const latest = async () => {
+    const { messages } = await (
+      await fetch(`${base}/api/channels/${general.id}/messages`, {
+        headers: { authorization: `Bearer ${login.token}` },
+      })
+    ).json();
+    return (messages as { text: string; seq: number }[]).toSorted((a, b) => b.seq - a.seq)[0]?.text;
+  };
+
+  // Chosen from the list, @here reads as @here and is sent as <!here>, with
+  // the caret after it.
+  await composer.pressSequentially("Lunch @he", { delay: 10 });
+  await page.keyboard.press("Tab");
+  await expect(composer).toHaveValue("Lunch @here ");
+  await composer.pressSequentially("now?", { delay: 10 });
+  await expect(composer).toHaveValue("Lunch @here now?");
+  await page.keyboard.press("Enter");
+  await expect.poll(latest).toBe("Lunch <!here> now?");
+
+  // The completion is the browser's own edit: Undo takes it back to what was
+  // typed, and Redo brings back the mention, not the letters of its name.
+  await composer.pressSequentially("ask @bo", { delay: 10 });
+  await page.keyboard.press("Tab");
+  await expect(composer).toHaveValue("ask @bobby ");
+  await page.keyboard.press("Control+z");
+  await expect(composer).toHaveValue("ask @bo");
+  await page.keyboard.press("Control+Shift+z");
+  await expect(composer).toHaveValue("ask @bobby ");
+  expect(await composer.evaluate((el) => (el as HTMLTextAreaElement).selectionStart)).toBe(11);
+
+  // An input method composes after the mention without disturbing it.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.imeSetComposition", { text: "に", selectionStart: 1, selectionEnd: 1 });
+  await cdp.send("Input.imeSetComposition", { text: "にほん", selectionStart: 3, selectionEnd: 3 });
+  await cdp.send("Input.insertText", { text: "日本" });
+  await expect(composer).toHaveValue("ask @bobby 日本");
+  await page.keyboard.press("Enter");
+  await expect.poll(latest).toBe(`ask <@${bobby}> 日本`);
+
+  // Backspace takes a whole mention, and bolding one keeps it a mention.
+  await composer.pressSequentially("@bo", { delay: 10 });
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  await expect(composer).toHaveValue("");
+  await composer.pressSequentially("hey @bo", { delay: 10 });
+  await page.keyboard.press("Tab");
+  await composer.evaluate((el) => (el as HTMLTextAreaElement).setSelectionRange(4, 10));
+  await page.keyboard.press("Control+b");
+  await expect(composer).toHaveValue("hey *@bobby* ");
+  expect(
+    await composer.evaluate((el) => {
+      const box = el as HTMLTextAreaElement;
+      return [box.selectionStart, box.selectionEnd];
+    }),
+  ).toEqual([5, 11]);
+  await page.keyboard.press("Control+z");
+  await expect(composer).toHaveValue("hey @bobby ");
+  await page.keyboard.press("Control+Shift+z");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await expect.poll(latest).toBe(`hey *<@${bobby}>*`);
+
+  // Editing the sent message shows the name, and saving keeps the id.
+  await page.getByRole("article").last().hover();
+  await page.getByRole("button", { name: "Edit message", exact: true }).last().click();
+  const editor = page.getByRole("textbox", { name: "Edit message", exact: true });
+  await expect(editor).toHaveValue("hey *@bobby*");
+  await editor.press("End");
+  await editor.pressSequentially(" please", { delay: 10 });
+  await editor.press("Enter");
+  await expect.poll(latest).toBe(`hey *<@${bobby}>* please`);
+});
 
 test("a send the composer let go of, and the drafts saved, outlast the browser being killed (F01)", async () => {
   const profile = mkdtempSync(join(tmpdir(), "slackoss-profile-"));
