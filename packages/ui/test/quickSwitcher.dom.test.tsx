@@ -5,7 +5,7 @@ import { WorkspaceClient } from "@slackoss/client-core";
 import type { Channel, User } from "@slackoss/protocol";
 import { ClientContext } from "../src/context.js";
 import { accessibilityProblems } from "./accessibility.js";
-import { QuickSwitcher } from "../src/components/QuickSwitcher.js";
+import { QuickSwitcher, type PaletteCommand } from "../src/components/QuickSwitcher.js";
 
 const person = (id: string, handle: string, displayName: string, deactivated = false): User => ({
   id,
@@ -38,7 +38,9 @@ const room = (
 });
 
 /** A workspace client that never connects, holding the replica a test gives it. */
-function switcherWith() {
+function switcherWith(
+  extra: Partial<Pick<Parameters<typeof QuickSwitcher>[0], "commands" | "onSearch">> = {},
+) {
   const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
   const sam = person("U_SAM", "sam", "Sam Rivera");
   client.store.setState({
@@ -58,17 +60,18 @@ function switcherWith() {
     },
   });
   const onOpen = vi.fn();
+  const onClose = vi.fn();
   const openDm = vi.spyOn(client, "openDm").mockResolvedValue(room("D_PRIYA", "dm", ""));
   render(
     <ClientContext.Provider value={client}>
-      <QuickSwitcher onClose={() => {}} onOpen={onOpen} />
+      <QuickSwitcher onClose={onClose} onOpen={onOpen} {...extra} />
     </ClientContext.Provider>,
   );
   const options = () =>
     within(screen.getByRole("dialog", { name: "Jump to" }))
       .getAllByRole("option")
       .map((item) => item.textContent);
-  return { client, onOpen, openDm, options };
+  return { client, onOpen, onClose, openDm, options };
 }
 
 describe("jumping to a conversation", () => {
@@ -165,5 +168,53 @@ describe("jumping to a conversation", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(openDm).toHaveBeenCalledTimes(2);
     expect(onOpen).toHaveBeenCalledWith("D_PRIYA");
+  });
+});
+
+describe("the palette's actions", () => {
+  const actions = () => {
+    const ran: string[] = [];
+    const commands: PaletteCommand[] = [
+      {
+        id: "new-channel",
+        label: "Create a channel",
+        icon: "plus",
+        run: () => ran.push("channel"),
+      },
+      {
+        id: "theme",
+        label: "Switch to the White theme",
+        icon: "sun",
+        keywords: "dark light appearance",
+        run: () => ran.push("theme"),
+      },
+    ];
+    return { ran, commands };
+  };
+
+  it("lists places first, then actions, and runs one after closing", async () => {
+    const user = userEvent.setup();
+    const { ran, commands } = actions();
+    const { onClose, options } = switcherWith({ commands, onSearch: vi.fn() });
+    // Nothing typed: places, then the actions. No search row without words.
+    expect(options().slice(-2)).toEqual(["Create a channel", "Switch to the White theme"]);
+    expect(options()[0]).toBe("#design");
+    await user.type(screen.getByRole("combobox"), "light");
+    expect(screen.getByRole("option", { name: "Switch to the White theme, action" })).toBeVisible();
+    await user.keyboard("{Enter}");
+    expect(onClose).toHaveBeenCalled();
+    expect(ran).toEqual(["theme"]);
+    expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
+  });
+
+  it("ends with searching messages for what was typed", async () => {
+    const user = userEvent.setup();
+    const onSearch = vi.fn();
+    const { commands } = actions();
+    const { options } = switcherWith({ commands, onSearch });
+    await user.type(screen.getByRole("combobox"), "release notes");
+    expect(options().at(-1)).toBe("Search messages for “release notes”");
+    await user.click(screen.getByRole("option", { name: "Search messages for “release notes”" }));
+    expect(onSearch).toHaveBeenCalledWith("release notes");
   });
 });

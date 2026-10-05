@@ -96,9 +96,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
       <div className="space-y-4">
         {shown.map((group) => (
           <section key={group.title}>
-            <h3 className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-              {group.title}
-            </h3>
+            <h3 className="mb-1.5 text-[13px] font-semibold text-ink">{group.title}</h3>
             <ul className="space-y-1">
               {group.items.map(([keys, what]) => (
                 <li key={keys} className="flex items-baseline gap-3 text-sm">

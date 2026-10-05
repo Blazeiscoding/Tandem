@@ -503,9 +503,7 @@ function EphemeralRow({ message, channelId }: { message: EphemeralMessage; chann
       <div className="min-w-0 flex-1 rounded-lg border border-dashed border-edge bg-raised/60 px-3 py-2">
         <div className="mb-0.5 flex items-center gap-2">
           {author && <span className="text-[13px] font-semibold">{author.displayName}</span>}
-          <span className="font-mono text-[10px] uppercase tracking-widest text-ink-faint">
-            Only visible to you
-          </span>
+          <span className="text-[12px] text-ink-faint">Only visible to you</span>
           <Tooltip label="Dismiss">
             <button
               onClick={() => client.dismissEphemeral(channelId, message.id)}
@@ -534,7 +532,7 @@ function DroppedEphemeralsNotice({ channelId, count }: { channelId: ID; count: n
     <div className="flex gap-4 py-1 pl-4 pr-12">
       <div className="w-10 shrink-0" />
       <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 text-[13px] text-ink-faint">
-        <span className="font-mono text-[10px] uppercase tracking-widest">Only visible to you</span>
+        <span className="font-medium">Only visible to you</span>
         <span>
           {count === 1
             ? "1 older private answer here was cleared to make room."

@@ -25,13 +25,13 @@ import {
   useNotificationPreviews,
   type NotificationPreview,
 } from "../lib/notificationPreview.js";
-import { QuickSwitcher } from "../components/QuickSwitcher.js";
+import { QuickSwitcher, type PaletteCommand } from "../components/QuickSwitcher.js";
+import { useAppearance } from "../lib/appearance.js";
 import { shortcutLabel } from "../lib/shortcuts.js";
 import type { AccountSection } from "../components/AccountDialog.js";
-import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
+import { HuddleButton } from "../components/HuddleButton.js";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { LazyDialog, LazyPanel } from "../components/LazyView.js";
-import { ViewModal } from "../components/ViewModal.js";
 import { Icon, type IconName } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
 import { useMessageAnnouncer } from "../components/MessageAnnouncer.js";
@@ -91,6 +91,14 @@ const MembersPanel = lazy(() =>
 );
 const ScheduledPanel = lazy(() =>
   import("../components/ScheduledPanel.js").then((module) => ({ default: module.ScheduledPanel })),
+);
+/** The bar for a call in progress, fetched when one starts. */
+const HuddleBar = lazy(() =>
+  import("../components/HuddleBar.js").then((module) => ({ default: module.HuddleBar })),
+);
+/** A form an app opens, which most sessions never see. */
+const ViewModal = lazy(() =>
+  import("../components/ViewModal.js").then((module) => ({ default: module.ViewModal })),
 );
 const SearchDialog = lazy(() =>
   import("../components/SearchDialog.js").then((module) => ({ default: module.SearchDialog })),
@@ -161,7 +169,7 @@ type DialogKind =
   | { kind: "new-dm"; initialMemberIds?: ID[] }
   | { kind: "invite" }
   | { kind: "switcher" }
-  | { kind: "search" }
+  | { kind: "search"; query?: string }
   | { kind: "account"; section?: AccountSection }
   | { kind: "profile"; userId: ID }
   | { kind: "channel-details" }
@@ -326,6 +334,7 @@ function WorkspaceInner({
   }, []);
   const [huddleView, setHuddleView] = useState<HuddleView>("docked");
   const huddleVideo = useWorkspace((s) => huddleHasVideo(s.huddle));
+  const inHuddle = useWorkspace((s) => !!s.huddle);
   // Once the video is gone, the next video starts in view again, above the chat.
   useEffect(() => {
     if (!huddleVideo) setHuddleView("docked");
@@ -688,6 +697,151 @@ function WorkspaceInner({
     }
     setDialog({ kind: "none" });
   };
+
+  // The palette's actions: every sidebar destination and the common tasks.
+  const appearance = useAppearance();
+  const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
+  const showsDark = appearance.theme === "dark" || (appearance.theme === "system" && prefersDark);
+  const isGuest = self?.role === "guest";
+  const openPanel = (kind: "activity" | "threads" | "saved" | "scheduled") => {
+    setPanel({ kind });
+    setSidebarOpen(false);
+  };
+  const paletteCommands: PaletteCommand[] =
+    dialog.kind !== "switcher"
+      ? []
+      : [
+          ...(isGuest
+            ? []
+            : [
+                {
+                  id: "new-message",
+                  label: "New message",
+                  icon: "edit" as const,
+                  keywords: "dm direct conversation write",
+                  run: () => setDialog({ kind: "new-dm" }),
+                },
+                {
+                  id: "new-channel",
+                  label: "Create a channel",
+                  icon: "plus" as const,
+                  keywords: "new add room",
+                  run: () => setDialog({ kind: "new-channel" }),
+                },
+              ]),
+          {
+            id: "browse",
+            label: "Browse channels",
+            icon: "compass",
+            keywords: "join find explore",
+            run: () => setDialog({ kind: "browse" }),
+          },
+          {
+            id: "activity",
+            label: "Activity",
+            icon: "activity",
+            keywords: "mentions unread notifications",
+            run: () => openPanel("activity"),
+          },
+          {
+            id: "threads",
+            label: "Threads",
+            icon: "thread",
+            keywords: "replies following",
+            run: () => openPanel("threads"),
+          },
+          {
+            id: "saved",
+            label: "Saved",
+            icon: "bookmark",
+            keywords: "bookmarks later",
+            run: () => openPanel("saved"),
+          },
+          ...(isGuest
+            ? []
+            : [
+                {
+                  id: "invite",
+                  label: "Invite people",
+                  icon: "userPlus" as const,
+                  keywords: "link code join add",
+                  run: () => setDialog({ kind: "invite" }),
+                },
+                {
+                  id: "scheduled",
+                  label: "Scheduled messages",
+                  icon: "clock" as const,
+                  keywords: "send later",
+                  run: () => openPanel("scheduled"),
+                },
+              ]),
+          {
+            id: "search",
+            label: "Search messages",
+            icon: "search",
+            keywords: "find",
+            shortcut: shortcutLabel("Mod+F"),
+            run: () => setDialog({ kind: "search" }),
+          },
+          {
+            id: "status",
+            label: "Set a status",
+            icon: "user",
+            keywords: "profile name away busy",
+            run: () => setDialog({ kind: "account", section: "profile" }),
+          },
+          {
+            id: "theme",
+            label: showsDark ? "Switch to the White theme" : "Switch to the Onyx theme",
+            icon: showsDark ? "sun" : "moon",
+            keywords: "theme appearance dark light mode colour color",
+            run: () => void appearance.set({ theme: showsDark ? "light" : "dark" }),
+          },
+          {
+            id: "settings",
+            label: "Account settings",
+            icon: "settings",
+            keywords: "preferences notifications password",
+            run: () => setDialog({ kind: "account" }),
+          },
+          ...(isAdmin
+            ? [
+                {
+                  id: "people",
+                  label: "Manage people",
+                  icon: "members" as const,
+                  keywords: "members admin roles deactivate",
+                  run: () => setDialog({ kind: "people" }),
+                },
+                {
+                  id: "apps",
+                  label: "Apps and integrations",
+                  icon: "grid" as const,
+                  keywords: "bots webhooks commands",
+                  run: () => setDialog({ kind: "apps" }),
+                },
+              ]
+            : []),
+          ...(isGuest
+            ? [
+                {
+                  id: "create-account",
+                  label: "Create an account",
+                  icon: "user" as const,
+                  keywords: "sign up keep",
+                  run: () => setDialog({ kind: "guest-account" }),
+                },
+              ]
+            : []),
+          {
+            id: "shortcuts",
+            label: "Keyboard shortcuts",
+            icon: "keyboard",
+            keywords: "keys help",
+            shortcut: shortcutLabel("Mod+/"),
+            run: () => setDialog({ kind: "shortcuts" }),
+          },
+        ];
 
   const announcer = useMessageAnnouncer();
   const { hear, forget } = announcer;
@@ -1055,7 +1209,11 @@ function WorkspaceInner({
                 />
               </div>
             </div>
-            <HuddleBar view={huddleView} onViewChange={setHuddleView} />
+            {inHuddle && (
+              <Suspense fallback={null}>
+                <HuddleBar view={huddleView} onViewChange={setHuddleView} />
+              </Suspense>
+            )}
             <div hidden={chatCovered} className="contents">
               <JumpToLatestBar
                 channelId={activeChannelId}
@@ -1171,10 +1329,22 @@ function WorkspaceInner({
           <GuestAccountDialog onClose={closeDialog} onCreated={onAccountCreated} />
         </LazyDialog>
       )}
-      {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
+      {dialog.kind === "switcher" && (
+        <QuickSwitcher
+          onClose={closeDialog}
+          onOpen={openChannel}
+          commands={paletteCommands}
+          onSearch={(query) => setDialog({ kind: "search", query })}
+        />
+      )}
       {dialog.kind === "search" && (
         <LazyDialog loading="Loading search" onClose={closeDialog}>
-          <SearchDialog channelId={activeChannelId} onClose={closeDialog} onJump={jumpToMessage} />
+          <SearchDialog
+            channelId={activeChannelId}
+            initialQuery={dialog.query}
+            onClose={closeDialog}
+            onJump={jumpToMessage}
+          />
         </LazyDialog>
       )}
       {dialog.kind === "shortcuts" && (
@@ -1207,7 +1377,9 @@ function WorkspaceInner({
       )}
       {/* Not one of the workspace's own dialogs: an app asked for this one, so
           it shows itself whenever one arrives. */}
-      <ViewModal />
+      <Suspense fallback={null}>
+        <ViewModal />
+      </Suspense>
       {dialog.kind === "friends" && (
         <LazyDialog loading="Loading friends" onClose={closeDialog}>
           <FriendsDialog

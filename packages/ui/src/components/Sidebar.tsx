@@ -9,6 +9,8 @@ import { AvatarWithPresence, PresenceDot } from "./Avatar.js";
 import { Icon, type IconName } from "./Icon.js";
 import { Tooltip } from "./Tooltip.js";
 import { Menu, type MenuItem } from "./Menu.js";
+import { useOptionalToast } from "./Toast.js";
+import { STATUS_PRESETS } from "../lib/status.js";
 
 interface Props {
   activeChannelId: ID | null;
@@ -551,7 +553,42 @@ function AccountMenu(props: {
   onDiagnostics?: () => void;
 }) {
   const self = useWorkspace((s) => s.self);
+  const client = useClient();
+  const toast = useOptionalToast();
   const items: MenuItem[] = [];
+  /** Sets a status straight from the menu: two clicks for the common ones. */
+  const setStatus = (statusEmoji: string, statusText: string) => {
+    client.api.updateMe({ statusEmoji, statusText }).catch(() => {
+      toast?.({
+        message: "Your status was not changed. Check your connection and try again.",
+        kind: "error",
+      });
+    });
+  };
+  if (!props.guest && self) {
+    const current = `${self.statusEmoji} ${self.statusText}`.trim();
+    if (current)
+      items.push({
+        id: "clear-status",
+        label: "Clear status",
+        icon: "close",
+        section: current,
+        ariaLabel: `Clear status, ${current}`,
+        onSelect: () => setStatus("", ""),
+      });
+    STATUS_PRESETS.slice(0, 3)
+      .filter((p) => p.text !== self.statusText)
+      .forEach((p, i) =>
+        items.push({
+          id: `status-${p.text}`,
+          label: p.text,
+          emoji: p.emoji,
+          section: !current && i === 0 ? "Set a status" : undefined,
+          ariaLabel: `Set status: ${p.text}`,
+          onSelect: () => setStatus(p.emoji, p.text),
+        }),
+      );
+  }
   if (props.guest && props.onCreateAccount)
     items.push({
       id: "create-account",
@@ -564,6 +601,7 @@ function AccountMenu(props: {
       id: "profile",
       label: "Profile and status",
       icon: "user",
+      section: true,
       onSelect: props.onEditProfile,
     });
     items.push({

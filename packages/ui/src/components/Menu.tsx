@@ -8,6 +8,10 @@ export interface MenuItem {
   label: string;
   /** A small drawn icon before the label. */
   icon?: IconName;
+  /** An emoji in the icon's place, such as a status's. */
+  emoji?: string;
+  /** What a screen reader says, where the label alone would not explain it. */
+  ariaLabel?: string;
   /**
    * Starts a group: a hairline above it, and its name when given. Items that
    * belong together read as one, so a long menu scans in sections.
@@ -257,6 +261,7 @@ function MenuPanel({
                 tabIndex={-1}
                 disabled={item.disabled}
                 aria-disabled={item.disabled || undefined}
+                aria-label={item.ariaLabel}
                 onClick={() => choose(index)}
                 onMouseEnter={() => {
                   if (!item.disabled) setActive(index);
@@ -277,6 +282,11 @@ function MenuPanel({
                     size={16}
                     className={item.destructive ? "" : "text-ink-faint"}
                   />
+                )}
+                {item.emoji && (
+                  <span aria-hidden="true" className="w-4 text-center text-[15px] leading-none">
+                    {item.emoji}
+                  </span>
                 )}
                 {item.label}
               </button>

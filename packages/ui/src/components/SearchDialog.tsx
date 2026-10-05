@@ -128,12 +128,14 @@ export function SearchDialog(props: {
   onClose: () => void;
   onJump: (channelId: ID, messageId: ID) => void;
   channelId?: ID | null;
+  /** Words to search for at once, as typed in the palette. */
+  initialQuery?: string;
 }) {
   const client = useClient();
   const recent = useRecentSearches();
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(props.initialQuery ?? "");
   const [results, setResults] = useState<Awaited<ReturnType<typeof client.api.search>> | null>(
     null,
   );
@@ -166,6 +168,13 @@ export function SearchDialog(props: {
     .join(" ");
 
   useEffect(() => () => request.current?.abort(), []);
+
+  // Words brought from the palette are searched straight away.
+  const initial = useRef(props.initialQuery?.trim().slice(0, 200));
+  useEffect(() => {
+    if (initial.current) void search({ query: initial.current }, undefined, 0, [undefined]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on opening
+  }, []);
 
   async function search(
     criteria: { query: string; channelId?: ID },

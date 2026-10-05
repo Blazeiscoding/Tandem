@@ -208,6 +208,8 @@ describe("colours written outside the stylesheet", () => {
     ]);
     for (const page of ["apps/web/index.html", "apps/desktop/src/renderer/index.html"])
       expect(hexes(read(page)), page).toEqual([tokens.deep]);
+    // What a phone shows while the installed client starts, and its bars.
+    expect(hexes(read("apps/web/public/manifest.webmanifest"))).toEqual([tokens.deep, tokens.deep]);
     // The mark the favicon and the desktop icons are drawn from, as BrandMark draws it.
     for (const icon of [
       "apps/web/public/tandem.svg",

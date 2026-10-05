@@ -268,9 +268,7 @@ export function ChannelDetailsDialog(props: {
                 </p>
               )}
               <div>
-                <label className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-                  Topic
-                </label>
+                <label className="mb-1.5 block text-[13px] font-medium text-ink-dim">Topic</label>
                 <input
                   aria-label="Channel topic"
                   maxLength={250}
@@ -285,7 +283,7 @@ export function ChannelDetailsDialog(props: {
                 />
               </div>
               <div>
-                <label className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
+                <label className="mb-1.5 block text-[13px] font-medium text-ink-dim">
                   Description
                 </label>
                 <textarea
@@ -592,9 +590,7 @@ export function ChannelDetailsDialog(props: {
             </ul>
             {permissions.invite && !membersLoading && !membersError && notMembers.length > 0 && (
               <div>
-                <div className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-                  Add someone
-                </div>
+                <div className="mb-1.5 text-[13px] font-semibold text-ink">Add someone</div>
                 <ul className="flex flex-wrap gap-1.5">
                   {notMembers.map((u) => (
                     <li key={u.id}>
@@ -646,9 +642,7 @@ function NotificationSettings({ channelId }: { channelId: ID }) {
         </p>
       )}
       <fieldset className="space-y-1.5" disabled={prefs.muted}>
-        <legend className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-          Notify me about
-        </legend>
+        <legend className="mb-1.5 text-[13px] font-semibold text-ink">Notify me about</legend>
         {LEVELS.map((level) => (
           <label
             key={level.value}

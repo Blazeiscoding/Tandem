@@ -295,7 +295,7 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
                         @{person.handle}
                       </span>
                       {person.isBot && (
-                        <span className="rounded bg-lifted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-ink-faint">
+                        <span className="rounded-full bg-ink/[0.07] px-2 py-0.5 text-[11px] font-medium text-ink-dim">
                           app
                         </span>
                       )}

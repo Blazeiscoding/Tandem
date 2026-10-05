@@ -266,9 +266,7 @@ function StartupWhileStopped(props: {
 
   return (
     <section aria-label="When this computer starts" className="mb-5 space-y-2 text-sm">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
-        When this computer starts
-      </h3>
+      <h3 className="text-[13px] font-semibold text-ink">When this computer starts</h3>
       {props.chosen ? (
         <p className="text-ink-dim">
           {props.chosen.name} starts hosting when Tandem opens.{" "}
@@ -760,6 +758,7 @@ export function HostDialog(props: {
 }) {
   const { status, loading, error: statusError, refresh } = props.state;
   const [name, setName] = useState("");
+  const nameInput = useRef<HTMLInputElement>(null);
   /** The port for a new workspace, as typed. Empty for the usual one. */
   const [portText, setPortText] = useState("");
   const [busy, setBusy] = useState<
@@ -993,7 +992,12 @@ export function HostDialog(props: {
 
   function start(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
+    // Say what is missing rather than refusing silently.
+    if (!name.trim()) {
+      setError({ message: "Name the workspace first, such as Rocket Team." });
+      nameInput.current?.focus();
+      return;
+    }
     if (!portText.trim()) {
       void launch({ workspaceName: name.trim() });
       return;
@@ -1690,9 +1694,7 @@ export function HostDialog(props: {
           />
           {existing.length > 0 && (
             <section aria-label="Hosted on this computer" className="mb-5">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-dim">
-                Hosted on this computer
-              </h3>
+              <h3 className="mb-2 text-[13px] font-semibold text-ink">Hosted on this computer</h3>
               <ul className="space-y-2">
                 {existing.map((w) => (
                   <li
@@ -1880,9 +1882,7 @@ export function HostDialog(props: {
                   {hosted!.unreadable.join(", ")}, so it is not listed.
                 </p>
               )}
-              <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide text-ink-dim">
-                New workspace
-              </h3>
+              <h3 className="mt-5 text-[13px] font-semibold text-ink">New workspace</h3>
             </section>
           )}
           <form onSubmit={start} className="space-y-3">
@@ -1891,6 +1891,7 @@ export function HostDialog(props: {
                 Workspace name
               </span>
               <input
+                ref={nameInput}
                 autoFocus
                 maxLength={80}
                 value={name}
@@ -1928,7 +1929,7 @@ export function HostDialog(props: {
             )}
             <button
               type="submit"
-              disabled={!name.trim() || unavailable}
+              disabled={unavailable}
               className={buttonClass("primary", "w-full")}
             >
               {busy === "starting"
@@ -1943,7 +1944,7 @@ export function HostDialog(props: {
               type="button"
               disabled={unavailable}
               onClick={() => void restoreBackup()}
-              className="mt-3 w-full rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+              className={buttonClass("secondary", "mt-3 w-full")}
             >
               {busy === "restoring" ? "Restoring…" : "Restore from a backup…"}
             </button>
