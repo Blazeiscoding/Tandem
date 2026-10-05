@@ -1157,8 +1157,10 @@ test("the composer shows mentions as names while typing, and sends them as ids",
   await expect.poll(latest).toBe(`hey *<@${bobby}>*`);
 
   // Editing the sent message shows the name, and saving keeps the id.
-  await page.getByRole("article").last().hover();
-  await page.getByRole("button", { name: "Edit message", exact: true }).last().click();
+  // The toolbar of the message hovered, not of one that showed its own earlier.
+  const sent = page.getByRole("article").filter({ hasText: "hey" }).last();
+  await sent.hover();
+  await sent.getByRole("button", { name: "Edit message", exact: true }).click();
   const editor = page.getByRole("textbox", { name: "Edit message", exact: true });
   await expect(editor).toHaveValue("hey *@bobby*");
   await editor.press("End");
@@ -3000,6 +3002,140 @@ test("the layout holds at phone, tablet, laptop and short-window sizes", async (
       await exited;
     }
     rmSync(layoutData, { recursive: true, force: true });
+  }
+});
+
+test("a visitor joins with only a name where guests are allowed, and can keep it as an account", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const guestData = mkdtempSync(join(tmpdir(), "slackoss-e2e-guest-"));
+  const guestServer = spawn(
+    process.execPath,
+    [
+      "apps/server-cli/dist/slackoss-server.js",
+      "--data",
+      guestData,
+      "--port",
+      String(port),
+      "--host",
+      "127.0.0.1",
+      "--no-mdns",
+      "--name",
+      "Guest Team",
+      "--no-rate-limits",
+      "--access-policy",
+      "guest_allowed",
+    ],
+    { windowsHide: true, stdio: "pipe" },
+  );
+  const context = await browser.newContext();
+  try {
+    await expect
+      .poll(async () => {
+        try {
+          return (await fetch(`${origin}/api/health`)).status;
+        } catch {
+          return 0;
+        }
+      })
+      .toBe(200);
+    const owner = (await (
+      await fetch(`${origin}/api/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "olivia", displayName: "Olivia", password: "password123" }),
+      })
+    ).json()) as { token: string; user: { id: string } };
+    const call = async (path: string, body?: unknown) =>
+      (
+        await fetch(`${origin}${path}`, {
+          method: body === undefined ? "GET" : "POST",
+          headers: {
+            authorization: `Bearer ${owner.token}`,
+            ...(body === undefined ? {} : { "content-type": "application/json" }),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        })
+      ).json();
+    const { channels } = await call("/api/channels");
+    const general = channels.find((c: { name: string }) => c.name === "general");
+    await call("/api/channels", { type: "private", name: "leadership" });
+    const messages = async () =>
+      (
+        (await call(`/api/channels/${general.id}/messages`)).messages as {
+          text: string;
+          userId: string;
+        }[]
+      ).map((m) => `${m.userId}:${m.text}`);
+
+    const page = await context.newPage();
+    // Anything the app asks for that a guest is refused: the app should not ask.
+    const refused: string[] = [];
+    page.on("response", async (response) => {
+      if (response.status() !== 403) return;
+      const body = await response.text().catch(() => "");
+      if (body.includes("guest_not_allowed")) refused.push(response.url());
+    });
+    await page.goto(origin);
+
+    // No username, password or invite: a display name, and Join as guest.
+    const guestTab = page.getByRole("tab", { name: "Join as guest", exact: true });
+    await expect(guestTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
+    await page.getByLabel("Display name", { exact: true }).fill("Visiting Vic");
+    await page.screenshot({ path: test.info().outputPath("guest-join.png") });
+    await page.getByRole("button", { name: "Join as guest", exact: true }).click();
+    const composer = page.getByRole("textbox", { name: "Message #general", exact: true });
+    await expect(composer).toBeVisible();
+    const nav = page.getByRole("navigation").first();
+    await expect(nav.getByText("Guest", { exact: true })).toBeVisible();
+    await expect(nav.getByRole("button", { name: "New channel", exact: true })).toHaveCount(0);
+    await expect(nav.getByText("leadership")).toHaveCount(0);
+
+    await composer.fill("hello from a guest");
+    await composer.press("Enter");
+    await expect.poll(messages).toContainEqual(expect.stringMatching(/:hello from a guest$/));
+    const [guestMessage] = (await messages()).filter((m) => m.endsWith(":hello from a guest"));
+    const guest = guestMessage!.split(":")[0]!;
+    // Everyone else sees who wrote it, marked as a guest.
+    await expect(
+      page
+        .getByRole("article")
+        .filter({ hasText: "hello from a guest" })
+        .getByText("Guest", { exact: true }),
+    ).toBeVisible();
+
+    await page.screenshot({ path: test.info().outputPath("guest-workspace.png") });
+    // A reload resumes the same guest.
+    await page.reload();
+    await expect(composer).toBeVisible();
+    await expect(nav.getByText("Guest", { exact: true })).toBeVisible();
+
+    // Keeping the identity as an account: same person, now a member.
+    await nav.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Create an account", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Create an account", exact: true });
+    await dialog.getByLabel("Username", { exact: true }).fill("vic");
+    await dialog.getByLabel("Password", { exact: true }).fill("password123");
+    await dialog.getByRole("button", { name: "Create account", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(nav.getByRole("button", { name: "New channel", exact: true })).toBeVisible();
+    await expect(nav.getByText("Guest", { exact: true })).toHaveCount(0);
+    await composer.fill("now with an account");
+    await composer.press("Enter");
+    await expect.poll(messages).toContain(`${guest}:now with an account`);
+    expect(refused).toEqual([]);
+  } finally {
+    await context.close().catch(() => {});
+    if (guestServer.exitCode === null) {
+      const exited = new Promise((resolve) => guestServer.once("exit", resolve));
+      guestServer.kill();
+      await exited;
+    }
+    rmSync(guestData, { recursive: true, force: true });
   }
 });
 

@@ -8,7 +8,26 @@ export interface Friendship {
   createdAt: number;
 }
 
-export type Role = "owner" | "admin" | "member";
+/**
+ * A guest joined with only a display name, when the host allows that. A guest
+ * reads and takes part in public channels and nothing more, and its session
+ * lasts a day. Servers before guest access never report one.
+ */
+export type Role = "owner" | "admin" | "member" | "guest";
+
+/**
+ * Who may join a workspace, after its owner:
+ * - `invite_only`: an account, created with an invite code;
+ * - `account_required`: an account, which anyone may create;
+ * - `guest_allowed`: anyone, as a guest with a display name; creating an
+ *   account stays open and optional.
+ */
+export type AccessPolicy = "invite_only" | "account_required" | "guest_allowed";
+export const ACCESS_POLICIES: readonly AccessPolicy[] = [
+  "invite_only",
+  "account_required",
+  "guest_allowed",
+];
 
 export interface User {
   id: ID;
@@ -273,6 +292,11 @@ export interface ServerInfo {
   userCount: number;
   /** True once an owner exists; joining then requires an invite code. */
   requiresInvite: boolean;
+  /**
+   * Who may join. Absent from servers before guest access, which offer only
+   * accounts (and say whether those need an invite through `requiresInvite`).
+   */
+  accessPolicy?: AccessPolicy;
   /**
    * True when this workspace has no owner yet and the caller is not on the
    * machine running it — claiming it needs the code the server printed at

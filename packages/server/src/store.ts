@@ -97,6 +97,9 @@ function parseActions(raw: string | null): MessageAction[] {
   }
 }
 
+/** True for the user bound as the next parameter when that user is a guest. */
+const GUEST_SQL = "EXISTS (SELECT 1 FROM users g WHERE g.id = ? AND g.role = 'guest')";
+
 function toUser(r: UserRow): User {
   return {
     id: r.id,
@@ -357,7 +360,7 @@ export class Store {
    *
    * Expiry slides forward on every use: a session in daily use never asks its
    * owner to sign in again, while one abandoned on a borrowed machine stops
-   * working on its own.
+   * working on its own. A guest's does not: it ends when it said it would.
    */
   getSessionUser(tokenHash: string, ttlMs = SESSION_TTL_MS): User | null {
     const now = Date.now();
@@ -368,10 +371,51 @@ export class Store {
       )
       .get(tokenHash, now) as UserRow | undefined;
     if (!r) return null;
-    this.db
-      .prepare("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?")
-      .run(now, now + ttlMs, tokenHash);
+    if (r.role === "guest")
+      this.db
+        .prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?")
+        .run(now, tokenHash);
+    else
+      this.db
+        .prepare("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?")
+        .run(now, now + ttlMs, tokenHash);
     return toUser(r);
+  }
+
+  /** How many guests are signed in now, which bounds how many more are let in. */
+  liveGuestSessions(now = Date.now()): number {
+    const r = this.db
+      .prepare(
+        `SELECT COUNT(*) c FROM sessions s JOIN users u ON u.id = s.user_id
+         WHERE u.role = 'guest' AND s.expires_at > ?`,
+      )
+      .get(now) as { c: number };
+    return r.c;
+  }
+
+  /** Ends every guest's session, reporting the tokens so their sockets close too. */
+  revokeGuestSessions(): string[] {
+    const where = "user_id IN (SELECT id FROM users WHERE role = 'guest')";
+    const rows = this.db
+      .prepare(`SELECT token_hash FROM sessions WHERE ${where}`)
+      .all() as unknown as { token_hash: string }[];
+    this.db.prepare(`DELETE FROM sessions WHERE ${where}`).run();
+    return rows.map((r) => r.token_hash);
+  }
+
+  /**
+   * A guest keeping their identity as an ordinary member: the same id, so what
+   * they wrote and where they are stay theirs, now with a handle and password.
+   * Their sessions are the caller's to replace.
+   */
+  convertGuest(id: ID, handle: string, passwordHash: string, salt: string): User {
+    this.db
+      .prepare(
+        `UPDATE users SET handle = ?, password_hash = ?, salt = ?, role = 'member'
+         WHERE id = ? AND role = 'guest'`,
+      )
+      .run(handle, passwordHash, salt, id);
+    return this.getUser(id)!;
   }
 
   /** One person's signed-in devices, newest first. */
@@ -611,16 +655,16 @@ export class Store {
     return this.getChannel(id)!;
   }
 
-  /** Public channels + non-public channels the user belongs to. */
+  /** Public channels + non-public channels the user belongs to; a guest, public only. */
   listChannelsVisibleTo(userId: ID): Channel[] {
     const rows = this.db
       .prepare(
         `SELECT DISTINCT c.* FROM channels c
          LEFT JOIN channel_members m ON m.channel_id = c.id AND m.user_id = ?
-         WHERE c.type = 'public' OR m.user_id IS NOT NULL
+         WHERE c.type = 'public' OR (m.user_id IS NOT NULL AND NOT ${GUEST_SQL})
          ORDER BY c.name`,
       )
-      .all(userId) as unknown as ChannelRow[];
+      .all(userId, userId) as unknown as ChannelRow[];
     // Every handshake lists these, so who manages each channel and who is in
     // each conversation are read once for all of them (OPT-13).
     const group = (pairs: { channel_id: ID; user_id: ID }[]) => {
@@ -883,13 +927,20 @@ export class Store {
     return out;
   }
 
-  /** True if the user may read the channel (public, or member of non-public). */
+  /**
+   * True if the user may read the channel (public, or member of non-public).
+   * A guest reads public channels only, whatever membership it might be given.
+   */
   canAccess(channelId: ID, userId: ID): boolean {
     const r = this.db.prepare("SELECT type FROM channels WHERE id = ?").get(channelId) as
       { type: string } | undefined;
     if (!r) return false;
     if (r.type === "public") return true;
-    return this.isMember(channelId, userId);
+    return this.isMember(channelId, userId) && !this.isGuest(userId);
+  }
+
+  isGuest(userId: ID): boolean {
+    return this.db.prepare("SELECT role FROM users WHERE id = ?").get(userId)?.role === "guest";
   }
 
   // ---------- messages ----------

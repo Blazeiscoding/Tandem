@@ -510,6 +510,8 @@ const hosting = createHostingController({
       setIceServers: (servers) => server.setIceServers(servers),
       inviteOnly: () => server.inviteOnly(),
       setInviteOnly: (value) => server.setInviteOnly(value),
+      accessPolicy: () => server.accessPolicy(),
+      setAccessPolicy: (policy) => server.setAccessPolicy(policy),
       accountCount: () => server.store.userCount(),
     };
   },
@@ -722,6 +724,10 @@ handle("hosting:endOpenToAll", async () => {
 });
 handle("hosting:setInviteOnly", async (_e, value: unknown) => {
   await hosting.setInviteOnly(value);
+  return hostingStatus();
+});
+handle("hosting:setAccessPolicy", async (_e, value: unknown) => {
+  await hosting.setAccessPolicy(value);
   return hostingStatus();
 });
 handle("hosting:setPublicAddress", async (_e, value: unknown) => {

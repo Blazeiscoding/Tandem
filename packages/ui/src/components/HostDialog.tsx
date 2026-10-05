@@ -8,6 +8,7 @@ import type {
   LastHosted,
   Platform,
 } from "../platform.js";
+import type { AccessPolicy } from "@slackoss/protocol";
 import { useHostingStatus } from "../lib/hosting.js";
 import { useCopy } from "../lib/useCopy.js";
 import { formatDay, formatTime } from "../lib/format.js";
@@ -782,6 +783,18 @@ export function HostDialog(props: {
   // A public address is not authorization. Require an invite by default when
   // a previously LAN-only workspace is first put on the internet.
   const [requireInvite, setRequireInvite] = useState(true);
+  /** Who may join once opened, chosen before opening; guests only when asked for. */
+  const [openPolicy, setOpenPolicy] = useState<AccessPolicy>("invite_only");
+  // An app without guest access says who may join with invites alone.
+  const guestsSupported = !!props.hosting.setAccessPolicy;
+  /** What the running workspace holds now, as acknowledged by it. */
+  const livePolicy: AccessPolicy | undefined =
+    status?.accessPolicy ??
+    (status?.inviteOnly === undefined
+      ? undefined
+      : status.inviteOnly
+        ? "invite_only"
+        : "account_required");
   const { copy, label: copyLabel } = useCopy();
   const phase = status?.phase ?? (status?.running ? "running" : "stopped");
   const changing = phase === "starting" || phase === "stopping";
@@ -1050,7 +1063,11 @@ export function HostDialog(props: {
     setBusy("opening");
     setError(null);
     try {
-      await props.hosting.openToAll({ inviteOnly: requireInvite });
+      await props.hosting.openToAll(
+        guestsSupported
+          ? { inviteOnly: openPolicy === "invite_only", accessPolicy: openPolicy }
+          : { inviteOnly: requireInvite },
+      );
     } catch (err) {
       setError({
         tunnel: true,
@@ -1079,6 +1096,25 @@ export function HostDialog(props: {
         message: externallyCarried
           ? "Tandem could not stop publishing this address. Try again, then stop its external tunnel or proxy separately."
           : "Tandem’s Cloudflare connection could not be closed cleanly. Try again before quitting Tandem.",
+      });
+    } finally {
+      await refresh();
+      operationPending.current = false;
+      setBusy(null);
+    }
+  }
+
+  /** Changes who may join, showing what the workspace then holds rather than the wish. */
+  async function changeAccessPolicy(next: AccessPolicy) {
+    if (operationPending.current || !props.hosting.setAccessPolicy) return;
+    operationPending.current = true;
+    setBusy("policy");
+    setError(null);
+    try {
+      await props.hosting.setAccessPolicy(next);
+    } catch {
+      setError({
+        message: "Who may join could not be changed. The previous setting is still in use.",
       });
     } finally {
       await refresh();
@@ -1354,23 +1390,33 @@ export function HostDialog(props: {
                       {copyLabel("Copy address", "Copied", "Copy failed", "public-address")}
                     </button>
                   </div>
-                  <label className="mt-3 flex items-start gap-2 text-xs text-ink-dim">
-                    <input
-                      type="checkbox"
-                      checked={status.inviteOnly ?? requireInvite}
-                      disabled={!!busy || !props.hosting.setInviteOnly}
-                      onChange={(event) => void changeInvitePolicy(event.target.checked)}
-                      className="mt-0.5"
+                  {guestsSupported && livePolicy ? (
+                    <JoinPolicy
+                      policy={livePolicy}
+                      disabled={!!busy}
+                      onChange={(next) => void changeAccessPolicy(next)}
                     />
-                    <span>
-                      Require an invite link to create an account. Recommended for every public
-                      workspace.
-                    </span>
-                  </label>
+                  ) : (
+                    <label className="mt-3 flex items-start gap-2 text-xs text-ink-dim">
+                      <input
+                        type="checkbox"
+                        checked={status.inviteOnly ?? requireInvite}
+                        disabled={!!busy || !props.hosting.setInviteOnly}
+                        onChange={(event) => void changeInvitePolicy(event.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Require an invite link to create an account. Recommended for every public
+                        workspace.
+                      </span>
+                    </label>
+                  )}
                   <p className="mt-2 text-xs text-ink-dim">
-                    {status.inviteOnly
-                      ? "In the workspace, choose Workspace → Invite people, generate a code, and copy its Browser link."
-                      : "Anyone with this address can create an account. Send the address only to people you trust."}
+                    {livePolicy === "guest_allowed"
+                      ? "Anyone with this address can join as a guest for a day and post in public channels. Requiring an account again signs every guest out."
+                      : status.inviteOnly
+                        ? "In the workspace, choose Workspace → Invite people, generate a code, and copy its Browser link."
+                        : "Anyone with this address can create an account. Send the address only to people you trust."}
                   </p>
                   <button
                     type="button"
@@ -1491,19 +1537,27 @@ export function HostDialog(props: {
                     </div>
                   ) : (
                     <>
-                      <label className="mt-3 flex items-start gap-2 text-xs text-ink-dim">
-                        <input
-                          type="checkbox"
-                          checked={requireInvite}
+                      {guestsSupported ? (
+                        <JoinPolicy
+                          policy={openPolicy}
                           disabled={!!busy}
-                          onChange={(event) => setRequireInvite(event.target.checked)}
-                          className="mt-0.5"
+                          onChange={setOpenPolicy}
                         />
-                        <span>
-                          Require an invite link to create an account. Recommended and enabled by
-                          default.
-                        </span>
-                      </label>
+                      ) : (
+                        <label className="mt-3 flex items-start gap-2 text-xs text-ink-dim">
+                          <input
+                            type="checkbox"
+                            checked={requireInvite}
+                            disabled={!!busy}
+                            onChange={(event) => setRequireInvite(event.target.checked)}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            Require an invite link to create an account. Recommended and enabled by
+                            default.
+                          </span>
+                        </label>
+                      )}
                       <button
                         type="button"
                         disabled={
@@ -1891,5 +1945,54 @@ export function HostDialog(props: {
         </>
       ) : null}
     </Dialog>
+  );
+}
+
+/**
+ * Who may join, as two choices: whether joining needs an account at all, and,
+ * where it does, whether creating one needs an invite. Turning accounts back
+ * on goes back to the account rule last in use here, or to invites.
+ */
+function JoinPolicy(props: {
+  policy: AccessPolicy;
+  disabled: boolean;
+  onChange: (policy: AccessPolicy) => void;
+}) {
+  const lastAccountPolicy = useRef<AccessPolicy>("invite_only");
+  if (props.policy !== "guest_allowed") lastAccountPolicy.current = props.policy;
+  const accountRequired = props.policy !== "guest_allowed";
+  return (
+    <div className="mt-3 space-y-2 text-xs text-ink-dim">
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={accountRequired}
+          disabled={props.disabled}
+          onChange={(event) =>
+            props.onChange(event.target.checked ? lastAccountPolicy.current : "guest_allowed")
+          }
+          className="mt-0.5"
+        />
+        <span>Require an account to join.</span>
+      </label>
+      {accountRequired ? (
+        <label className="ml-6 flex items-start gap-2">
+          <input
+            type="checkbox"
+            checked={props.policy === "invite_only"}
+            disabled={props.disabled}
+            onChange={(event) =>
+              props.onChange(event.target.checked ? "invite_only" : "account_required")
+            }
+            className="mt-0.5"
+          />
+          <span>
+            Require an invite link to create an account. Recommended for every public workspace.
+          </span>
+        </label>
+      ) : (
+        <p className="ml-6">Visitors can join as guests. Creating an account is optional.</p>
+      )}
+    </div>
   );
 }

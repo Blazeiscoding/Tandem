@@ -430,6 +430,11 @@ export function App({ platform }: { platform: Platform }) {
                 initialTarget={session.target ?? null}
                 onLeaveWorkspace={leaveWorkspace}
                 onSignedOut={() => endSession(session.server, session.client)}
+                onAccountCreated={(token, handle) =>
+                  // The same person, now with an account: open it again with
+                  // the new session, which the guest one has given way to.
+                  openWorkspace({ ...session.server, token, handle }, savedServersRef.current)
+                }
                 otherWorkspaces={savedServers
                   .filter((saved) => saved.url !== session.server.url)
                   .map((saved) => ({

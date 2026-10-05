@@ -39,9 +39,15 @@ export interface SlackossBridge {
       | { folder: string; port?: number; activate?: boolean },
   ) => Promise<unknown>;
   hostingStop: () => Promise<void>;
-  hostingOpenToAll: (opts: { inviteOnly: boolean }) => Promise<unknown>;
+  hostingOpenToAll: (opts: {
+    inviteOnly: boolean;
+    accessPolicy?: "invite_only" | "account_required" | "guest_allowed";
+  }) => Promise<unknown>;
   hostingEndOpenToAll: () => Promise<unknown>;
   hostingSetInviteOnly: (inviteOnly: boolean) => Promise<unknown>;
+  hostingSetAccessPolicy: (
+    policy: "invite_only" | "account_required" | "guest_allowed",
+  ) => Promise<unknown>;
   hostingSetPublicAddress: (address: string) => Promise<unknown>;
   onHostingStatus: (cb: (status: unknown) => void) => () => void;
   /** A tandem:// (or legacy slackoss://) link that launched the app, if any. */
@@ -111,6 +117,7 @@ const bridge: SlackossBridge = {
   hostingOpenToAll: (opts) => ipcRenderer.invoke("hosting:openToAll", opts),
   hostingEndOpenToAll: () => ipcRenderer.invoke("hosting:endOpenToAll"),
   hostingSetInviteOnly: (inviteOnly) => ipcRenderer.invoke("hosting:setInviteOnly", inviteOnly),
+  hostingSetAccessPolicy: (policy) => ipcRenderer.invoke("hosting:setAccessPolicy", policy),
   hostingSetPublicAddress: (address) => ipcRenderer.invoke("hosting:setPublicAddress", address),
   onHostingStatus: (cb) => {
     const listener = (_e: unknown, status: unknown) => cb(status);

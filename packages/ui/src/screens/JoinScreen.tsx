@@ -648,10 +648,19 @@ function AuthCard(props: {
 }) {
   const hasUsers = props.info.userCount > 0;
   const isFirstUser = !hasUsers;
+  // Older servers say nothing about guests, and offer accounts only.
+  const guestAllowed = hasUsers && props.info.accessPolicy === "guest_allowed";
+  const modes = guestAllowed ? GUEST_MODES : MODES;
   // An empty workspace has nothing to sign in to, even if we remember a handle
   // here, and someone arriving with an invite has no account to sign in with.
-  const [mode, setMode] = useState<"login" | "register">(
-    isFirstUser || props.presetInviteCode ? "register" : "login",
+  // Where guests are welcome, joining as one comes first, unless this device
+  // remembers an account here.
+  const [mode, setMode] = useState<Mode>(
+    isFirstUser || props.presetInviteCode
+      ? "register"
+      : guestAllowed && !(props.savedHandle && !props.savedHandle.startsWith("guest-"))
+        ? "guest"
+        : "login",
   );
   const [handle, setHandle] = useState(props.savedHandle ?? "");
   const [displayName, setDisplayName] = useState("");
@@ -662,6 +671,18 @@ function AuthCard(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const firstField = useRef<HTMLInputElement>(null);
+  /**
+   * Which attempt is current. An answer to an older one, or one that comes
+   * after the card is gone, is not acted on: going back or leaving means the
+   * person no longer wants it.
+   */
+  const attempt = useRef(0);
+  useEffect(
+    () => () => {
+      attempt.current = -1;
+    },
+    [],
+  );
   /**
    * Set when the password just used was issued by someone else — an admin
    * reset, or host recovery. The workspace is closed to this account until it
@@ -675,7 +696,7 @@ function AuthCard(props: {
   useEffect(() => firstField.current?.focus(), []);
   const tabs = useTabs({
     label: "Account",
-    tabs: MODES,
+    tabs: modes,
     selected: mode,
     onSelect(next, how) {
       setMode(next);
@@ -691,17 +712,21 @@ function AuthCard(props: {
     setError(null);
     setBusy(true);
     const api = new Api(props.url);
+    const ticket = ++attempt.current;
     try {
       const result =
-        mode === "login"
-          ? await api.login({ handle: handle.trim().toLowerCase(), password })
-          : await api.register({
-              handle: handle.trim().toLowerCase(),
-              displayName: displayName.trim() || handle.trim(),
-              password,
-              ...(inviteCode.trim() ? { inviteCode: inviteCode.trim() } : {}),
-              ...(claimCode.trim() ? { claimCode: claimCode.trim() } : {}),
-            });
+        mode === "guest"
+          ? await api.joinAsGuest(displayName.trim())
+          : mode === "login"
+            ? await api.login({ handle: handle.trim().toLowerCase(), password })
+            : await api.register({
+                handle: handle.trim().toLowerCase(),
+                displayName: displayName.trim() || handle.trim(),
+                password,
+                ...(inviteCode.trim() ? { inviteCode: inviteCode.trim() } : {}),
+                ...(claimCode.trim() ? { claimCode: claimCode.trim() } : {}),
+              });
+      if (ticket !== attempt.current) return;
       if ("mustChangePassword" in result && result.mustChangePassword) {
         setMustReplace({ token: result.token, current: password });
         setBusy(false);
@@ -715,6 +740,7 @@ function AuthCard(props: {
         lastUsedAt: Date.now(),
       });
     } catch (err) {
+      if (ticket !== attempt.current) return;
       if (err instanceof ApiError && err.code === "claim_required") setRequiresClaim(true);
       setError(errorMessage(err, mode));
       setBusy(false);
@@ -836,7 +862,7 @@ function AuthCard(props: {
 
           {hasUsers && (
             <div {...tabs.listProps} className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
-              {MODES.map((m) => (
+              {modes.map((m) => (
                 <button
                   key={m}
                   {...tabs.tabProps(m)}
@@ -844,120 +870,156 @@ function AuthCard(props: {
                     mode === m ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
                   }`}
                 >
-                  {m === "login" ? "Sign in" : "Create account"}
+                  {MODE_LABELS[m]}
                 </button>
               ))}
             </div>
           )}
 
           <div {...(hasUsers ? tabs.panelProps : {})}>
-            <form onSubmit={submit} className="space-y-3">
-              <div>
-                <label className={labelCls} htmlFor={`${id}-handle`}>
-                  Username
-                </label>
-                <input
-                  id={`${id}-handle`}
-                  ref={firstField}
-                  value={handle}
-                  onChange={(e) => setHandle(e.target.value)}
-                  autoComplete="username"
-                  spellCheck={false}
-                  autoCapitalize="none"
-                  className={inputCls}
-                />
-              </div>
-              {mode === "register" && (
+            {mode === "guest" ? (
+              <form onSubmit={submit} className="space-y-3">
                 <div>
-                  <label className={labelCls} htmlFor={`${id}-display-name`}>
+                  <label className={labelCls} htmlFor={`${id}-guest-name`}>
                     Display name
                   </label>
                   <input
-                    id={`${id}-display-name`}
+                    id={`${id}-guest-name`}
+                    ref={firstField}
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     autoComplete="nickname"
-                    aria-describedby={`${id}-display-name-hint`}
+                    maxLength={80}
+                    aria-describedby={`${id}-guest-name-hint`}
                     className={inputCls}
                   />
-                  <p id={`${id}-display-name-hint`} className={hintCls}>
-                    What everyone sees. Left empty, it is your username.
+                  <p id={`${id}-guest-name-hint`} className={hintCls}>
+                    What everyone sees. As a guest you can read and post in public channels for a
+                    day. Creating an account is optional.
                   </p>
                 </div>
-              )}
-              <div>
-                <label className={labelCls} htmlFor={`${id}-password`}>
-                  Password
-                </label>
-                <input
-                  id={`${id}-password`}
-                  type="password"
-                  autoComplete={mode === "register" ? "new-password" : "current-password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  aria-describedby={mode === "register" ? `${id}-password-hint` : undefined}
-                  className={inputCls}
-                />
-                {mode === "register" && (
-                  <p id={`${id}-password-hint`} className={hintCls}>
-                    At least 8 characters.
+                {error && (
+                  <p role="alert" className="text-sm text-alert">
+                    {error}
                   </p>
                 )}
-              </div>
-              {mode === "register" && !isFirstUser && props.info.requiresInvite && (
+                <button
+                  type="submit"
+                  disabled={busy || !displayName.trim()}
+                  className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+                >
+                  {busy ? "Joining…" : "Join as guest"}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={submit} className="space-y-3">
                 <div>
-                  <label className={labelCls} htmlFor={`${id}-invite-code`}>
-                    Invite code
+                  <label className={labelCls} htmlFor={`${id}-handle`}>
+                    Username
                   </label>
                   <input
-                    id={`${id}-invite-code`}
-                    value={inviteCode}
-                    onChange={(e) => setInviteCode(e.target.value)}
-                    autoComplete="off"
+                    id={`${id}-handle`}
+                    ref={firstField}
+                    value={handle}
+                    onChange={(e) => setHandle(e.target.value)}
+                    autoComplete="username"
                     spellCheck={false}
-                    aria-describedby={`${id}-invite-code-hint`}
-                    className={`${inputCls} font-mono`}
+                    autoCapitalize="none"
+                    className={inputCls}
                   />
-                  <p id={`${id}-invite-code-hint`} className={hintCls}>
-                    From whoever invited you. This workspace takes new accounts only with one.
-                  </p>
                 </div>
-              )}
-              {mode === "register" && requiresClaim && (
+                {mode === "register" && (
+                  <div>
+                    <label className={labelCls} htmlFor={`${id}-display-name`}>
+                      Display name
+                    </label>
+                    <input
+                      id={`${id}-display-name`}
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      autoComplete="nickname"
+                      aria-describedby={`${id}-display-name-hint`}
+                      className={inputCls}
+                    />
+                    <p id={`${id}-display-name-hint`} className={hintCls}>
+                      What everyone sees. Left empty, it is your username.
+                    </p>
+                  </div>
+                )}
                 <div>
-                  <label className={labelCls} htmlFor="workspace-claim-code">
-                    Workspace claim code
+                  <label className={labelCls} htmlFor={`${id}-password`}>
+                    Password
                   </label>
                   <input
-                    id="workspace-claim-code"
+                    id={`${id}-password`}
                     type="password"
-                    autoComplete="off"
-                    value={claimCode}
-                    onChange={(e) => setClaimCode(e.target.value)}
-                    placeholder="Claim code from the host"
-                    aria-describedby="workspace-claim-help"
-                    spellCheck={false}
-                    className={`${inputCls} font-mono`}
+                    autoComplete={mode === "register" ? "new-password" : "current-password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    aria-describedby={mode === "register" ? `${id}-password-hint` : undefined}
+                    className={inputCls}
                   />
-                  <p id="workspace-claim-help" className="mt-1 text-xs text-ink-dim">
-                    Enter the code shown when the host started this workspace to create its owner
-                    account.
-                  </p>
+                  {mode === "register" && (
+                    <p id={`${id}-password-hint`} className={hintCls}>
+                      At least 8 characters.
+                    </p>
+                  )}
                 </div>
-              )}
-              {error && (
-                <p role="alert" className="text-sm text-alert">
-                  {error}
-                </p>
-              )}
-              <button
-                type="submit"
-                disabled={busy || !handle.trim() || !password}
-                className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
-              >
-                {busy ? "Connecting…" : mode === "login" ? "Sign in" : "Join workspace"}
-              </button>
-            </form>
+                {mode === "register" && !isFirstUser && props.info.requiresInvite && (
+                  <div>
+                    <label className={labelCls} htmlFor={`${id}-invite-code`}>
+                      Invite code
+                    </label>
+                    <input
+                      id={`${id}-invite-code`}
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-describedby={`${id}-invite-code-hint`}
+                      className={`${inputCls} font-mono`}
+                    />
+                    <p id={`${id}-invite-code-hint`} className={hintCls}>
+                      From whoever invited you. This workspace takes new accounts only with one.
+                    </p>
+                  </div>
+                )}
+                {mode === "register" && requiresClaim && (
+                  <div>
+                    <label className={labelCls} htmlFor="workspace-claim-code">
+                      Workspace claim code
+                    </label>
+                    <input
+                      id="workspace-claim-code"
+                      type="password"
+                      autoComplete="off"
+                      value={claimCode}
+                      onChange={(e) => setClaimCode(e.target.value)}
+                      placeholder="Claim code from the host"
+                      aria-describedby="workspace-claim-help"
+                      spellCheck={false}
+                      className={`${inputCls} font-mono`}
+                    />
+                    <p id="workspace-claim-help" className="mt-1 text-xs text-ink-dim">
+                      Enter the code shown when the host started this workspace to create its owner
+                      account.
+                    </p>
+                  </div>
+                )}
+                {error && (
+                  <p role="alert" className="text-sm text-alert">
+                    {error}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  disabled={busy || !handle.trim() || !password}
+                  className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+                >
+                  {busy ? "Connecting…" : mode === "login" ? "Sign in" : "Join workspace"}
+                </button>
+              </form>
+            )}
           </div>
         </>
       )}
@@ -966,10 +1028,23 @@ function AuthCard(props: {
 }
 
 const MODES = ["login", "register"] as const;
+const GUEST_MODES = ["guest", "login", "register"] as const;
+type Mode = (typeof GUEST_MODES)[number];
+const MODE_LABELS: Record<Mode, string> = {
+  guest: "Join as guest",
+  login: "Sign in",
+  register: "Create account",
+};
 
-function errorMessage(err: unknown, mode: "login" | "register"): string {
+function errorMessage(err: unknown, mode: Mode): string {
   if (err instanceof ApiError) {
     switch (err.code) {
+      case "guest_access_off":
+        return "This workspace no longer lets guests in. Sign in or create an account instead.";
+      case "guests_full":
+        return "Too many guests are here right now. Try again later, or create an account.";
+      case "workspace_unclaimed":
+        return "This workspace has no owner yet, so guests cannot join it.";
       case "invalid_credentials":
         return "Wrong username or password.";
       case "handle_taken":
@@ -979,9 +1054,11 @@ function errorMessage(err: unknown, mode: "login" | "register"): string {
       case "claim_required":
         return "Enter the workspace claim code shown on the host. The code you entered was not accepted.";
       case "invalid_request":
-        return mode === "register"
-          ? "Usernames are lowercase letters and digits; passwords need 8+ characters."
-          : "Check the username and password.";
+        return mode === "guest"
+          ? "Enter a display name of up to 80 characters."
+          : mode === "register"
+            ? "Usernames are lowercase letters and digits; passwords need 8+ characters."
+            : "Check the username and password.";
     }
   }
   return "Could not reach the server. Check the address and try again.";

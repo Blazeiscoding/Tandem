@@ -40,6 +40,10 @@ import {
   changePasswordBody,
   editMessageBody,
   loginBody,
+  guestAccountBody,
+  guestJoinBody,
+  ACCESS_POLICIES,
+  type AccessPolicy,
   markReadBody,
   markUnreadBody,
   messageHistoryQuery,
@@ -154,6 +158,67 @@ const EVENT_DELIVERY_RETENTION_MS = 7 * 24 * 3600_000;
 const RETENTION_PASSES = 200;
 const RETENTION_SWEEP_MS = 30_000;
 
+/** A guest's session lasts a day from joining, however much it is used. */
+export const GUEST_SESSION_TTL_MS = 24 * 3600_000;
+/** How many guests may be signed in at once; joining past it waits. */
+const MAX_GUEST_SESSIONS = 200;
+
+const isAccessPolicy = (value: unknown): value is AccessPolicy =>
+  ACCESS_POLICIES.includes(value as AccessPolicy);
+
+/** Guests read and take part in public channels; private rooms and DMs are closed to them. */
+const guestRestricted = () =>
+  new HttpError(403, "guest_restricted", "Guests can only be in public channels.");
+
+/**
+ * Everything a guest may ask of the server: reading and taking part in public
+ * channels (messages, replies, reactions, files already shared, huddles),
+ * keeping their own place (read state, saved items, followed threads,
+ * preferences, profile), searching what they can read, and leaving or keeping
+ * their identity as an account. Everything else, from creating rooms and DMs
+ * to invites, uploads, pins, apps and scheduling, is refused in `requireUser`.
+ * Channel visibility still decides which channels these reach.
+ */
+export const GUEST_ROUTES = new Set([
+  "GET /api/rtc-config",
+  "POST /api/auth/logout",
+  "POST /api/auth/guest/account",
+  "GET /api/me",
+  "PATCH /api/me",
+  "GET /api/users",
+  "GET /api/friends",
+  "GET /api/channels",
+  "POST /api/channels/:id/join",
+  "POST /api/channels/:id/leave",
+  "GET /api/channels/:id/members",
+  "POST /api/channels/:id/read",
+  "POST /api/channels/:id/unread",
+  "GET /api/channels/:id/messages",
+  "POST /api/channels/:id/messages",
+  "GET /api/channels/:id/threads/:rootId",
+  "GET /api/channels/:id/messages/around/:messageId",
+  "GET /api/channels/:id/messages/after/:messageId",
+  "PATCH /api/messages/:id",
+  "DELETE /api/messages/:id",
+  "GET /api/files/:id",
+  "POST /api/files/:id/download-token",
+  "PUT /api/messages/:id/reactions/:emoji",
+  "DELETE /api/messages/:id/reactions/:emoji",
+  "GET /api/channels/:id/pins",
+  "PUT /api/messages/:id/save",
+  "DELETE /api/messages/:id/save",
+  "PATCH /api/channels/:id/prefs",
+  "PUT /api/messages/:id/follow",
+  "POST /api/messages/:id/thread/read",
+  "POST /api/messages/:id/thread/unread",
+  "GET /api/threads/followed",
+  "GET /api/saved",
+  "GET /api/scheduled",
+  "GET /api/commands",
+  "GET /api/activity",
+  "GET /api/search",
+]);
+
 export interface ServerOptions {
   /** Directory holding workspace.db and uploads. Use ":memory:" for tests. */
   dataDir: string;
@@ -163,6 +228,8 @@ export interface ServerOptions {
   workspaceName?: string;
   /** When true, registration always requires an invite code (after the first user). */
   inviteOnly?: boolean;
+  /** Who may join, saved for later starts; takes precedence over `inviteOnly`. */
+  accessPolicy?: AccessPolicy;
   /** Advertise on the LAN via mDNS. Default true. */
   mdns?: boolean;
   /** Directory with the built web client; served at / so browsers can join too. */
@@ -296,7 +363,18 @@ export interface WorkspaceServer {
   setIceServers: (servers: NonNullable<ServerOptions["iceServers"]>) => void;
   /** Whether an account after the first needs an invite code. */
   inviteOnly: () => boolean;
+  /**
+   * Turns invites on (`invite_only`) or off. Off keeps guests allowed if they
+   * were, so a host that does not know about guests cannot let them in.
+   */
   setInviteOnly: (inviteOnly: boolean) => void;
+  /** Who may join: invited accounts, any account, or guests too. */
+  accessPolicy: () => AccessPolicy;
+  /**
+   * Changes who may join. Turning guests off signs every guest out at once,
+   * their sockets included.
+   */
+  setAccessPolicy: (policy: AccessPolicy) => void;
   /**
    * Renames the workspace while it runs: 1 to 80 characters without control
    * characters, trimmed. Everyone signed in is told at once, the network
@@ -401,9 +479,38 @@ async function startWorkspaceServer(
     const general = store.getChannelByName("general");
     if (general?.type === "public") store.setMeta("default_channel_id", general.id);
   }
-  if (opts.inviteOnly !== undefined) store.setMeta("invite_only", opts.inviteOnly ? "1" : "0");
+  // Before guest access, invite_only alone said who could join: on, invited
+  // accounts; off, any account. A workspace keeps that until its host chooses.
+  if (!isAccessPolicy(store.getMeta("access_policy")))
+    store.setMeta(
+      "access_policy",
+      store.getMeta("invite_only") === "1" ? "invite_only" : "account_required",
+    );
+  const accessPolicy = (): AccessPolicy => {
+    const policy = store.getMeta("access_policy");
+    return isAccessPolicy(policy) ? policy : "invite_only";
+  };
   const workspaceName = () => store.getMeta("workspace_name")!;
-  const inviteOnly = () => store.getMeta("invite_only") === "1";
+  const inviteOnly = () => accessPolicy() === "invite_only";
+  /**
+   * Keeps the policy and the older invite_only flag in step, in one write, and
+   * ends every guest session when guests are no longer allowed. Returns the
+   * ended sessions, whose sockets are the caller's to close.
+   */
+  const writeAccessPolicy = (policy: AccessPolicy): string[] =>
+    store.transaction(() => {
+      store.setMeta("access_policy", policy);
+      store.setMeta("invite_only", policy === "invite_only" ? "1" : "0");
+      return policy === "guest_allowed" ? [] : store.revokeGuestSessions();
+    });
+  /** Off unless guests are allowed; off again keeps the other choice. */
+  const withInvites = (on: boolean): AccessPolicy =>
+    on ? "invite_only" : accessPolicy() === "invite_only" ? "account_required" : accessPolicy();
+  if (opts.accessPolicy !== undefined) {
+    if (!isAccessPolicy(opts.accessPolicy))
+      throw new TypeError(`accessPolicy must be one of ${ACCESS_POLICIES}`);
+    writeAccessPolicy(opts.accessPolicy);
+  } else if (opts.inviteOnly !== undefined) writeAccessPolicy(withInvites(opts.inviteOnly));
 
   /**
    * A workspace with no owner is up for grabs. Until one exists, the account
@@ -1451,6 +1558,15 @@ async function startWorkspaceServer(
     const token = bearerToken(req);
     const user = token ? store.getSessionUser(hashToken(token)) : null;
     if (!user) throw new HttpError(401, "unauthorized");
+    // Also here rather than per route: a route added later is closed to
+    // guests until someone decides otherwise.
+    if (user.role === "guest" && !GUEST_ROUTES.has(`${req.method} ${req.routeOptions.url}`)) {
+      throw new HttpError(
+        403,
+        "guest_not_allowed",
+        "Guests cannot do this. Create an account to do it.",
+      );
+    }
     // Checked here rather than per route, so a route added later is covered.
     if (
       !ALLOWED_WHILE_LOCKED.has(req.routeOptions.url ?? "") &&
@@ -1505,12 +1621,27 @@ async function startWorkspaceServer(
       workspaceName: workspaceName(),
       userCount,
       requiresInvite: userCount > 0 && inviteOnly(),
+      accessPolicy: accessPolicy(),
       requiresClaim: userCount === 0 && !!claimCode() && !isLocalRequest(req),
       schedulingIdempotency: true,
       downloadTickets: true,
       ...(publicUrl ? { publicUrl } : {}),
     };
   });
+
+  /** Puts someone new in the room everyone starts in. */
+  const joinDefaultChannel = (userId: ID, emit: typeof recordEvent) => {
+    // Renaming the default room must not change who new accounts join.
+    const defaultId = store.getMeta("default_channel_id");
+    const preferred = defaultId ? store.getChannel(defaultId) : null;
+    const general =
+      preferred?.type === "public" && !preferred.archived
+        ? preferred
+        : store.listChannelsVisibleTo(userId).find((c) => c.type === "public" && !c.archived);
+    if (general && store.addMember(general.id, userId)) {
+      emit({ type: "member.joined", channelId: general.id, userId }, general.id);
+    }
+  };
 
   app.post("/api/auth/register", async (req, reply) => {
     const body = registerBody.parse(req.body);
@@ -1572,16 +1703,7 @@ async function startWorkspaceServer(
         emit({ type: "channel.created", channel: general }, general.id);
       } else {
         emit({ type: "user.joined", user }, null);
-        // Renaming the default room must not change who new accounts join.
-        const defaultId = store.getMeta("default_channel_id");
-        const preferred = defaultId ? store.getChannel(defaultId) : null;
-        const general =
-          preferred?.type === "public" && !preferred.archived
-            ? preferred
-            : store.listChannelsVisibleTo(user.id).find((c) => c.type === "public" && !c.archived);
-        if (general && store.addMember(general.id, user.id)) {
-          emit({ type: "member.joined", channelId: general.id, userId: user.id }, general.id);
-        }
+        joinDefaultChannel(user.id, emit);
       }
 
       const { token, tokenHash } = newSessionToken();
@@ -1592,6 +1714,81 @@ async function startWorkspaceServer(
     // account mistyping its own password twice should not then be locked out.
     authSucceeded(body.handle);
     return reply.status(201).send({ token, user });
+  });
+
+  /**
+   * Joining with a display name alone, where the host allows guests. The
+   * policy is read inside the same write that creates the guest, so a page
+   * that still says guests are welcome cannot let one in after the host said
+   * no. Rationed by address like any sign-in, and bounded in number.
+   */
+  app.post("/api/auth/guest", async (req, reply) => {
+    const body = guestJoinBody.parse(req.body);
+    ration("authByAddress", callerAddress(req));
+    const { token, user } = mutate((emit) => {
+      if (accessPolicy() !== "guest_allowed")
+        throw new HttpError(403, "guest_access_off", "This workspace needs an account to join.");
+      // The first person here claims it as owner, which a guest never does.
+      if (store.userCount() === 0)
+        throw new HttpError(403, "workspace_unclaimed", "This workspace has no owner yet.");
+      if (store.liveGuestSessions() >= MAX_GUEST_SESSIONS)
+        throw new HttpError(429, "guests_full", "Too many guests are here now. Try again later.");
+      let handle = "";
+      do handle = `guest-${secretToken().slice(0, 10).toLowerCase()}`;
+      while (store.getUserAuthByHandle(handle));
+      // No password can match these: a guest cannot sign in, only resume.
+      const user = store.createUser({
+        handle,
+        displayName: body.displayName,
+        passwordHash: "",
+        salt: "",
+        role: "guest",
+      });
+      emit({ type: "user.joined", user }, null);
+      joinDefaultChannel(user.id, emit);
+      const { token, tokenHash } = newSessionToken();
+      store.createSession(tokenHash, user.id, deviceName(req), GUEST_SESSION_TTL_MS);
+      return { token, user };
+    });
+    return reply.status(201).send({ token, user });
+  });
+
+  /**
+   * A guest keeping who they are as an account: same id, so their messages
+   * and rooms stay theirs. Only while accounts can be created without an
+   * invite, and a new session replaces every guest one.
+   */
+  app.post("/api/auth/guest/account", async (req) => {
+    const me = requireUser(req);
+    const body = guestAccountBody.parse(req.body);
+    if (me.role !== "guest") throw new HttpError(400, "not_a_guest");
+    ration("authByAddress", callerAddress(req));
+    ration("authByHandle", body.handle.toLowerCase());
+    beginAuth();
+    let credentials: Awaited<ReturnType<typeof hashPassword>>;
+    try {
+      credentials = await hashPassword(body.password);
+    } finally {
+      authJobs--;
+    }
+    const { token, user, revoked } = mutate((emit) => {
+      // Hashing yields: the guest may have been signed out meanwhile.
+      const current = requireUser(req);
+      if (current.id !== me.id || current.role !== "guest")
+        throw new HttpError(409, "credentials_changed");
+      if (inviteOnly())
+        throw new HttpError(403, "invite_required", "This workspace needs an invite to join.");
+      if (store.getUserAuthByHandle(body.handle)) throw new HttpError(409, "handle_taken");
+      const user = store.convertGuest(me.id, body.handle, credentials.hash, credentials.salt);
+      const revoked = store.revokeSessions(me.id);
+      const { token, tokenHash } = newSessionToken();
+      store.createSession(tokenHash, me.id, deviceName(req));
+      emit({ type: "user.updated", user }, null);
+      return { token, user, revoked };
+    });
+    for (const tokenHash of revoked) gateway.disconnectSession(tokenHash);
+    authSucceeded(body.handle);
+    return { token, user };
   });
 
   app.post("/api/auth/login", async (req) => {
@@ -1607,6 +1804,8 @@ async function startWorkspaceServer(
       valid =
         !!auth &&
         !auth.deactivated &&
+        // A guest has no password: it resumes its session or joins again.
+        auth.role !== "guest" &&
         (await verifyPassword(body.password, auth.salt, auth.passwordHash));
     } finally {
       authJobs--;
@@ -1749,6 +1948,7 @@ async function startWorkspaceServer(
     const other = store.getUser(req.params.id);
     if (!other || other.deactivated || other.isBot || other.id === me.id)
       throw new HttpError(400, "invalid_friend");
+    if (other.role === "guest") throw guestRestricted();
     store.requestFriend(me.id, other.id);
     publishFriends(me.id, other.id);
     return { friends: store.listFriends(me.id) };
@@ -1780,7 +1980,9 @@ async function startWorkspaceServer(
         const memberIds =
           body.type === "private" ? [...new Set([me.id, ...(body.memberIds ?? [])])] : [me.id];
         for (const id of memberIds) {
-          if (!store.getUser(id)) throw new HttpError(400, "unknown_user", id);
+          const member = store.getUser(id);
+          if (!member) throw new HttpError(400, "unknown_user", id);
+          if (member.role === "guest") throw guestRestricted();
         }
         const channel = store.createChannel({
           type: body.type,
@@ -1803,7 +2005,9 @@ async function startWorkspaceServer(
       // dm / group_dm — idempotent on the member set.
       const memberIds = [...new Set([me.id, ...body.memberIds])].sort();
       for (const id of memberIds) {
-        if (!store.getUser(id)) throw new HttpError(400, "unknown_user", id);
+        const member = store.getUser(id);
+        if (!member) throw new HttpError(400, "unknown_user", id);
+        if (member.role === "guest") throw guestRestricted();
       }
       const dmKey = memberIds.join(":");
       const existing = store.findDmByKey(dmKey);
@@ -1881,11 +2085,12 @@ async function startWorkspaceServer(
     const me = requireUser(req);
     const channel = requireChannelAccess(req.params.id, me);
     const { userId } = (req.body ?? {}) as { userId?: string };
-    if (typeof userId !== "string" || !store.getUser(userId))
-      throw new HttpError(400, "unknown_user");
+    const invited = typeof userId === "string" ? store.getUser(userId) : null;
+    if (!invited || typeof userId !== "string") throw new HttpError(400, "unknown_user");
     if (channel.type === "dm" || channel.type === "group_dm") {
       throw new HttpError(400, "cannot_invite_to_dm");
     }
+    if (invited.role === "guest" && channel.type !== "public") throw guestRestricted();
     if (!channelPermissions(me, channel, store.isMember(channel.id, me.id)).invite) {
       throw new HttpError(403, "channel_invite_forbidden");
     }
@@ -3246,6 +3451,10 @@ async function startWorkspaceServer(
     if (body.role !== undefined && target.isBot) {
       throw new HttpError(400, "bots_have_no_role");
     }
+    // A guest becomes a member only by choosing a handle and password itself.
+    if (target.role === "guest" && (body.role !== undefined || body.canInvite !== undefined)) {
+      throw new HttpError(400, "guest_account", "A guest can create an account themselves.");
+    }
     if (body.canInvite !== undefined) {
       if (target.isBot) throw new HttpError(400, "bots_cannot_invite");
       // An admin can always invite, so allowing or refusing it would be a
@@ -3322,6 +3531,7 @@ async function startWorkspaceServer(
       if (!target) throw new HttpError(404, "user_not_found");
       if (target.id === me.id) throw new HttpError(400, "cannot_reset_self");
       if (target.isBot) throw new HttpError(400, "bots_have_no_password");
+      if (target.role === "guest") throw new HttpError(400, "guest_account");
       if (target.role === "owner") throw new HttpError(403, "owner_is_protected");
       if (target.role === "admin" && me.role !== "owner") {
         throw new HttpError(403, "admins_are_equals", "only the owner can reset another admin");
@@ -3368,7 +3578,8 @@ async function startWorkspaceServer(
     const target = store.getUser(req.params.id);
     if (!target) throw new HttpError(404, "user_not_found");
     if (target.id === me.id) throw new HttpError(400, "already_owner");
-    if (target.isBot || target.deactivated) throw new HttpError(400, "invalid_owner");
+    if (target.isBot || target.deactivated || target.role === "guest")
+      throw new HttpError(400, "invalid_owner");
     return mutate((emit) => {
       const newOwner = store.updateUser(target.id, { role: "owner" });
       const formerOwner = store.updateUser(me.id, { role: "admin" });
@@ -4419,7 +4630,13 @@ async function startWorkspaceServer(
     inviteOnly,
     setInviteOnly: (value) => {
       if (typeof value !== "boolean") throw new TypeError("inviteOnly must be a boolean");
-      store.setMeta("invite_only", value ? "1" : "0");
+      for (const tokenHash of writeAccessPolicy(withInvites(value)))
+        gateway.disconnectSession(tokenHash);
+    },
+    accessPolicy,
+    setAccessPolicy: (policy) => {
+      if (!isAccessPolicy(policy)) throw new TypeError(`policy must be one of ${ACCESS_POLICIES}`);
+      for (const tokenHash of writeAccessPolicy(policy)) gateway.disconnectSession(tokenHash);
     },
     setWorkspaceName: (value) => {
       const name = typeof value === "string" ? value.trim() : "";

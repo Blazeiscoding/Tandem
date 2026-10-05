@@ -159,6 +159,22 @@ export class Api {
     return this.request("POST", "/api/auth/login", body);
   }
 
+  /** Joins with a display name alone, where the workspace allows guests. */
+  joinAsGuest(displayName: string): Promise<{ token: string; user: User }> {
+    return this.request("POST", "/api/auth/guest", { displayName });
+  }
+
+  /**
+   * Keeps a guest's identity as an account. Every guest session ends,
+   * this one included; the token returned replaces it.
+   */
+  createAccountFromGuest(body: {
+    handle: string;
+    password: string;
+  }): Promise<{ token: string; user: User }> {
+    return this.request("POST", "/api/auth/guest/account", body, { timeoutMs: 20_000 });
+  }
+
   logout(): Promise<{ ok: true }> {
     return this.request("POST", "/api/auth/logout", undefined, { timeoutMs: 10_000 });
   }

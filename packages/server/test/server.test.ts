@@ -1041,7 +1041,7 @@ describe("workspace server", () => {
   });
 
   it("enforces invite-only registration when enabled", async () => {
-    server.store.setMeta("invite_only", "1");
+    server.setInviteOnly(true);
     const noInvite = await api("/api/auth/register", {
       body: { handle: "carol", displayName: "Carol", password: "password123" },
     });
@@ -1060,6 +1060,6 @@ describe("workspace server", () => {
       },
     });
     expect(withInvite.status).toBe(201);
-    server.store.setMeta("invite_only", "0");
+    server.setInviteOnly(false);
   });
 });

@@ -12,6 +12,7 @@ import type {
   RestoreInventory,
 } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
+import type { AccessPolicy } from "@slackoss/protocol";
 
 type Hosting = NonNullable<Platform["hosting"]>;
 
@@ -28,7 +29,12 @@ const running: HostingStatus = {
 };
 
 /** The desktop app's hosting bridge, with a status that can change underneath the dialog. */
-function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
+function fakeHosting(
+  initial: HostingStatus,
+  hosted?: HostedWorkspaces,
+  /** An app with guest access, which says who may join as a policy. */
+  options: { guests?: boolean } = {},
+) {
   let current = initial;
   const listeners = new Set<(status: HostingStatus) => void>();
   const hosting = {
@@ -82,15 +88,32 @@ function fakeHosting(initial: HostingStatus, hosted?: HostedWorkspaces) {
     stop: vi.fn(async () => {
       current = stopped;
     }),
-    openToAll: vi.fn(async ({ inviteOnly }: { inviteOnly: boolean }) => {
-      current = {
-        ...current,
-        openToAll: { phase: "open", url: publicUrl },
-        tunnelAvailable: true,
+    openToAll: vi.fn(
+      async ({
         inviteOnly,
-      };
-      return current;
-    }),
+        accessPolicy,
+      }: {
+        inviteOnly: boolean;
+        accessPolicy?: AccessPolicy;
+      }) => {
+        current = {
+          ...current,
+          openToAll: { phase: "open", url: publicUrl },
+          tunnelAvailable: true,
+          inviteOnly,
+          ...(accessPolicy ? { accessPolicy } : {}),
+        };
+        return current;
+      },
+    ),
+    ...(options.guests
+      ? {
+          setAccessPolicy: vi.fn(async (accessPolicy: AccessPolicy) => {
+            current = { ...current, accessPolicy, inviteOnly: accessPolicy === "invite_only" };
+            return current;
+          }),
+        }
+      : {}),
     endOpenToAll: vi.fn(async () => {
       delete current.openToAll;
       current = { ...current, openToAllError: undefined };
@@ -530,6 +553,48 @@ describe("hosting a workspace from the host dialog", () => {
     expect(hosting.endOpenToAll).toHaveBeenCalledOnce();
     expect(await within(dialog).findByRole("button", { name: "Open to all" })).toBeEnabled();
     expect(within(dialog).queryByRole("link", { name: publicUrl })).not.toBeInTheDocument();
+  });
+
+  it("lets visitors join as guests once an account is not required, and asks for one again", async () => {
+    const user = userEvent.setup();
+    const { hosting } = fakeHosting(
+      { ...running, tunnelAvailable: true, accessPolicy: "account_required", inviteOnly: false },
+      undefined,
+      { guests: true },
+    );
+    render(<Harness hosting={hosting} />);
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    const account = () =>
+      within(dialog).getByRole("checkbox", { name: "Require an account to join." });
+    const invite = () => within(dialog).queryByRole("checkbox", { name: /Require an invite link/ });
+    // Before opening, invites are asked for, and guests are a choice to make.
+    expect(account()).toBeChecked();
+    expect(invite()).toBeChecked();
+    await user.click(account());
+    expect(invite()).toBeNull();
+    expect(
+      within(dialog).getByText("Visitors can join as guests. Creating an account is optional."),
+    ).toBeVisible();
+    await user.click(within(dialog).getByRole("button", { name: "Open to all" }));
+    expect(hosting.openToAll).toHaveBeenCalledWith({
+      inviteOnly: false,
+      accessPolicy: "guest_allowed",
+    });
+    await within(dialog).findByRole("link", { name: publicUrl });
+    expect(account()).not.toBeChecked();
+    expect(within(dialog).getByText(/join as a guest for a day/)).toBeVisible();
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+
+    // Requiring an account again goes back to invites, and says so once the
+    // workspace has taken it.
+    await user.click(account());
+    expect(hosting.setAccessPolicy).toHaveBeenCalledWith("invite_only");
+    await waitFor(() => expect(account()).toBeChecked());
+    expect(invite()).toBeChecked();
+    await user.click(invite()!);
+    expect(hosting.setAccessPolicy).toHaveBeenLastCalledWith("account_required");
+    await waitFor(() => expect(invite()).not.toBeChecked());
+    expect(hosting.setInviteOnly).not.toHaveBeenCalled();
   });
 
   it("explains when cloudflared is unavailable and can check again", async () => {

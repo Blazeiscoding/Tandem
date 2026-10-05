@@ -307,9 +307,11 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
                           ? "Owner"
                           : person.role === "admin"
                             ? "Admin"
-                            : person.canInvite && !person.isBot
-                              ? "Member · can invite"
-                              : "Member"}
+                            : person.role === "guest"
+                              ? "Guest"
+                              : person.canInvite && !person.isBot
+                                ? "Member · can invite"
+                                : "Member"}
                       {person.lastSeenAt && !person.deactivated && (
                         <> · last seen {formatDay(person.lastSeenAt)}</>
                       )}
@@ -381,7 +383,10 @@ function PersonMenu({
   onBeginAction: (kind: "reset" | "transfer", person: Person) => void;
 }) {
   const items: MenuItem[] = [];
-  if (!person.isBot && !person.deactivated) {
+  // A guest has no password and becomes a member only by creating an account
+  // itself; it can be removed like anyone else.
+  const guest = person.role === "guest";
+  if (!person.isBot && !person.deactivated && !guest) {
     items.push({
       id: "role",
       label: person.role === "admin" ? "Make member" : "Make admin",
@@ -406,7 +411,7 @@ function PersonMenu({
     destructive: !person.deactivated,
     onSelect: () => onChange(person, { deactivated: !person.deactivated }),
   });
-  if (!person.isBot && !person.deactivated) {
+  if (!person.isBot && !person.deactivated && !guest) {
     items.push({
       id: "reset",
       label: "Reset password",

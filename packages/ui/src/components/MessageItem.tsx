@@ -154,7 +154,8 @@ export const MessageItem = memo(function MessageItem({
     },
     { id: "save", label: saveLabel, onSelect: toggleSaved },
     { id: "unread", label: unreadLabel, onSelect: markUnread },
-    { id: "pin", label: pinLabel, onSelect: togglePin },
+    // Pinning changes the channel for everyone, which a guest may not.
+    ...(selfRole === "guest" ? [] : [{ id: "pin", label: pinLabel, onSelect: togglePin }]),
     ...(mine ? [{ id: "edit", label: "Edit message", onSelect: () => setEditing(true) }] : []),
     ...(canDelete
       ? [
@@ -232,6 +233,7 @@ export const MessageItem = memo(function MessageItem({
               >
                 {author?.displayName ?? "unknown"}
               </button>
+              {author?.role === "guest" && <GuestTag />}
               {author?.statusEmoji && (
                 <span title={author.statusText} className="text-[13px]">
                   {author.statusEmoji}
@@ -396,12 +398,14 @@ export const MessageItem = memo(function MessageItem({
             title={unreadLabel}
             onClick={markUnread}
           />
-          <ToolbarButton
-            label={<Icon name="pin" size={15} />}
-            title={pinLabel}
-            active={message.pinned}
-            onClick={togglePin}
-          />
+          {selfRole !== "guest" && (
+            <ToolbarButton
+              label={<Icon name="pin" size={15} />}
+              title={pinLabel}
+              active={message.pinned}
+              onClick={togglePin}
+            />
+          )}
           {mine && (
             <ToolbarButton
               label={<Icon name="edit" size={15} />}
@@ -520,5 +524,17 @@ function MessageActions({ message }: { message: Message }) {
         </span>
       )}
     </div>
+  );
+}
+
+/** Says a guest wrote it: somebody who joined with a name alone, for a day. */
+export function GuestTag() {
+  return (
+    <span
+      title="Joined as a guest"
+      className="rounded border border-edge px-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint"
+    >
+      Guest
+    </span>
   );
 }

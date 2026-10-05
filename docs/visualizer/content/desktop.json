@@ -20,7 +20,8 @@
         "A controller owns start/stop phases, a running server handle, registry changes, port selection, address publication and status snapshots.",
         "It queues backup/restore operations, verifies workspace identity, persists automatic-backup attempts and backoff, and preserves restored-copy isolation until explicit activation.",
         "N12 retains failed-cleanup resources and prevents reopening until cleanup succeeds; bounded cleanup is retryable.",
-        "Q13 remains open: a queued shutdown can wait behind an outstanding backup before it reaches its cleanup deadline."
+        "Q13 remains open: a queued shutdown can wait behind an outstanding backup before it reaches its cleanup deadline.",
+        "setAccessPolicy changes who may join the running workspace. Opening and closing the public link save and restore the whole policy rather than the invite flag, and guests let in while the link is open leave with it."
       ],
       "concepts": ["state machine", "serialized operations", "backup", "ownership"]
     },

@@ -3,7 +3,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_PORT } from "@slackoss/protocol";
+import { ACCESS_POLICIES, DEFAULT_PORT, type AccessPolicy } from "@slackoss/protocol";
 import { createWorkspaceServer, SERVER_VERSION } from "./server.js";
 import { backupWorkspace, inventoryBackup, restoreWorkspace, verifyBackup } from "./backup.js";
 import { listAccounts, recoverAccount } from "./recover.js";
@@ -37,6 +37,7 @@ const { values, positionals } = (() => {
         host: { type: "string" },
         name: { type: "string" },
         "invite-only": { type: "boolean" },
+        "access-policy": { type: "string" },
         "no-mdns": { type: "boolean", default: false },
         "storage-limit-mb": { type: "string" },
         "abandoned-upload-hours": { type: "string" },
@@ -77,6 +78,9 @@ Usage: slackoss-server [options]
   --host <host>     Host to bind (default 0.0.0.0, or 127.0.0.1 with --isolated)
   --name <name>     Workspace name (persisted on first run)
   --invite-only     Require an invite code to register
+  --access-policy <invite_only|account_required|guest_allowed>
+                    Who may join: invited accounts, any account, or guests
+                    with a display name too (saved; overrides --invite-only)
   --no-mdns         Do not advertise on the local network
   --storage-limit-mb <n>
                     Attachment storage cap in MiB; 0 is unlimited (default).
@@ -377,6 +381,10 @@ if (abandonedUploadHours <= 0) {
   process.exit(1);
 }
 
+const accessPolicy = values["access-policy"];
+if (accessPolicy !== undefined && !ACCESS_POLICIES.includes(accessPolicy as AccessPolicy))
+  refuse(`--access-policy must be one of ${ACCESS_POLICIES.join(", ")}`);
+
 // An isolated copy stays on this machine unless told otherwise, since the
 // people who use the original would otherwise find a second one to sign in to.
 const host = values.host ?? (values.isolated ? "127.0.0.1" : "0.0.0.0");
@@ -391,6 +399,7 @@ const server = await createWorkspaceServer({
   host,
   workspaceName: values.name,
   inviteOnly: values["invite-only"],
+  ...(accessPolicy ? { accessPolicy: accessPolicy as AccessPolicy } : {}),
   mdns: !values["no-mdns"],
   isolated: values.isolated,
   webDistPath,

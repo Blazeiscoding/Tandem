@@ -84,6 +84,9 @@ const BrowseChannelsDialog = lazy(() =>
     default: module.BrowseChannelsDialog,
   })),
 );
+const GuestAccountDialog = lazy(() =>
+  import("../components/dialogs.js").then((module) => ({ default: module.GuestAccountDialog })),
+);
 const NewDmDialog = lazy(() =>
   import("../components/dialogs.js").then((module) => ({ default: module.NewDmDialog })),
 );
@@ -122,6 +125,8 @@ interface Props {
   initialTarget?: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
   onSignedOut: () => void;
+  /** A guest kept its identity as an account; carry on with this token. */
+  onAccountCreated?: (token: string, handle: string) => void;
   /** This device's other saved workspaces, for the sidebar's switcher. */
   otherWorkspaces?: OtherWorkspace[];
   onOpenWorkspace?: (url: string) => void;
@@ -142,7 +147,8 @@ type DialogKind =
   | { kind: "shortcuts" }
   | { kind: "diagnostics" }
   | { kind: "apps" }
-  | { kind: "people" };
+  | { kind: "people" }
+  | { kind: "guest-account" };
 
 /** The opposite of the query in theme.css that turns the sidebar into a drawer. */
 const WIDE = "(min-width: 761px) and (min-height: 481px)";
@@ -195,6 +201,7 @@ export function WorkspaceScreen({
   initialTarget,
   onLeaveWorkspace,
   onSignedOut,
+  onAccountCreated,
   otherWorkspaces,
   onOpenWorkspace,
 }: Props) {
@@ -219,6 +226,7 @@ export function WorkspaceScreen({
                 initialTarget={initialTarget ?? null}
                 onLeaveWorkspace={onLeaveWorkspace}
                 onSignedOut={onSignedOut}
+                onAccountCreated={onAccountCreated}
                 otherWorkspaces={otherWorkspaces}
                 onOpenWorkspace={onOpenWorkspace}
               />
@@ -235,6 +243,7 @@ function WorkspaceInner({
   initialTarget,
   onLeaveWorkspace,
   onSignedOut,
+  onAccountCreated,
   otherWorkspaces,
   onOpenWorkspace,
 }: {
@@ -242,6 +251,7 @@ function WorkspaceInner({
   initialTarget: { channelId: ID; messageId: ID } | null;
   onLeaveWorkspace: () => void;
   onSignedOut: () => void;
+  onAccountCreated?: (token: string, handle: string) => void;
   otherWorkspaces?: OtherWorkspace[];
   onOpenWorkspace?: (url: string) => void;
 }) {
@@ -853,6 +863,7 @@ function WorkspaceInner({
         onOpenWorkspace={onOpenWorkspace}
         onEditProfile={() => setDialog({ kind: "account", section: "profile" })}
         onAccountSettings={() => setDialog({ kind: "account" })}
+        onCreateAccount={() => setDialog({ kind: "guest-account" })}
         onShortcuts={() => setDialog({ kind: "shortcuts" })}
         gettingStarted={
           <GettingStarted
@@ -1110,6 +1121,11 @@ function WorkspaceInner({
             />
           )}
           {dialog.kind === "invite" && <InviteDialog onClose={closeDialog} />}
+        </LazyDialog>
+      )}
+      {dialog.kind === "guest-account" && onAccountCreated && (
+        <LazyDialog loading="Loading account" onClose={closeDialog}>
+          <GuestAccountDialog onClose={closeDialog} onCreated={onAccountCreated} />
         </LazyDialog>
       )}
       {dialog.kind === "switcher" && <QuickSwitcher onClose={closeDialog} onOpen={openChannel} />}
