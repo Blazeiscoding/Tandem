@@ -855,6 +855,7 @@ function WorkspaceInner({
         />
       )}
       <Sidebar
+        openPanel={panel.kind}
         onSearch={() => setDialog({ kind: "switcher" })}
         onSaved={() => {
           setPanel({ kind: "saved" });

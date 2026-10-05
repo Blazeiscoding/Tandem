@@ -19,6 +19,8 @@ interface Props {
   onFriends: () => void;
   onSearch: () => void;
   onSaved: () => void;
+  /** The side panel open beside the conversation, which its row shows. */
+  openPanel?: string;
   /** Messages queued to send later; offered in the account menu. */
   onScheduled?: () => void;
   onActivity: () => void;
@@ -162,7 +164,12 @@ export function Sidebar(props: Props) {
           {props.gettingStarted}
           <ul className="mb-4 space-y-px">
             <li>
-              <NavRow icon="activity" label="Activity" onClick={props.onActivity}>
+              <NavRow
+                icon="activity"
+                label="Activity"
+                onClick={props.onActivity}
+                open={props.openPanel === "activity"}
+              >
                 {totalMentions > 0 ? (
                   <Count label="Unread mentions" strong>
                     {totalMentions}
@@ -175,14 +182,24 @@ export function Sidebar(props: Props) {
               </NavRow>
             </li>
             <li>
-              <NavRow icon="thread" label="Threads" onClick={props.onThreads}>
+              <NavRow
+                icon="thread"
+                label="Threads"
+                onClick={props.onThreads}
+                open={props.openPanel === "threads"}
+              >
                 {unreadThreads > 0 && (
                   <Count label="Threads with unread replies">{unreadThreads}</Count>
                 )}
               </NavRow>
             </li>
             <li>
-              <NavRow icon="bookmark" label="Saved" onClick={props.onSaved} />
+              <NavRow
+                icon="bookmark"
+                label="Saved"
+                onClick={props.onSaved}
+                open={props.openPanel === "saved"}
+              />
             </li>
           </ul>
 
@@ -324,14 +341,21 @@ function NavRow(props: {
   icon: IconName;
   label: string;
   onClick: () => void;
+  /** Its panel is open beside the conversation. */
+  open?: boolean;
   children?: ReactNode;
 }) {
   return (
     <button
       onClick={props.onClick}
-      className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-sm text-ink-dim transition-colors hover:bg-ink/[0.05] hover:text-ink"
+      aria-current={props.open ? "true" : undefined}
+      className={`flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-sm transition-colors ${
+        props.open
+          ? "bg-ink/[0.08] font-medium text-ink"
+          : "text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
+      }`}
     >
-      <Icon name={props.icon} size={16} className="text-ink-faint" />
+      <Icon name={props.icon} size={16} className={props.open ? "text-ink" : "text-ink-faint"} />
       <span className="min-w-0 flex-1 truncate text-left">{props.label}</span>
       {props.children}
     </button>

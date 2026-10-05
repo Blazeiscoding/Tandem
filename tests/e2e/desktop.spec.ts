@@ -844,9 +844,9 @@ test("a window that keeps crashing comes back where it was, Try again included (
   await page.getByLabel("Password", { exact: true }).fill("password123");
   await page.getByRole("button", { name: "Join workspace", exact: true }).click();
   await expect(page.locator("textarea")).toBeVisible();
-  const saved = page.getByRole("button", { name: "Saved messages", exact: true });
+  const saved = page.getByRole("navigation").getByRole("button", { name: "Saved", exact: true });
   await saved.click();
-  await expect(saved).toHaveAttribute("aria-pressed", "true");
+  await expect(saved).toHaveAttribute("aria-current", "true");
 
   // The fourth crash in a minute asks; this answers Try again, and keeps count.
   await app.evaluate(({ dialog, BrowserWindow }) => {
@@ -867,8 +867,10 @@ test("a window that keeps crashing comes back where it was, Try again included (
       return contents
         ?.executeJavaScript(
           `(() => {
-            const saved = document.querySelector('button[aria-label="Saved messages"]');
-            return saved && document.querySelector("textarea") ? saved.getAttribute("aria-pressed") : null;
+            const saved = [...document.querySelectorAll("nav button")].find(
+              (button) => button.textContent.trim() === "Saved",
+            );
+            return saved && document.querySelector("textarea") ? saved.getAttribute("aria-current") : null;
           })()`,
         )
         .catch(() => null);
