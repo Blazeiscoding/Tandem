@@ -3,6 +3,7 @@ import { broadcastLabel, type ID, type User } from "@slackoss/protocol";
 import type { Channel } from "@slackoss/protocol";
 import { ClientContext, OpenMessageContext } from "../context.js";
 import { parseDeepLink } from "../lib/deeplink.js";
+import { channelMentionLabel, userMentionLabel } from "../lib/mentionDocument.js";
 import { normalizeServerUrlSafe } from "../lib/deeplinkHelpers.js";
 import { useWorkspaceAddresses } from "./ShareableServer.js";
 
@@ -194,7 +195,7 @@ function renderInline(
           // accent on the accent at 30% is under 4.5:1.
           className={`rounded px-1 font-medium ${isMe ? "bg-copper/30 text-ink" : "bg-mention text-copper"}`}
         >
-          @{user?.displayName ?? "unknown"}
+          {userMentionLabel(user)}
         </span>,
       );
     } else if (m[7]) {
@@ -207,7 +208,7 @@ function renderInline(
           onClick={() => ctx.onChannelClick?.(id)}
           className="rounded bg-mention px-1 font-medium text-copper hover:underline"
         >
-          #{ch?.name ?? "unknown"}
+          {channelMentionLabel(ch)}
         </button>,
       );
     } else if (m[8]) {

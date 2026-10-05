@@ -200,7 +200,7 @@
         "Provides the active client and gates account-local consumers through WorkspaceStorageGate. The central conversation combines Sidebar, MessageTimeline, Composer and an optional thread, members or utility panel.",
         "Only one side panel is selected at a time. Persistent places such as channels, threads, saved panels and account sections map to route/history state; transient forms and pickers stay component state.",
         "The screen tracks what is truly visible and focused when deciding notifications and read acknowledgement. Missed messages are grouped through CatchUpSummary, and live messages can be announced politely to a screen reader.",
-        "Admin dialogs, search, scheduling, profile forms and the video stage use lazy imports with recoverable wrappers. Responsive layout uses a navigation drawer and panel isolation on smaller screens.",
+        "Admin dialogs, search, scheduling, profile forms, the keyboard shortcuts list and the video stage use lazy imports with recoverable wrappers. Responsive layout uses a navigation drawer and panel isolation on smaller screens.",
         "N04 routes the Getting started huddle action through the same preference-aware join path as the header, with a stillWanted guard for changed or unmounted navigation. The Q report separately identifies remaining search, Pins and Profile lifetime issues."
       ],
       "concepts": [
@@ -521,6 +521,26 @@
       "concepts": ["IME", "code-block input", "caret ownership"]
     },
     {
+      "path": "packages/ui/src/lib/mentionDocument.ts",
+      "summary": "Maps stored mention tokens to the readable text a message box shows, and edits back.",
+      "details": [
+        "projectMentions turns <@USER_ID>, <#CHANNEL_ID> and <!here>/<!channel>/<!everyone> into @name, #channel and @here segments. The stored string stays the only source of truth; an unresolved person or channel shows @unknown or #unknown and keeps its ID.",
+        "replaceShown applies an edit made to the readable text to the stored text. A mention the edit reaches into becomes the ordinary text of what remains of its label, so editing a name never silently redirects a mention and a typed or pasted name never acquires an ID.",
+        "shownEdit recovers the single changed range from before/after text, using the caret to settle ambiguous repeats. storedPosition/shownPosition translate selections, widening a selection inside a mention to the whole token for formatting."
+      ],
+      "concepts": ["mention identity", "readable editing", "canonical serialization"]
+    },
+    {
+      "path": "packages/ui/src/lib/useMentionField.ts",
+      "summary": "Binds a textarea to readable mentions for both the composer and the message editor.",
+      "details": [
+        "The owner keeps stored text as before (drafts, sends, schedules, outbox and edit conflicts are unchanged strings); the hook supplies the shown value, converts each change event back, and restores the caret only while the shown text still matches.",
+        "Rewrites such as a completed mention, emoji or formatting go through document.execCommand(insertText) where available, so the browser's own Undo and Redo take them back. A bounded map from shown to stored text lets historyUndo/historyRedo restore mentions rather than plain names.",
+        "Backspace at a mention's end or Delete at its start selects the whole mention first, so one key removes it. Without execCommand (as in jsdom) the stored text is committed directly."
+      ],
+      "concepts": ["readable mentions", "native undo", "caret ownership", "shared input behavior"]
+    },
+    {
       "path": "packages/ui/src/lib/threadPosition.ts",
       "summary": "Keeps reading anchors for recently visited threads during this app session.",
       "details": [
@@ -600,6 +620,7 @@
         "N03 uses layout cleanup plus capture-phase pagehide/visibility/native-close hooks to hand over the actual last visible text before persistence runs. This closes the gap where a final debounced keystroke could disappear on normal navigation or close.",
         "Send validates content and limits, then queues through WorkspaceClient. The words remain owned until localWork acknowledges the send or recovery record, and refusal keeps an actionable notice rather than silently dropping the message.",
         "The composer supports Unicode-aware mention suggestions, slash-command hints, emoji, formatting preview, drag/paste attachments, progress and reply broadcast choice. IME and code-block Enter rules prevent premature actions; pending caret moves are tied to the text they were computed for.",
+        "The field shows mentions as names (choosing @here shows @here) through useMentionField, while text, drafts and sends keep <!here> and <@USER_ID>. A mention already completed is not offered again; the character limit counts the stored text the server receives.",
         "Scheduling uploads attachments, persists the exact request including nonce, file IDs and chosen time before posting, and restores unresolved scheduling requests before another send. A retry reuses the original request identity rather than creating a duplicate schedule.",
         "Q04 remains open at the preference caller: unreadability can be converted to an Enter-to-send default. N03 covers normal preparation and persistence acknowledgements, not every power-loss or OS-termination case."
       ],
@@ -676,7 +697,8 @@
       "details": [
         "The memoized row renders author, timestamps, mrkdwn, files, reactions, thread affordances and app buttons. useMessageReferences tracks only referenced users/channels, and self identity/role controls relevant actions.",
         "Reaction, pin and saved toggles report refused optimistic changes through a toast with a repeatable intent. Delete uses an explicit confirmation; mark unread delegates channel or thread cursor behavior to the client.",
-        "Copying text/link waits for clipboard outcome. App link buttons navigate normally while interactive buttons call the app through the server and wait for its result; permissions remain enforced by the server."
+        "Copying text/link waits for clipboard outcome. App link buttons navigate normally while interactive buttons call the app through the server and wait for its result; permissions remain enforced by the server.",
+        "The in-place editor is a lazy chunk with an inline loading status and a recoverable failure, keeping editing code out of the entry every visit downloads."
       ],
       "concepts": [
         "memoized row",
@@ -690,7 +712,8 @@
       "summary": "Edits a message while preserving unsaved words and the original comparison base.",
       "details": [
         "An edit draft has its own message-specific slot and stores both text and the message text it began from, including compatibility with older plain-text drafts.",
-        "Save uses expectedText so a concurrent edit can be refused instead of being overwritten unnoticed. Formatting, preview, IME and code-block behavior match the composer."
+        "Save uses expectedText so a concurrent edit can be refused instead of being overwritten unnoticed. Formatting, preview, IME and code-block behavior match the composer.",
+        "The box and the Current message shown on an edit conflict read mentions as names; the kept {text, base} and the saved text keep their tokens. MessageItem loads the editor on first use."
       ],
       "concepts": ["edit draft", "compare before write", "input safety"]
     },
@@ -757,7 +780,7 @@
       "summary": "Renders the supported Slack-style message syntax into React elements.",
       "details": [
         "Handles fenced and inline code, bold/italic/strike, quotes, user/channel references and ordinary or labelled HTTP links without interpreting message text as arbitrary HTML.",
-        "Resolves mentions against supplied users/channels and opens a message link in-place only when it belongs to a known address of this workspace.",
+        "Resolves mentions against supplied users/channels, with the same labels the composer shows (mentionDocument), and opens a message link in-place only when it belongs to a known address of this workspace.",
         "A labelled link that looks like a different host exposes the actual destination. Code/quote edge trimming avoids artificial blank lines around block elements."
       ],
       "concepts": ["message markup", "safe rendering", "link destination", "in-place navigation"]

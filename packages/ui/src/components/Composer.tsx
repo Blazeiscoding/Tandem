@@ -9,7 +9,8 @@ import { formatScheduleTime, localDateTime, schedulePresets } from "../lib/sched
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Tooltip } from "./Tooltip.js";
-import { caretToRestore, insideCodeBlock, isImeKey, type PendingCaret } from "../lib/textInput.js";
+import { insideCodeBlock, isImeKey } from "../lib/textInput.js";
+import { useMentionField } from "../lib/useMentionField.js";
 import { useListbox } from "../lib/useListbox.js";
 import { whenKeptLocally } from "../lib/localWork.js";
 import {
@@ -92,7 +93,6 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
    */
   const [saving, setSaving] = useState<{ draftKey: string; nonce: string } | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
-  const pendingCaret = useRef<PendingCaret | null>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
   const dragDepth = useRef(0);
@@ -250,56 +250,35 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     box.current.style.height = `${Math.min(box.current.scrollHeight, 220)}px`;
   }, [text]);
 
-  /**
-   * Puts the caret back after a rewrite, before the browser has painted.
-   *
-   * Waiting a frame for this leaves a gap a fast typist gets a keystroke into,
-   * and completing a mention with Tab is exactly when someone is typing fast.
-   * The restore is abandoned if the field has moved on, because leaving the
-   * caret where their own typing put it beats dragging it back to where it
-   * belonged a moment ago.
-   */
-  useLayoutEffect(() => {
-    const target = caretToRestore(pendingCaret.current, text);
-    pendingCaret.current = null;
-    if (!target || !box.current) return;
-    box.current.focus();
-    box.current.setSelectionRange(target.start, target.end);
-  }, [text]);
+  // The box shows mentions as names; `text` keeps them as ids, as sent.
+  const field = useMentionField(
+    text,
+    box,
+    (next) => {
+      setText(next);
+      edited.current = true;
+    },
+    users,
+    channels,
+  );
 
-  function replaceSelection(
-    replacement: string,
-    start: number,
-    end: number,
-    selectionStart: number,
-    selectionEnd = selectionStart,
-  ) {
+  /** Rewrites the draft, selecting `start..end` of the new text. */
+  function rewrite(next: string, start?: number, end = start) {
     if (scheduleLock.current || recoveryBlocksSend) return;
-    const next = text.slice(0, start) + replacement + text.slice(end);
-    setText(next);
-    edited.current = true;
     setMentionQuery(null);
-    pendingCaret.current = { start: selectionStart, end: selectionEnd, text: next };
+    field.edit(next, start, end);
   }
 
   function format(marker: string, placeholderText: string, block = false) {
-    const field = box.current;
-    if (!field) return;
-    const next = formatText(
-      text,
-      field.selectionStart,
-      field.selectionEnd,
-      marker,
-      placeholderText,
-      block,
-    );
-    replaceSelection(next.text, 0, text.length, next.selectionStart, next.selectionEnd);
+    if (!box.current) return;
+    const { start, end } = field.selection();
+    const next = formatText(text, start, end, marker, placeholderText, block);
+    rewrite(next.text, next.selectionStart, next.selectionEnd);
   }
 
   function insertEmoji(emoji: string) {
-    const start = box.current?.selectionStart ?? text.length;
-    const end = box.current?.selectionEnd ?? start;
-    replaceSelection(emoji, start, end, start + emoji.length);
+    const next = field.replaceSelection(emoji);
+    rewrite(next.stored, next.caret);
   }
 
   // The box is disabled until its saved scheduling state has loaded, and a
@@ -356,17 +335,15 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const mentionList = useListbox(mentionQuery ? candidates.length : 0);
 
   function insertCommand(command: string) {
-    if (scheduleLock.current || recoveryBlocksSend) return;
     const next = `/${command} `;
-    setText(next);
-    edited.current = true;
-    pendingCaret.current = { start: next.length, end: next.length, text: next };
+    rewrite(next, next.length);
   }
 
-  function refreshMentionState(value: string, caret: number) {
+  function refreshMentionState(value: string, caret: number, shown = field.doc) {
     const upToCaret = value.slice(0, caret);
     const m = /(^|\s)@([\p{L}\p{N}\p{M}._-]*)$/u.exec(upToCaret);
-    if (m) {
+    // A mention already made is not one being typed.
+    if (m && !field.startsMention(caret - m[2]!.length - 1, shown)) {
       setMentionQuery({ start: caret - m[2]!.length - 1, query: m[2]! });
       mentionList.choose(0);
     } else {
@@ -378,13 +355,13 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     if (scheduleLock.current || recoveryBlocksSend) return;
     if (!mentionQuery || !box.current) return;
     const token = candidate.kind === "user" ? `<@${candidate.user.id}>` : `<!${candidate.token}>`;
-    const caret = box.current.selectionStart;
-    const next = `${text.slice(0, mentionQuery.start)}${token} ${text.slice(caret)}`;
-    setText(next);
-    setMentionQuery(null);
-    edited.current = true;
-    const pos = mentionQuery.start + token.length + 1;
-    pendingCaret.current = { start: pos, end: pos, text: next };
+    // Shown as the name at once; sent as the id it stands for.
+    const next = field.replaceSelection(
+      `${token} `,
+      mentionQuery.start,
+      box.current.selectionStart,
+    );
+    rewrite(next.stored, next.caret);
   }
 
   const chooseCommand = commandList.choose;
@@ -620,6 +597,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Enter confirms an IME candidate; it must not send an unfinished message.
     if (isImeKey(e.nativeEvent)) return;
+    field.onKeyDown(e);
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const marker = formattingShortcut(e.key);
       if (marker) {
@@ -875,7 +853,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         )}
         <textarea
           ref={box}
-          value={text}
+          value={field.doc.shown}
           readOnly={saving?.draftKey === draftKey}
           aria-busy={saving?.draftKey === draftKey}
           rows={1}
@@ -906,9 +884,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             );
           }}
           onChange={(e) => {
+            const next = field.fromInput(e);
             edited.current = true;
-            setText(e.target.value);
-            refreshMentionState(e.target.value, e.target.selectionStart);
+            setText(next.stored);
+            refreshMentionState(e.target.value, e.target.selectionStart, next);
             const now = Date.now();
             if (now - lastTypingSent.current > 3000 && e.target.value.trim()) {
               lastTypingSent.current = now;

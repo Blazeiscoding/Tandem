@@ -29,7 +29,6 @@ import {
 import { QuickSwitcher } from "../components/QuickSwitcher.js";
 import { PinsPanel, SavedPanel, ThreadsPanel } from "../components/MessageListPanel.js";
 import type { AccountSection } from "../components/AccountDialog.js";
-import { ShortcutsDialog } from "../components/ShortcutsDialog.js";
 import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { GettingStarted } from "../components/GettingStarted.js";
@@ -99,6 +98,11 @@ const FriendsDialog = lazy(() =>
 );
 const ProfileDialog = lazy(() =>
   import("../components/ProfileDialog.js").then((module) => ({ default: module.ProfileDialog })),
+);
+const ShortcutsDialog = lazy(() =>
+  import("../components/ShortcutsDialog.js").then((module) => ({
+    default: module.ShortcutsDialog,
+  })),
 );
 const DiagnosticsDialog = lazy(() =>
   import("../components/DiagnosticsDialog.js").then((module) => ({
@@ -1114,7 +1118,11 @@ function WorkspaceInner({
           <SearchDialog channelId={activeChannelId} onClose={closeDialog} onJump={jumpToMessage} />
         </LazyDialog>
       )}
-      {dialog.kind === "shortcuts" && <ShortcutsDialog onClose={closeDialog} />}
+      {dialog.kind === "shortcuts" && (
+        <LazyDialog loading="Loading keyboard shortcuts" onClose={closeDialog}>
+          <ShortcutsDialog onClose={closeDialog} />
+        </LazyDialog>
+      )}
       {dialog.kind === "diagnostics" && (
         <LazyDialog loading="Loading diagnostics" onClose={closeDialog}>
           <DiagnosticsDialog onClose={closeDialog} />

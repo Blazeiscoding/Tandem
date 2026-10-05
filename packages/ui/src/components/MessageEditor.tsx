@@ -10,6 +10,7 @@ import {
 } from "./FormattingToolbar.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { insideCodeBlock, isImeKey } from "../lib/textInput.js";
+import { useMentionField } from "../lib/useMentionField.js";
 
 /**
  * An unsaved edit, kept with the words it started from so that one picked up
@@ -87,26 +88,14 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
     keep(text, from);
   }
 
-  function select(text: string, start: number, end = start) {
-    change(text);
-    requestAnimationFrame(() => {
-      if (!alive.current) return;
-      box.current?.focus();
-      box.current?.setSelectionRange(start, end);
-    });
-  }
+  // The box shows mentions as names; `draft` keeps them as ids, as saved.
+  const field = useMentionField(draft, box, (text) => change(text), users, channels);
 
   function format(marker: string, placeholder: string, block = false) {
     if (!box.current || saving.current) return;
-    const next = formatText(
-      draft,
-      box.current.selectionStart,
-      box.current.selectionEnd,
-      marker,
-      placeholder,
-      block,
-    );
-    select(next.text, next.selectionStart, next.selectionEnd);
+    const { start, end } = field.selection();
+    const next = formatText(draft, start, end, marker, placeholder, block);
+    field.edit(next.text, next.selectionStart, next.selectionEnd);
   }
 
   function cancel() {
@@ -169,7 +158,12 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
             aria-label="Current message"
             className="mt-1 line-clamp-3 border-l-2 border-edge pl-2 whitespace-pre-wrap text-ink"
           >
-            {message.text}
+            <Mrkdwn
+              text={message.text}
+              users={users}
+              channels={channels}
+              selfId={client.state.self?.id}
+            />
           </blockquote>
         </div>
       )}
@@ -180,9 +174,8 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
         <FormattingToolbar
           onFormat={format}
           onInsert={(emoji) => {
-            const start = box.current?.selectionStart ?? draft.length;
-            const end = box.current?.selectionEnd ?? start;
-            select(draft.slice(0, start) + emoji + draft.slice(end), start + emoji.length);
+            const next = field.replaceSelection(emoji);
+            field.edit(next.stored, next.caret);
           }}
           preview={preview}
           onTogglePreview={() => setPreview((v) => !v)}
@@ -197,13 +190,14 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
         )}
         <textarea
           ref={box}
-          value={draft}
+          value={field.doc.shown}
           autoFocus
           aria-label="Edit message"
-          onChange={(e) => change(e.target.value)}
+          onChange={(e) => change(field.fromInput(e).stored)}
           onKeyDown={(e) => {
             // Enter confirms an IME candidate rather than saving the edit.
             if (isImeKey(e.nativeEvent)) return;
+            field.onKeyDown(e);
             if ((e.ctrlKey || e.metaKey) && !e.altKey) {
               const marker = formattingShortcut(e.key);
               if (marker) {

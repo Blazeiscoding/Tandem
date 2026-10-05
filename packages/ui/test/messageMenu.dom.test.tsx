@@ -132,9 +132,9 @@ describe("a message's menu", () => {
     expect(pin).toHaveBeenCalledOnce();
     await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Save for later"));
     expect(save).toHaveBeenCalledWith("M_1", true);
-    // Editing opens in place, with the cursor in the editor.
+    // Editing opens in place, with the cursor in the editor, once it has loaded.
     await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Edit message"));
-    expect(screen.getByRole("textbox")).toHaveFocus();
+    expect(await screen.findByRole("textbox", { name: "Edit message" })).toHaveFocus();
   });
 
   it("copies the link and says so, since the menu has closed by then", async () => {

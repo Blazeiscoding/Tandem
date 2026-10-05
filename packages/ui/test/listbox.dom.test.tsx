@@ -74,7 +74,7 @@ async function renderComposer(extraUsers: User[] = []) {
   );
   const box = screen.getByRole("textbox", { name: "Message #design" });
   await waitFor(() => expect(box).toBeEnabled());
-  return { box, user: userEvent.setup() };
+  return { box, client, user: userEvent.setup() };
 }
 
 /** The option a text box points at, which is what a screen reader reads. */
@@ -85,7 +85,8 @@ function pointedAt(box: HTMLElement) {
 
 describe("the composer's suggestions", () => {
   it("are options the text box points at, with nothing focusable inside them", async () => {
-    const { box, user } = await renderComposer();
+    const { box, client, user } = await renderComposer();
+    const send = vi.spyOn(client, "send").mockReturnValue(true);
     await user.type(box, "Hi @sa");
     const mentions = screen.getByRole("listbox", { name: "Mentions" });
     const options = within(mentions).getAllByRole("option");
@@ -108,16 +109,19 @@ describe("the composer's suggestions", () => {
     expect(await accessibilityProblems(mentions.parentElement!)).toEqual([]);
 
     await user.keyboard("{Enter}");
-    expect(box).toHaveValue(`Hi <@${sadia.id}> `);
+    // The box reads as the name; what is sent names the person by id.
+    expect(box).toHaveValue("Hi @Sadia Khan ");
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     expect(box).not.toHaveAttribute("aria-activedescendant");
+    await user.type(box, "ready?{Enter}");
+    expect(send).toHaveBeenCalledWith(design.id, `Hi <@${sadia.id}> ready?`, expect.anything());
   });
 
   it("take a click without taking focus from the text box", async () => {
     const { box, user } = await renderComposer();
     await user.type(box, "@sad");
     await user.click(screen.getByRole("option", { name: /Sadia Khan/ }));
-    expect(box).toHaveValue(`<@${sadia.id}> `);
+    expect(box).toHaveValue("@Sadia Khan ");
     expect(box).toHaveFocus();
   });
 
@@ -148,7 +152,7 @@ describe("the composer's suggestions", () => {
       await user.type(box, `@${query}`);
       expect(screen.getByRole("option", { name: new RegExp(target.displayName) })).toBeVisible();
       await user.keyboard("{Tab}");
-      expect(box).toHaveValue(`<@${target.id}> `);
+      expect(box).toHaveValue(`@${target.displayName} `);
     }
   });
 
@@ -164,11 +168,11 @@ describe("the composer's suggestions", () => {
     await user.clear(box);
     await user.type(box, "@channel");
     await user.keyboard("{Tab}");
-    expect(box).toHaveValue("<!channel> ");
+    expect(box).toHaveValue("@channel ");
     await user.clear(box);
     await user.type(box, "@sad");
     await user.keyboard("{Tab}");
-    expect(box).toHaveValue(`<@${sadia.id}> `);
+    expect(box).toHaveValue("@Sadia Khan ");
   });
 
   it("offer commands the same way, and Tab completes the one chosen", async () => {

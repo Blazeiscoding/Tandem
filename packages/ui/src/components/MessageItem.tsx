@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from "react";
+import { lazy, memo, Suspense, useState, type ReactNode } from "react";
 import { useCopy, writeClipboard } from "../lib/useCopy.js";
 import { browserLink } from "../lib/deeplink.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
@@ -8,14 +8,19 @@ import { useMessageReferences } from "../lib/messageReferences.js";
 import { Avatar } from "./Avatar.js";
 import { MessageAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
-import { MessageEditor } from "./MessageEditor.js";
 import { useShareableServer } from "./ShareableServer.js";
+import { ErrorBoundary } from "./ErrorBoundary.js";
 import { Icon } from "./Icon.js";
 import { Menu, type MenuItem } from "./Menu.js";
 import { ReactionPicker } from "./ReactionPicker.js";
 import { useConfirm } from "./Confirm.js";
 import { Tooltip } from "./Tooltip.js";
 import { useToast } from "./Toast.js";
+
+// Editing a sent message is now and then, so the editor loads on first use.
+const MessageEditor = lazy(() =>
+  import("./MessageEditor.js").then((module) => ({ default: module.MessageEditor })),
+);
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
 
@@ -242,7 +247,26 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {editing ? (
-            <MessageEditor message={message} onClose={() => setEditing(false)} />
+            <ErrorBoundary
+              fallback={
+                <p role="alert" className="mt-1 text-sm text-ink-dim">
+                  The editor could not load. Reload the app to try again.{" "}
+                  <button className="text-copper underline" onClick={() => setEditing(false)}>
+                    Cancel
+                  </button>
+                </p>
+              }
+            >
+              <Suspense
+                fallback={
+                  <p role="status" className="mt-1 text-sm text-ink-faint">
+                    Opening the editor…
+                  </p>
+                }
+              >
+                <MessageEditor message={message} onClose={() => setEditing(false)} />
+              </Suspense>
+            </ErrorBoundary>
           ) : (
             <>
               {message.text && (
