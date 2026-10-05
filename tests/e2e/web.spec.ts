@@ -1157,8 +1157,10 @@ test("the composer shows mentions as names while typing, and sends them as ids",
   await expect.poll(latest).toBe(`hey *<@${bobby}>*`);
 
   // Editing the sent message shows the name, and saving keeps the id.
-  await page.getByRole("article").last().hover();
-  await page.getByRole("button", { name: "Edit message", exact: true }).last().click();
+  // The toolbar of the message hovered, not of one that showed its own earlier.
+  const sent = page.getByRole("article").filter({ hasText: "hey" }).last();
+  await sent.hover();
+  await sent.getByRole("button", { name: "Edit message", exact: true }).click();
   const editor = page.getByRole("textbox", { name: "Edit message", exact: true });
   await expect(editor).toHaveValue("hey *@bobby*");
   await editor.press("End");
