@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useState, type ReactNode } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { writeClipboard } from "../lib/useCopy.js";
 import { browserLink } from "../lib/deeplink.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
@@ -24,6 +24,10 @@ const MessageEditor = lazy(() =>
 
 /** The three reactions most messages get; the picker has the rest. */
 const QUICK_REACTIONS = ["👍", "❤️", "😂"];
+/** The row a long press offers on a phone, where a thumb has room for more. */
+const SHEET_REACTIONS = ["👍", "❤️", "😂", "🎉", "👀", "🙏"];
+/** How long a press lasts before it opens the message's actions. */
+const LONG_PRESS_MS = 450;
 
 interface Props {
   message: Message;
@@ -61,6 +65,16 @@ export const MessageItem = memo(function MessageItem({
   // The toolbar shows on hover; while its menu is open it stays, so the menu
   // has a trigger to hang from and focus has somewhere to return to.
   const [moreOpen, setMoreOpen] = useState(false);
+  /** The touch menu, opened by its button or by holding the message. */
+  const [touchMenu, setTouchMenu] = useState(false);
+  const row = useRef<HTMLDivElement>(null);
+  const press = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const cancelPress = () => {
+    if (!press.current) return;
+    clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  useEffect(() => cancelPress, []);
   const shareable = useShareableServer();
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
@@ -173,27 +187,87 @@ export const MessageItem = memo(function MessageItem({
         },
       ]
     : [];
+  /** What the message says as shown, names rather than ids. */
+  const copyTextItem: MenuItem = {
+    id: "copy-text",
+    label: "Copy text",
+    onSelect: () => {
+      const shown = row.current?.querySelector<HTMLElement>(".message-text");
+      const text = shown?.innerText ?? shown?.textContent ?? "";
+      void writeClipboard(text).then((ok) =>
+        toast(
+          ok
+            ? { message: "Text copied.", kind: "success" }
+            : { message: "Could not copy the text." },
+        ),
+      );
+    },
+  };
   /** Everything, named, for a touchscreen, where there is no toolbar. */
   const menuItems: MenuItem[] = [
     ...(inThread
       ? []
-      : [{ id: "reply", label: "Reply in thread", onSelect: () => onOpenThread?.(message.id) }]),
-    { id: "react", label: "Add a reaction…", onSelect: () => setPicking(true) },
-    { ...copyItem, icon: undefined },
-    { id: "save", label: saveLabel, onSelect: toggleSaved },
-    { ...unreadItem, icon: undefined },
-    ...pinItems.map((item) => ({ ...item, icon: undefined })),
-    ...(mine ? [{ id: "edit", label: "Edit message", onSelect: () => setEditing(true) }] : []),
-    ...deleteItems.map((item) => ({ ...item, icon: undefined, section: undefined })),
+      : [
+          {
+            id: "reply",
+            label: "Reply in thread",
+            icon: "thread" as const,
+            onSelect: () => onOpenThread?.(message.id),
+          },
+        ]),
+    { id: "react", label: "Add a reaction…", icon: "smile", onSelect: () => setPicking(true) },
+    // Holding a message opens this menu rather than selecting its words.
+    ...(message.text ? [{ ...copyTextItem, icon: "fileText" as const }] : []),
+    copyItem,
+    { id: "save", label: saveLabel, icon: "bookmark", onSelect: toggleSaved },
+    unreadItem,
+    ...pinItems,
+    ...(mine
+      ? [
+          {
+            id: "edit",
+            label: "Edit message",
+            icon: "edit" as const,
+            onSelect: () => setEditing(true),
+          },
+        ]
+      : []),
+    ...deleteItems.map((item) => ({ ...item, section: undefined })),
   ];
   /** What the toolbar keeps behind its last button: the less frequent half. */
   const moreItems: MenuItem[] = [copyItem, unreadItem, ...pinItems, ...deleteItems];
 
   return (
     <div
+      ref={row}
       role="article"
       aria-label={`Message from ${author?.displayName ?? "unknown"}`}
       tabIndex={0}
+      // Holding a message opens its actions, as phones do everywhere else.
+      // A press on a control or a link stays that control's.
+      onTouchStart={(event) => {
+        cancelPress();
+        if (editing || event.touches.length !== 1 || !matchMedia("(hover: none)").matches) return;
+        if ((event.target as Element).closest("button, a, input, textarea, video, audio")) return;
+        const touch = event.touches[0]!;
+        press.current = {
+          x: touch.clientX,
+          y: touch.clientY,
+          timer: window.setTimeout(() => {
+            press.current = null;
+            navigator.vibrate?.(8);
+            setTouchMenu(true);
+          }, LONG_PRESS_MS),
+        };
+      }}
+      onTouchMove={(event) => {
+        const touch = event.touches[0];
+        if (!press.current || !touch) return;
+        if (Math.hypot(touch.clientX - press.current.x, touch.clientY - press.current.y) > 10)
+          cancelPress();
+      }}
+      onTouchEnd={cancelPress}
+      onTouchCancel={cancelPress}
       className={`message-row group relative py-1 pl-5 pr-12 transition-colors hover:bg-ink/[0.025] ${
         compact ? "" : "mt-3"
       } ${moreOpen ? "bg-ink/[0.025]" : ""} ${
@@ -433,6 +507,38 @@ export const MessageItem = memo(function MessageItem({
           <Menu
             label={`Actions for message from ${author?.displayName ?? "unknown"}`}
             items={menuItems}
+            open={touchMenu}
+            onOpenChange={setTouchMenu}
+            sheet
+            header={(close) => (
+              <div className="flex items-center justify-between">
+                {SHEET_REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    aria-label={`React with ${emoji}`}
+                    onClick={() => {
+                      close();
+                      react(emoji);
+                    }}
+                    className="flex size-11 items-center justify-center rounded-full text-2xl transition-transform active:scale-90"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  aria-label="Add a reaction"
+                  onClick={() => {
+                    close();
+                    setPicking(true);
+                  }}
+                  className="flex size-11 items-center justify-center rounded-full bg-ink/[0.06] text-ink-dim"
+                >
+                  <Icon name="smile" size={20} />
+                </button>
+              </div>
+            )}
             triggerClassName="flex size-9 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
           />
         </div>

@@ -610,3 +610,23 @@ textarea::placeholder {
 .titlebar-drag [role="button"] {
   -webkit-app-region: no-drag;
 }
+
+/* A menu on a phone rises from the bottom, within a thumb's reach. */
+.menu-sheet {
+  left: 8px;
+  right: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+}
+
+/* On a touchscreen, holding a message opens its actions (Copy text among
+   them) instead of selecting words; links keep the system's own menu. */
+@media (hover: none) and (pointer: coarse) {
+  .message-row {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .message-row a {
+    -webkit-touch-callout: default;
+  }
+}

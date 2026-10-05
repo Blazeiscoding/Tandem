@@ -197,6 +197,7 @@ export function ScheduledPanel(props: {
               </>
             ) : null
           }
+          emptyIcon="clock"
         />
         {editing && (
           <form

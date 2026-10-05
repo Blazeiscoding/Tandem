@@ -2636,6 +2636,32 @@ test("on a touchscreen each message offers its actions in a menu, and any emoji 
     await expect(picker).toHaveCount(0);
     await expect(row.getByRole("button", { name: /🎉\s*1/ })).toBeVisible();
 
+    // Holding the message opens the same actions as a sheet along the bottom,
+    // with a row of reactions a thumb reaches in one more tap.
+    await row.getByText("Launch is on Friday", { exact: true }).evaluate(async (text) => {
+      const at = text.getBoundingClientRect();
+      const touch = new Touch({
+        identifier: 1,
+        target: text,
+        clientX: at.left + 4,
+        clientY: at.top + 4,
+      });
+      text.dispatchEvent(
+        new TouchEvent("touchstart", { bubbles: true, touches: [touch], changedTouches: [touch] }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      text.dispatchEvent(
+        new TouchEvent("touchend", { bubbles: true, touches: [], changedTouches: [touch] }),
+      );
+    });
+    await expect(menu).toBeVisible();
+    await expectInsideViewport(page, menu);
+    const sheet = (await menu.boundingBox())!;
+    expect(sheet.y + sheet.height).toBeGreaterThan(844 - 120);
+    await page.getByRole("button", { name: "React with 👍", exact: true }).tap();
+    await expect(menu).toHaveCount(0);
+    await expect(row.getByRole("button", { name: /👍\s*1/ })).toBeVisible();
+
     await more.tap();
     await menu.getByRole("menuitem", { name: "Reply in thread", exact: true }).tap();
     await expect(page.getByRole("complementary", { name: "Thread", exact: true })).toBeVisible();
