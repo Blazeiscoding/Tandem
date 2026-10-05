@@ -329,7 +329,7 @@ export function App({ platform }: { platform: Platform }) {
               </span>
               <button
                 type="button"
-                className="shrink-0 text-copper underline"
+                className="shrink-0 font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
                 onClick={() => void persistServers(savedServersRef.current)}
               >
                 Retry saving
@@ -516,12 +516,22 @@ export function App({ platform }: { platform: Platform }) {
               hosting.status?.phase === "starting" ||
               hosting.status?.phase === "stopping" ||
               hosting.error) && (
-              <div className="flex shrink-0 items-center gap-3 border-t border-edge bg-raised px-4 py-2 text-xs">
+              <div className="-mt-1 flex h-8 shrink-0 items-center gap-2.5 bg-deep px-4 text-[12px]">
+                <span
+                  aria-hidden="true"
+                  className={`size-1.5 shrink-0 rounded-full ${
+                    hosting.error || hosting.status?.warning || hosting.status?.openToAllError
+                      ? "bg-alert"
+                      : hosting.status?.running
+                        ? "bg-online"
+                        : "animate-pulse bg-ink-faint"
+                  }`}
+                />
                 <span
                   role={
                     hosting.status?.warning || hosting.status?.openToAllError ? "alert" : "status"
                   }
-                  className="min-w-0 flex-1 text-ink-dim"
+                  className="min-w-0 flex-1 truncate text-ink-faint"
                 >
                   {hosting.error
                     ? "Hosting status unavailable"
@@ -538,7 +548,7 @@ export function App({ platform }: { platform: Platform }) {
                 <button
                   type="button"
                   onClick={() => setHostDialogOpen(true)}
-                  className="shrink-0 font-medium text-copper hover:underline"
+                  className="shrink-0 font-medium text-ink hover:underline"
                 >
                   Manage hosting
                 </button>

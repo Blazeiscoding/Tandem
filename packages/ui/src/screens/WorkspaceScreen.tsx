@@ -14,7 +14,6 @@ import { Sidebar, type OtherWorkspace } from "../components/Sidebar.js";
 import { JumpToLatestBar, MessageTimeline } from "../components/MessageTimeline.js";
 import { Composer } from "../components/Composer.js";
 import { ThreadPanel } from "../components/ThreadPanel.js";
-import { MembersPanel } from "../components/MembersPanel.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
 import { CatchUpSummary, namesList } from "../lib/catchUp.js";
@@ -27,16 +26,14 @@ import {
   type NotificationPreview,
 } from "../lib/notificationPreview.js";
 import { QuickSwitcher } from "../components/QuickSwitcher.js";
-import { PinsPanel, SavedPanel, ThreadsPanel } from "../components/MessageListPanel.js";
+import { shortcutLabel } from "../lib/shortcuts.js";
 import type { AccountSection } from "../components/AccountDialog.js";
 import { HuddleBar, HuddleButton } from "../components/HuddleBar.js";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
-import { GettingStarted } from "../components/GettingStarted.js";
 import { LazyDialog, LazyPanel } from "../components/LazyView.js";
 import { ViewModal } from "../components/ViewModal.js";
 import { Icon, type IconName } from "../components/Icon.js";
 import { DraftPersistence } from "../components/DraftPersistence.js";
-import { NotificationBanner } from "../components/NotificationBanner.js";
 import { useMessageAnnouncer } from "../components/MessageAnnouncer.js";
 import { WorkspaceStorageGate } from "../components/WorkspaceStorageGate.js";
 import { ShareableServerProvider } from "../components/ShareableServer.js";
@@ -68,6 +65,30 @@ const AccountDialog = lazy(() =>
 );
 // Opened now and then rather than on every visit, so they load on first use
 // and keep what every visit downloads under half a megabyte.
+// Shown to the owner until the first steps are done, then never again.
+const GettingStarted = lazy(() =>
+  import("../components/GettingStarted.js").then((module) => ({
+    default: module.GettingStarted,
+  })),
+);
+// Asked once per device, and only by a browser that has not answered yet.
+const NotificationBanner = lazy(() =>
+  import("../components/NotificationBanner.js").then((module) => ({
+    default: module.NotificationBanner,
+  })),
+);
+const PinsPanel = lazy(() =>
+  import("../components/MessageListPanel.js").then((module) => ({ default: module.PinsPanel })),
+);
+const SavedPanel = lazy(() =>
+  import("../components/MessageListPanel.js").then((module) => ({ default: module.SavedPanel })),
+);
+const ThreadsPanel = lazy(() =>
+  import("../components/MessageListPanel.js").then((module) => ({ default: module.ThreadsPanel })),
+);
+const MembersPanel = lazy(() =>
+  import("../components/MembersPanel.js").then((module) => ({ default: module.MembersPanel })),
+);
 const ScheduledPanel = lazy(() =>
   import("../components/ScheduledPanel.js").then((module) => ({ default: module.ScheduledPanel })),
 );
@@ -208,11 +229,8 @@ export function WorkspaceScreen({
   return (
     <ClientContext.Provider value={client}>
       <div className="flex h-full min-h-0 flex-col">
-        {platform.kind === "desktop" && (
-          <div className="titlebar-drag flex h-10 shrink-0 items-center border-b border-edge px-4 text-[11px] text-ink-faint">
-            Tandem · Your workspace
-          </div>
-        )}
+        {/* Room for the window's own controls, drawn over the window's surface. */}
+        {platform.kind === "desktop" && <div className="titlebar-drag h-10 shrink-0 bg-deep" />}
         <div className="min-h-0 flex-1">
           <WorkspaceStorageGate
             client={client}
@@ -609,6 +627,9 @@ function WorkspaceInner({
   );
   const openThread = useCallback((rootId: ID) => setPanel({ kind: "thread", rootId }), []);
   const openProfile = useCallback((userId: ID) => setDialog({ kind: "profile", userId }), []);
+  // What a conversation that has only just begun offers to do first.
+  const inviteFromIntro = useCallback(() => setDialog({ kind: "invite" }), []);
+  const detailsFromIntro = useCallback(() => setDialog({ kind: "channel-details" }), []);
 
   /**
    * Opens a thread from the Threads list. The row already names its root, so
@@ -834,6 +855,7 @@ function WorkspaceInner({
         />
       )}
       <Sidebar
+        openPanel={panel.kind}
         onSearch={() => setDialog({ kind: "switcher" })}
         onSaved={() => {
           setPanel({ kind: "saved" });
@@ -866,30 +888,37 @@ function WorkspaceInner({
         onCreateAccount={() => setDialog({ kind: "guest-account" })}
         onShortcuts={() => setDialog({ kind: "shortcuts" })}
         gettingStarted={
-          <GettingStarted
-            onNewChannel={() => setDialog({ kind: "new-channel" })}
-            onInvite={() => setDialog({ kind: "invite" })}
-            onNotifications={() => setDialog({ kind: "account", section: "notifications" })}
-            activeChannelName={activeChannel && isRoom ? `#${activeChannel.name}` : null}
-            onTryHuddle={() => {
-              if (!activeChannelId) return;
-              const ticket = navigation.current;
-              setSidebarOpen(false);
-              calls
-                .joinHuddle(
-                  clientFromCtx,
-                  activeChannelId,
-                  () => ticket === navigation.current && huddleRoom.current === activeChannelId,
-                )
-                .catch((err: unknown) => {
-                  setNavigationError(
-                    err instanceof Error
-                      ? `Could not start a huddle: ${err.message}`
-                      : "Could not start a huddle. Check your connection and try again.",
-                  );
-                });
-            }}
-          />
+          self?.role === "owner" && (
+            <ErrorBoundary fallback={<span hidden />}>
+              <Suspense fallback={null}>
+                <GettingStarted
+                  onNewChannel={() => setDialog({ kind: "new-channel" })}
+                  onInvite={() => setDialog({ kind: "invite" })}
+                  onNotifications={() => setDialog({ kind: "account", section: "notifications" })}
+                  activeChannelName={activeChannel && isRoom ? `#${activeChannel.name}` : null}
+                  onTryHuddle={() => {
+                    if (!activeChannelId) return;
+                    const ticket = navigation.current;
+                    setSidebarOpen(false);
+                    calls
+                      .joinHuddle(
+                        clientFromCtx,
+                        activeChannelId,
+                        () =>
+                          ticket === navigation.current && huddleRoom.current === activeChannelId,
+                      )
+                      .catch((err: unknown) => {
+                        setNavigationError(
+                          err instanceof Error
+                            ? `Could not start a huddle: ${err.message}`
+                            : "Could not start a huddle. Check your connection and try again.",
+                        );
+                      });
+                  }}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          )
         }
         onDiagnostics={() => setDialog({ kind: "diagnostics" })}
         onManageApps={isAdmin ? () => setDialog({ kind: "apps" }) : undefined}
@@ -897,8 +926,18 @@ function WorkspaceInner({
         connectionLabel={connectionLabel}
       />
 
-      <main inert={sidebarOpen || panelCovers} className="flex min-w-0 flex-1 flex-col">
-        <NotificationBanner storage={platform.storage} />
+      <main
+        inert={sidebarOpen || panelCovers}
+        className="workspace-main flex min-w-0 flex-1 flex-col"
+      >
+        {platform.kind !== "desktop" && typeof Notification !== "undefined" && (
+          // The ask is a courtesy: if it cannot load, the workspace carries on without it.
+          <ErrorBoundary fallback={<span hidden />}>
+            <Suspense fallback={null}>
+              <NotificationBanner storage={platform.storage} />
+            </Suspense>
+          </ErrorBoundary>
+        )}
         {navigating && (
           <p role="status" className="px-5 py-2 text-sm text-ink-faint">
             Opening message…
@@ -910,15 +949,18 @@ function WorkspaceInner({
             className="flex items-center justify-between gap-3 border-b border-edge px-5 py-2 text-sm text-ink-dim"
           >
             {navigationError}
-            <button className="text-copper" onClick={() => setNavigationError(null)}>
+            <button
+              className="font-medium text-ink hover:underline"
+              onClick={() => setNavigationError(null)}
+            >
               Dismiss
             </button>
           </div>
         )}
-        <header className="channel-header titlebar-drag flex h-14 shrink-0 items-center gap-1 border-b border-edge px-3 shadow-[0_1px_0_var(--color-deep)]">
+        <header className="channel-header titlebar-drag flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-3 pr-2.5">
           <button
             id="open-navigation"
-            className="mobile-nav-toggle rounded-lg p-2 text-ink-dim hover:bg-lifted"
+            className="mobile-nav-toggle rounded-lg p-2 text-ink-dim hover:bg-ink/[0.06]"
             aria-label="Open navigation"
             aria-expanded={sidebarOpen}
             onClick={() => setSidebarOpen(true)}
@@ -927,72 +969,55 @@ function WorkspaceInner({
           </button>
           <button
             onClick={() => activeChannelId && setDialog({ kind: "channel-details" })}
-            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-lifted/60"
+            className="flex min-w-0 flex-1 items-baseline gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-ink/[0.04]"
           >
             <h2 className="shrink-0 truncate text-[16px] font-semibold leading-tight">
               {isRoom ? (
                 <>
-                  <span className="mr-1 font-normal text-ink-faint">#</span>
+                  <span className="mr-0.5 font-normal text-ink-faint">#</span>
                   {title}
                 </>
               ) : (
                 title || "…"
               )}
             </h2>
-            <span aria-hidden="true" className="channel-topic h-5 w-px shrink-0 bg-edge" />
-            <p className="channel-topic min-w-0 truncate text-[13px] text-ink-faint">
-              {activeChannel?.topic ||
-                (isRoom ? "A space to keep the conversation moving" : "Your private conversation")}
-            </p>
+            {activeChannel?.topic && (
+              <p className="channel-topic min-w-0 truncate text-[13px] text-ink-faint">
+                {activeChannel.topic}
+              </p>
+            )}
           </button>
-          {activeChannelId && <HuddleButton channelId={activeChannelId} />}
-          <HeaderToggle
-            label="Pinned messages"
-            icon="pin"
-            pressed={panel.kind === "pins"}
-            onClick={() =>
-              setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
-            }
-          />
-          <HeaderToggle
-            label="Saved messages"
-            icon="bookmark"
-            secondary
-            pressed={panel.kind === "saved"}
-            onClick={() =>
-              setPanel((p) => (p.kind === "saved" ? { kind: "none" } : { kind: "saved" }))
-            }
-          />
-          <HeaderToggle
-            label="Scheduled messages"
-            icon="clock"
-            secondary
-            pressed={panel.kind === "scheduled"}
-            onClick={() =>
-              setPanel((p) => (p.kind === "scheduled" ? { kind: "none" } : { kind: "scheduled" }))
-            }
-          />
-          {activeChannelId && (
+          <div className="flex shrink-0 items-center gap-0.5">
+            {activeChannelId && <HuddleButton channelId={activeChannelId} />}
             <HeaderToggle
-              label="Members"
-              icon="members"
-              secondary
-              pressed={panel.kind === "members"}
+              label="Pinned messages"
+              icon="pin"
+              pressed={panel.kind === "pins"}
               onClick={() =>
-                setPanel((p) => (p.kind === "members" ? { kind: "none" } : { kind: "members" }))
+                setPanel((p) => (p.kind === "pins" ? { kind: "none" } : { kind: "pins" }))
               }
             />
-          )}
-          <Tooltip label="Search messages" keys="Ctrl/Cmd F">
-            <button
-              onClick={() => setDialog({ kind: "search" })}
-              aria-label="Search messages"
-              className="ml-1 flex items-center gap-2 rounded-lg bg-deep px-2.5 py-1.5 text-[13px] text-ink-faint transition-colors hover:text-ink"
-            >
-              <span className="header-secondary w-28 text-left">Search</span>
-              <Icon name="search" size={15} />
-            </button>
-          </Tooltip>
+            {activeChannelId && (
+              <HeaderToggle
+                label="Members"
+                icon="members"
+                secondary
+                pressed={panel.kind === "members"}
+                onClick={() =>
+                  setPanel((p) => (p.kind === "members" ? { kind: "none" } : { kind: "members" }))
+                }
+              />
+            )}
+            <Tooltip label="Search messages" keys={shortcutLabel("Mod+F")}>
+              <button
+                onClick={() => setDialog({ kind: "search" })}
+                aria-label="Search messages"
+                className="flex size-9 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
+              >
+                <Icon name="search" size={18} />
+              </button>
+            </Tooltip>
+          </div>
         </header>
 
         {activeChannelId ? (
@@ -1025,6 +1050,8 @@ function WorkspaceInner({
                   onOpenThread={openThread}
                   onChannelClick={openChannel}
                   onOpenProfile={openProfile}
+                  onInvite={self?.role === "guest" ? undefined : inviteFromIntro}
+                  onDetails={detailsFromIntro}
                 />
               </div>
             </div>
@@ -1060,25 +1087,37 @@ function WorkspaceInner({
         />
       )}
       {panel.kind === "pins" && activeChannelId && (
-        <PinsPanel
-          channelId={activeChannelId}
-          onClose={() => setPanel({ kind: "none" })}
-          onJump={jumpToMessage}
-        />
+        <LazyPanel name="Pinned" onClose={() => setPanel({ kind: "none" })}>
+          <PinsPanel
+            channelId={activeChannelId}
+            onClose={() => setPanel({ kind: "none" })}
+            onJump={jumpToMessage}
+          />
+        </LazyPanel>
       )}
       {panel.kind === "saved" && (
-        <SavedPanel onClose={() => setPanel({ kind: "none" })} onJump={jumpToMessage} />
+        <LazyPanel name="Saved" onClose={() => setPanel({ kind: "none" })}>
+          <SavedPanel
+            onClose={() => setPanel({ kind: "none" })}
+            onJump={jumpToMessage}
+            onScheduled={self?.role === "guest" ? undefined : () => setPanel({ kind: "scheduled" })}
+          />
+        </LazyPanel>
       )}
       {panel.kind === "members" && activeChannelId && (
-        <MembersPanel
-          key={activeChannelId}
-          channelId={activeChannelId}
-          onClose={() => setPanel({ kind: "none" })}
-          onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
-        />
+        <LazyPanel name="Members" onClose={() => setPanel({ kind: "none" })}>
+          <MembersPanel
+            key={activeChannelId}
+            channelId={activeChannelId}
+            onClose={() => setPanel({ kind: "none" })}
+            onOpenProfile={(userId) => setDialog({ kind: "profile", userId })}
+          />
+        </LazyPanel>
       )}
       {panel.kind === "threads" && (
-        <ThreadsPanel onClose={() => setPanel({ kind: "none" })} onJump={openThreadInChannel} />
+        <LazyPanel name="Threads" onClose={() => setPanel({ kind: "none" })}>
+          <ThreadsPanel onClose={() => setPanel({ kind: "none" })} onJump={openThreadInChannel} />
+        </LazyPanel>
       )}
       {panel.kind === "activity" && (
         <LazyPanel name="Activity" onClose={() => setPanel({ kind: "none" })}>
@@ -1087,7 +1126,11 @@ function WorkspaceInner({
       )}
       {panel.kind === "scheduled" && (
         <LazyPanel name="Scheduled messages" onClose={() => setPanel({ kind: "none" })}>
-          <ScheduledPanel onClose={() => setPanel({ kind: "none" })} onJump={openChannel} />
+          <ScheduledPanel
+            onClose={() => setPanel({ kind: "none" })}
+            onJump={openChannel}
+            onSaved={() => setPanel({ kind: "saved" })}
+          />
         </LazyPanel>
       )}
 
@@ -1217,11 +1260,13 @@ function HeaderToggle(props: {
         onClick={props.onClick}
         aria-label={props.label}
         aria-pressed={props.pressed}
-        className={`${props.secondary ? "header-secondary " : ""}rounded-lg p-2 transition-colors ${
-          props.pressed ? "bg-lifted text-ink" : "text-ink-faint hover:bg-lifted/60 hover:text-ink"
+        className={`${props.secondary ? "header-secondary " : ""}flex size-9 items-center justify-center rounded-lg transition-colors ${
+          props.pressed
+            ? "bg-ink/[0.08] text-ink"
+            : "text-ink-faint hover:bg-ink/[0.06] hover:text-ink"
         }`}
       >
-        <Icon name={props.icon} size={20} />
+        <Icon name={props.icon} size={18} />
       </button>
     </Tooltip>
   );

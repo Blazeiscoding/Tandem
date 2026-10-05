@@ -200,7 +200,7 @@ export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: 
           return (
             <li
               key={ch.id}
-              className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-lifted"
+              className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-ink/[0.05]"
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">#{ch.name}</div>
@@ -211,7 +211,7 @@ export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: 
               {joined || ch.archived ? (
                 <button
                   onClick={() => props.onOpen(ch.id)}
-                  className="rounded-lg border border-edge px-3 py-1 text-sm text-ink-dim hover:text-ink"
+                  className="rounded-lg border border-edge px-3 py-1 text-sm font-medium text-ink-dim transition-colors hover:bg-ink/[0.05] hover:text-ink"
                 >
                   Open
                 </button>
@@ -221,7 +221,7 @@ export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: 
                     await client.api.joinChannel(ch.id);
                     props.onOpen(ch.id);
                   }}
-                  className="rounded-lg bg-copper px-3 py-1 text-sm font-semibold text-ground hover:bg-copper-deep"
+                  className="rounded-lg bg-copper px-3 py-1 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep"
                 >
                   Join
                 </button>
@@ -299,7 +299,11 @@ export function NewDmDialog(props: {
           {error}
         </p>
       )}
-      <p className="mb-2 text-xs text-ink-faint">{picked.length} of 8 people selected, plus you</p>
+      <p className="mb-2 text-xs text-ink-faint">
+        {picked.length === 0
+          ? "Choose up to 8 people. You're included."
+          : `${picked.length} of up to 8 chosen, plus you`}
+      </p>
       <input
         autoFocus
         value={q}
@@ -310,7 +314,7 @@ export function NewDmDialog(props: {
       <ul className="mb-4 max-h-[300px] space-y-0.5 overflow-y-auto">
         {candidates.map((u) => (
           <li key={u.id}>
-            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-lifted">
+            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-ink/[0.05]">
               <input
                 type="checkbox"
                 checked={picked.includes(u.id)}
@@ -326,7 +330,7 @@ export function NewDmDialog(props: {
                 {u.deactivated && " (unavailable)"}
               </span>
               <span
-                className={`size-2 rounded-full ${presence[u.id] === "online" ? "bg-online" : "bg-edge"}`}
+                className={`size-2 rounded-full ${presence[u.id] === "online" ? "bg-online" : "border border-ink-faint/60"}`}
               />
             </label>
           </li>
@@ -368,7 +372,7 @@ function InviteLink(props: { title: string; link: string; copyLabel: string; onC
         <code className="min-w-0 break-all font-mono text-xs text-ink">{props.link}</code>
         <button
           onClick={props.onCopy}
-          className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
+          className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05]"
         >
           {props.copyLabel}
         </button>
@@ -504,7 +508,7 @@ export function InviteDialog(props: { onClose: () => void }) {
           )}
           <button
             onClick={() => void copy(host, "host")}
-            className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
+            className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05]"
           >
             {label("Copy address", "Copied", "Copy failed", "host")}
           </button>
@@ -527,7 +531,7 @@ export function InviteDialog(props: { onClose: () => void }) {
             </code>
             <button
               onClick={() => void copy(invite, "code")}
-              className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
+              className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05]"
             >
               {label("Copy code", "Copied", "Copy failed", "code")}
             </button>
@@ -606,7 +610,7 @@ export function InviteDialog(props: { onClose: () => void }) {
                   {status !== "revoked" && (
                     <button
                       onClick={() => void revoke(inv.code)}
-                      className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted hover:text-alert"
+                      className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05] hover:text-alert"
                       aria-label={`Revoke invite ${inv.code}`}
                     >
                       Revoke

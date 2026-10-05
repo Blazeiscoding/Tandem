@@ -40,14 +40,14 @@ function SecretRow({
         {!once && (
           <button
             onClick={() => setShown((v) => !v)}
-            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-lifted hover:text-ink"
+            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
           >
             {shown ? "Hide" : "Reveal"}
           </button>
         )}
         <button
           onClick={() => void copy(value)}
-          className={`shrink-0 rounded px-2 py-1 text-[11px] hover:bg-lifted hover:text-ink ${
+          className={`shrink-0 rounded px-2 py-1 text-[11px] hover:bg-ink/[0.05] hover:text-ink ${
             copied && !copied.ok ? "text-alert" : "text-ink-dim"
           }`}
         >
@@ -56,7 +56,7 @@ function SecretRow({
         {onReplace && (
           <button
             onClick={onReplace}
-            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-lifted hover:text-ink"
+            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
           >
             Replace
           </button>
@@ -357,7 +357,7 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
                 <button
                   key={c.id}
                   onClick={() => void addWebhook(a.id, c.id)}
-                  className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-copper hover:text-ink"
+                  className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink"
                 >
                   #{c.name}
                 </button>
@@ -460,7 +460,7 @@ function CommandList({ app, onChanged }: { app: AppDetail; onChanged: () => void
         <button
           type="submit"
           disabled={busy || !command.trim() || !url.trim()}
-          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
+          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink disabled:opacity-40"
         >
           Add
         </button>
@@ -592,7 +592,7 @@ function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () =>
           <button
             type="submit"
             disabled={busy || !url.trim()}
-            className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
+            className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink disabled:opacity-40"
           >
             {busy ? "Verifying…" : "Subscribe"}
           </button>
@@ -664,7 +664,7 @@ function InteractivityUrl({ app, onChanged }: { app: AppDetail; onChanged: () =>
         <button
           type="submit"
           disabled={busy || url.trim() === app.interactivityUrl}
-          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
+          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink disabled:opacity-40"
         >
           {busy ? "Checking…" : "Save"}
         </button>

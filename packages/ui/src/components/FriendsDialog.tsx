@@ -51,7 +51,7 @@ export function FriendActions({ userId }: { userId: ID }) {
           <button
             disabled={busy}
             onClick={() => void update("remove")}
-            className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:bg-lifted disabled:opacity-50"
+            className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:bg-ink/[0.05] disabled:opacity-50"
           >
             {relationship.status === "incoming"
               ? "Decline"
@@ -109,7 +109,7 @@ export function FriendsDialog({
           <button
             key={value}
             {...tabs.tabProps(value)}
-            className={`rounded-lg px-3 py-2 text-sm ${tab === value ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-lifted"}`}
+            className={`rounded-lg px-3 py-2 text-sm ${tab === value ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-ink/[0.05]"}`}
           >
             {value === "friends"
               ? "Friends"

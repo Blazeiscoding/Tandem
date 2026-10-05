@@ -85,9 +85,9 @@ describe("how Tandem looks on this device", () => {
     expect(within(panel).getByRole("radio", { name: /^Onyx/ })).toBeChecked();
   });
 
-  it("stays dark and comfortable when nothing, or nothing it knows, was saved", async () => {
+  it("follows the device, comfortably, when nothing, or nothing it knows, was saved", async () => {
     appearance({ theme: "sepia", density: 3 });
-    await waitFor(() => expect(root().theme).toBe("dark"));
+    await waitFor(() => expect(root().theme).toBe("system"));
     expect(root().density).toBe("comfortable");
   });
 

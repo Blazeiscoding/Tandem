@@ -626,7 +626,8 @@ function PortForm(props: {
 }
 
 /** A small action written as a link, beside what it acts on. */
-const linkBtnCls = "text-xs text-copper underline disabled:opacity-40";
+const linkBtnCls =
+  "text-xs font-medium text-ink underline decoration-ink-faint/60 underline-offset-2 hover:decoration-ink disabled:opacity-40";
 
 /**
  * Renames one hosted workspace where it is shown. Only the name changes: its
@@ -1193,7 +1194,7 @@ export function HostDialog(props: {
           <button
             type="button"
             onClick={() => void refresh()}
-            className="mt-2 text-copper underline"
+            className="mt-2 font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
           >
             Retry status
           </button>
@@ -1264,7 +1265,7 @@ export function HostDialog(props: {
           {!!status.lanUrls?.length && (
             <div>
               <p className="mb-1 text-ink-dim">Teammates can connect at</p>
-              <ul className="space-y-1 break-all font-mono text-copper">
+              <ul className="space-y-1 break-all font-mono text-ink">
                 {status.lanUrls.map((url) => (
                   <li key={url}>{url}</li>
                 ))}
@@ -1378,14 +1379,14 @@ export function HostDialog(props: {
                       href={publicUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="min-w-0 break-all font-mono text-xs text-copper underline"
+                      className="min-w-0 break-all font-mono text-xs text-ink underline decoration-ink-faint/60 underline-offset-2 hover:decoration-ink"
                     >
                       {publicUrl}
                     </a>
                     <button
                       type="button"
                       onClick={() => void copy(publicUrl, "public-address")}
-                      className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-lifted"
+                      className="shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:bg-ink/[0.05]"
                     >
                       {copyLabel("Copy address", "Copied", "Copy failed", "public-address")}
                     </button>
@@ -1438,7 +1439,7 @@ export function HostDialog(props: {
                   {status.publicAddress ? (
                     <div className="space-y-2 text-xs text-ink-dim">
                       <p>Open this workspace at your own address, which does not change:</p>
-                      <p className="break-all font-mono text-copper">{status.publicAddress}</p>
+                      <p className="break-all font-mono text-ink">{status.publicAddress}</p>
                       {status.port !== undefined && (
                         <p>
                           {status.publicAddressManaged ? "In Cloudflare, route" : "Send"} this
@@ -1530,7 +1531,7 @@ export function HostDialog(props: {
                         type="button"
                         disabled={!!busy}
                         onClick={() => void refresh()}
-                        className="mt-2 text-copper underline disabled:opacity-40"
+                        className="mt-2 font-medium text-ink underline decoration-ink-faint/60 underline-offset-2 hover:decoration-ink disabled:opacity-40"
                       >
                         Check again
                       </button>
@@ -1617,7 +1618,7 @@ export function HostDialog(props: {
             </div>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2 border-t border-edge pt-4">
             {backupStatus && <div className="w-full">{backupStatus}</div>}
             {runningEntry && runningEntry.lastBackupAt === null && backupFn && (
               <p className="w-full text-xs text-ink-dim">
@@ -1634,10 +1635,21 @@ export function HostDialog(props: {
                 Open it
               </button>
             )}
+            {backupFn && status.folder && (
+              <button
+                type="button"
+                disabled={unavailable}
+                className={buttonClass("secondary")}
+                onClick={() => void backUp(status.folder!, status.workspaceName ?? "the workspace")}
+              >
+                {busy === "backing-up" ? "Backing up…" : "Back up now"}
+              </button>
+            )}
+            {/* Ending the workspace for everyone stands apart from the rest. */}
             <button
               type="button"
               disabled={unavailable}
-              className="rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
+              className="ml-auto inline-flex h-9 items-center rounded-lg border border-alert/30 px-3.5 text-sm font-medium text-alert transition-colors hover:bg-alert/10 disabled:opacity-40"
               onClick={() => {
                 setError(null);
                 setConfirmStop(true);
@@ -1645,16 +1657,6 @@ export function HostDialog(props: {
             >
               Stop hosting
             </button>
-            {backupFn && status.folder && (
-              <button
-                type="button"
-                disabled={unavailable}
-                className="rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim hover:text-ink disabled:opacity-40"
-                onClick={() => void backUp(status.folder!, status.workspaceName ?? "the workspace")}
-              >
-                {busy === "backing-up" ? "Backing up…" : "Back up now"}
-              </button>
-            )}
           </div>
         )
       ) : !loading && !statusError && status ? (
@@ -1884,16 +1886,20 @@ export function HostDialog(props: {
             </section>
           )}
           <form onSubmit={start} className="space-y-3">
-            <input
-              autoFocus
-              aria-label="Workspace name"
-              maxLength={80}
-              value={name}
-              disabled={!!busy}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Workspace name (e.g. Rocket Team)"
-              className={inputCls}
-            />
+            <label className="block">
+              <span className="mb-1.5 block text-[13px] font-medium text-ink-dim">
+                Workspace name
+              </span>
+              <input
+                autoFocus
+                maxLength={80}
+                value={name}
+                disabled={!!busy}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Workspace name (e.g. Rocket Team)"
+                className={inputCls}
+              />
+            </label>
             <details className="text-sm text-ink-dim">
               <summary className="cursor-pointer">Choose a port</summary>
               <label className="mt-2 block">

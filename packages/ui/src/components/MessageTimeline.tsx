@@ -4,6 +4,7 @@ import type { EphemeralMessage, PendingMessage } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
 import { formatDay, sameDay } from "../lib/format.js";
 import { MessageItem } from "./MessageItem.js";
+import { Avatar } from "./Avatar.js";
 import { ListStatus } from "./ListStatus.js";
 import { Lightbox, PendingAttachments } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
@@ -49,6 +50,9 @@ interface Props {
   onOpenThread: (rootId: ID) => void;
   onChannelClick: (id: ID) => void;
   onOpenProfile: (userId: ID) => void;
+  /** First steps an empty channel offers: bringing people in, describing it. */
+  onInvite?: () => void;
+  onDetails?: () => void;
 }
 
 export const MessageTimeline = memo(function MessageTimeline({
@@ -58,6 +62,8 @@ export const MessageTimeline = memo(function MessageTimeline({
   onOpenThread,
   onChannelClick,
   onOpenProfile,
+  onInvite,
+  onDetails,
 }: Props) {
   const client = useClient();
   const timeline = useWorkspace((s) => s.timelines[channelId]);
@@ -390,14 +396,21 @@ export const MessageTimeline = memo(function MessageTimeline({
         />
         {timeline?.hasMore && (
           <button
-            className="w-full px-4 py-2 text-xs text-copper disabled:opacity-40"
+            className="mx-auto my-2 block rounded-full border border-edge px-3 py-1 text-[12px] font-medium text-ink-dim transition-colors hover:bg-ink/[0.04] hover:text-ink disabled:opacity-40"
             disabled={loadingHistory !== null}
             onClick={() => void requestHistory("older")}
           >
             Load older messages
           </button>
         )}
-        {!timeline?.hasMore && timeline?.loaded && <ChannelIntro channelId={channelId} />}
+        {!timeline?.hasMore && timeline?.loaded && (
+          <ChannelIntro
+            channelId={channelId}
+            empty={items.length === 0}
+            onInvite={onInvite}
+            onDetails={onDetails}
+          />
+        )}
         {items.map((msg, i) => {
           const prev = items[i - 1];
           const newDay = !prev || !sameDay(prev.createdAt, msg.createdAt);
@@ -418,10 +431,10 @@ export const MessageTimeline = memo(function MessageTimeline({
                 <div
                   role="separator"
                   aria-label="New messages"
-                  className="relative my-2 flex items-center pl-4 pr-4 text-[10px] font-bold uppercase tracking-[0.06em] text-alert"
+                  className="relative my-2 flex items-center gap-2 px-5 text-[11px] font-semibold text-copper"
                 >
-                  <span className="h-px flex-1 bg-alert/70" />
-                  <span className="rounded bg-alert px-1.5 py-px text-ground">New</span>
+                  <span className="h-px flex-1 bg-copper/50" />
+                  New
                 </div>
               )}
               <MessageItem
@@ -438,7 +451,7 @@ export const MessageTimeline = memo(function MessageTimeline({
         })}
         {timeline?.hasMoreNewer && (
           <button
-            className="w-full px-4 py-2 text-xs text-copper disabled:opacity-40"
+            className="mx-auto my-2 block rounded-full border border-edge px-3 py-1 text-[12px] font-medium text-ink-dim transition-colors hover:bg-ink/[0.04] hover:text-ink disabled:opacity-40"
             disabled={loadingHistory !== null}
             onClick={() => void requestHistory("newer")}
           >
@@ -454,9 +467,20 @@ export const MessageTimeline = memo(function MessageTimeline({
         {(ephemerals ?? []).map((e) => (
           <EphemeralRow key={e.id} message={e} channelId={channelId} />
         ))}
-        <div className="h-5 px-4 pt-1 text-[12px] font-medium text-ink-faint">
-          {typers.length > 0 &&
-            `${typers.slice(0, 3).join(", ")} ${typers.length === 1 ? "is" : "are"} typing…`}
+        <div className="flex h-6 items-center gap-2 px-5 pt-1 text-[12px] text-ink-faint">
+          {typers.length > 0 && (
+            <>
+              <span aria-hidden="true" className="typing-dots inline-flex items-end">
+                <span />
+                <span />
+                <span />
+              </span>
+              <span>
+                <span className="font-medium text-ink-dim">{typers.slice(0, 3).join(", ")}</span>{" "}
+                {typers.length === 1 ? "is" : "are"} typing…
+              </span>
+            </>
+          )}
         </div>
       </div>
       {lightboxFile && <Lightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />}
@@ -485,7 +509,7 @@ function EphemeralRow({ message, channelId }: { message: EphemeralMessage; chann
           <Tooltip label="Dismiss">
             <button
               onClick={() => client.dismissEphemeral(channelId, message.id)}
-              className="ml-auto rounded p-1 text-ink-faint opacity-0 transition-opacity hover:bg-lifted hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+              className="ml-auto rounded p-1 text-ink-faint opacity-0 transition-opacity hover:bg-ink/[0.05] hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
               aria-label="Dismiss"
             >
               <Icon name="close" size={14} />
@@ -518,7 +542,7 @@ function DroppedEphemeralsNotice({ channelId, count }: { channelId: ID; count: n
         </span>
         <button
           onClick={() => client.dismissDroppedEphemerals(channelId)}
-          className="ml-auto rounded px-2 py-0.5 text-xs text-copper hover:bg-lifted"
+          className="ml-auto rounded px-2 py-0.5 text-xs text-copper hover:bg-ink/[0.05]"
           aria-label="Dismiss note about cleared answers"
         >
           Dismiss
@@ -594,42 +618,86 @@ export function JumpToLatestBar({ channelId, onJump }: { channelId: ID; onJump?:
 
 function DayDivider({ ts }: { ts: number }) {
   return (
-    <div className="relative my-4 flex items-center px-4" role="separator">
+    <div className="relative my-5 flex items-center gap-3 px-5" role="separator">
       <div className="h-px flex-1 bg-edge" />
-      <span className="px-2 text-[12px] font-semibold text-ink-faint">{formatDay(ts)}</span>
+      <span className="rounded-full border border-edge px-2.5 py-0.5 text-[12px] font-medium text-ink-dim">
+        {formatDay(ts)}
+      </span>
       <div className="h-px flex-1 bg-edge" />
     </div>
   );
 }
 
-function ChannelIntro({ channelId }: { channelId: ID }) {
+/**
+ * How a conversation begins: what it is, and — while it has nothing in it
+ * yet — the first useful things to do there, rather than an empty page.
+ */
+function ChannelIntro({
+  channelId,
+  empty,
+  onInvite,
+  onDetails,
+}: {
+  channelId: ID;
+  empty: boolean;
+  onInvite?: () => void;
+  onDetails?: () => void;
+}) {
   const channel = useWorkspace((s) => s.channels[channelId]);
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
   if (!channel) return null;
   const isRoom = channel.type === "public" || channel.type === "private";
+  const others = (channel.memberIds ?? []).filter((id) => id !== selfId);
+  const name = isRoom
+    ? `#${channel.name}`
+    : others.map((id) => users[id]?.displayName ?? "unknown").join(", ") || "Just you";
+  const person = !isRoom && others.length === 1 ? users[others[0]!] : undefined;
   return (
-    <div className="px-4 pb-4 pt-10">
-      <div className="mb-3 flex size-[68px] items-center justify-center rounded-full bg-lifted text-ink">
-        <Icon name={isRoom ? "hash" : "friends"} size={38} />
+    <div className="px-5 pb-2 pt-8 animate-rise-in">
+      <div className="mb-3 flex items-center gap-3">
+        {person ? (
+          <Avatar user={person} size={48} />
+        ) : (
+          <span className="flex size-12 items-center justify-center rounded-xl border border-edge bg-ink/[0.03] text-ink-dim">
+            <Icon
+              name={isRoom ? (channel.type === "private" ? "lock" : "hash") : "friends"}
+              size={22}
+            />
+          </span>
+        )}
       </div>
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-copper">
-        {isRoom ? "Your shared space" : "A little more personal"}
-      </p>
-      <h2 className="text-3xl font-bold tracking-tight">
-        {isRoom
-          ? `#${channel.name}`
-          : (channel.memberIds ?? [])
-              .filter((id) => id !== selfId)
-              .map((id) => users[id]?.displayName ?? "unknown")
-              .join(", ") || "Just you"}
-      </h2>
-      <p className="mt-1 text-[15px] text-ink-dim">
+      <h2 className="text-2xl font-semibold tracking-tight">{name}</h2>
+      <p className="mt-1 max-w-xl text-[15px] leading-relaxed text-ink-dim">
         {isRoom
           ? channel.description ||
             `This is the very beginning of #${channel.name}. Say something to get it going.`
-          : "This conversation is just between you. It starts here."}
+          : person
+            ? `This is the beginning of your conversation with ${person.displayName}.`
+            : "This conversation is just between you. It starts here."}
       </p>
+      {empty && isRoom && (onInvite || onDetails) && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {onInvite && (
+            <button
+              onClick={onInvite}
+              className="flex h-8 items-center gap-2 rounded-full border border-edge px-3 text-[13px] font-medium text-ink-dim transition-colors hover:bg-ink/[0.04] hover:text-ink"
+            >
+              <Icon name="userPlus" size={14} />
+              Invite people
+            </button>
+          )}
+          {onDetails && !channel.description && (
+            <button
+              onClick={onDetails}
+              className="flex h-8 items-center gap-2 rounded-full border border-edge px-3 text-[13px] font-medium text-ink-dim transition-colors hover:bg-ink/[0.04] hover:text-ink"
+            >
+              <Icon name="edit" size={14} />
+              Add a description
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -639,8 +707,8 @@ function PendingRow({ pending }: { pending: PendingMessage }) {
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   return (
-    <div className="py-0.5 pl-4 pr-12 opacity-60">
-      <div className="flex gap-4">
+    <div className="py-0.5 pl-5 pr-12 opacity-60">
+      <div className="flex gap-3.5">
         <div className="w-10 shrink-0" />
         <div className="min-w-0 flex-1 text-[15px]">
           {pending.text && <Mrkdwn text={pending.text} users={users} channels={channels} />}
@@ -657,7 +725,7 @@ function PendingRow({ pending }: { pending: PendingMessage }) {
               </button>
             </span>
           ) : (
-            <span className="ml-2 font-mono text-[11px] text-ink-faint">sending…</span>
+            <span className="ml-2 text-[12px] text-ink-faint">Sending…</span>
           )}
         </div>
       </div>

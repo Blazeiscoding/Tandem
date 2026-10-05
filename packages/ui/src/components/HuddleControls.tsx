@@ -39,10 +39,12 @@ export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
     ? "border-white/15 bg-black/45 text-white hover:bg-black/65"
     : "border-edge text-ink-dim hover:border-ink-faint hover:text-ink";
   const toggleCls = (on: boolean, onCls: string) =>
-    `flex size-11 items-center justify-center rounded-xl border transition-colors disabled:opacity-50 ${
+    `flex size-10 items-center justify-center rounded-full border transition-colors disabled:opacity-50 ${
       on ? onCls : off
     }`;
-  const lit = overlay ? "border-copper bg-black/45 text-copper" : "border-copper text-copper";
+  const lit = overlay
+    ? "border-transparent bg-white/90 text-black"
+    : "border-transparent bg-ink text-ground";
 
   return (
     <>
@@ -91,7 +93,7 @@ export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
         {/* Leave keeps its word: an arrow out of a door reads as signing out just as easily. */}
         <button
           onClick={() => client.leaveHuddle()}
-          className="flex h-11 items-center gap-2 rounded-xl bg-alert px-4 text-sm font-semibold text-ground transition-colors hover:bg-alert/85"
+          className="flex h-10 items-center gap-2 rounded-full border border-alert/40 px-4 text-sm font-semibold text-alert transition-colors hover:bg-alert hover:text-ground"
         >
           <Icon name="leave" size={16} />
           Leave

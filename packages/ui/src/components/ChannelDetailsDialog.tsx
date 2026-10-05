@@ -480,7 +480,7 @@ export function ChannelDetailsDialog(props: {
                   <li key={id}>
                     <button
                       onClick={() => props.onOpenProfile(id)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-lifted"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-ink/[0.05]"
                     >
                       <Avatar user={u} size={28} />
                       <span className="min-w-0 flex-1 truncate text-sm">
@@ -517,7 +517,7 @@ export function ChannelDetailsDialog(props: {
                           </p>
                           <button
                             disabled={busy || membersLoading || membersError}
-                            className="text-copper underline"
+                            className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
                             onClick={() => void changeManager(id, managerChange.manager)}
                           >
                             Confirm role change
@@ -533,7 +533,7 @@ export function ChannelDetailsDialog(props: {
                       ) : (
                         <button
                           disabled={busy || membersLoading || membersError}
-                          className="mb-2 ml-2 text-xs text-copper underline"
+                          className="mb-2 ml-2 text-xs font-medium text-ink underline decoration-ink-faint/60"
                           aria-label={`${channel.managerIds.includes(id) ? "Remove manager role from" : "Make channel manager:"} ${u?.displayName}`}
                           onClick={() => {
                             setRemovingId(null);
@@ -601,7 +601,7 @@ export function ChannelDetailsDialog(props: {
                       <button
                         onClick={() => addMember(u.id)}
                         disabled={busy}
-                        className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-copper hover:text-ink"
+                        className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink"
                       >
                         + {u.displayName}
                       </button>
@@ -634,7 +634,7 @@ function NotificationSettings({ channelId }: { channelId: ID }) {
             <button
               type="button"
               onClick={() => client.retryChannelPrefs(channelId)}
-              className="font-medium text-copper underline"
+              className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
             >
               Try again
             </button>

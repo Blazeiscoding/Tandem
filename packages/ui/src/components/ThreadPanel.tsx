@@ -181,10 +181,10 @@ export function ThreadPanel({
     <aside
       ref={panel}
       aria-label="Thread"
-      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-raised"
+      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge"
     >
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-edge px-4">
-        <h2 className="font-bold">Thread</h2>
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-4 pr-2.5">
+        <h2 className="flex-1 text-[15px] font-semibold">Thread</h2>
         {root && (
           <Tooltip
             label={
@@ -197,12 +197,13 @@ export function ThreadPanel({
             <button
               onClick={() => client.setThreadFollow(rootId, !follows)}
               aria-pressed={follows}
-              className={`ml-auto mr-2 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+              className={`mr-1 flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium transition-colors ${
                 follows
-                  ? "border-copper text-copper"
-                  : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+                  ? "border-transparent bg-ink/[0.07] text-ink-dim hover:text-ink"
+                  : "border-edge text-ink-faint hover:bg-ink/[0.05] hover:text-ink"
               }`}
             >
+              <Icon name={follows ? "bell" : "plus"} size={12} />
               {follows ? "Following" : "Follow"}
             </button>
           </Tooltip>
@@ -210,7 +211,7 @@ export function ThreadPanel({
         <button
           onClick={onClose}
           aria-label="Close thread"
-          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
         >
           <Icon name="close" size={16} />
         </button>
@@ -269,7 +270,7 @@ export function ThreadPanel({
         />
         {page?.hasMoreOlder && (
           <button
-            className="w-full px-5 py-2 text-sm text-copper disabled:opacity-50"
+            className="mx-auto my-2 block rounded-full border border-edge px-3 py-1 text-[12px] font-medium text-ink-dim transition-colors hover:bg-ink/[0.04] hover:text-ink disabled:opacity-50"
             disabled={page.loading}
             onClick={() => load("older")}
           >
@@ -295,7 +296,7 @@ export function ThreadPanel({
           );
         })}
         {page?.hasMoreNewer && (
-          <div className="flex justify-center gap-4 py-2 text-sm text-copper">
+          <div className="flex justify-center gap-4 py-2 text-sm font-medium text-ink-dim">
             <button disabled={page.loading} onClick={() => load("newer")}>
               Load newer replies
             </button>
@@ -312,7 +313,7 @@ export function ThreadPanel({
               {p.failed ? (p.failureReason ?? "Could not send this reply.") : "sending…"}
             </span>
             {p.failed && (
-              <div className="flex gap-3 text-xs text-copper">
+              <div className="flex gap-3 text-xs font-medium text-ink-dim">
                 <button onClick={() => client.retrySend(p.nonce)}>Retry</button>
                 <button onClick={() => client.discardSend(p.nonce)}>Discard</button>
               </div>

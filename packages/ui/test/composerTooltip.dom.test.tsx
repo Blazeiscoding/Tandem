@@ -84,6 +84,14 @@ describe.each([
     expect(screen.getByRole("tooltip")).toHaveTextContent("Attach a file");
     expect(attach).toHaveAccessibleDescription("Attach a file");
 
+    // Formatting and emoji sit between attaching and sending, in reading order.
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Formatting" })).toHaveFocus();
+    // jsdom applies no stylesheet, so the folded formatting buttons still take
+    // a Tab here; a browser skips them, which the browser tests check.
+    const emoji = screen.getByRole("button", { name: "Insert emoji" });
+    for (let i = 0; i < 8 && document.activeElement !== emoji; i++) await user.tab();
+    expect(emoji).toHaveFocus();
     await user.tab();
     expect(later).toHaveFocus();
     expect(screen.getByRole("tooltip")).toHaveTextContent("Send later");

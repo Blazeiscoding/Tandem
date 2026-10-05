@@ -84,7 +84,7 @@ export function HuddleBar({
     <div
       role="region"
       aria-label="Active huddle"
-      className="flex flex-wrap items-center gap-3 border-t border-copper/40 bg-raised px-5 py-3"
+      className="mx-4 mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-online/25 bg-online/[0.06] px-4 py-2.5"
     >
       {/* The minimum width is what sends the controls to a line of their own on a phone. */}
       <div className="flex min-w-40 flex-1 items-center gap-2.5">
@@ -187,8 +187,8 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
 
   if (inThis) {
     return (
-      <span className="flex items-center gap-2 rounded-lg bg-online/15 px-2.5 py-1.5 text-[13px] font-medium text-online">
-        <Icon name="headphones" size={18} />
+      <span className="mr-1 flex h-8 items-center gap-1.5 rounded-full bg-online/12 px-3 text-[13px] font-medium text-online">
+        <span className="size-1.5 animate-pulse rounded-full bg-online" />
         <span className="header-secondary">In huddle</span>
       </span>
     );
@@ -201,12 +201,12 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
         onClick={join}
         disabled={joining}
         aria-label={label}
-        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium transition-colors ${
+        className={`mr-1 flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors ${
           error
-            ? "text-alert"
+            ? "border-alert/40 text-alert"
             : count > 0
-              ? "bg-online/15 text-online hover:bg-online/25"
-              : "text-ink-faint hover:bg-lifted/60 hover:text-ink"
+              ? "border-online/30 bg-online/12 text-online hover:bg-online/20"
+              : "border-edge text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
         }`}
       >
         {error ? (
@@ -215,9 +215,9 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
           "Joining…"
         ) : (
           <>
-            <Icon name="headphones" size={20} />
-            <span className="header-secondary">Huddle</span>
-            {count > 0 && <span className="font-mono text-[11px]">{count}</span>}
+            <Icon name="headphones" size={16} />
+            <span className="header-secondary">{count > 0 ? "Join" : "Huddle"}</span>
+            {count > 0 && <span className="tabular text-[12px]">{count}</span>}
           </>
         )}
       </button>

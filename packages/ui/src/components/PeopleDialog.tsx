@@ -123,7 +123,7 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
   const visible = currentPeople.filter((p) => showInactive || !p.deactivated);
   const inactiveCount = currentPeople.filter((p) => p.deactivated).length;
   const secondaryBtn =
-    "rounded-lg border border-edge px-3 py-2 text-sm text-ink-dim hover:bg-lifted hover:text-ink disabled:opacity-40";
+    "rounded-lg border border-edge px-3 py-2 text-sm text-ink-dim hover:bg-ink/[0.05] hover:text-ink disabled:opacity-40";
 
   if (!isAdmin)
     return (

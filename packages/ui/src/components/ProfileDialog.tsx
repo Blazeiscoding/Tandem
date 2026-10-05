@@ -196,7 +196,7 @@ export function ProfileForm() {
                 setStatusText(p.text);
                 setSaved(false);
               }}
-              className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-copper hover:text-ink"
+              className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink"
             >
               {p.emoji} {p.text}
             </button>

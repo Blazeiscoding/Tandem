@@ -173,7 +173,7 @@ function renderInline(
       out.push(
         <code
           key={key++}
-          className="rounded bg-lifted px-1 py-px font-mono text-[13px] text-copper"
+          className="rounded border border-edge bg-ink/[0.05] px-1 py-px font-mono text-[13px] text-ink"
         >
           {ctx.highlight(tok.slice(1, -1))}
         </code>,
@@ -193,7 +193,7 @@ function renderInline(
           key={key++}
           // Addressed to you: a stronger fill, so the text turns to ink. The
           // accent on the accent at 30% is under 4.5:1.
-          className={`rounded px-1 font-medium ${isMe ? "bg-copper/30 text-ink" : "bg-mention text-copper"}`}
+          className={`rounded px-1 font-medium ${isMe ? "bg-copper/25 text-ink" : "bg-ink/[0.07] text-ink"}`}
         >
           {userMentionLabel(user)}
         </span>,
@@ -206,7 +206,7 @@ function renderInline(
           key={key++}
           type="button"
           onClick={() => ctx.onChannelClick?.(id)}
-          className="rounded bg-mention px-1 font-medium text-copper hover:underline"
+          className="rounded bg-ink/[0.07] px-1 font-medium text-ink hover:underline"
         >
           {channelMentionLabel(ch)}
         </button>,
@@ -216,7 +216,7 @@ function renderInline(
       out.push(
         <span
           key={key++}
-          className="rounded bg-copper/30 px-1 font-medium text-ink"
+          className="rounded bg-copper/25 px-1 font-medium text-ink"
           title={
             tok === "<!here>"
               ? "Everyone in this channel who is around now"
