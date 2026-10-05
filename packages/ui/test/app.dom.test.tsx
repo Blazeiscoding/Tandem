@@ -176,7 +176,7 @@ describe("switching workspace from the sidebar", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Rocket Team, switch workspace" }));
+    await user.click(await screen.findByRole("button", { name: "Rocket Team, workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Design Guild · @sam" }));
 
     await waitFor(() => expect(connect).toHaveBeenCalledTimes(2));

@@ -894,13 +894,14 @@ function createWindow(): void {
     height: 820,
     minWidth: 760,
     minHeight: 480,
-    // The ground and ink-dim colours of packages/ui/src/theme.css: the window
-    // shows this before the page paints, and the overlay sits on top of the page.
-    backgroundColor: "#0f0f12",
+    // The deep and ink-dim colours of packages/ui/src/theme.css: the window
+    // shows this before the page paints, and the overlay sits on the window's
+    // own surface, above the sidebar and the conversation card.
+    backgroundColor: "#09090b",
     titleBarStyle: "hidden",
     titleBarOverlay: {
-      color: "#0f0f12",
-      symbolColor: "#c6c6d0",
+      color: "#09090b",
+      symbolColor: "#a3a3ad",
       height: 40,
     },
     webPreferences: {

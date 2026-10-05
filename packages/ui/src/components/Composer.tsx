@@ -9,6 +9,7 @@ import { formatScheduleTime, localDateTime, schedulePresets } from "../lib/sched
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Tooltip } from "./Tooltip.js";
+import { Popover } from "./Popover.js";
 import { insideCodeBlock, isImeKey } from "../lib/textInput.js";
 import { useMentionField } from "../lib/useMentionField.js";
 import { useListbox } from "../lib/useListbox.js";
@@ -75,6 +76,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const [attached, setAttached] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const scheduleButton = useRef<HTMLButtonElement>(null);
   const [customTime, setCustomTime] = useState("");
   const [scheduleNote, setScheduleNote] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -651,7 +653,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
 
   return (
     <div
-      className="composer-shell relative shrink-0 px-4 pb-5"
+      className="composer-shell relative shrink-0 px-4 pb-4"
       onDragEnter={(e) => {
         if (![...e.dataTransfer.types].includes("Files")) return;
         dragDepth.current++;
@@ -682,18 +684,18 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         <ul
           {...commandList.listProps}
           aria-label="Commands"
-          className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl"
+          className="surface-float absolute bottom-full left-5 right-5 z-10 mb-2 animate-pop-in overflow-hidden rounded-xl p-1"
         >
           {commandCandidates.map((c, i) => (
             <li
               key={c.command}
               {...commandList.optionProps(i)}
               onClick={() => insertCommand(c.command)}
-              className={`flex w-full cursor-pointer items-baseline gap-2 px-3 py-2 text-left text-sm ${
-                i === commandList.active ? "bg-copper/15" : ""
+              className={`flex w-full cursor-pointer items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm ${
+                i === commandList.active ? "bg-ink/[0.07]" : ""
               }`}
             >
-              <span className="font-mono text-copper">/{c.command}</span>
+              <span className="font-mono font-medium text-ink">/{c.command}</span>
               {c.usageHint && (
                 <span className="font-mono text-xs text-ink-faint">{c.usageHint}</span>
               )}
@@ -706,15 +708,15 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         <ul
           {...mentionList.listProps}
           aria-label="Mentions"
-          className="absolute bottom-full left-5 right-5 z-10 mb-1 overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl"
+          className="surface-float absolute bottom-full left-5 right-5 z-10 mb-2 animate-pop-in overflow-hidden rounded-xl p-1"
         >
           {candidates.map((c, i) => (
             <li
               key={c.kind === "user" ? c.user.id : c.token}
               {...mentionList.optionProps(i)}
               onClick={() => insertMention(c)}
-              className={`flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left text-sm ${
-                i === mentionList.active ? "bg-copper/15" : ""
+              className={`flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm ${
+                i === mentionList.active ? "bg-ink/[0.07]" : ""
               }`}
             >
               {c.kind === "user" ? (
@@ -726,7 +728,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                 </>
               ) : (
                 <>
-                  <span className="flex size-[22px] items-center justify-center rounded bg-copper/25 text-copper">
+                  <span className="flex size-[22px] items-center justify-center rounded-md bg-ink/[0.08] text-ink-dim">
                     <Icon name="at" size={14} />
                   </span>
                   <span className="font-medium">@{c.token}</span>
@@ -756,7 +758,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           </p>
           <button
             disabled={scheduling}
-            className="mr-3 text-copper underline"
+            className="mr-3 font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
             onClick={() => void recoverSchedule()}
           >
             Retry confirmation
@@ -769,7 +771,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             </p>
             <button
               disabled={scheduling}
-              className="text-copper underline"
+              className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
               onClick={() => void recoverSchedule(true)}
             >
               Keep draft and dismiss recovery
@@ -780,7 +782,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       {!scheduleReady && scheduleError && (
         <div className="mb-2 text-sm">
           <button
-            className="mr-3 text-copper underline"
+            className="mr-3 font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
             onClick={() => setRestoreAttempt((attempt) => attempt + 1)}
           >
             Retry restoring request
@@ -793,7 +795,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             </p>
             <button
               disabled={scheduling}
-              className="text-copper underline"
+              className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
               onClick={() => void recoverSchedule(true)}
             >
               Keep draft and discard recovery
@@ -813,23 +815,16 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       )}
       <fieldset
         disabled={archived || scheduling || recoveryBlocksSend}
-        className={`min-w-0 rounded-xl border bg-lifted transition-colors ${
+        className={`min-w-0 rounded-xl border bg-raised transition-[border-color,box-shadow] ${
           dragging
             ? "border-copper bg-copper/5"
-            : "border-transparent focus-within:border-copper/50"
+            : "border-edge focus-within:border-ink-faint/50 focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-ink)_6%,transparent)]"
         }`}
       >
-        <FormattingToolbar
-          key={draftKey}
-          onFormat={format}
-          onInsert={insertEmoji}
-          preview={preview}
-          onTogglePreview={() => setPreview((v) => !v)}
-        />
         {preview && (
           <div
             aria-label="Message preview"
-            className="max-h-36 overflow-y-auto border-b border-edge/60 px-4 py-3 text-sm"
+            className="max-h-36 overflow-y-auto border-b border-edge px-4 py-3 text-sm"
           >
             {text.trim() ? (
               <Mrkdwn text={text} users={users} channels={channels} selfId={selfId} />
@@ -839,7 +834,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           </div>
         )}
         {attached.length > 0 && (
-          <ul className="flex flex-wrap gap-2 border-b border-edge/60 p-2.5">
+          <ul className="flex flex-wrap gap-2 border-b border-edge p-2.5">
             {attached.map((f, i) => (
               <li
                 key={`${f.name}-${i}`}
@@ -903,7 +898,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           }}
           onKeyDown={onKeyDown}
           onBlur={() => setMentionQuery(null)}
-          className="block max-h-[220px] w-full resize-none bg-transparent px-4 py-3 text-[15px] outline-none placeholder:text-ink-faint"
+          className="block max-h-[220px] w-full resize-none bg-transparent px-4 pb-1 pt-3 text-[15px] leading-normal outline-none placeholder:text-ink-faint"
         />
         {attachmentNote && (
           <p role="alert" className="px-4 pb-2 text-xs text-ink-dim">
@@ -919,83 +914,102 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             {text.length > MESSAGE_LIMIT ? " · Shorten your message to send it." : ""}
           </p>
         )}
-        <div className="relative flex items-center justify-between px-2.5 pb-2">
-          <span className="flex items-center gap-1">
-            {!guest && (
-              <Tooltip label="Attach a file">
-                <button
-                  onClick={() => filePicker.current?.click()}
-                  aria-label="Attach a file"
-                  className="rounded-lg px-2 py-1 text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                >
-                  <Icon name="attach" />
-                </button>
-              </Tooltip>
-            )}
-            {!guest && (text.trim() || attached.length > 0) && (
-              <Tooltip label="Send later">
-                <button
-                  onClick={() => setScheduleOpen((v) => !v)}
-                  aria-label="Send later"
-                  className={`rounded-lg px-2 py-1 transition-colors hover:bg-raised hover:text-ink ${
-                    scheduleOpen ? "text-copper" : "text-ink-faint"
-                  }`}
-                >
-                  <Icon name="clock" />
-                </button>
-              </Tooltip>
-            )}
-          </span>
+        <div className="relative flex items-center gap-0.5 px-2 pb-2">
+          {!guest && (
+            <Tooltip label="Attach a file">
+              <button
+                onClick={() => filePicker.current?.click()}
+                aria-label="Attach a file"
+                className="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-ink/[0.07] hover:text-ink"
+              >
+                <Icon name="attach" size={16} />
+              </button>
+            </Tooltip>
+          )}
+          <FormattingToolbar
+            key={draftKey}
+            placement="inline"
+            onFormat={format}
+            onInsert={insertEmoji}
+            preview={preview}
+            onTogglePreview={() => setPreview((v) => !v)}
+          />
           {threadRootId && (
-            <label className="ml-3 flex items-center gap-1.5 text-[11px] text-ink-faint">
+            <label className="ml-2 flex items-center gap-1.5 text-[12px] text-ink-faint">
               <input
                 type="checkbox"
                 checked={alsoToChannel}
                 onChange={(e) => setAlsoToChannel(e.target.checked)}
+                className="accent-[var(--color-copper)]"
               />
               Also send to channel
             </label>
           )}
-          <span className="composer-hint ml-auto mr-3 text-[11px] text-ink-faint">
-            {scheduleNote ??
-              (text.trim() || attached.length > 0
-                ? enterSends
-                  ? "Enter to send · Shift+Enter for a new line"
-                  : "Ctrl/Cmd+Enter to send · Enter for a new line"
-                : "")}
+          <span className="ml-auto flex min-w-0 items-center gap-0.5">
+            <span className="composer-hint mr-2 min-w-0 truncate text-[12px] text-ink-faint">
+              {scheduleNote ??
+                (text.trim() || attached.length > 0
+                  ? enterSends
+                    ? "Enter to send · Shift+Enter for a new line"
+                    : "Ctrl/Cmd+Enter to send · Enter for a new line"
+                  : "")}
+            </span>
+            {!guest && (text.trim() || attached.length > 0) && (
+              <Tooltip label="Send later">
+                <button
+                  ref={scheduleButton}
+                  onClick={() => setScheduleOpen((v) => !v)}
+                  aria-label="Send later"
+                  aria-haspopup="dialog"
+                  aria-expanded={scheduleOpen}
+                  className={`flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-ink/[0.07] hover:text-ink ${
+                    scheduleOpen ? "bg-ink/[0.08] text-ink" : "text-ink-faint"
+                  }`}
+                >
+                  <Icon name="clock" size={17} />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip label="Send message" keys={enterSends ? "Enter" : "Ctrl/Cmd+Enter"}>
+              <button
+                onClick={() => {
+                  send();
+                  box.current?.focus();
+                }}
+                disabled={(!text.trim() && attached.length === 0) || text.length > MESSAGE_LIMIT}
+                aria-label="Send message"
+                className="flex size-8 items-center justify-center rounded-lg bg-copper text-ground transition-all hover:bg-copper-deep disabled:bg-transparent disabled:text-ink-faint/60"
+              >
+                <Icon name="send" size={16} />
+              </button>
+            </Tooltip>
           </span>
-          <Tooltip label="Send message" keys={enterSends ? "Enter" : "Ctrl/Cmd+Enter"}>
-            <button
-              onClick={() => {
-                send();
-                box.current?.focus();
-              }}
-              disabled={(!text.trim() && attached.length === 0) || text.length > MESSAGE_LIMIT}
-              aria-label="Send message"
-              className="flex items-center gap-2 rounded-lg bg-copper px-3 py-1.5 text-ground transition-colors hover:bg-copper-deep disabled:bg-transparent disabled:text-ink-faint"
-            >
-              <Icon name="send" size={16} />
-            </button>
-          </Tooltip>
           {scheduleOpen && (
-            <ul className="absolute bottom-full left-2 z-20 mb-1 w-[220px] overflow-hidden rounded-xl border border-edge bg-lifted shadow-xl">
-              <li className="border-b border-edge px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-ink-faint">
+            <Popover
+              label="Send later"
+              anchor={scheduleButton}
+              onClose={() => setScheduleOpen(false)}
+              width={260}
+            >
+              <div className="px-3 pb-1 pt-2.5 text-[12px] font-medium text-ink-faint">
                 Send later
-              </li>
-              {schedulePresets().map((p) => (
-                <li key={p.label}>
-                  <button
-                    onClick={() => void schedule(p.at)}
-                    className="flex w-full items-baseline justify-between gap-2 px-3 py-2 text-left text-sm text-ink-dim transition-colors hover:bg-copper/15 hover:text-ink"
-                  >
-                    <span>{p.label}</span>
-                    <span className="font-mono text-[10px] text-ink-faint">
-                      {p.at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                    </span>
-                  </button>
-                </li>
-              ))}
-              <li className="border-t border-edge p-3">
+              </div>
+              <ul className="px-1">
+                {schedulePresets().map((p) => (
+                  <li key={p.label}>
+                    <button
+                      onClick={() => void schedule(p.at)}
+                      className="flex w-full items-baseline justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-ink-dim transition-colors hover:bg-ink/[0.07] hover:text-ink"
+                    >
+                      <span>{p.label}</span>
+                      <span className="tabular text-[12px] text-ink-faint">
+                        {p.at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-1 border-t border-edge p-3">
                 <form
                   className="space-y-2"
                   onSubmit={(e) => {
@@ -1003,7 +1017,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                     void schedule(new Date(customTime));
                   }}
                 >
-                  <label className="block text-xs text-ink-faint">
+                  <label className="block text-[12px] font-medium text-ink-faint">
                     Choose a date and time
                     <input
                       type="datetime-local"
@@ -1011,20 +1025,20 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                       value={customTime}
                       min={localDateTime(new Date())}
                       onChange={(e) => setCustomTime(e.target.value)}
-                      className="mt-1 w-full min-w-0 rounded border border-edge bg-ground px-2 py-1 text-sm text-ink"
+                      className="mt-1.5 w-full min-w-0 rounded-lg border border-edge bg-ground px-2.5 py-1.5 text-sm text-ink outline-none focus:border-copper"
                     />
                   </label>
-                  <p className="text-[10px] text-ink-faint">Uses your device's time zone.</p>
+                  <p className="text-[11px] text-ink-faint">Uses your device's time zone.</p>
                   <button
                     type="submit"
                     disabled={!customTime}
-                    className="text-xs text-copper disabled:opacity-40"
+                    className="h-8 w-full rounded-lg bg-copper text-[13px] font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
                   >
                     Schedule message
                   </button>
                 </form>
-              </li>
-            </ul>
+              </div>
+            </Popover>
           )}
         </div>
         <input

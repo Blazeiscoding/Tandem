@@ -47,12 +47,28 @@ interface Props {
   onInsert: (text: string) => void;
   preview: boolean;
   onTogglePreview: () => void;
+  /**
+   * "row", the default, is a strip of its own above the text, as in the
+   * message editor. "inline" sits among the composer's other controls under
+   * the text, and its emoji chooser floats above the composer.
+   */
+  placement?: "row" | "inline";
 }
 
-export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview }: Props) {
+const tool =
+  "flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-ink-faint transition-colors hover:bg-ink/[0.07] hover:text-ink";
+
+export function FormattingToolbar({
+  onFormat,
+  onInsert,
+  preview,
+  onTogglePreview,
+  placement = "row",
+}: Props) {
+  const inline = placement === "inline";
   const [open, setOpen] = useState(false);
-  // On a phone the formatting buttons fold away behind one, so the row
-  // leaves room for what is being written. theme.css does the folding.
+  // The formatting buttons fold away behind one, so the composer leaves room
+  // for what is being written. theme.css does the folding.
   const [expanded, setExpanded] = useState(false);
   const buttonsId = useId();
   const [query, setQuery] = useState("");
@@ -68,7 +84,11 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
       <div
         role="group"
         aria-label="Message formatting"
-        className="flex flex-wrap items-center gap-0.5 border-b border-edge/60 px-2 py-1 text-sm text-ink-dim"
+        className={
+          inline
+            ? "flex min-w-0 flex-wrap items-center gap-0.5 text-sm text-ink-dim"
+            : "flex flex-wrap items-center gap-0.5 border-b border-edge/60 px-2 py-1 text-sm text-ink-dim"
+        }
       >
         <Tooltip label={expanded ? "Hide formatting" : "Formatting"}>
           <button
@@ -78,14 +98,16 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
             aria-controls={buttonsId}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setExpanded((v) => !v)}
-            className="formatting-toggle items-center rounded px-2 py-1 text-xs font-semibold hover:bg-raised"
+            className={`formatting-toggle ${tool} text-[13px] font-semibold ${
+              expanded ? "bg-ink/[0.08] text-ink" : ""
+            }`}
           >
             Aa
           </button>
         </Tooltip>
         <span
           id={buttonsId}
-          className="formatting-buttons contents"
+          className="formatting-buttons flex items-center gap-0.5"
           data-expanded={expanded || undefined}
         >
           {[
@@ -106,7 +128,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
                 aria-label={item.label}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onFormat(item.marker, "text")}
-                className={`rounded px-2 py-1 hover:bg-raised ${item.style}`}
+                className={`${tool} ${item.style}`}
               >
                 {item.symbol}
               </button>
@@ -118,11 +140,20 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
               aria-label="Code block"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onFormat("```", "code", true)}
-              className="rounded px-2 py-1 font-mono text-xs hover:bg-raised"
+              className={`${tool} font-mono text-xs`}
             >
               {"{ }"}
             </button>
           </Tooltip>
+          <button
+            type="button"
+            aria-pressed={preview}
+            onClick={onTogglePreview}
+            className={`${tool} text-xs ${preview ? "bg-ink/[0.08] text-ink" : ""}`}
+          >
+            Preview
+          </button>
+          <span aria-hidden="true" className="mx-1 h-4 w-px bg-edge" />
         </span>
         <Tooltip label="Insert emoji">
           <button
@@ -135,25 +166,21 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
               setOpen((v) => !v);
               setQuery("");
             }}
-            className="flex items-center rounded px-2 py-1 hover:bg-raised"
+            className={`${tool} ${open ? "bg-ink/[0.08] text-ink" : ""}`}
           >
-            <Icon name="smile" size={15} />
+            <Icon name="smile" size={16} />
           </button>
         </Tooltip>
-        <button
-          type="button"
-          aria-pressed={preview}
-          onClick={onTogglePreview}
-          className="ml-auto rounded px-2 py-1 text-xs hover:bg-raised"
-        >
-          Preview
-        </button>
       </div>
       {open && (
         <div
           role="group"
           aria-label="Choose an emoji"
-          className="border-b border-edge/60 p-2"
+          className={
+            inline
+              ? "surface-float absolute bottom-full left-2 z-20 mb-2 w-72 animate-pop-in rounded-xl p-2"
+              : "border-b border-edge/60 p-2"
+          }
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
@@ -181,7 +208,7 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
                 insert(chosen[0]);
               }
             }}
-            className="mb-2 w-full rounded border border-edge bg-ground px-2 py-1 text-sm outline-none focus:border-copper"
+            className="mb-2 w-full rounded-lg border border-edge bg-ground px-2.5 py-1.5 text-sm outline-none focus:border-copper"
           />
           <ul
             {...list.listProps}
@@ -195,8 +222,8 @@ export function FormattingToolbar({ onFormat, onInsert, preview, onTogglePreview
                 aria-label={label}
                 title={label}
                 onClick={() => insert(emoji)}
-                className={`cursor-pointer rounded p-1 text-center text-xl hover:bg-raised ${
-                  i === list.active ? "bg-copper/15" : ""
+                className={`cursor-pointer rounded-lg p-1 text-center text-xl hover:bg-ink/[0.07] ${
+                  i === list.active ? "bg-ink/[0.09]" : ""
                 }`}
               >
                 {emoji}

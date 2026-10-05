@@ -200,14 +200,14 @@ describe("colours written outside the stylesheet", () => {
   it("match it, so no part of the app keeps the previous palette", () => {
     const tokens = colourTokens();
     // What the window and the browser show before the page paints, and the
-    // title bar drawn over it.
+    // title bar drawn over it: the window's own surface.
     expect(hexes(read("apps/desktop/src/main/index.ts"))).toEqual([
-      tokens.ground,
-      tokens.ground,
+      tokens.deep,
+      tokens.deep,
       tokens["ink-dim"],
     ]);
     for (const page of ["apps/web/index.html", "apps/desktop/src/renderer/index.html"])
-      expect(hexes(read(page)), page).toEqual([tokens.ground]);
+      expect(hexes(read(page)), page).toEqual([tokens.deep]);
     // The mark the favicon and the desktop icons are drawn from, as BrandMark draws it.
     for (const icon of [
       "apps/web/public/tandem.svg",

@@ -334,9 +334,9 @@ export function Tooltip({ label, keys, side: preferredSide = "top", children }: 
         closeIfInactive();
       }}
       style={{ left: 0, top: 0, visibility: "hidden", padding: VISUAL_GAP }}
-      className="pointer-events-auto fixed z-[70] text-center text-xs text-ink"
+      className="pointer-events-auto fixed z-[70] text-center text-xs text-ground"
     >
-      <span className="flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-lg border border-edge bg-lifted px-2 py-1 shadow-xl">
+      <span className="flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-lg bg-ink px-2 py-1 font-medium text-ground shadow-[var(--shadow-float)]">
         <span>
           {label}
           {keys && <span className="sr-only">{`. Shortcut: ${keys}`}</span>}
@@ -344,7 +344,7 @@ export function Tooltip({ label, keys, side: preferredSide = "top", children }: 
         {keys && (
           <kbd
             aria-hidden="true"
-            className="shrink-0 rounded border border-edge bg-ground px-1 font-mono text-[10px] text-ink-dim"
+            className="shrink-0 rounded bg-ground/15 px-1 text-[10px] font-medium text-ground/80"
           >
             {keys}
           </kbd>

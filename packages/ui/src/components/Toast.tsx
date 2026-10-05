@@ -242,7 +242,7 @@ function ToastItem({
         event.stopPropagation();
         close();
       }}
-      className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-lifted p-3 text-sm text-ink shadow-xl ${
+      className={`pointer-events-auto flex animate-pop-in items-start gap-3 rounded-xl border bg-lifted p-3 text-sm text-ink shadow-[var(--shadow-float)] ${
         failed ? "border-alert/40" : "border-edge"
       }`}
     >

@@ -144,7 +144,7 @@ export function MessageEditor({ message, onClose }: { message: Message; onClose:
           This message changed while you were editing.{" "}
           <button
             disabled={busy}
-            className="text-copper underline"
+            className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
             onClick={() => {
               setBase(message.text);
               change(message.text, message.text);

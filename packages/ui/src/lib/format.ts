@@ -31,6 +31,32 @@ export function formatFull(ts: number): string {
   return fullFormat.format(ts);
 }
 
+const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+const shortDateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const longDateFormat = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+/**
+ * When something happened, as people say it, for lists of messages from
+ * many days: "3:41 PM" today, "Yesterday 3:41 PM", "Mon 3:41 PM" within the
+ * week, "Oct 3" this year and "Oct 3, 2025" before. One rule for every list,
+ * so Activity, search and Saved agree.
+ */
+export function formatWhen(ts: number, now = Date.now()): string {
+  const then = new Date(ts);
+  const today = new Date(now);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const day = 24 * 60 * 60 * 1000;
+  if (ts >= startOfToday) return timeFormat.format(ts);
+  if (ts >= startOfToday - day) return `Yesterday ${timeFormat.format(ts)}`;
+  if (ts >= startOfToday - 6 * day) return `${weekdayFormat.format(ts)} ${timeFormat.format(ts)}`;
+  if (then.getFullYear() === today.getFullYear()) return shortDateFormat.format(ts);
+  return longDateFormat.format(ts);
+}
+
 export function formatDay(ts: number): string {
   const d = new Date(ts);
   const today = new Date();
@@ -68,6 +94,17 @@ export function avatarColor(userId: ID, alpha = 1): string {
   for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
   const hue = AVATAR_HUES[h % AVATAR_HUES.length];
   return alpha < 1 ? `oklch(0.52 0.13 ${hue} / ${alpha})` : `oklch(0.52 0.13 ${hue})`;
+}
+
+/**
+ * A workspace's own colour, for its tile: one hue from its name, lighter at
+ * the top, so two workspaces look different and the same one always the same.
+ */
+export function workspaceGradient(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  const hue = AVATAR_HUES[h % AVATAR_HUES.length];
+  return `linear-gradient(145deg, oklch(0.6 0.14 ${hue}), oklch(0.46 0.14 ${(hue! + 24) % 360}))`;
 }
 
 export function initials(name: string): string {

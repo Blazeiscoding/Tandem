@@ -113,10 +113,11 @@ export function GettingStarted(props: {
   const left = steps.filter((step) => !step.done).length;
   if (left === 0) return null;
 
+  const done = steps.length - left;
   return (
     <section
       aria-labelledby="getting-started-title"
-      className="mb-3 rounded-xl border border-edge bg-ground/50 p-3"
+      className="mb-4 rounded-xl border border-edge bg-ground p-3"
     >
       <div className="flex items-center justify-between gap-2">
         <h2 id="getting-started-title" className="text-[13px] font-semibold">
@@ -124,42 +125,63 @@ export function GettingStarted(props: {
         </h2>
         <button
           onClick={() => save({ ...saved, dismissed: true })}
-          className="rounded px-1.5 py-0.5 text-[11px] text-ink-faint hover:bg-lifted hover:text-ink"
+          className="rounded-md px-1.5 py-0.5 text-[12px] text-ink-faint transition-colors hover:bg-ink/[0.07] hover:text-ink"
         >
           Hide
         </button>
       </div>
-      <p className="mt-0.5 text-[11px] text-ink-faint">
-        {left} of {steps.length} left
-      </p>
-      <ul className="mt-2 space-y-1">
-        {steps.map((step) => (
-          <li key={step.label} className="flex items-center gap-2 text-[12px]">
+      <div className="mt-1 flex items-center gap-2">
+        <div aria-hidden="true" className="h-1 flex-1 overflow-hidden rounded-full bg-ink/[0.08]">
+          <div
+            className="h-full rounded-full bg-copper transition-[width] duration-500"
+            style={{ width: `${(done / steps.length) * 100}%` }}
+          />
+        </div>
+        <p className="tabular shrink-0 text-[11px] text-ink-faint">
+          {left} of {steps.length} left
+        </p>
+      </div>
+      <ul className="-mx-1.5 mt-2">
+        {steps.map((step) => {
+          const mark = (
             <span
               aria-hidden="true"
               className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${
-                step.done ? "border-online bg-online/20 text-online" : "border-edge"
+                step.done ? "border-transparent bg-online/90 text-ground" : "border-ink-faint/50"
               }`}
             >
-              {step.done && <Icon name="check" size={10} />}
+              {step.done && <Icon name="check" size={10} strokeWidth={3} />}
             </span>
-            <span
-              className={`min-w-0 flex-1 truncate ${step.done ? "text-ink-faint line-through" : ""}`}
-            >
-              {step.label}
-              <span className="sr-only">{step.done ? ", done" : ""}</span>
-            </span>
-            {!step.done && (
-              <button
-                onClick={step.onClick}
-                aria-label={`${step.action}: ${step.label}`}
-                className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-copper hover:bg-lifted"
-              >
-                {step.action}
-              </button>
-            )}
-          </li>
-        ))}
+          );
+          return (
+            <li key={step.label} className="text-[13px]">
+              {step.done ? (
+                <span className="flex h-7 items-center gap-2.5 px-1.5 text-ink-faint line-through decoration-ink-faint/50">
+                  {mark}
+                  <span className="min-w-0 truncate">
+                    {step.label}
+                    <span className="sr-only">, done</span>
+                  </span>
+                </span>
+              ) : (
+                // The whole row is the step: one target, named for what it does.
+                <button
+                  onClick={step.onClick}
+                  aria-label={`${step.action}: ${step.label}`}
+                  className="group flex h-7 w-full items-center gap-2.5 rounded-md px-1.5 text-left text-ink-dim transition-colors hover:bg-ink/[0.06] hover:text-ink"
+                >
+                  {mark}
+                  <span className="min-w-0 flex-1 truncate">{step.label}</span>
+                  <Icon
+                    name="arrow"
+                    size={12}
+                    className="text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                  />
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

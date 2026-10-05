@@ -209,17 +209,17 @@ export function AccountDialog({
     setError(null);
   };
   return (
-    <Dialog title="Account settings" onClose={onClose} width={720}>
+    <Dialog title="Account settings" onClose={onClose} width={760}>
       <p className="mb-4 text-sm text-ink-dim">
         Signed in as <span className="font-medium text-ink">{self?.displayName}</span> · @
         {self?.handle}
       </p>
-      <div className="flex flex-col gap-4 sm:flex-row">
+      <div className="flex flex-col gap-5 sm:flex-row">
         <div
           role="tablist"
           aria-label="Account settings"
           aria-orientation="vertical"
-          className="flex shrink-0 gap-1 overflow-x-auto rounded-lg bg-ground p-1 sm:w-40 sm:flex-col sm:self-start"
+          className="flex shrink-0 gap-0.5 overflow-x-auto sm:w-44 sm:flex-col sm:self-start sm:border-r sm:border-edge sm:pr-3"
           onKeyDown={(event) => {
             const next = sectionAfter(event.key, section);
             if (!next) return;
@@ -239,7 +239,9 @@ export function AccountDialog({
               tabIndex={section === s.id ? 0 : -1}
               onClick={() => choose(s.id)}
               className={`shrink-0 rounded-md px-3 py-1.5 text-left text-sm font-medium transition-colors ${
-                section === s.id ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
+                section === s.id
+                  ? "bg-ink/[0.08] text-ink"
+                  : "text-ink-faint hover:bg-ink/[0.04] hover:text-ink"
               }`}
             >
               {s.label}

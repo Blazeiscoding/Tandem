@@ -46,7 +46,7 @@ export function ListStatus(props: Props) {
                 onClick={() => {
                   if (!props.loading) props.onRetry?.();
                 }}
-                className="text-copper underline aria-disabled:opacity-40"
+                className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink aria-disabled:opacity-40"
               >
                 {props.retryLabel ?? "Retry"}
               </button>

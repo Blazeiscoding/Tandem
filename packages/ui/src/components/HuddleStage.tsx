@@ -460,7 +460,9 @@ function StageButton(props: {
         aria-pressed={props.pressed}
         onClick={props.onClick}
         className={`flex size-8 items-center justify-center rounded-lg transition-colors ${
-          props.pressed ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-lifted hover:text-ink"
+          props.pressed
+            ? "bg-copper/15 text-copper"
+            : "text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
         }`}
       >
         <Icon name={props.icon} size={16} />

@@ -87,11 +87,17 @@ function ImagePreview({
           {error ?? "This image cannot be previewed."}
         </p>
         {error ? (
-          <button onClick={retry} className="text-copper underline">
+          <button
+            onClick={retry}
+            className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
+          >
             Retry image
           </button>
         ) : (
-          <button onClick={onOpen} className="text-copper underline">
+          <button
+            onClick={onOpen}
+            className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
+          >
             Open file options
           </button>
         )}
@@ -106,7 +112,7 @@ function ImagePreview({
       // The ratio, not a fixed height, keeps that reservation right when a
       // narrow column scales the preview down.
       style={{ width: box.width, maxWidth: "100%", aspectRatio: `${box.width} / ${box.height}` }}
-      className="group/img relative overflow-hidden rounded-xl border border-edge bg-lifted transition-colors hover:border-copper/50"
+      className="group/img relative overflow-hidden rounded-xl border border-edge bg-lifted transition-colors hover:border-ink-faint/40"
     >
       {url ? (
         <img
@@ -174,7 +180,7 @@ function FileCard({ file }: { file: FileMeta }) {
         onClick={save}
         disabled={saving}
         aria-label={`${error ? "Retry download" : "Download"} ${file.name}`}
-        className="flex items-center gap-2.5 rounded-xl border border-edge bg-raised px-3 py-2.5 text-left transition-colors hover:border-copper/50"
+        className="flex items-center gap-2.5 rounded-xl border border-edge bg-raised px-3 py-2.5 text-left transition-colors hover:border-ink-faint/40"
       >
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-lifted text-copper">
           <Icon name={iconFor(file.mime, file.name)} size={18} />
@@ -348,7 +354,10 @@ export function Lightbox({ file, onClose }: { file: FileMeta; onClose: () => voi
       {error && (
         <div role="alert" className="text-center text-ink">
           <p>{error}</p>
-          <button onClick={retry} className="mt-2 text-copper underline">
+          <button
+            onClick={retry}
+            className="mt-2 font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
+          >
             Retry image
           </button>
         </div>
@@ -379,13 +388,13 @@ export function Lightbox({ file, onClose }: { file: FileMeta; onClose: () => voi
           onClick={() => {
             if (url) saveUrl(url, file.name);
           }}
-          className="rounded-lg border border-edge px-3 py-1 transition-colors hover:border-copper hover:text-ink"
+          className="rounded-lg border border-edge px-3 py-1 transition-colors hover:border-ink-faint/50 hover:text-ink"
         >
           Save
         </button>
         <button
           onClick={onClose}
-          className="rounded-lg border border-edge px-3 py-1 transition-colors hover:border-copper hover:text-ink"
+          className="rounded-lg border border-edge px-3 py-1 transition-colors hover:border-ink-faint/50 hover:text-ink"
         >
           Close
         </button>

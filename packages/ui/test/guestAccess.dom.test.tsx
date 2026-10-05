@@ -81,8 +81,13 @@ describe("joining a workspace that allows guests", () => {
     expect(screen.getByRole("tab", { name: "Create account" })).toBeVisible();
     expect(await accessibilityProblems()).toEqual([]);
 
+    // The button stays usable and says what is missing, rather than refusing silently.
     const submit = screen.getByRole("button", { name: "Join as guest" });
-    expect(submit).toBeDisabled();
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter the name everyone will see.");
+    expect(name).toHaveFocus();
+    expect(join).not.toHaveBeenCalled();
     await user.type(name, "  Vic ");
     await user.click(submit);
     expect(join).toHaveBeenCalledWith("Vic");
@@ -180,11 +185,11 @@ describe("a guest in the workspace", () => {
     const onCreateAccount = vi.fn();
     sidebar(workspace(person("U_G", "Vic", "guest")), onCreateAccount);
     const nav = screen.getByRole("navigation");
-    for (const name of ["Friends", "Scheduled", "New channel", "New message"])
+    for (const name of ["Friends", "New channel", "New message"])
       expect(within(nav).queryByRole("button", { name })).toBeNull();
-    expect(within(nav).getByRole("button", { name: "Browse" })).toBeVisible();
+    expect(within(nav).getByRole("button", { name: "Browse channels" })).toBeVisible();
     expect(within(nav).getByText("Guest")).toBeVisible();
-    await user.click(within(nav).getByRole("button", { name: "Workspace" }));
+    await user.click(within(nav).getByRole("button", { name: /, workspace menu$/ }));
     const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
     expect(items).toContain("Create an account");
     expect(items).not.toContain("Invite people");
@@ -196,7 +201,7 @@ describe("a guest in the workspace", () => {
   it("keeps a member's sidebar as it was", () => {
     sidebar(workspace(person("U_M", "Mia", "member")));
     const nav = screen.getByRole("navigation");
-    for (const name of ["Friends", "Scheduled", "New channel", "New message"])
+    for (const name of ["Friends", "New channel", "New message"])
       expect(within(nav).getByRole("button", { name })).toBeVisible();
   });
 

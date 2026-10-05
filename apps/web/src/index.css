@@ -1,3 +1,6 @@
+/* Inter, bundled: a workspace on a LAN with no internet renders the same as one online. */
+@import "@fontsource-variable/inter/opsz.css";
+@import "@fontsource-variable/inter/opsz-italic.css";
 @import "tailwindcss";
 @import "@slackoss/ui/theme.css";
 @source "../../../packages/ui/src";

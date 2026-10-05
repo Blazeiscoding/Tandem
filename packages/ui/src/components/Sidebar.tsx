@@ -1,11 +1,12 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { unreadThreadCount } from "@slackoss/client-core";
-import { channelTitle, initials } from "../lib/format.js";
+import { channelTitle, initials, workspaceGradient } from "../lib/format.js";
 import { resumeTime, snoozeOptions } from "../lib/snooze.js";
+import { shortcutLabel } from "../lib/shortcuts.js";
 import { AvatarWithPresence, PresenceDot } from "./Avatar.js";
-import { BrandMark, Icon, type IconName } from "./Icon.js";
+import { Icon, type IconName } from "./Icon.js";
 import { Tooltip } from "./Tooltip.js";
 import { Menu, type MenuItem } from "./Menu.js";
 
@@ -18,7 +19,8 @@ interface Props {
   onFriends: () => void;
   onSearch: () => void;
   onSaved: () => void;
-  onScheduled: () => void;
+  /** Messages queued to send later; offered in the account menu. */
+  onScheduled?: () => void;
   onActivity: () => void;
   onThreads: () => void;
   onInvite: () => void;
@@ -48,7 +50,6 @@ export interface OtherWorkspace {
 }
 
 export function Sidebar(props: Props) {
-  const client = useClient();
   const unreadThreads = useWorkspace((s) => unreadThreadCount(s.threadFollows));
   const friendRequests = useWorkspace(
     (s) => s.friends.filter((f) => f.status === "incoming").length,
@@ -68,7 +69,8 @@ export function Sidebar(props: Props) {
   const mentionCounts = useWorkspace((s) => s.mentionCounts);
   const dndUntil = useWorkspace((s) => s.self?.dndUntil ?? null);
   const snoozed = dndUntil !== null && dndUntil > Date.now();
-  const baseHost = client.baseUrl.replace(/^https?:\/\//, "");
+  const others = props.otherWorkspaces ?? [];
+  const name = workspaceName || "Connecting…";
 
   const { rooms, dms } = useMemo(() => {
     const rooms: Channel[] = [];
@@ -93,6 +95,7 @@ export function Sidebar(props: Props) {
   const huddleCount = (id: ID) => huddles[id]?.length ?? 0;
   const mentions = (id: ID) => mentionCounts[id] ?? 0;
   const totalMentions = Object.values(mentionCounts).reduce((sum, n) => sum + n, 0);
+  const unreadConversations = Object.keys(memberships).filter((id) => isUnread(id)).length;
 
   return (
     <nav
@@ -100,37 +103,44 @@ export function Sidebar(props: Props) {
       // On a phone this is a drawer, closed by the time a panel opened from it
       // closes; focus then goes to the button that opens the drawer.
       data-focus-fallback="open-navigation"
-      className="workspace-sidebar flex h-full shrink-0"
+      className="workspace-sidebar flex h-full shrink-0 bg-deep"
     >
-      <WorkspaceRail
-        name={workspaceName || "Connecting…"}
-        unread={totalMentions}
-        others={props.otherWorkspaces ?? []}
-        onOpen={props.onOpenWorkspace}
-        onAdd={props.onSwitchWorkspace}
-      />
-      <div className="flex min-w-0 flex-1 flex-col border-r border-edge bg-raised">
-        <header className="titlebar-drag flex h-14 shrink-0 flex-col justify-center border-b border-edge px-2 shadow-[0_1px_0_var(--color-deep)]">
-          <h1 className="text-[16px] font-semibold">
-            <WorkspaceSwitcher
-              name={workspaceName || "Connecting…"}
-              others={props.otherWorkspaces ?? []}
+      {/* With one workspace, a rail of one says nothing; it appears with a second. */}
+      {others.length > 0 && (
+        <WorkspaceRail
+          name={name}
+          unread={totalMentions}
+          others={others}
+          onOpen={props.onOpenWorkspace}
+          onAdd={props.onSwitchWorkspace}
+        />
+      )}
+      <div className="sidebar-column flex min-w-0 flex-1 flex-col">
+        <header className="titlebar-drag flex h-14 shrink-0 items-center gap-1 px-2.5">
+          <h1 className="min-w-0 flex-1 text-[15px] font-semibold">
+            <WorkspaceMenu
+              name={name}
+              others={others}
               onOpen={props.onOpenWorkspace}
               onAdd={props.onSwitchWorkspace}
+              onCreateAccount={guest ? props.onCreateAccount : undefined}
+              onInvite={props.onInvite}
+              onManagePeople={props.onManagePeople}
+              onManageApps={props.onManageApps}
             />
           </h1>
-          <div
-            className="flex items-center gap-1.5 px-2 text-[11px] text-ink-faint"
-            title={baseHost}
-          >
-            <span
-              className={`size-1.5 shrink-0 rounded-full ${props.connectionLabel ? "bg-copper" : "bg-online"}`}
-            />
-            <span className="truncate">{props.connectionLabel ?? "Connected · Your server"}</span>
-          </div>
         </header>
+        {props.connectionLabel && (
+          <p
+            role="status"
+            className="mx-2.5 mb-2 flex items-center gap-2 rounded-lg bg-copper/10 px-2.5 py-1.5 text-[12px] font-medium text-copper"
+          >
+            <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-copper" />
+            <span className="truncate first-letter:uppercase">{props.connectionLabel}</span>
+          </p>
+        )}
 
-        <div className="sidebar-scroll flex-1 overflow-y-auto px-2 py-3">
+        <div className="px-2.5 pb-2">
           {/* Its words and shortcut are on the button already, so it needs no
               hint. A tooltip would also open when the phone drawer puts focus
               here, and take the Escape meant to close the drawer. */}
@@ -138,33 +148,28 @@ export function Sidebar(props: Props) {
             onClick={props.onSearch}
             data-drawer-focus
             aria-keyshortcuts="Control+K Meta+K"
-            className="mb-3 flex w-full items-center gap-2 rounded-lg bg-deep px-2.5 py-1.5 text-[13px] text-ink-faint transition-colors hover:text-ink"
+            className="flex h-8 w-full items-center gap-2 rounded-lg border border-edge bg-ground px-2.5 text-[13px] text-ink-faint transition-colors hover:border-ink-faint/40 hover:text-ink-dim"
           >
-            <Icon name="search" size={15} />
+            <Icon name="search" size={14} />
             <span className="flex-1 text-left">Jump to…</span>
-            <kbd aria-hidden="true" className="rounded bg-lifted px-1 font-mono text-[10px]">
-              Ctrl K
+            <kbd aria-hidden="true" className="font-sans text-[11px] tracking-wide">
+              {shortcutLabel("Mod+K")}
             </kbd>
           </button>
+        </div>
+
+        <div className="sidebar-scroll flex-1 overflow-y-auto px-2.5 pb-4">
           {props.gettingStarted}
-          <ul className="mb-3 space-y-0.5">
+          <ul className="mb-4 space-y-px">
             <li>
               <NavRow icon="activity" label="Activity" onClick={props.onActivity}>
                 {totalMentions > 0 ? (
-                  <span
-                    aria-label="Unread mentions"
-                    className="min-w-5 rounded-full bg-alert px-1.5 text-center text-[11px] font-bold text-ground"
-                  >
+                  <Count label="Unread mentions" strong>
                     {totalMentions}
-                  </span>
+                  </Count>
                 ) : (
-                  Object.keys(memberships).some((id) => isUnread(id)) && (
-                    <span
-                      aria-label="Unread conversations"
-                      className="rounded-full bg-copper/15 px-1.5 text-[11px] font-semibold text-copper"
-                    >
-                      {Object.keys(memberships).filter((id) => isUnread(id)).length}
-                    </span>
+                  unreadConversations > 0 && (
+                    <Count label="Unread conversations">{unreadConversations}</Count>
                   )
                 )}
               </NavRow>
@@ -172,45 +177,25 @@ export function Sidebar(props: Props) {
             <li>
               <NavRow icon="thread" label="Threads" onClick={props.onThreads}>
                 {unreadThreads > 0 && (
-                  <span
-                    aria-label="Threads with unread replies"
-                    className="rounded-full bg-copper/15 px-1.5 text-[11px] font-semibold text-copper"
-                  >
-                    {unreadThreads}
-                  </span>
+                  <Count label="Threads with unread replies">{unreadThreads}</Count>
                 )}
               </NavRow>
             </li>
-            {!guest && (
-              <li>
-                <NavRow icon="friends" label="Friends" onClick={props.onFriends}>
-                  {friendRequests > 0 && (
-                    <span className="rounded-full bg-copper/15 px-1.5 text-[11px] font-semibold text-copper">
-                      {friendRequests}
-                    </span>
-                  )}
-                </NavRow>
-              </li>
-            )}
             <li>
               <NavRow icon="bookmark" label="Saved" onClick={props.onSaved} />
             </li>
-            {!guest && (
-              <li>
-                <NavRow icon="clock" label="Scheduled" onClick={props.onScheduled} />
-              </li>
-            )}
           </ul>
+
           <SectionHeader
             label="Channels"
             actions={[
-              { label: "Browse", onClick: props.onBrowseChannels },
+              { label: "Browse channels", icon: "compass", onClick: props.onBrowseChannels },
               ...(guest
                 ? []
                 : [{ label: "New channel", icon: "plus" as const, onClick: props.onNewChannel }]),
             ]}
           />
-          <ul className="mb-4">
+          <ul className="mb-4 space-y-px">
             {rooms.map((ch) => (
               <ChannelRow
                 key={ch.id}
@@ -229,7 +214,7 @@ export function Sidebar(props: Props) {
                   ) : (
                     // Drawn, and still read as "# general" as it was typed.
                     <>
-                      <Icon name="hash" size={16} />
+                      <Icon name="hash" size={15} />
                       <span className="sr-only">#</span>
                     </>
                   )
@@ -242,10 +227,18 @@ export function Sidebar(props: Props) {
           {!guest && (
             <SectionHeader
               label="Direct messages"
-              actions={[{ label: "New message", icon: "plus", onClick: props.onNewDm }]}
+              actions={[
+                {
+                  label: "Friends",
+                  icon: "friends",
+                  onClick: props.onFriends,
+                  badge: friendRequests,
+                },
+                { label: "New message", icon: "plus", onClick: props.onNewDm },
+              ]}
             />
           )}
-          <ul>
+          <ul className="space-y-px">
             {dms.map((ch) => {
               const others = (ch.memberIds ?? []).filter((id) => id !== self?.id);
               const online = others.some((id) => presence[id] === "online");
@@ -262,7 +255,12 @@ export function Sidebar(props: Props) {
                   onClick={() => props.onSelect(ch.id)}
                   icon={
                     first ? (
-                      <AvatarWithPresence user={first} online={online} size={22} />
+                      <AvatarWithPresence
+                        user={first}
+                        online={online}
+                        size={20}
+                        ring="var(--color-deep)"
+                      />
                     ) : (
                       <PresenceDot online={online} />
                     )
@@ -276,57 +274,48 @@ export function Sidebar(props: Props) {
           {dms.length === 0 && !guest && (
             <button
               onClick={props.onNewDm}
-              className="mx-1 mt-2 rounded-lg border border-dashed border-edge p-3 text-left text-xs leading-relaxed text-ink-faint hover:border-ink-faint hover:text-ink"
+              className="group mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-ink-faint transition-colors hover:bg-ink/[0.05] hover:text-ink"
             >
-              Good conversations start here.
-              <span className="mt-1 flex items-center gap-1 text-copper">
-                Send someone a message
-                <Icon name="arrow" size={12} />
+              <span className="flex size-5 items-center justify-center rounded-full border border-dashed border-ink-faint/60 group-hover:border-ink-dim">
+                <Icon name="plus" size={12} />
               </span>
+              Send someone a message
             </button>
           )}
         </div>
 
-        <footer className="shrink-0 bg-deep/60 p-2">
+        <footer className="shrink-0 p-2">
           {snoozed && <SnoozedNotice until={dndUntil!} />}
           <div className="flex items-center gap-1">
-            <button
-              onClick={props.onEditProfile}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-lifted"
-            >
-              <AvatarWithPresence
-                user={self ?? undefined}
-                online={!snoozed}
-                size={32}
-                ring="var(--color-deep)"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-semibold">
-                  {self?.displayName ?? "…"}
-                </span>
-                <span className="block truncate text-[11px] text-ink-faint">
-                  {guest
-                    ? "Guest"
-                    : self?.statusText || self?.statusEmoji
-                      ? `${self.statusEmoji} ${self.statusText}`.trim()
-                      : "Set a status"}
-                </span>
-              </span>
-            </button>
-            {!snoozed && <SnoozeControl />}
-            <WorkspaceMenu
-              onCreateAccount={guest ? props.onCreateAccount : undefined}
-              onInvite={props.onInvite}
-              onManagePeople={props.onManagePeople}
-              onManageApps={props.onManageApps}
+            <AccountMenu
+              guest={guest}
+              snoozed={snoozed}
+              onCreateAccount={props.onCreateAccount}
+              onEditProfile={props.onEditProfile}
               onAccountSettings={props.onAccountSettings}
+              onScheduled={guest ? undefined : props.onScheduled}
               onShortcuts={props.onShortcuts}
               onDiagnostics={props.onDiagnostics}
             />
+            {!snoozed && <SnoozeControl />}
           </div>
         </footer>
       </div>
     </nav>
+  );
+}
+
+/** A count beside a row: quiet for unread, the accent for what names you. */
+function Count(props: { label: string; strong?: boolean; children: ReactNode }) {
+  return (
+    <span
+      aria-label={props.label}
+      className={`tabular min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-[18px] ${
+        props.strong ? "bg-copper text-ground" : "bg-ink/[0.08] text-ink-dim"
+      }`}
+    >
+      {props.children}
+    </span>
   );
 }
 
@@ -340,19 +329,39 @@ function NavRow(props: {
   return (
     <button
       onClick={props.onClick}
-      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[15px] text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+      className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-sm text-ink-dim transition-colors hover:bg-ink/[0.05] hover:text-ink"
     >
-      <Icon name={props.icon} size={18} className="text-ink-faint" />
+      <Icon name={props.icon} size={16} className="text-ink-faint" />
       <span className="min-w-0 flex-1 truncate text-left">{props.label}</span>
       {props.children}
     </button>
   );
 }
 
+/** A workspace's mark: its initials on a colour of its own. */
+function WorkspaceTile(props: { name: string; size?: number; className?: string }) {
+  const size = props.size ?? 24;
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex shrink-0 select-none items-center justify-center rounded-lg font-semibold text-white ${props.className ?? ""}`}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.42),
+        background: workspaceGradient(props.name),
+      }}
+    >
+      {initials(props.name)}
+    </span>
+  );
+}
+
 /**
  * Discord's rail of servers, for Tandem's workspaces: this one on top,
  * marked as current, then this device's other saved sign-ins, then a way to
- * add one. The same choices as the menu on the workspace's name.
+ * add one. The same choices as the menu on the workspace's name. Shown only
+ * when there is somewhere else to go.
  */
 function WorkspaceRail(props: {
   name: string;
@@ -365,12 +374,8 @@ function WorkspaceRail(props: {
     <div
       role="group"
       aria-label="Workspaces"
-      className="workspace-rail titlebar-drag flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto bg-deep py-3"
+      className="workspace-rail titlebar-drag flex w-16 shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-edge/60 py-3"
     >
-      <span className="mb-1" aria-hidden="true">
-        <BrandMark size={40} />
-      </span>
-      <span aria-hidden="true" className="h-0.5 w-8 rounded-full bg-edge" />
       <RailItem label={props.name} current badge={props.unread} />
       {props.others.map((w) => (
         <RailItem
@@ -384,9 +389,9 @@ function WorkspaceRail(props: {
         <button
           onClick={props.onAdd}
           aria-label="Add or join a workspace"
-          className="flex size-12 items-center justify-center rounded-full bg-raised text-online transition-all hover:rounded-2xl hover:bg-online hover:text-ground"
+          className="flex size-10 items-center justify-center rounded-xl border border-dashed border-edge text-ink-faint transition-colors hover:border-ink-faint hover:text-ink"
         >
-          <Icon name="plus" size={22} />
+          <Icon name="plus" size={18} />
         </button>
       </Tooltip>
     </div>
@@ -408,8 +413,8 @@ function RailItem(props: {
       {/* Discord's pill: tall for the workspace on screen, a nub on hover. */}
       <span
         aria-hidden="true"
-        className={`absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-full bg-ink transition-all ${
-          props.current ? "h-10" : "h-0 group-hover:h-5"
+        className={`absolute left-0 top-1/2 w-[3px] -translate-y-1/2 rounded-full bg-ink transition-all ${
+          props.current ? "h-6" : "h-0 group-hover:h-3"
         }`}
       />
       <Tooltip label={title} side="right">
@@ -417,17 +422,15 @@ function RailItem(props: {
           onClick={props.onClick}
           aria-label={props.label}
           aria-current={props.current ? "page" : undefined}
-          className={`relative flex size-12 items-center justify-center text-[15px] font-semibold transition-all ${
-            props.current
-              ? "rounded-2xl bg-copper text-ground"
-              : "rounded-full bg-raised text-ink-dim hover:rounded-2xl hover:bg-copper hover:text-ground"
+          className={`relative rounded-xl transition-opacity ${
+            props.current ? "" : "opacity-60 hover:opacity-100"
           }`}
         >
-          {initials(title)}
+          <WorkspaceTile name={title} size={40} className="rounded-xl" />
           {(props.badge ?? 0) > 0 && (
             <span
               aria-hidden="true"
-              className="absolute -bottom-1 -right-1 min-w-5 rounded-full border-4 border-deep bg-alert px-1 text-center text-[11px] font-bold leading-4 text-ground"
+              className="absolute -bottom-1 -right-1 min-w-5 rounded-full border-2 border-deep bg-copper px-1 text-center text-[11px] font-bold leading-4 text-ground"
             >
               {props.badge}
             </span>
@@ -439,43 +442,70 @@ function RailItem(props: {
 }
 
 /**
- * Invite, administration, switching and account settings behind one menu: five
- * stacked rows took 270 px on a 600 px tall window and left room for about
- * four channel rows.
+ * The workspace's name, at the top of the sidebar, opens what concerns the
+ * workspace: bringing people in, running it, and moving to another one.
+ * Two sign-ins to workspaces with the same name are told apart by the
+ * account and the address.
  */
 function WorkspaceMenu(props: {
-  /** Given for a guest, who has no account settings and cannot invite. */
+  name: string;
+  others: OtherWorkspace[];
+  onOpen?: (url: string) => void;
+  onAdd: () => void;
+  /** Given for a guest, who cannot invite. */
   onCreateAccount?: () => void;
   onInvite: () => void;
   onManagePeople?: () => void;
   onManageApps?: () => void;
-  onAccountSettings: () => void;
-  onShortcuts?: () => void;
-  onDiagnostics?: () => void;
 }) {
   const items: MenuItem[] = props.onCreateAccount
-    ? [{ id: "create-account", label: "Create an account", onSelect: props.onCreateAccount }]
-    : [{ id: "invite", label: "Invite people", onSelect: props.onInvite }];
+    ? [
+        {
+          id: "create-account",
+          label: "Create an account",
+          icon: "userPlus",
+          onSelect: props.onCreateAccount,
+        },
+      ]
+    : [{ id: "invite", label: "Invite people", icon: "userPlus", onSelect: props.onInvite }];
   if (props.onManagePeople)
-    items.push({ id: "people", label: "People", onSelect: props.onManagePeople });
+    items.push({ id: "people", label: "People", icon: "members", onSelect: props.onManagePeople });
   if (props.onManageApps)
-    items.push({ id: "apps", label: "Apps and integrations", onSelect: props.onManageApps });
-  if (!props.onCreateAccount)
-    items.push({ id: "account", label: "Account settings", onSelect: props.onAccountSettings });
-  // Help: the shortcut sheet opened only with Ctrl+/, and nothing said so.
-  if (props.onShortcuts)
-    items.push({ id: "shortcuts", label: "Keyboard shortcuts", onSelect: props.onShortcuts });
-  if (props.onDiagnostics)
-    items.push({ id: "diagnostics", label: "Diagnostics", onSelect: props.onDiagnostics });
+    items.push({
+      id: "apps",
+      label: "Apps and integrations",
+      icon: "grid",
+      onSelect: props.onManageApps,
+    });
+  const names = props.others.map((w) => w.name);
+  props.others.forEach((w, i) => {
+    const shared = names.filter((n) => n === w.name).length > 1 || w.name === props.name;
+    items.push({
+      id: w.url,
+      label: `${w.name} · @${w.handle}${shared ? ` · ${w.url.replace(/^https?:\/\//, "")}` : ""}`,
+      section: i === 0 ? "Switch to" : undefined,
+      onSelect: () => props.onOpen?.(w.url),
+    });
+  });
+  items.push({
+    id: "add",
+    label: "Add or join a workspace…",
+    icon: "plus",
+    section: props.others.length === 0 ? true : undefined,
+    onSelect: props.onAdd,
+  });
   return (
     <Menu
       label="Workspace"
       items={items}
-      triggerClassName="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+      align="start"
+      triggerClassName="flex w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-ink/[0.05]"
       triggerContent={
         <>
-          <Icon name="settings" size={18} />
-          <span className="sr-only">Workspace</span>
+          <WorkspaceTile name={props.name} />
+          <span className="min-w-0 truncate">{props.name}</span>
+          <span className="sr-only">, workspace menu</span>
+          <Icon name="chevronDown" size={14} className="shrink-0 text-ink-faint" />
         </>
       }
     />
@@ -483,40 +513,97 @@ function WorkspaceMenu(props: {
 }
 
 /**
- * The workspace's name, at the top of the sidebar, opens a menu of this
- * device's other saved workspaces, each opened with its saved sign-in, and a
- * way to add or join another. Two sign-ins to workspaces with the same name
- * are told apart by the account and the address.
+ * You, at the foot of the sidebar: your name and status, and what concerns
+ * only you — your profile, your settings, your queued messages, and help.
  */
-function WorkspaceSwitcher(props: {
-  name: string;
-  others: OtherWorkspace[];
-  onOpen?: (url: string) => void;
-  onAdd: () => void;
+function AccountMenu(props: {
+  guest: boolean;
+  snoozed: boolean;
+  onCreateAccount?: () => void;
+  onEditProfile: () => void;
+  onAccountSettings: () => void;
+  onScheduled?: () => void;
+  onShortcuts?: () => void;
+  onDiagnostics?: () => void;
 }) {
-  const names = props.others.map((w) => w.name);
-  const items: MenuItem[] = props.others.map((w) => {
-    const shared = names.filter((n) => n === w.name).length > 1 || w.name === props.name;
-    return {
-      id: w.url,
-      label: `${w.name} · @${w.handle}${shared ? ` · ${w.url.replace(/^https?:\/\//, "")}` : ""}`,
-      onSelect: () => props.onOpen?.(w.url),
-    };
-  });
-  items.push({ id: "add", label: "Add or join a workspace…", onSelect: props.onAdd });
+  const self = useWorkspace((s) => s.self);
+  const items: MenuItem[] = [];
+  if (props.guest && props.onCreateAccount)
+    items.push({
+      id: "create-account",
+      label: "Create an account",
+      icon: "userPlus",
+      onSelect: props.onCreateAccount,
+    });
+  if (!props.guest) {
+    items.push({
+      id: "profile",
+      label: "Profile and status",
+      icon: "user",
+      onSelect: props.onEditProfile,
+    });
+    items.push({
+      id: "account",
+      label: "Account settings",
+      icon: "settings",
+      onSelect: props.onAccountSettings,
+    });
+  }
+  if (props.onScheduled)
+    items.push({
+      id: "scheduled",
+      label: "Scheduled messages",
+      icon: "clock",
+      onSelect: props.onScheduled,
+    });
+  // Help: the shortcut sheet opened only with Ctrl+/, and nothing said so.
+  if (props.onShortcuts)
+    items.push({
+      id: "shortcuts",
+      label: "Keyboard shortcuts",
+      icon: "keyboard",
+      section: true,
+      onSelect: props.onShortcuts,
+    });
+  if (props.onDiagnostics)
+    items.push({
+      id: "diagnostics",
+      label: "Diagnostics",
+      icon: "help",
+      section: props.onShortcuts ? undefined : true,
+      onSelect: props.onDiagnostics,
+    });
+  const status = props.guest
+    ? "Guest"
+    : self?.statusText || self?.statusEmoji
+      ? `${self.statusEmoji} ${self.statusText}`.trim()
+      : "Set a status";
   return (
-    <Menu
-      label="Switch workspace"
-      items={items}
-      triggerClassName="flex w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-0.5 text-left transition-colors hover:bg-lifted"
-      triggerContent={
-        <>
-          <span className="min-w-0 truncate">{props.name}</span>
-          <span className="sr-only">, switch workspace</span>
-          <Icon name="chevronDown" size={14} className="shrink-0 text-ink-faint" />
-        </>
-      }
-    />
+    <div className="min-w-0 flex-1">
+      <Menu
+        label="Your account"
+        items={items}
+        align="start"
+        triggerClassName="flex w-full min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition-colors hover:bg-ink/[0.05]"
+        triggerContent={
+          <>
+            <AvatarWithPresence
+              user={self ?? undefined}
+              online={!props.snoozed}
+              size={30}
+              ring="var(--color-deep)"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-semibold">
+                {self?.displayName ?? "…"}
+              </span>
+              <span className="block truncate text-[12px] text-ink-faint">{status}</span>
+            </span>
+            <span className="sr-only">, your account</span>
+          </>
+        }
+      />
+    </div>
   );
 }
 
@@ -525,14 +612,14 @@ function SnoozedNotice({ until }: { until: number }) {
   const client = useClient();
   const resumesAt = resumeTime(until, new Date());
   return (
-    <div className="mb-2 flex items-center gap-2 rounded-lg bg-copper/10 px-2.5 py-1.5">
-      <span className="text-copper">
+    <div className="mb-2 flex items-center gap-2 rounded-lg bg-ink/[0.05] px-2.5 py-1.5">
+      <span className="text-ink-dim">
         <Icon name="bellOff" size={14} />
       </span>
-      <span className="min-w-0 flex-1 text-[11px] text-copper">Paused until {resumesAt}</span>
+      <span className="min-w-0 flex-1 text-[12px] text-ink-dim">Paused until {resumesAt}</span>
       <button
         onClick={() => client.snoozeNotifications(null)}
-        className="text-[11px] text-ink-dim underline hover:text-ink"
+        className="rounded px-1 text-[12px] font-medium text-ink hover:underline"
       >
         Resume
       </button>
@@ -543,71 +630,52 @@ function SnoozedNotice({ until }: { until: number }) {
 /** Do Not Disturb: pause notifications for a while. */
 function SnoozeControl() {
   const client = useClient();
-  const [open, setOpen] = useState(false);
   return (
-    <div className="relative">
-      <Tooltip label="Pause notifications">
-        <button
-          onClick={() => setOpen((v) => !v)}
-          aria-label="Pause notifications"
-          aria-expanded={open}
-          className="flex size-8 items-center justify-center rounded-lg text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
-        >
-          <Icon name="bell" size={18} />
-        </button>
-      </Tooltip>
-      {open && (
-        <ul className="absolute bottom-full right-0 z-10 mb-2 w-56 overflow-hidden rounded-lg border border-edge bg-lifted py-1 shadow-xl">
-          {snoozeOptions(new Date()).map((o) => (
-            <li key={o.label}>
-              <button
-                onClick={() => {
-                  client.snoozeNotificationsUntil(o.until());
-                  setOpen(false);
-                }}
-                className="w-full px-3 py-2 text-left text-sm text-ink-dim transition-colors hover:bg-copper hover:text-ground"
-              >
-                {o.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Menu
+      label="Pause notifications"
+      tooltip="Pause notifications"
+      items={snoozeOptions(new Date()).map((o) => ({
+        id: o.label,
+        label: o.label,
+        onSelect: () => client.snoozeNotificationsUntil(o.until()),
+      }))}
+      triggerClassName="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.05] hover:text-ink"
+      triggerContent={
+        <>
+          <Icon name="bell" size={17} />
+          <span className="sr-only">Pause notifications</span>
+        </>
+      }
+    />
   );
 }
 
 function SectionHeader(props: {
   label: string;
-  /** An action with an icon shows only the icon, and its label names it. */
-  actions: { label: string; icon?: IconName; onClick: () => void }[];
+  /** Each action shows only its icon, and its label names it. */
+  actions: { label: string; icon: IconName; onClick: () => void; badge?: number }[];
 }) {
   return (
-    <div className="mb-1 mt-2 flex items-center justify-between pl-2 pr-1">
-      <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-ink-faint">
-        {props.label}
-      </span>
-      <span className="flex items-center gap-1">
-        {props.actions.map((a) => {
-          const button = (
+    <div className="group/section mb-1 flex h-7 items-center justify-between pl-2 pr-0.5">
+      <span className="text-[12px] font-medium text-ink-faint">{props.label}</span>
+      <span className="flex items-center gap-0.5">
+        {props.actions.map((a) => (
+          <Tooltip key={a.label} label={a.label}>
             <button
-              key={a.label}
               onClick={a.onClick}
-              aria-label={a.icon ? a.label : undefined}
-              className="flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+              aria-label={a.badge ? `${a.label}, ${a.badge} new` : a.label}
+              className="relative flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-ink/[0.07] hover:text-ink"
             >
-              {a.icon ? <Icon name={a.icon} size={14} /> : a.label}
+              <Icon name={a.icon} size={14} />
+              {(a.badge ?? 0) > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-copper ring-2 ring-deep"
+                />
+              )}
             </button>
-          );
-          // A worded action says what it does already; an icon needs the hint.
-          return a.icon ? (
-            <Tooltip key={a.label} label={a.label}>
-              {button}
-            </Tooltip>
-          ) : (
-            button
-          );
-        })}
+          </Tooltip>
+        ))}
       </span>
     </div>
   );
@@ -635,27 +703,25 @@ function ChannelRow(props: {
       {showUnread && (
         <span
           aria-hidden="true"
-          className="absolute -left-2 top-1/2 h-2 w-1 -translate-y-1/2 rounded-full bg-ink"
+          className="absolute -left-2.5 top-1/2 h-2 w-[3px] -translate-y-1/2 rounded-r-full bg-ink"
         />
       )}
       <button
         onClick={props.onClick}
         aria-current={props.active ? "page" : undefined}
-        className={`channel-row my-px flex w-full items-center gap-2 rounded-lg px-2 text-left text-[15px] transition-colors ${
-          props.roomy ? "py-1" : "py-1.5"
-        } ${
+        className={`channel-row flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm transition-colors ${
           props.active
-            ? "bg-lifted font-medium text-ink"
+            ? "bg-ink/[0.08] font-medium text-ink"
             : props.muted
-              ? "text-ink-faint hover:bg-lifted/60"
+              ? "text-ink-faint hover:bg-ink/[0.05]"
               : props.unread
-                ? "font-semibold text-ink hover:bg-lifted/60"
-                : "text-ink-dim hover:bg-lifted/60 hover:text-ink"
+                ? "font-semibold text-ink hover:bg-ink/[0.05]"
+                : "text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
         }`}
       >
         <span
           className={`flex shrink-0 items-center justify-center ${
-            props.roomy ? "w-6" : "w-5"
+            props.roomy ? "w-5" : "w-4"
           } ${props.active || showUnread ? "text-ink-dim" : "text-ink-faint"}`}
         >
           {props.icon}
@@ -686,7 +752,7 @@ function ChannelRow(props: {
             aria-label={`${props.mentions} unread ${
               props.mentions === 1 ? "mention" : "mentions"
             } in ${props.label}`}
-            className="min-w-5 shrink-0 rounded-full bg-alert px-1.5 text-center text-[11px] font-bold text-ground"
+            className="tabular min-w-5 shrink-0 rounded-full bg-copper px-1.5 text-center text-[11px] font-bold leading-[18px] text-ground"
           >
             {props.mentions}
           </span>
