@@ -13,6 +13,7 @@ import {
 import type { Store } from "./store.js";
 import { hashToken } from "./auth.js";
 import { socketMessage } from "./socketSchema.js";
+import { CallLog } from "./callLog.js";
 import type { RateLimiter } from "./limits.js";
 import { resolveClientAddress } from "./netTrust.js";
 
@@ -40,6 +41,8 @@ export class Gateway {
    * written to the event log and does not survive a restart.
    */
   private huddles = new Map<ID, Set<ID>>();
+  /** What happened in huddles lately, for the host (see `CallLog`). */
+  readonly calls = new CallLog();
   private heartbeat: NodeJS.Timeout;
   private sockets = new Set<WebSocket>();
   private closing = false;
@@ -300,6 +303,7 @@ export class Gateway {
           mentionCounts: this.store.unreadMentionCounts(user.id),
           huddles: this.huddlesVisibleTo(user.id),
           huddleJoinReplies: true,
+          huddleReports: true,
           workspaceName: this.workspaceName(),
           workspaceId: this.store.getMeta("workspace_id") ?? undefined,
           friends: this.store.listFriends(user.id),
@@ -339,17 +343,31 @@ export class Gateway {
       } else if (msg.type === "huddle.join") {
         this.joinHuddle(msg.channelId, client, msg.requestId);
       } else if (msg.type === "huddle.leave") {
-        this.leaveHuddle(msg.channelId, client.userId);
+        this.leaveHuddle(msg.channelId, client.userId, "left");
       } else if (msg.type === "huddle.signal") {
         if (!this.affordEphemeral(client.userId)) return;
         // Only relay between two people actually in the same huddle.
         const room = this.huddles.get(msg.channelId);
-        if (
-          room?.has(client.userId) &&
-          room.has(msg.to) &&
-          this.store.canAccess(msg.channelId, client.userId) &&
-          this.store.canAccess(msg.channelId, msg.to)
-        ) {
+        const refused = !room?.has(client.userId)
+          ? "the sender is not in the huddle"
+          : !room.has(msg.to)
+            ? "the other person is not in the huddle"
+            : !this.store.canAccess(msg.channelId, client.userId) ||
+                !this.store.canAccess(msg.channelId, msg.to)
+              ? "no access to the conversation"
+              : null;
+        const setup = msg.signal.kind === "offer" || msg.signal.kind === "answer";
+        // Routes and media notices come by the dozen; the setup is what tells.
+        if (setup || refused)
+          this.calls.add({
+            channelId: msg.channelId,
+            userId: client.userId,
+            peerId: msg.to,
+            ...(refused
+              ? { kind: "dropped", reason: `${msg.signal.kind}: ${refused}` }
+              : { kind: msg.signal.kind as "offer" | "answer" }),
+          });
+        if (!refused) {
           this.sendToUser(msg.to, {
             type: "huddle.signal",
             channelId: msg.channelId,
@@ -357,6 +375,18 @@ export class Gateway {
             signal: msg.signal,
           });
         }
+      } else if (msg.type === "huddle.report") {
+        if (!this.affordEphemeral(client.userId)) return;
+        // A report can come just after either side left, so only the
+        // conversation's access is asked, not the room's.
+        if (this.store.canAccess(msg.channelId, client.userId))
+          this.calls.add({
+            channelId: msg.channelId,
+            userId: client.userId,
+            peerId: msg.peer,
+            kind: "report",
+            report: msg.report,
+          });
       }
     };
 
@@ -399,7 +429,7 @@ export class Gateway {
     // Dropping offline must also drop them from any huddle, or the room
     // keeps a ghost participant nobody can call.
     const left = [...this.huddles.keys()].filter((channelId) =>
-      this.dropFromHuddle(channelId, client.userId),
+      this.dropFromHuddle(channelId, client.userId, "disconnected"),
     );
     if (later) {
       for (const channelId of left) this.departures.huddles.add(channelId);
@@ -453,6 +483,7 @@ export class Gateway {
         });
     };
     if (!this.store.canAccess(channelId, userId)) {
+      this.calls.add({ channelId, userId, kind: "refused", reason: "no access" });
       refuse("You no longer have access to this conversation.");
       return;
     }
@@ -466,6 +497,7 @@ export class Gateway {
     // disconnect and access revocation must still release the seat when exhausted.
     const admission = this.limiter?.take("ephemeral", userId);
     if (admission && !admission.ok) {
+      this.calls.add({ channelId, userId, kind: "refused", reason: "joining too often" });
       refuse(
         `Huddle joins are temporarily limited. Wait ${Math.max(1, Math.ceil(admission.retryAfterMs / 1000))} seconds, then try again.`,
         admission.retryAfterMs,
@@ -474,18 +506,20 @@ export class Gateway {
     }
     if (!room) this.huddles.set(channelId, (room = new Set()));
     room.add(userId);
+    this.calls.add({ channelId, userId, kind: "joined" });
     this.publishHuddle(channelId);
     if (requestId) reply({ type: "huddle.join.result", channelId, requestId, accepted: true });
   }
 
-  private leaveHuddle(channelId: ID, userId: ID): void {
-    if (this.dropFromHuddle(channelId, userId)) this.publishHuddle(channelId);
+  private leaveHuddle(channelId: ID, userId: ID, reason: string): void {
+    if (this.dropFromHuddle(channelId, userId, reason)) this.publishHuddle(channelId);
   }
 
   /** Takes someone out of a room in memory only; whether they were in it. */
-  private dropFromHuddle(channelId: ID, userId: ID): boolean {
+  private dropFromHuddle(channelId: ID, userId: ID, reason: string): boolean {
     const room = this.huddles.get(channelId);
     if (!room?.delete(userId)) return false;
+    this.calls.add({ channelId, userId, kind: "left", reason });
     // An empty huddle is no huddle at all.
     if (room.size === 0) this.huddles.delete(channelId);
     return true;
@@ -506,7 +540,7 @@ export class Gateway {
       const channel = this.store.canAccess(channelId, userId)
         ? this.store.getChannel(channelId)
         : null;
-      if (!channel) this.leaveHuddle(channelId, userId);
+      if (!channel) this.leaveHuddle(channelId, userId, "lost access");
       this.sendToUser(userId, { type: "channel.access", channelId, channel, membership });
     } catch (err) {
       this.report(err, "channel access");

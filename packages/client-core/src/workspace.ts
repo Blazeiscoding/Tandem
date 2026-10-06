@@ -20,7 +20,7 @@ import {
 import { Api, ApiError, type CommandHint } from "./api.js";
 import { FileCache } from "./fileCache.js";
 import { captureFailure } from "./capture.js";
-import { HuddleSession, type HuddleState } from "./huddle.js";
+import type { CallLogLine, HuddleSession, HuddleState } from "./huddle.js";
 
 class HuddleJoinRefusedError extends Error {}
 
@@ -856,6 +856,7 @@ export class WorkspaceClient {
 
   private applyReady(snap: ReadySnapshot): void {
     this.huddleJoinReplies = snap.huddleJoinReplies === true;
+    this.huddleReports = snap.huddleReports === true;
     // A replaced server must not inherit this connection's private drafts or
     // outbox, even if a copied session token happens to work there. Keep the
     // old identity intact so unmount can flush its work before signing in again.
@@ -2744,11 +2745,23 @@ export class WorkspaceClient {
   private huddleAttempt = 0;
   private huddleAdmitted = false;
   private huddleJoinReplies = false;
+  /** Whether this server takes `huddle.report`; an older one closes the socket on it. */
+  private huddleReports = false;
+  /** The call log of the last huddle, kept after leaving it for Diagnostics. */
+  private lastCallLog: CallLogLine[] = [];
   private pendingHuddleJoin: {
     channelId: ID;
     requestId: string;
     finish: (error?: Error) => void;
   } | null = null;
+
+  /**
+   * Every step of the current huddle, or of the last one after leaving it:
+   * for Diagnostics, so someone who cannot connect can show why.
+   */
+  callLog(): CallLogLine[] {
+    return [...(this.session?.log ?? this.lastCallLog)];
+  }
 
   /** Mirrors the live session into the store so React can render it. */
   private publishHuddleState(): void {
@@ -2766,9 +2779,23 @@ export class WorkspaceClient {
     const selfId = this.state.self?.id;
     if (!selfId) return;
 
-    const config = await this.api.rtcConfig();
+    let config: RTCConfiguration;
+    try {
+      config = await this.api.rtcConfig();
+    } catch (err) {
+      this.lastCallLog = [
+        {
+          at: Date.now(),
+          text: `Could not read the call settings: ${err instanceof Error ? err.message : String(err)}.`,
+        },
+      ];
+      throw err;
+    }
     if (attempt !== this.huddleAttempt) return;
 
+    // Calls are loaded when someone joins one, not with every visit.
+    const { HuddleSession } = await import("./huddle.js");
+    if (attempt !== this.huddleAttempt) return;
     const session = new HuddleSession(
       channelId,
       selfId,
@@ -2776,8 +2803,16 @@ export class WorkspaceClient {
         send: (msg) => this.sendSocket(msg),
       },
       config,
+      {
+        refreshConfig: () => this.api.rtcConfig(),
+        onReport: (peer, report) => {
+          if (this.huddleReports && this.session === session)
+            this.sendSocket({ type: "huddle.report", channelId, peer, report });
+        },
+      },
     );
     this.session = session;
+    this.lastCallLog = session.log;
     try {
       await session.startLocalAudio(options.muted);
     } catch (err) {
@@ -2812,12 +2847,15 @@ export class WorkspaceClient {
             },
           };
           this.sendSocket({ type: "huddle.join", channelId, requestId });
+          session.note("Asked the server to join the huddle.");
         });
+        session.note("The server let this device into the huddle.");
       } else {
         // Servers predating admission replies retain their original join flow.
         this.sendSocket({ type: "huddle.join", channelId });
       }
     } catch (error) {
+      session.note(`Not let in: ${error instanceof Error ? error.message : String(error)}`);
       session.destroy();
       if (this.session === session) {
         this.session = null;

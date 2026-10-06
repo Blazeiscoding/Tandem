@@ -80,6 +80,15 @@
       "concepts": ["SQLite", "schema 37", "atomic migration", "content cleanup"]
     },
     {
+      "path": "packages/server/src/callLog.ts",
+      "summary": "Keeps the latest 500 lines of what happened in huddles, in memory, for the host.",
+      "details": [
+        "Lines are joins, leaves, setups passed on or dropped, and each side's report of its connection; nothing survives a restart, and none is an address, an SDP or anything said in a call.",
+        "Read through GET /api/admin/calls by the owner and admins, filtered to conversations the reader can access."
+      ],
+      "concepts": ["call log", "memory only", "admin diagnostics"]
+    },
+    {
       "path": "packages/server/src/gateway.ts",
       "summary": "Authenticates sockets, reconstructs state on reconnect and delivers authorized live events.",
       "details": [
@@ -88,7 +97,8 @@
         "Public channel events can reach all signed-in readers; private and DM events require current membership. Session authorization is rechecked after admission, including heartbeat and delivery paths.",
         "byUser groups a person's sockets for targeted updates. Presence lists only online accounts, avoiding a second full offline-account listing at every handshake.",
         "Huddles and typing are ephemeral. Signaling relays only between authorized participants in the same huddle; the server carries signaling, not media.",
-        "Socket callbacks contain thrown failures and close the affected connection with a retryable server error. Heartbeats, authentication timeout, payload limits and idempotent close bound abandoned connections."
+        "Socket callbacks contain thrown failures and close the affected connection with a retryable server error. Heartbeats, authentication timeout, payload limits and idempotent close bound abandoned connections.",
+        "Writes huddle joins, refusals, departures with their reason, relayed offers and answers, signals it could not pass on and why, and clients' huddle.report summaries to an in-memory CallLog; the ready snapshot advertises huddleReports."
       ],
       "concepts": ["WebSocket", "replay", "access control", "presence", "huddle"]
     },
@@ -267,7 +277,8 @@
       "details": [
         "A discriminated union admits hello, ping, typing, huddle join/leave and signaling with bounded IDs, tokens and cursors.",
         "Offer/answer SDP, ICE candidates and media state have explicit size and numeric constraints, keeping untrusted JSON within supported shapes.",
-        "Protocol TypeScript types alone cannot validate a remote caller; this Zod schema provides runtime enforcement without importing browser DOM types."
+        "Protocol TypeScript types alone cannot validate a remote caller; this Zod schema provides runtime enforcement without importing browser DOM types.",
+        "Validates huddle.report: counts, states and enums only, so a report cannot carry an address or arbitrary text."
       ],
       "concepts": ["runtime validation", "WebSocket", "bounded payload"]
     },
@@ -370,7 +381,8 @@
         "Offer, answer, ICE and explicit camera/screen/muted messages are plain serializable objects usable by both server and browser.",
         "Explicit media flags distinguish an active camera from a silent negotiated slot; a receiver track's muted flag alone is not evidence that frames exist.",
         "shouldInitiateOffer uses user-ID ordering so two peers discovering each other do not both offer simultaneously.",
-        "HuddleState lists live participants. The protocol carries handshake/control state rather than audio or video bytes."
+        "HuddleState lists live participants. The protocol carries handshake/control state rather than audio or video bytes.",
+        "CallReport, CallCause, CandidateKind and CallLogEntry describe what a side saw of a connection and the server's call log, without addresses or SDP."
       ],
       "concepts": ["WebRTC", "offer tie-break", "media state"]
     },

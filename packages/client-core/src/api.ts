@@ -1,4 +1,5 @@
 import type {
+  CallLogEntry,
   App,
   Channel,
   ChannelPrefs,
@@ -668,6 +669,11 @@ export class Api {
    * Whether the server is keeping up: sizes, queues and timings, never what is
    * in them. The owner and admins only (OPS-10).
    */
+  /** What happened in huddles lately, for the owner and admins. Memory only. */
+  callLog(): Promise<{ entries: CallLogEntry[] }> {
+    return this.request("GET", "/api/admin/calls", undefined, { timeoutMs: 10_000 });
+  }
+
   workspaceStatus(): Promise<WorkspaceStatus> {
     return this.request("GET", "/api/admin/status", undefined, { timeoutMs: 10_000 });
   }

@@ -64,6 +64,8 @@ interface StageItem {
   speaking: boolean;
   muted: boolean;
   connecting: boolean;
+  /** Connecting has taken long enough to know something is wrong. */
+  stuck?: boolean;
 }
 
 /** Shares first, since they are what people came to look at, then everyone, you first. */
@@ -126,6 +128,7 @@ function stageItems(
       speaking: p.speaking,
       muted: p.micMuted,
       connecting: !p.connected,
+      stuck: !p.connected && !!p.trouble,
     });
   return items;
 }
@@ -136,7 +139,7 @@ function describe(item: StageItem): string {
   const parts = [item.name];
   if (!item.stream) parts.push("camera off");
   if (item.muted) parts.push("muted");
-  if (item.connecting) parts.push("connecting");
+  if (item.connecting) parts.push(item.stuck ? "can't connect" : "connecting");
   return parts.join(", ");
 }
 
@@ -228,7 +231,7 @@ function TileBody({ item, height }: { item: StageItem; height: number }) {
             className="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white"
             aria-hidden="true"
           />
-          Connecting…
+          {item.stuck ? "Can't connect · trying again" : "Connecting…"}
         </span>
       )}
       <span

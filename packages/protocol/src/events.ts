@@ -8,7 +8,7 @@ import type {
   User,
   ThreadFollow,
 } from "./entities.js";
-import type { HuddleSignal } from "./huddle.js";
+import type { CallReport, HuddleSignal } from "./huddle.js";
 
 /**
  * Durable workspace events. Every mutation appends one to the event log and
@@ -148,6 +148,8 @@ export interface ReadySnapshot {
   huddles: Record<ID, ID[]>;
   /** This server answers correlated join attempts before clients start their peer mesh. */
   huddleJoinReplies?: true;
+  /** This server keeps a call log and takes `huddle.report`; older ones close on it. */
+  huddleReports?: true;
   workspaceName: string;
   /** Stable across address/name changes and backup restores. Older servers omit it. */
   workspaceId?: ID;
@@ -181,4 +183,6 @@ export type ClientToServer =
   | { type: "huddle.join"; channelId: ID; requestId?: string }
   | { type: "huddle.leave"; channelId: ID }
   | { type: "huddle.signal"; channelId: ID; to: ID; signal: HuddleSignal }
+  /** How one of this side's connections in a huddle went, for the host's call log. */
+  | { type: "huddle.report"; channelId: ID; peer: ID; report: CallReport }
   | { type: "ping" };

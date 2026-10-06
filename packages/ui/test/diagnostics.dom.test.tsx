@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiError, WorkspaceClient } from "@slackoss/client-core";
-import type { Message, ServerInfo, User, WorkspaceStatus } from "@slackoss/protocol";
+import type { CallLogEntry, Message, ServerInfo, User, WorkspaceStatus } from "@slackoss/protocol";
 import { ClientContext, PlatformContext } from "../src/context.js";
 import { DiagnosticsDialog } from "../src/components/DiagnosticsDialog.js";
 import { diagnosticsFileName, diagnosticsReport } from "../src/lib/diagnostics.js";
@@ -305,11 +305,18 @@ describe("the diagnostics dialog", () => {
     requiresClaim: false,
   };
 
-  function open(self: User, answer: () => Promise<WorkspaceStatus> = () => new Promise(() => {})) {
+  function open(
+    self: User,
+    answer: () => Promise<WorkspaceStatus> = () => new Promise(() => {}),
+    /** Runs before the dialog opens and asks for anything. */
+    setup?: (client: WorkspaceClient, calls: ReturnType<typeof vi.spyOn>) => void,
+  ) {
     const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
     client.store.setState({ self, users: { [self.id]: self }, status: "online" });
     vi.spyOn(client.api, "serverInfo").mockResolvedValue(info);
     const status = vi.spyOn(client.api, "workspaceStatus").mockImplementation(answer);
+    const calls = vi.spyOn(client.api, "callLog").mockResolvedValue({ entries: [] });
+    setup?.(client, calls);
     const platform: Platform = {
       kind: "web",
       storage: { get: async () => null, set: async () => {} },
@@ -322,7 +329,7 @@ describe("the diagnostics dialog", () => {
         </ClientContext.Provider>
       </PlatformContext.Provider>,
     );
-    return { status };
+    return { status, calls, client };
   }
 
   it("adds the server's status for an admin", async () => {
@@ -352,12 +359,71 @@ describe("the diagnostics dialog", () => {
     );
   });
 
+  it("adds the server's call log for an admin, by username, and this device's own", async () => {
+    const lee = { ...sam, id: "U_LEE", handle: "lee", displayName: "Lee Park" };
+    const at = Date.UTC(2026, 9, 6, 9, 30, 1, 250);
+    open(
+      { ...sam, role: "admin" },
+      async () => {
+        throw new ApiError(404, "not_found");
+      },
+      (client, calls) => {
+        client.store.setState({
+          users: { [sam.id]: { ...sam, role: "admin" }, [lee.id]: lee },
+          channels: { C_GENERAL: { id: "C_GENERAL", name: "general", type: "public" } as never },
+        });
+        calls.mockResolvedValue({
+          entries: [
+            { at, channelId: "C_GENERAL", userId: lee.id, kind: "joined" },
+            {
+              at: at + 15_000,
+              channelId: "C_GENERAL",
+              userId: lee.id,
+              peerId: sam.id,
+              kind: "report",
+              report: {
+                outcome: "stalled",
+                afterMs: 15_000,
+                iceServers: { stun: 1, turn: 0 },
+                local: { host: 2, srflx: 1, prflx: 0, relay: 0 },
+                remote: { host: 1, srflx: 1, prflx: 0, relay: 0 },
+                connectionState: "connecting",
+                iceConnectionState: "checking",
+                retries: 1,
+                cause: "needs_relay",
+              },
+            },
+          ] satisfies CallLogEntry[],
+        });
+        vi.spyOn(client, "callLog").mockReturnValue([
+          { at, text: "Call settings: 1 STUN and 0 TURN servers." },
+          { at: at + 50, peerId: lee.id, text: "Received their call setup." },
+        ]);
+      },
+    );
+    const report = await screen.findByLabelText("Diagnostics report");
+    const lines = report.textContent!.split("\n");
+    expect(lines).toContain("Call log on this device (times in UTC)");
+    expect(lines).toContain("09:30:01.250 Call settings: 1 STUN and 0 TURN servers.");
+    expect(lines).toContain("09:30:01.300 [@lee] Received their call setup.");
+    expect(lines).toContain("Calls on this server (times in UTC)");
+    expect(lines).toContain("09:30:01.250 #general: @lee joined");
+    expect(lines.find((line) => line.startsWith("09:30:16.250"))).toBe(
+      "09:30:16.250 #general: @lee still not connected to @sam after 15 s. " +
+        "routes here 2 host, 1 srflx; from them 1 host, 1 srflx; 1 STUN, 0 TURN; ICE checking, tried again 1×. " +
+        "Both of you found public addresses, but your networks will not let you reach each other directly. " +
+        "A call between them needs a TURN relay set up by the host.",
+    );
+    expect(report).not.toHaveTextContent("Lee Park");
+  });
+
   it("never asks for it for a member", async () => {
-    const { status } = open(sam);
+    const { status, calls } = open(sam);
     expect(await screen.findByLabelText("Diagnostics report")).not.toHaveTextContent(
       "Workspace status",
     );
     expect(status).not.toHaveBeenCalled();
+    expect(calls).not.toHaveBeenCalled();
     expect(screen.queryByText(/how the server is keeping up/)).toBeNull();
   });
 

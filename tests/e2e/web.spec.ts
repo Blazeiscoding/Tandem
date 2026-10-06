@@ -448,6 +448,101 @@ test(
   },
 );
 
+test("a call says which route it connected on, and one that cannot connect says why", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  const a = await browser.newContext({ permissions: ["microphone"] });
+  const b = await browser.newContext({ permissions: ["microphone"] });
+  try {
+    const alice = await a.newPage();
+    const bob = await b.newPage();
+    await signIn(alice, "alice");
+    await signIn(bob, "bobby");
+    const bar = (page: Page) => page.getByRole("region", { name: "Active huddle", exact: true });
+    /** The report in the Diagnostics dialog, opened from the account menu. */
+    const diagnostics = async (page: Page) => {
+      await page.getByRole("button", { name: /, your account$/ }).click();
+      await page.getByRole("menuitem", { name: "Diagnostics", exact: true }).click();
+      return page.getByLabel("Diagnostics report", { exact: true });
+    };
+
+    // A call on this machine connects straight away, on routes of its own network.
+    await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
+    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
+    for (const page of [alice, bob])
+      await expect(bar(page).getByRole("status")).toHaveText("2 participants");
+    const aliceReport = await diagnostics(alice);
+    await expect(aliceReport).toContainText("Call log on this device (times in UTC)");
+    await expect(aliceReport).toContainText("[@bobby] Sent the call setup.");
+    await expect(aliceReport).toContainText(
+      /\[@bobby\] Connected after \d+\.\d s: host here, host there, over udp/,
+    );
+    // Alice owns the workspace, so she also sees the server's side of it.
+    await expect(aliceReport).toContainText("Calls on this server (times in UTC)");
+    await expect(aliceReport).toContainText("#general: @bobby joined");
+    await expect(aliceReport).toContainText(/#general: @bobby connected to @alice after/);
+    // The call logs name kinds of route, never an address.
+    const logs = (await aliceReport.textContent())!.split("Call log on this device")[1]!;
+    expect(logs).not.toMatch(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+    await alice.keyboard.press("Escape");
+    for (const page of [bob, alice])
+      await bar(page).getByRole("button", { name: "Leave", exact: true }).click();
+
+    // Bob's browser now finds no route at all, as behind a network that lets
+    // nothing through: it is held to relays, and there is none.
+    await bob.evaluate(() => {
+      const Original = window.RTCPeerConnection;
+      const relayOnly = (config?: RTCConfiguration): RTCConfiguration => ({
+        ...config,
+        iceTransportPolicy: "relay",
+      });
+      window.RTCPeerConnection = class extends Original {
+        constructor(config?: RTCConfiguration) {
+          super(relayOnly(config));
+        }
+        setConfiguration(config?: RTCConfiguration) {
+          super.setConfiguration(relayOnly(config));
+        }
+      };
+    });
+    await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
+    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
+    await expect(bar(bob).getByRole("status")).toHaveText("2 participants · Connecting…");
+    // After long enough, it says so rather than spinning, and offers why.
+    await expect(bar(bob).getByRole("status")).toHaveText("Can't connect to alice · Trying again", {
+      timeout: 25_000,
+    });
+    await bob.screenshot({ path: test.info().outputPath("call-cannot-connect.png") });
+    await bar(bob).getByRole("button", { name: "Why? See the call log", exact: true }).click();
+    const bobReport = bob.getByLabel("Diagnostics report", { exact: true });
+    await expect(bobReport).toContainText("Call settings: 0 STUN and 0 TURN servers");
+    await expect(bobReport).toContainText("[@alice] Received their call setup.");
+    await expect(bobReport).toContainText(
+      /\[@alice\] Still not connected after 15 s \(routes here: none; from them: \d+ host\)\. This device was given no STUN or TURN server/,
+    );
+    // Each kind of route is named once, however many of it there are.
+    expect(
+      ((await bobReport.textContent())!.match(/Route from them: host over udp\./g) ?? []).length,
+    ).toBe(1);
+    await expect(bobReport).toContainText("[@alice] Read the call settings again");
+    await expect(bobReport).toContainText("[@alice] Waiting for them to try again");
+    await bob.screenshot({ path: test.info().outputPath("call-log.png") });
+    // The host sees Bob's account of it without needing Bob's screen.
+    await expect
+      .poll(async () => {
+        const report = await diagnostics(alice);
+        const text = (await report.textContent()) ?? "";
+        await alice.keyboard.press("Escape");
+        return text;
+      })
+      .toMatch(/#general: @bobby still not connected to @alice after 15 s\. routes here none;/);
+  } finally {
+    await a.close().catch(() => {});
+    await b.close().catch(() => {});
+  }
+});
+
 test("scrolls back through a long channel without unbounded growth or losing its place", async ({
   browser,
 }) => {
