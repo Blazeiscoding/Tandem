@@ -523,6 +523,22 @@
       "concepts": ["Do Not Disturb", "calendar intent"]
     },
     {
+      "path": "packages/ui/src/lib/shortcuts.ts",
+      "summary": "Writes keyboard shortcuts as the person's own keyboard labels them.",
+      "details": [
+        "isApple and modKey choose ⌘ on a Mac and Ctrl elsewhere; shortcutLabel turns \"Mod+Shift+U\" into \"⌘⇧U\" or \"Ctrl Shift U\", so hints never name the wrong key."
+      ],
+      "concepts": ["platform key labels"]
+    },
+    {
+      "path": "packages/ui/src/lib/status.ts",
+      "summary": "The statuses people set most, offered wherever a status is chosen.",
+      "details": [
+        "One list of emoji and text presets shared by the profile form and quick status, so both offer the same choices."
+      ],
+      "concepts": ["status presets"]
+    },
+    {
       "path": "packages/ui/src/lib/textInput.ts",
       "summary": "Protects input-method composition, code blocks and caret placement.",
       "details": [
@@ -981,6 +997,14 @@
       "concepts": ["screen-reader announcements", "message batching", "navigation lifetime"]
     },
     {
+      "path": "packages/ui/src/components/HuddleButton.tsx",
+      "summary": "Header control that starts a huddle, joins the running one, or says you are in it.",
+      "details": [
+        "Names the action by the room's state (Start a huddle, Join the huddle (n), In huddle) and joins through the same preference-aware path as other entry points."
+      ],
+      "concepts": ["huddle entry point"]
+    },
+    {
       "path": "packages/ui/src/components/HuddleBar.tsx",
       "summary": "Shows call presence, speaking rings and the header join/start control.",
       "details": [
@@ -1091,6 +1115,14 @@
         "Exports shared input classes so forms use the same focus, border and disabled appearance."
       ],
       "concepts": ["accessible dialog", "shared form surface"]
+    },
+    {
+      "path": "packages/ui/src/components/Popover.tsx",
+      "summary": "A small panel anchored to the control that opened it, such as Send later's choices.",
+      "details": [
+        "Built on the modal layer like Menu: Escape or a press outside closes it, the page beneath waits, and focus returns to the control. It sits above the control, or below when there is no room, and follows it as the page scrolls."
+      ],
+      "concepts": ["anchored panel", "focus return"]
     },
     {
       "path": "packages/ui/src/components/Menu.tsx",

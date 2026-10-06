@@ -403,6 +403,7 @@ export class HuddleSession {
       remote: noCandidates(),
       retries: 0,
       retrying: false,
+      logged: new Set(),
       trouble: null,
       stallTimer: null,
     };
@@ -424,7 +425,10 @@ export class HuddleSession {
       }
       const { kind, protocol } = candidateOf(e.candidate);
       peer.local[kind]++;
-      this.note(`Found a route here: ${kind} over ${protocol}.`, userId);
+      // A machine with many network interfaces offers a dozen of a kind;
+      // the first says it, and the counts come later.
+      if (firstOf(peer.logged, `here ${kind} ${protocol}`))
+        this.note(`Found a route here: ${kind} over ${protocol}.`, userId);
       this.transport.send({
         type: "huddle.signal",
         channelId: this.channelId,
@@ -511,7 +515,9 @@ export class HuddleSession {
     peer.trouble = this.diagnose(peer);
     const after = Math.round((Date.now() - peer.startedAt) / 1000);
     this.note(
-      `${outcome === "failed" ? "The connection failed" : `Still not connected after ${after} s`}. ${CALL_CAUSES[peer.trouble]}`,
+      `${outcome === "failed" ? "The connection failed" : `Still not connected after ${after} s`} ` +
+        `(routes here: ${describeCounts(peer.local)}; from them: ${describeCounts(peer.remote)}). ` +
+        CALL_CAUSES[peer.trouble],
       userId,
     );
     this.report(userId, peer, outcome);
@@ -682,7 +688,8 @@ export class HuddleSession {
     } else {
       const { kind, protocol } = candidateOf(signal.candidate);
       peer.remote[kind]++;
-      this.note(`Route from them: ${kind} over ${protocol}.`, from);
+      if (firstOf(peer.logged, `there ${kind} ${protocol}`))
+        this.note(`Route from them: ${kind} over ${protocol}.`, from);
       if (!pc.remoteDescription) {
         if (peer.pendingIce.length < 128) peer.pendingIce.push(signal.candidate);
         return;
@@ -877,6 +884,8 @@ interface Peer {
   remote: CandidateCounts;
   retries: number;
   retrying: boolean;
+  /** Which kinds of route the log has already named, each way. */
+  logged: Set<string>;
   trouble: CallCause | null;
   stallTimer: ReturnType<typeof setTimeout> | null;
   pc: RTCPeerConnection;
@@ -893,6 +902,13 @@ interface Peer {
 }
 
 const noCandidates = (): CandidateCounts => ({ host: 0, srflx: 0, prflx: 0, relay: 0 });
+
+/** Whether `key` is new to `seen`, adding it. */
+function firstOf(seen: Set<string>, key: string): boolean {
+  if (seen.has(key)) return false;
+  seen.add(key);
+  return true;
+}
 
 /** Which servers a configuration gives for finding routes, by kind. */
 function countServers(config: RTCConfiguration): { stun: number; turn: number } {

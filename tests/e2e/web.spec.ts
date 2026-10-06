@@ -460,9 +460,9 @@ test("a call says which route it connected on, and one that cannot connect says 
     await signIn(alice, "alice");
     await signIn(bob, "bobby");
     const bar = (page: Page) => page.getByRole("region", { name: "Active huddle", exact: true });
-    /** The report in the Diagnostics dialog, opened from the Workspace menu. */
+    /** The report in the Diagnostics dialog, opened from the account menu. */
     const diagnostics = async (page: Page) => {
-      await page.getByRole("button", { name: "Workspace", exact: true }).click();
+      await page.getByRole("button", { name: /, your account$/ }).click();
       await page.getByRole("menuitem", { name: "Diagnostics", exact: true }).click();
       return page.getByLabel("Diagnostics report", { exact: true });
     };
@@ -519,8 +519,12 @@ test("a call says which route it connected on, and one that cannot connect says 
     await expect(bobReport).toContainText("Call settings: 0 STUN and 0 TURN servers");
     await expect(bobReport).toContainText("[@alice] Received their call setup.");
     await expect(bobReport).toContainText(
-      "[@alice] Still not connected after 15 s. This device was given no STUN or TURN server",
+      /\[@alice\] Still not connected after 15 s \(routes here: none; from them: \d+ host\)\. This device was given no STUN or TURN server/,
     );
+    // Each kind of route is named once, however many of it there are.
+    expect(
+      ((await bobReport.textContent())!.match(/Route from them: host over udp\./g) ?? []).length,
+    ).toBe(1);
     await expect(bobReport).toContainText("[@alice] Read the call settings again");
     await expect(bobReport).toContainText("[@alice] Waiting for them to try again");
     await bob.screenshot({ path: test.info().outputPath("call-log.png") });

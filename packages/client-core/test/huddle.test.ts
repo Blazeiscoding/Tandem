@@ -582,10 +582,12 @@ describe("the call log", () => {
     await session.handleSignal("B", { kind: "answer", sdp: "answer" });
     pc.signalingState = "have-local-offer";
     await session.handleSignal("B", { kind: "answer", sdp: "answer" });
-    await session.handleSignal("B", {
-      kind: "ice",
-      candidate: { candidate: route("relay", "tcp"), sdpMid: "0", sdpMLineIndex: 0 },
-    });
+    // Many of a kind, as from a machine with many interfaces, are named once.
+    for (let i = 0; i < 3; i++)
+      await session.handleSignal("B", {
+        kind: "ice",
+        candidate: { candidate: route("relay", "tcp"), sdpMid: "0", sdpMLineIndex: 0 },
+      });
     expect(session.log.map((l) => l.text)).toEqual([
       "Call settings: 1 STUN and 0 TURN servers.",
       "Connecting to them; this side starts the call setup.",
@@ -653,7 +655,9 @@ describe("the call log", () => {
         peer: "B",
         report: { outcome: "stalled", cause, retries: 0 },
       });
-      expect(line(session)).toContain(`Still not connected after ${STALL_MS / 1000} s.`);
+      expect(line(session)).toContain(
+        `Still not connected after ${STALL_MS / 1000} s (routes here:`,
+      );
       session.destroy();
     },
   );
