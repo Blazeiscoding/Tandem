@@ -531,6 +531,31 @@ credentials are visible to workspace members; use scoped credentials, quotas, an
 rotation on your relay. This repository does not deploy a TURN service for you.
 Allow the relay's listening and media ports according to its configuration.
 
+### When a call will not connect
+
+Someone who can chat but stays on **Connecting…** in a huddle has a connection
+that never came up. After 15 seconds the huddle bar says **Can't connect to …**,
+tries again with the call settings read afresh (twice at most), and offers
+**Why? See the call log**, which opens Diagnostics at that device's call log:
+each step of the setup, the kinds of route each side found (`host` on its own
+network, `srflx` its public address via STUN, `relay` through TURN) and why it
+did not connect. Routes are named by kind only; no address or SDP is recorded.
+The owner and admins also see **Calls on this server** in their own Diagnostics:
+who joined and left, which setups the server passed on or dropped, and each
+side's report of its connection, so the host can read both sides without asking
+for anyone's screen. That log is kept in memory, the latest 500 lines, and only
+for conversations the reader can see.
+
+What the cause means:
+
+- **No STUN or TURN server:** the device can reach only its own network. Leave
+  and rejoin, or open the workspace to all again, so it reads current settings.
+- **No public address here / only its own network's addresses from them:** a
+  firewall or network on that side blocks reaching STUN; try another network.
+- **Public addresses on both sides that do not meet:** one network is too strict
+  for a direct connection (often mobile data or a corporate network). Calls
+  between them need a TURN relay in `TANDEM_ICE_SERVERS`.
+
 Browser microphone/camera access requires HTTPS (localhost is an exception).
 Use the Electron app for voice on plain HTTP LAN servers. Mesh huddles create one
 connection per other participant. Start with small calls and measure on target

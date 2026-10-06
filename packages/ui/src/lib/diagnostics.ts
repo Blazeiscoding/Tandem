@@ -1,5 +1,11 @@
-import type { HuddleState } from "@slackoss/client-core";
-import type { BuildRevision, ServerInfo, WorkspaceStatus } from "@slackoss/protocol";
+import { CALL_CAUSES, type CallLogLine, type HuddleState } from "@slackoss/client-core";
+import type {
+  BuildRevision,
+  CallLogEntry,
+  CandidateCounts,
+  ServerInfo,
+  WorkspaceStatus,
+} from "@slackoss/protocol";
 import { PROTOCOL_VERSION } from "@slackoss/protocol";
 import { formatBytes } from "./format.js";
 import { APP_BUILD, describeBuild } from "./build.js";
@@ -27,6 +33,12 @@ export interface DiagnosticsInput {
    * not be read; left out for everyone else.
    */
   workspace?: WorkspaceStatus | { error: string };
+  /** Every step of the current or last huddle on this device. */
+  callLog?: CallLogLine[];
+  /** The server's call log, for the owner and admins, or why it could not be read. */
+  calls?: CallLogEntry[] | { error: string };
+  /** How a person or conversation is named in the call logs. */
+  names?: { person: (id: string) => string; conversation: (id: string) => string };
   now: Date;
 }
 
@@ -57,7 +69,87 @@ export function diagnosticsReport(input: DiagnosticsInput): string {
     `Window: ${input.width}×${input.height} at ${input.pixelRatio}×`,
     `Browser: ${input.userAgent}`,
     ...(input.workspace ? ["", ...workspaceLines(input.workspace, input.now.getTime())] : []),
+    ...(input.callLog?.length ? ["", ...callLogLines(input.callLog, names(input))] : []),
+    ...(input.calls ? ["", ...serverCallLines(input.calls, names(input))] : []),
   ].join("\n");
+}
+
+type Names = NonNullable<DiagnosticsInput["names"]>;
+const names = (input: DiagnosticsInput): Names =>
+  input.names ?? { person: (id) => id, conversation: (id) => id };
+
+/** A time of day to the millisecond, in UTC, so both sides' logs line up. */
+const clock = (at: number) => new Date(at).toISOString().slice(11, 23);
+
+/** Where this device's call log starts in a report, for opening at it. */
+export const CALL_LOG_HEADING = "Call log on this device";
+
+/** This device's account of its last huddle, step by step. */
+function callLogLines(lines: CallLogLine[], named: Names): string[] {
+  return [
+    `${CALL_LOG_HEADING} (times in UTC)`,
+    ...lines.map(
+      (line) =>
+        `${clock(line.at)} ${line.peerId ? `[${named.person(line.peerId)}] ` : ""}${line.text}`,
+    ),
+  ];
+}
+
+const counted = (counts: CandidateCounts) =>
+  (Object.keys(counts) as (keyof CandidateCounts)[])
+    .filter((kind) => counts[kind] > 0)
+    .map((kind) => `${counts[kind]} ${kind}`)
+    .join(", ") || "none";
+
+/**
+ * The server's call log (memory only): who joined and left, the setups it
+ * passed on or could not, and what each side said of its connection.
+ */
+function serverCallLines(calls: CallLogEntry[] | { error: string }, named: Names): string[] {
+  if ("error" in calls) return ["Calls on this server", `Not available: ${calls.error}`];
+  if (calls.length === 0) return ["Calls on this server", "No huddles since the server started."];
+  return [
+    "Calls on this server (times in UTC)",
+    ...calls.map((entry) => {
+      const who = named.person(entry.userId);
+      const peer = entry.peerId ? named.person(entry.peerId) : "someone";
+      const where = named.conversation(entry.channelId);
+      const head = `${clock(entry.at)} ${where}:`;
+      switch (entry.kind) {
+        case "joined":
+          return `${head} ${who} joined`;
+        case "left":
+          return `${head} ${who} ${entry.reason === "disconnected" ? "disconnected" : entry.reason === "lost access" ? "lost access" : "left"}`;
+        case "refused":
+          return `${head} ${who} was not let in (${entry.reason ?? "no reason given"})`;
+        case "offer":
+          return `${head} passed on ${who}'s call setup to ${peer}`;
+        case "answer":
+          return `${head} passed on ${who}'s answer to ${peer}`;
+        case "dropped":
+          return `${head} did not pass on from ${who} to ${peer}: ${entry.reason ?? ""}`;
+        case "report": {
+          const r = entry.report;
+          if (!r) return `${head} ${who} reported on ${peer}`;
+          const outcome =
+            r.outcome === "connected"
+              ? `connected to ${peer} after ${(r.afterMs / 1000).toFixed(1)} s${
+                  r.route
+                    ? ` (${r.route.local} here, ${r.route.remote} there, ${r.route.protocol})`
+                    : ""
+                }`
+              : `${r.outcome === "failed" ? "failed to connect to" : "still not connected to"} ${peer} after ${Math.round(r.afterMs / 1000)} s`;
+          return [
+            `${head} ${who} ${outcome}.`,
+            `routes here ${counted(r.local)}; from them ${counted(r.remote)};`,
+            `${r.iceServers.stun} STUN, ${r.iceServers.turn} TURN;`,
+            `ICE ${r.iceConnectionState}${r.retries ? `, tried again ${r.retries}×` : ""}.`,
+            ...(r.cause ? [CALL_CAUSES[r.cause]] : []),
+          ].join(" ");
+        }
+      }
+    }),
+  ];
 }
 
 /**

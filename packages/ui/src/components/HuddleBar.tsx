@@ -55,9 +55,12 @@ function HuddleFace({
 export function HuddleBar({
   view = "docked",
   onViewChange,
+  onShowCallLog,
 }: {
   view?: HuddleView;
   onViewChange?: (view: HuddleView) => void;
+  /** Opens the call log, for someone who cannot connect to know why. */
+  onShowCallLog?: () => void;
 }) {
   const huddle = useWorkspace((s) => s.huddle);
   const users = useWorkspace((s) => s.users);
@@ -73,6 +76,8 @@ export function HuddleBar({
     : "huddle";
 
   const connecting = huddle.peers.some((p) => !p.connected);
+  // Someone who has taken too long to connect: say so, and offer the reason.
+  const stuck = huddle.peers.filter((p) => !p.connected && p.trouble);
   const sharer = huddle.peers.find((p) => p.screenStream);
   const sharing = sharer
     ? ` · ${users[sharer.userId]?.displayName ?? "Someone"} is sharing their screen`
@@ -96,8 +101,21 @@ export function HuddleBar({
           <div role="status" className="truncate text-xs text-ink-faint">
             {huddle.peers.length === 0
               ? "Waiting for someone to join…"
-              : `${huddle.peers.length + 1} participants${connecting ? " · Connecting…" : ""}${sharing}`}
+              : stuck.length > 0
+                ? `Can't connect to ${stuck
+                    .map((p) => users[p.userId]?.displayName ?? "someone")
+                    .join(", ")} · Trying again`
+                : `${huddle.peers.length + 1} participants${connecting ? " · Connecting…" : ""}${sharing}`}
           </div>
+          {stuck.length > 0 && onShowCallLog && (
+            <button
+              type="button"
+              onClick={onShowCallLog}
+              className="text-xs text-copper underline decoration-copper/40 hover:decoration-copper"
+            >
+              Why? See the call log
+            </button>
+          )}
         </div>
       </div>
 
@@ -116,7 +134,13 @@ export function HuddleBar({
             key={p.userId}
             user={users[p.userId]}
             title={`${users[p.userId]?.displayName ?? "unknown"}${
-              p.connected ? (p.micMuted ? " (muted)" : "") : " (connecting…)"
+              p.connected
+                ? p.micMuted
+                  ? " (muted)"
+                  : ""
+                : p.trouble
+                  ? " (can't connect)"
+                  : " (connecting…)"
             }`}
             speaking={p.speaking}
             muted={p.micMuted}

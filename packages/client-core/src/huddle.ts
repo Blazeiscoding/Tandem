@@ -1,4 +1,16 @@
-import { shouldInitiateOffer, type HuddleSignal, type ID } from "@slackoss/protocol";
+import {
+  CANDIDATE_KINDS,
+  shouldInitiateOffer,
+  type CallCause,
+  type CallReport,
+  type CandidateCounts,
+  type CandidateKind,
+  type HuddleSignal,
+  type ID,
+} from "@slackoss/protocol";
+import { CALL_CAUSES, type CallLogLine } from "./callLog.js";
+
+export type { CallLogLine } from "./callLog.js";
 
 export interface HuddlePeer {
   userId: ID;
@@ -14,6 +26,26 @@ export interface HuddlePeer {
   micMuted: boolean;
   /** They are talking right now. */
   speaking: boolean;
+  /**
+   * Why the connection has not come up, once it has taken long enough to
+   * ask; null while it is fine or still within that time. See `CALL_CAUSES`.
+   */
+  trouble?: CallCause | null;
+}
+
+/** How many lines a call keeps; the oldest go first. */
+const CALL_LOG_LIMIT = 400;
+/** How long a connection may take before the log says why not, and it tries again. */
+export const STALL_MS = 15_000;
+/** How many times one connection tries again before leaving it to the person. */
+const MAX_RETRIES = 2;
+
+/** What a session is told beyond where to send signals. */
+export interface HuddleSessionOptions {
+  /** Reads the workspace's call settings again, for a connection trying again. */
+  refreshConfig?: () => Promise<RTCConfiguration>;
+  /** Hears how each connection went, for the host's call log. */
+  onReport?: (peerId: ID, report: CallReport) => void;
 }
 
 export interface HuddleState {
@@ -94,6 +126,8 @@ export class HuddleSession {
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private levelSamples: Uint8Array<ArrayBuffer> | null = null;
+  /** Every step of this call, for whoever has to work out what went wrong. */
+  readonly log: CallLogLine[] = [];
 
   /** Called whenever anything the UI renders has changed. */
   onChange: (() => void) | null = null;
@@ -103,7 +137,16 @@ export class HuddleSession {
     private selfId: ID,
     private transport: HuddleTransport,
     private rtcConfig: RTCConfiguration = { iceServers: [] },
-  ) {}
+    private options: HuddleSessionOptions = {},
+  ) {
+    this.note(`Call settings: ${describeServers(rtcConfig)}.`);
+  }
+
+  /** Adds a line to the call log. */
+  note(text: string, peerId?: ID): void {
+    this.log.push({ at: Date.now(), ...(peerId ? { peerId } : {}), text });
+    if (this.log.length > CALL_LOG_LIMIT) this.log.splice(0, this.log.length - CALL_LOG_LIMIT);
+  }
 
   /**
    * Grabs the microphone. Rejects as the browser does if permission is
@@ -117,7 +160,14 @@ export class HuddleSession {
   async startLocalAudio(muted = false): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
     this.muted = muted;
-    const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
+    } catch (err) {
+      this.note(`The microphone did not start: ${describeError(err)}.`);
+      throw err;
+    }
+    this.note(`The microphone started${muted ? ", muted" : ""}.`);
     if (this.destroyed) {
       stream.getTracks().forEach((track) => track.stop());
       return;
@@ -294,6 +344,7 @@ export class HuddleSession {
         connected: this.connected.has(userId),
         micMuted: peer.micMuted,
         speaking: this.speaking.has(userId),
+        trouble: this.connected.has(userId) ? null : peer.trouble,
       })),
       speaking: this.speaking.has(this.selfId),
       micLost: this.micLost,
@@ -309,7 +360,10 @@ export class HuddleSession {
     const others = new Set(userIds.filter((id) => id !== this.selfId));
 
     for (const userId of this.peers.keys()) {
-      if (!others.has(userId)) this.closePeer(userId);
+      if (!others.has(userId)) {
+        this.note("They left the huddle.", userId);
+        this.closePeer(userId);
+      }
     }
     for (const userId of others) {
       if (this.peers.has(userId)) continue;
@@ -343,13 +397,34 @@ export class HuddleSession {
       screenOn: false,
       micMuted: false,
       pendingIce: [],
+      initiating,
+      startedAt: Date.now(),
+      local: noCandidates(),
+      remote: noCandidates(),
+      retries: 0,
+      retrying: false,
+      trouble: null,
+      stallTimer: null,
     };
     this.peers.set(userId, peer);
     this.startLevelPolling();
+    this.note(
+      initiating
+        ? "Connecting to them; this side starts the call setup."
+        : "Connecting to them; this side waits for their call setup.",
+      userId,
+    );
+    this.watchForStall(userId, peer);
 
     // Whatever is already live goes out on the new connection immediately.
     pc.onicecandidate = (e) => {
-      if (!e.candidate) return;
+      if (!e.candidate) {
+        this.note(`Found every route here: ${describeCounts(peer.local)}.`, userId);
+        return;
+      }
+      const { kind, protocol } = candidateOf(e.candidate);
+      peer.local[kind]++;
+      this.note(`Found a route here: ${kind} over ${protocol}.`, userId);
       this.transport.send({
         type: "huddle.signal",
         channelId: this.channelId,
@@ -377,9 +452,23 @@ export class HuddleSession {
       this.onChange?.();
     };
 
+    pc.oniceconnectionstatechange = () => {
+      if (this.peers.get(userId) === peer) this.note(`ICE: ${pc.iceConnectionState}.`, userId);
+    };
+
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") this.connected.add(userId);
-      else this.connected.delete(userId);
+      if (this.peers.get(userId) !== peer) return;
+      const state = pc.connectionState;
+      this.note(`Connection: ${state}.`, userId);
+      if (state === "connected") {
+        this.connected.add(userId);
+        peer.trouble = null;
+        this.stopWatching(peer);
+        void this.describeRoute(userId, peer);
+      } else {
+        this.connected.delete(userId);
+        if (state === "failed") this.troubled(userId, peer, "failed");
+      }
       this.onChange?.();
     };
 
@@ -391,8 +480,134 @@ export class HuddleSession {
         .then(() => {
           if (!this.destroyed && this.peers.get(userId) === peer) return this.offer(userId, pc);
         })
-        .catch(() => {});
+        .catch((err) =>
+          this.note(`Could not start the call setup: ${describeError(err)}.`, userId),
+        );
     return peer;
+  }
+
+  /** Looks again once the connection has had time to come up. */
+  private watchForStall(userId: ID, peer: Peer): void {
+    this.stopWatching(peer);
+    peer.stallTimer = setTimeout(() => {
+      peer.stallTimer = null;
+      if (this.destroyed || this.peers.get(userId) !== peer || this.connected.has(userId)) return;
+      this.troubled(userId, peer, "stalled");
+    }, STALL_MS);
+  }
+
+  private stopWatching(peer: Peer): void {
+    if (peer.stallTimer) clearTimeout(peer.stallTimer);
+    peer.stallTimer = null;
+  }
+
+  /**
+   * A connection that has not come up: says why as far as this side can
+   * tell, tells the host's log, and tries again with the call settings read
+   * afresh, which picks up a STUN or TURN server added since joining.
+   */
+  private troubled(userId: ID, peer: Peer, outcome: "stalled" | "failed"): void {
+    if (peer.retrying) return;
+    peer.trouble = this.diagnose(peer);
+    const after = Math.round((Date.now() - peer.startedAt) / 1000);
+    this.note(
+      `${outcome === "failed" ? "The connection failed" : `Still not connected after ${after} s`}. ${CALL_CAUSES[peer.trouble]}`,
+      userId,
+    );
+    this.report(userId, peer, outcome);
+    this.onChange?.();
+    void this.retry(userId, peer);
+  }
+
+  /** Why a connection is not up, from the routes each side offered. */
+  private diagnose(peer: Peer): CallCause {
+    if (!peer.pc.remoteDescription) return "signalling";
+    const servers = countServers(this.rtcConfig);
+    const publicHere = peer.local.srflx + peer.local.relay;
+    if (servers.stun + servers.turn === 0 && publicHere === 0) return "no_ice_servers";
+    if (publicHere === 0) return "no_public_route_here";
+    if (peer.remote.srflx + peer.remote.relay === 0) return "no_public_route_there";
+    if (peer.local.relay === 0 && peer.remote.relay === 0) return "needs_relay";
+    return "unknown";
+  }
+
+  private async retry(userId: ID, peer: Peer): Promise<void> {
+    if (peer.retries >= MAX_RETRIES) {
+      this.note("Not trying again. Leaving and rejoining the huddle starts afresh.", userId);
+      return;
+    }
+    peer.retries++;
+    peer.retrying = true;
+    try {
+      const config = await this.options.refreshConfig?.().catch((err: unknown) => {
+        this.note(`Could not read the call settings again: ${describeError(err)}.`, userId);
+        return null;
+      });
+      if (this.destroyed || this.peers.get(userId) !== peer) return;
+      if (config) {
+        this.rtcConfig = config;
+        try {
+          peer.pc.setConfiguration(config);
+          this.note(`Read the call settings again: ${describeServers(config)}.`, userId);
+        } catch (err) {
+          this.note(`Could not use the call settings: ${describeError(err)}.`, userId);
+        }
+      }
+      if (peer.initiating) {
+        this.note(`Trying again (${peer.retries} of ${MAX_RETRIES}) with fresh routes.`, userId);
+        await this.offer(userId, peer.pc, true);
+      } else {
+        this.note("Waiting for them to try again; their side starts the call setup.", userId);
+      }
+    } catch (err) {
+      this.note(`Could not try again: ${describeError(err)}.`, userId);
+    } finally {
+      peer.retrying = false;
+    }
+    if (!this.destroyed && this.peers.get(userId) === peer && !this.connected.has(userId))
+      this.watchForStall(userId, peer);
+  }
+
+  /** Says which kinds of route the connection settled on, and tells the host. */
+  private async describeRoute(userId: ID, peer: Peer): Promise<void> {
+    const route = await selectedRoute(peer.pc).catch(() => null);
+    if (this.peers.get(userId) !== peer) return;
+    const after = ((Date.now() - peer.startedAt) / 1000).toFixed(1);
+    this.note(
+      route
+        ? `Connected after ${after} s: ${route.local} here, ${route.remote} there, over ${route.protocol}${
+            route.rttMs === null ? "" : `, ${route.rttMs} ms round trip`
+          }.`
+        : `Connected after ${after} s.`,
+      userId,
+    );
+    this.report(userId, peer, "connected", route ?? undefined);
+  }
+
+  private report(
+    userId: ID,
+    peer: Peer,
+    outcome: CallReport["outcome"],
+    route?: CallReport["route"],
+  ): void {
+    try {
+      this.options.onReport?.(userId, {
+        outcome,
+        afterMs: Math.max(0, Date.now() - peer.startedAt),
+        iceServers: countServers(this.rtcConfig),
+        local: { ...peer.local },
+        remote: { ...peer.remote },
+        connectionState: peer.pc.connectionState ?? "unknown",
+        iceConnectionState: peer.pc.iceConnectionState ?? "unknown",
+        ...(route
+          ? { route: { local: route.local, remote: route.remote, protocol: route.protocol } }
+          : {}),
+        retries: peer.retries,
+        ...(outcome === "connected" ? {} : { cause: peer.trouble ?? "unknown" }),
+      });
+    } catch {
+      // A report the host never sees is no reason to disturb the call.
+    }
   }
 
   private async attachLocalTracks(peer: Peer): Promise<void> {
@@ -403,8 +618,8 @@ export class HuddleSession {
     ]);
   }
 
-  private async offer(userId: ID, pc: RTCPeerConnection): Promise<void> {
-    const offer = await pc.createOffer();
+  private async offer(userId: ID, pc: RTCPeerConnection, iceRestart = false): Promise<void> {
+    const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
     await pc.setLocalDescription(offer);
     this.transport.send({
       type: "huddle.signal",
@@ -412,6 +627,7 @@ export class HuddleSession {
       to: userId,
       signal: { kind: "offer", sdp: offer.sdp ?? "" },
     });
+    this.note("Sent the call setup.", userId);
   }
 
   /** Handles a relayed offer/answer/candidate from one peer. */
@@ -420,9 +636,18 @@ export class HuddleSession {
     // A signal can arrive before the roster update that introduces the peer.
     let peer = this.peers.get(from);
     if (!peer) peer = this.createPeer(from);
-    const pc = peer.pc;
+    try {
+      await this.applySignal(from, peer, signal);
+    } catch (err) {
+      // Said in the log rather than lost: this is the step a stuck call stopped at.
+      this.note(`Could not use their ${signal.kind}: ${describeError(err)}.`, from);
+    }
+  }
 
+  private async applySignal(from: ID, peer: Peer, signal: HuddleSignal): Promise<void> {
+    const pc = peer.pc;
     if (signal.kind === "offer") {
+      this.note("Received their call setup.", from);
       await pc.setRemoteDescription({ type: "offer", sdp: signal.sdp });
       const slots = pc.getTransceivers();
       peer.audioTx = slots[0] ?? null;
@@ -439,10 +664,15 @@ export class HuddleSession {
         to: from,
         signal: { kind: "answer", sdp: answer.sdp ?? "" },
       });
+      this.note("Sent the answer.", from);
     } else if (signal.kind === "answer") {
       // Ignore an answer that arrives when we are not expecting one.
-      if (pc.signalingState !== "have-local-offer") return;
+      if (pc.signalingState !== "have-local-offer") {
+        this.note(`Ignored an answer that came while ${pc.signalingState}.`, from);
+        return;
+      }
       await pc.setRemoteDescription({ type: "answer", sdp: signal.sdp });
+      this.note("Received their answer.", from);
       await this.flushIce(peer);
     } else if (signal.kind === "media") {
       peer.cameraOn = signal.camera;
@@ -450,6 +680,9 @@ export class HuddleSession {
       peer.micMuted = signal.muted ?? false;
       this.onChange?.();
     } else {
+      const { kind, protocol } = candidateOf(signal.candidate);
+      peer.remote[kind]++;
+      this.note(`Route from them: ${kind} over ${protocol}.`, from);
       if (!pc.remoteDescription) {
         if (peer.pendingIce.length < 128) peer.pendingIce.push(signal.candidate);
         return;
@@ -600,7 +833,9 @@ export class HuddleSession {
   }
 
   private closePeer(userId: ID): void {
-    this.peers.get(userId)?.pc.close();
+    const peer = this.peers.get(userId);
+    if (peer) this.stopWatching(peer);
+    peer?.pc.close();
     this.peers.delete(userId);
     this.connected.delete(userId);
     this.speaking.delete(userId);
@@ -609,6 +844,7 @@ export class HuddleSession {
 
   /** Tears down every connection and releases the camera and microphone. */
   destroy(): void {
+    if (!this.destroyed) this.note("Left the huddle.");
     this.destroyed = true;
     this.stopWaitingForMicrophone();
     if (this.levelTimer) clearInterval(this.levelTimer);
@@ -633,6 +869,16 @@ export class HuddleSession {
 /** One connection and its three fixed media slots. */
 interface Peer {
   pendingIce: RTCIceCandidateInit[];
+  /** This side sends the offers, by id (`shouldInitiateOffer`). */
+  initiating: boolean;
+  startedAt: number;
+  /** Routes found here, and routes they sent, by kind. */
+  local: CandidateCounts;
+  remote: CandidateCounts;
+  retries: number;
+  retrying: boolean;
+  trouble: CallCause | null;
+  stallTimer: ReturnType<typeof setTimeout> | null;
   pc: RTCPeerConnection;
   audioTx: RTCRtpTransceiver | null;
   cameraTx: RTCRtpTransceiver | null;
@@ -644,6 +890,105 @@ interface Peer {
   cameraOn: boolean;
   screenOn: boolean;
   micMuted: boolean;
+}
+
+const noCandidates = (): CandidateCounts => ({ host: 0, srflx: 0, prflx: 0, relay: 0 });
+
+/** Which servers a configuration gives for finding routes, by kind. */
+function countServers(config: RTCConfiguration): { stun: number; turn: number } {
+  let stun = 0;
+  let turn = 0;
+  for (const server of config.iceServers ?? []) {
+    for (const url of [server.urls].flat()) {
+      if (/^turns?:/i.test(url)) turn++;
+      else if (/^stuns?:/i.test(url)) stun++;
+    }
+  }
+  return { stun, turn };
+}
+
+function describeServers(config: RTCConfiguration): string {
+  const { stun, turn } = countServers(config);
+  return `${stun} STUN and ${turn} TURN server${turn === 1 ? "" : "s"}${
+    stun + turn === 0 ? " (direct routes on the same network only)" : ""
+  }`;
+}
+
+function describeCounts(counts: CandidateCounts): string {
+  const found = CANDIDATE_KINDS.filter((kind) => counts[kind] > 0);
+  return found.length ? found.map((kind) => `${counts[kind]} ${kind}`).join(", ") : "none";
+}
+
+/**
+ * A route's kind and protocol, never its address: the log is meant to be
+ * shared. Read from the browser's fields, or from the candidate line itself
+ * ("candidate:… 1 udp 2122260223 192.0.2.1 54321 typ srflx …").
+ */
+function candidateOf(candidate: {
+  candidate?: string;
+  type?: string | null;
+  protocol?: string | null;
+}): { kind: CandidateKind; protocol: "udp" | "tcp" } {
+  const line = candidate.candidate ?? "";
+  const type = candidate.type ?? /\btyp (\w+)/.exec(line)?.[1];
+  const protocol = (candidate.protocol ?? line.split(" ")[2] ?? "").toLowerCase();
+  return {
+    kind: CANDIDATE_KINDS.includes(type as CandidateKind) ? (type as CandidateKind) : "host",
+    protocol: protocol === "tcp" ? "tcp" : "udp",
+  };
+}
+
+/** The route a connected call settled on, as the browser's statistics say. */
+async function selectedRoute(
+  pc: RTCPeerConnection,
+): Promise<(NonNullable<CallReport["route"]> & { rttMs: number | null }) | null> {
+  if (typeof pc.getStats !== "function") return null;
+  type Entry = {
+    type: string;
+    id: string;
+    selectedCandidatePairId?: string;
+    selected?: boolean;
+    nominated?: boolean;
+    state?: string;
+    localCandidateId?: string;
+    remoteCandidateId?: string;
+    currentRoundTripTime?: number;
+    candidateType?: string;
+    protocol?: string;
+  };
+  const entries = new Map<string, Entry>();
+  (await pc.getStats()).forEach((entry: Entry) => entries.set(entry.id, entry));
+  const all = [...entries.values()];
+  // Chrome and Safari name the pair on the transport; Firefox marks it selected.
+  const pairId = all.find(
+    (e) => e.type === "transport" && e.selectedCandidatePairId,
+  )?.selectedCandidatePairId;
+  const pair = all.find(
+    (e) =>
+      e.type === "candidate-pair" &&
+      (pairId ? e.id === pairId : e.selected || (e.nominated && e.state === "succeeded")),
+  );
+  if (!pair) return null;
+  const local = entries.get(pair.localCandidateId ?? "");
+  const remote = entries.get(pair.remoteCandidateId ?? "");
+  const kind = (type: string | undefined): CandidateKind =>
+    CANDIDATE_KINDS.includes(type as CandidateKind) ? (type as CandidateKind) : "host";
+  return {
+    local: kind(local?.candidateType),
+    remote: kind(remote?.candidateType),
+    protocol: local?.protocol === "tcp" ? "tcp" : "udp",
+    rttMs:
+      typeof pair.currentRoundTripTime === "number"
+        ? Math.round(pair.currentRoundTripTime * 1000)
+        : null,
+  };
+}
+
+/** An error in a few words, for the log. */
+function describeError(err: unknown): string {
+  if (err instanceof Error)
+    return err.name && err.name !== "Error" ? `${err.name}: ${err.message}` : err.message;
+  return String(err);
 }
 
 /** The microphone a huddle asks for, at the start and after losing one. */

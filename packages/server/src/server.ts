@@ -68,6 +68,7 @@ import {
   type User,
   type WorkspaceEvent,
   type WorkspaceStatus,
+  type CallLogEntry,
 } from "@slackoss/protocol";
 import { openDb, SCHEMA_VERSION } from "./db.js";
 import { holdWorkspace, type WorkspaceHold } from "./ownership.js";
@@ -2649,6 +2650,16 @@ async function startWorkspaceServer(
         ...failing,
       })),
     };
+  });
+
+  /**
+   * For the owner and admins: what happened in huddles lately (see
+   * `CallLog`), in the conversations they can see themselves. Memory only.
+   */
+  app.get("/api/admin/calls", async (req, reply): Promise<{ entries: CallLogEntry[] }> => {
+    const me = requireAdmin(req);
+    reply.header("Cache-Control", "no-store");
+    return { entries: gateway.calls.entries((channelId) => store.canAccess(channelId, me.id)) };
   });
 
   /** A handle for the app's bot user that cannot collide with a person's. */

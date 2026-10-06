@@ -31,7 +31,8 @@
         "History requests carry identity and snapshot watermarks so late HTTP pages can be reconciled with socket events. Identical loads share work; superseded, revoked or evicted history requests are aborted. A timeline holds at most 300 messages and inactive history is bounded by a 20-entry cache limit.",
         "send creates a random request nonce and an optimistic PendingMessage, uploads files, posts the message and reconciles the response or socket echo by nonce. The outbox accepts up to 50 waiting sends per account. A known server refusal waits for deliberate Retry; an uncertain outcome can retry the same nonce.",
         "Restored outbox entries contain attachment descriptions rather than File objects. Missing attachment bytes and sends older than the retry window remain visibly failed instead of silently sending incomplete or stale content. destroy releases sockets, timers, media, previews and cached files.",
-        "The N05 fix binds submitModal and dismissModal to a view ID, and N10 sends retention roots to FileCache even when old thread history has been evicted. Existing choice sequencing covers pins, saves, snooze and channel preferences, but Q09 identifies an unresolved reordered Follow/Unfollow request and Q10 an older identical Mark unread failure that can roll back newer local intent."
+        "The N05 fix binds submitModal and dismissModal to a view ID, and N10 sends retention roots to FileCache even when old thread history has been evicted. Existing choice sequencing covers pins, saves, snooze and channel preferences, but Q09 identifies an unresolved reordered Follow/Unfollow request and Q10 an older identical Mark unread failure that can roll back newer local intent.",
+        "joinHuddle loads the call code on demand, gives the session a way to re-read /api/rtc-config, sends huddle.report only to servers that advertise huddleReports (an older server closes the socket on an unknown message), and keeps the last call's log for Diagnostics after leaving."
       ],
       "concepts": [
         "workspace replica",
@@ -93,6 +94,14 @@
       ]
     },
     {
+      "path": "packages/client-core/src/callLog.ts",
+      "summary": "Holds the call log line type and the words for why a call has not connected.",
+      "details": [
+        "Kept apart from the call itself, which loads only on joining, so the huddle bar and Diagnostics can explain trouble without loading it."
+      ],
+      "concepts": ["call log", "lazy loading"]
+    },
+    {
       "path": "packages/client-core/src/huddle.ts",
       "summary": "Owns microphone capture, WebRTC peer connections and call media state.",
       "details": [
@@ -100,7 +109,8 @@
         "Microphone recovery requests the current default device after loss, replaces audio tracks for peers, and exposes micLost with device-change retry when no microphone is available.",
         "N04 keeps the latest mute intent separate from a particular MediaStreamTrack. Adopting a delayed or replacement microphone applies the current choice, and captured streams arriving after destruction are stopped.",
         "Remote speaking levels come from synchronization-source audio metadata; only the local microphone needs a Web Audio analyser. Samples run every 120 ms with a 500 ms hold, and publish to the UI only when speaking state changes.",
-        "Camera/screen prompts, peer signals and teardown have owned lifetimes. testMicrophone opens a local level meter without sending media anywhere and returns an explicit stop operation."
+        "Camera/screen prompts, peer signals and teardown have owned lifetimes. testMicrophone opens a local level meter without sending media anywhere and returns an explicit stop operation.",
+        "Each call keeps a log of every step (call settings, setup sent and received, each route found by kind and protocol, ICE and connection states, failures that were silent before) with no address or SDP. A connection not up after 15 s, or failed, is diagnosed from the routes each side offered (signalling, no ICE servers, no public route here or there, needs a relay), shown as the peer's trouble, reported to the server, and retried up to twice with the call settings read afresh and an ICE restart from the offering side. The module is loaded only when someone joins a call."
       ],
       "concepts": [
         "WebRTC mesh",
@@ -426,7 +436,8 @@
       "details": [
         "Reports source/protocol versions, connection status, pending-send count, huddle connection counts, notification capability and device/window information.",
         "Owner/admin operating status adds database and attachment sizes, queue lengths, retention progress, disk space and event-loop timing. It reports quantities and failures rather than quoting queued messages or secrets.",
-        "The report filename uses time rather than a workspace/person name; copying or saving remains an explicit UI action."
+        "The report filename uses time rather than a workspace/person name; copying or saving remains an explicit UI action.",
+        "Formats the device's call log line by line in UTC, and the server's call log as joins, leaves, setups passed on or dropped, and each side's report with its routes, servers, ICE state and cause in words."
       ],
       "concepts": ["diagnostics", "operating metrics", "content minimization"]
     },
@@ -974,7 +985,8 @@
       "summary": "Shows call presence, speaking rings and the header join/start control.",
       "details": [
         "HuddleFace resolves participants and speaking state, while the compact bar hosts controls and a way to restore hidden video.",
-        "HuddleButton starts or joins through the shared call-preference store and provides meaningful error state. N04 makes this header path agree with Getting started about mute initialization."
+        "HuddleButton starts or joins through the shared call-preference store and provides meaningful error state. N04 makes this header path agree with Getting started about mute initialization.",
+        "Once a peer's connection has a diagnosed trouble, the bar says Can't connect to them and offers Why? See the call log."
       ],
       "concepts": ["call affordance", "speaking indicator", "join preferences", "N04"]
     },
@@ -1020,7 +1032,8 @@
       "summary": "Shows the complete diagnostics report before copying or downloading it.",
       "details": [
         "Reads server-info and optional owner/admin operating status, recording a readable failure when either is unavailable.",
-        "The person can inspect the report and choose copy or local text-file save; the dialog does not send diagnostics to another service."
+        "The person can inspect the report and choose copy or local text-file save; the dialog does not send diagnostics to another service.",
+        "The report includes this device's call log and, for the owner and admins, the server's call log, with people named by handle. Opened from a call that cannot connect, it starts at the call log."
       ],
       "concepts": ["diagnostics preview", "operating status", "local export"]
     },

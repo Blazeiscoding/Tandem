@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HuddleSignal, ID } from "@slackoss/protocol";
-import { HuddleSession, testMicrophone } from "../src/huddle.js";
+import type { CallReport } from "@slackoss/protocol";
+import { HuddleSession, STALL_MS, testMicrophone } from "../src/huddle.js";
 
 /**
  * Just enough WebRTC to exercise the session's own logic. The parts that
@@ -25,7 +26,15 @@ class FakePeerConnection {
   static instances: FakePeerConnection[] = [];
   transceivers: FakeTransceiver[] = [];
   connectionState = "new";
+  iceConnectionState = "new";
   signalingState = "stable";
+  /** What each offer was asked for, as `createOffer` was called. */
+  offerOptions: unknown[] = [];
+  /** Configurations set after creation, newest last. */
+  configs: unknown[] = [];
+  /** The browser's statistics, where a test gives some. */
+  stats: Map<string, Record<string, unknown>> | null = null;
+  oniceconnectionstatechange: (() => void) | null = null;
   closed = false;
   remoteDescription: unknown = null;
   candidates: unknown[] = [];
@@ -57,8 +66,20 @@ class FakePeerConnection {
     return tx;
   }
 
-  createOffer() {
+  createOffer(options?: unknown) {
+    this.offerOptions.push(options);
     return Promise.resolve({ type: "offer", sdp: "fake-offer" });
+  }
+  setConfiguration(config: unknown) {
+    this.configs.push(config);
+  }
+  getStats() {
+    return Promise.resolve(this.stats ?? new Map());
+  }
+  /** Moves the connection on, as the browser would. */
+  become(state: string) {
+    this.connectionState = state;
+    this.onconnectionstatechange?.();
   }
   createAnswer() {
     return Promise.resolve({ type: "answer", sdp: "fake-answer" });
@@ -520,6 +541,200 @@ describe("HuddleSession", () => {
     // A client from before the field simply does not say, and is not muted.
     void session.handleSignal("B", { kind: "media", camera: false, screen: false });
     expect(session.state().peers[0]!.micMuted).toBe(false);
+    session.destroy();
+  });
+});
+
+describe("the call log", () => {
+  /** A session given call settings, a way to read them again, and a place to report to. */
+  function loggedSession(
+    selfId: ID,
+    servers: RTCIceServer[] = [{ urls: "stun:stun.example.com:3478" }],
+    fresh: RTCIceServer[] = servers,
+  ) {
+    const sent: { to: ID; signal: HuddleSignal }[] = [];
+    const reports: { peer: ID; report: CallReport }[] = [];
+    const refreshConfig = vi.fn(async () => ({ iceServers: fresh }));
+    const session = new HuddleSession(
+      "C1",
+      selfId,
+      { send: (msg) => sent.push({ to: msg.to, signal: msg.signal }) },
+      { iceServers: servers },
+      { refreshConfig, onReport: (peer, report) => reports.push({ peer, report }) },
+    );
+    return { session, sent, reports, refreshConfig };
+  }
+  const line = (session: HuddleSession) => session.log.map((l) => l.text).join("\n");
+  const route = (type: string, protocol = "udp") =>
+    `candidate:1 1 ${protocol} 2122260223 198.51.100.7 54321 typ ${type} generation 0`;
+
+  afterEach(() => vi.useRealTimers());
+
+  it("says each step of the setup, with the kinds of route and never an address", async () => {
+    const { session } = loggedSession("A");
+    session.syncParticipants(["A", "B"]);
+    await flush();
+    const pc = FakePeerConnection.instances[0]!;
+    pc.onicecandidate?.({
+      candidate: { candidate: route("srflx"), type: "srflx", protocol: "udp", sdpMid: "0" },
+    });
+    pc.onicecandidate?.({ candidate: null });
+    await session.handleSignal("B", { kind: "answer", sdp: "answer" });
+    pc.signalingState = "have-local-offer";
+    await session.handleSignal("B", { kind: "answer", sdp: "answer" });
+    await session.handleSignal("B", {
+      kind: "ice",
+      candidate: { candidate: route("relay", "tcp"), sdpMid: "0", sdpMLineIndex: 0 },
+    });
+    expect(session.log.map((l) => l.text)).toEqual([
+      "Call settings: 1 STUN and 0 TURN servers.",
+      "Connecting to them; this side starts the call setup.",
+      "Sent the call setup.",
+      "Found a route here: srflx over udp.",
+      "Found every route here: 1 srflx.",
+      "Ignored an answer that came while stable.",
+      "Received their answer.",
+      "Route from them: relay over tcp.",
+    ]);
+    expect(session.log.slice(1).every((l) => l.peerId === "B")).toBe(true);
+    expect(line(session)).not.toContain("198.51.100.7");
+    session.destroy();
+    expect(session.log.at(-1)?.text).toBe("Left the huddle.");
+  });
+
+  it("writes down a call setup it could not use, rather than losing it", async () => {
+    const { session } = loggedSession("Z");
+    session.syncParticipants(["Z", "B"]);
+    vi.spyOn(FakePeerConnection.prototype, "setRemoteDescription").mockRejectedValueOnce(
+      new DOMException("Failed to parse SessionDescription.", "OperationError"),
+    );
+    await session.handleSignal("B", { kind: "offer", sdp: "garbled" });
+    expect(line(session)).toContain(
+      "Could not use their offer: OperationError: Failed to parse SessionDescription.",
+    );
+    session.destroy();
+  });
+
+  it.each([
+    ["the setup never finished", "signalling", [] as string[], [] as string[], true],
+    ["no servers and no public route here", "no_ice_servers", ["host"], ["srflx"], false],
+    ["servers, and still no public route here", "no_public_route_here", ["host"], ["srflx"], true],
+    [
+      "only their own network's routes from them",
+      "no_public_route_there",
+      ["srflx"],
+      ["host"],
+      true,
+    ],
+    ["public routes on both sides that do not meet", "needs_relay", ["srflx"], ["srflx"], true],
+    ["a relay that still did not work", "unknown", ["relay"], ["srflx"], true],
+  ] as const)(
+    "after a while without connecting, says why: %s",
+    async (_name, cause, here, there, withServers) => {
+      vi.useFakeTimers();
+      const { session, reports } = loggedSession(
+        "Z",
+        withServers ? [{ urls: "stun:stun.example.com" }] : [],
+      );
+      session.syncParticipants(["Z", "B"]);
+      const pc = FakePeerConnection.instances[0]!;
+      if (cause !== "signalling") await session.handleSignal("B", { kind: "offer", sdp: "o" });
+      for (const type of here)
+        pc.onicecandidate?.({ candidate: { candidate: route(type), sdpMid: "0" } });
+      for (const type of there)
+        await session.handleSignal("B", {
+          kind: "ice",
+          candidate: { candidate: route(type), sdpMid: "0", sdpMLineIndex: 0 },
+        });
+      expect(session.state().peers[0]!.trouble).toBeNull();
+      await vi.advanceTimersByTimeAsync(STALL_MS);
+      expect(session.state().peers[0]!.trouble).toBe(cause);
+      expect(reports[0]).toMatchObject({
+        peer: "B",
+        report: { outcome: "stalled", cause, retries: 0 },
+      });
+      expect(line(session)).toContain(`Still not connected after ${STALL_MS / 1000} s.`);
+      session.destroy();
+    },
+  );
+
+  it("tries again with the call settings read afresh, twice, and then leaves it to the person", async () => {
+    vi.useFakeTimers();
+    const fresh = [{ urls: "turn:turn.example.com", username: "u", credential: "c" }];
+    const { session, refreshConfig } = loggedSession("A", [], fresh);
+    session.syncParticipants(["A", "B"]);
+    await vi.advanceTimersByTimeAsync(0);
+    const pc = FakePeerConnection.instances[0]!;
+    expect(pc.offerOptions).toEqual([undefined]);
+
+    pc.become("failed");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refreshConfig).toHaveBeenCalledOnce();
+    expect(pc.configs).toEqual([{ iceServers: fresh }]);
+    expect(pc.offerOptions.at(-1)).toEqual({ iceRestart: true });
+    expect(line(session)).toContain("Read the call settings again: 0 STUN and 1 TURN server.");
+    expect(line(session)).toContain("Trying again (1 of 2) with fresh routes.");
+
+    await vi.advanceTimersByTimeAsync(STALL_MS);
+    expect(pc.offerOptions).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(STALL_MS);
+    expect(pc.offerOptions).toHaveLength(3);
+    expect(line(session)).toContain(
+      "Not trying again. Leaving and rejoining the huddle starts afresh.",
+    );
+    session.destroy();
+  });
+
+  it("leaves the trying again to the side that starts the setup", async () => {
+    vi.useFakeTimers();
+    const { session, sent, refreshConfig } = loggedSession("Z");
+    session.syncParticipants(["Z", "B"]);
+    await session.handleSignal("B", { kind: "offer", sdp: "o" });
+    const offers = () => sent.filter((s) => s.signal.kind === "offer").length;
+    await vi.advanceTimersByTimeAsync(STALL_MS);
+    expect(refreshConfig).toHaveBeenCalledOnce();
+    expect(offers()).toBe(0);
+    expect(line(session)).toContain("Waiting for them to try again");
+    session.destroy();
+  });
+
+  it("says the route a connection settled on, and reports it to the host", async () => {
+    const { session, reports } = loggedSession("A");
+    session.syncParticipants(["A", "B"]);
+    await flush();
+    const pc = FakePeerConnection.instances[0]!;
+    pc.stats = new Map<string, Record<string, unknown>>([
+      ["T1", { id: "T1", type: "transport", selectedCandidatePairId: "P1" }],
+      [
+        "P1",
+        {
+          id: "P1",
+          type: "candidate-pair",
+          localCandidateId: "L1",
+          remoteCandidateId: "R1",
+          currentRoundTripTime: 0.042,
+        },
+      ],
+      ["L1", { id: "L1", type: "local-candidate", candidateType: "srflx", protocol: "udp" }],
+      ["R1", { id: "R1", type: "remote-candidate", candidateType: "prflx" }],
+    ]);
+    pc.become("connected");
+    await flush();
+    expect(session.state().peers[0]).toMatchObject({ connected: true, trouble: null });
+    expect(line(session)).toMatch(
+      /Connected after \d+\.\d s: srflx here, prflx there, over udp, 42 ms round trip\./,
+    );
+    expect(reports).toEqual([
+      {
+        peer: "B",
+        report: expect.objectContaining({
+          outcome: "connected",
+          route: { local: "srflx", remote: "prflx", protocol: "udp" },
+          iceServers: { stun: 1, turn: 0 },
+        }),
+      },
+    ]);
+    expect(reports[0]!.report).not.toHaveProperty("cause");
     session.destroy();
   });
 });

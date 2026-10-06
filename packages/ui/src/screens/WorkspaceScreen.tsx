@@ -145,7 +145,7 @@ type DialogKind =
   | { kind: "profile"; userId: ID }
   | { kind: "channel-details" }
   | { kind: "shortcuts" }
-  | { kind: "diagnostics" }
+  | { kind: "diagnostics"; callLog?: boolean }
   | { kind: "apps" }
   | { kind: "people" }
   | { kind: "guest-account" };
@@ -1028,7 +1028,11 @@ function WorkspaceInner({
                 />
               </div>
             </div>
-            <HuddleBar view={huddleView} onViewChange={setHuddleView} />
+            <HuddleBar
+              view={huddleView}
+              onViewChange={setHuddleView}
+              onShowCallLog={() => setDialog({ kind: "diagnostics", callLog: true })}
+            />
             <div hidden={chatCovered} className="contents">
               <JumpToLatestBar
                 channelId={activeChannelId}
@@ -1141,7 +1145,7 @@ function WorkspaceInner({
       )}
       {dialog.kind === "diagnostics" && (
         <LazyDialog loading="Loading diagnostics" onClose={closeDialog}>
-          <DiagnosticsDialog onClose={closeDialog} />
+          <DiagnosticsDialog onClose={closeDialog} showCallLog={dialog.callLog} />
         </LazyDialog>
       )}
       {(((dialog.kind === "apps" || dialog.kind === "people") && isAdmin) ||

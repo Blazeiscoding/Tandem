@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { cleanup, act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient, type HuddleState } from "@slackoss/client-core";
 import type { Channel, Message, User } from "@slackoss/protocol";
@@ -92,6 +92,37 @@ describe("the huddle bar", () => {
     );
     return { client, calls, user: userEvent.setup() };
   }
+
+  it("says who it cannot connect to, once it has tried long enough, and offers why", async () => {
+    const { client, user } = huddleBar();
+    const onShowCallLog = vi.fn();
+    const stuck = (trouble: "needs_relay" | null) =>
+      act(() =>
+        client.store.setState((s) => ({
+          huddle: {
+            ...s.huddle!,
+            peers: [{ ...s.huddle!.peers[0]!, connected: false, micMuted: false, trouble }],
+          },
+        })),
+      );
+    cleanup();
+    render(
+      <ClientContext.Provider value={client}>
+        <HuddleBar onShowCallLog={onShowCallLog} />
+      </ClientContext.Provider>,
+    );
+    stuck(null);
+    const status = within(screen.getByRole("region", { name: "Active huddle" })).getByRole(
+      "status",
+    );
+    expect(status).toHaveTextContent("2 participants · Connecting…");
+    expect(screen.queryByRole("button", { name: "Why? See the call log" })).toBeNull();
+    stuck("needs_relay");
+    expect(status).toHaveTextContent("Can't connect to Priya Shah · Trying again");
+    expect(screen.getByRole("img", { name: "Priya Shah (can't connect)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Why? See the call log" }));
+    expect(onShowCallLog).toHaveBeenCalledOnce();
+  });
 
   it("names each control for what it controls, and says whether it is on without renaming it", () => {
     const { client } = huddleBar();
