@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Channel, ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { unreadThreadCount } from "@slackoss/client-core";
@@ -103,16 +103,23 @@ export function Sidebar(props: Props) {
   const totalMentions = Object.values(mentionCounts).reduce((sum, n) => sum + n, 0);
   const unreadConversations = Object.keys(memberships).filter((id) => isUnread(id)).length;
 
+  const [collapsed, toggleCollapsed] = useCollapsedSections();
+  // A collapsed category still shows where you are and what is waiting, as Discord's do.
+  const shown = (section: string, id: ID) =>
+    !collapsed.has(section) ||
+    id === props.activeChannelId ||
+    (isUnread(id) && !isMuted(id)) ||
+    mentions(id) > 0;
+
   return (
     <nav
       aria-label="Workspace navigation"
       // On a phone this is a drawer, closed by the time a panel opened from it
       // closes; focus then goes to the button that opens the drawer.
       data-focus-fallback="open-navigation"
-      className="workspace-sidebar flex h-full shrink-0 bg-deep"
+      className="workspace-sidebar flex h-full shrink-0 flex-col bg-deep"
     >
-      {/* With one workspace, a rail of one says nothing; it appears with a second. */}
-      {others.length > 0 && (
+      <div className="flex min-h-0 flex-1">
         <WorkspaceRail
           name={name}
           unread={totalMentions}
@@ -120,210 +127,261 @@ export function Sidebar(props: Props) {
           onOpen={props.onOpenWorkspace}
           onAdd={props.onSwitchWorkspace}
         />
-      )}
-      <div className="sidebar-column flex min-w-0 flex-1 flex-col">
-        <header className="titlebar-drag flex h-14 shrink-0 items-center gap-1 px-2.5">
-          <h1 className="min-w-0 flex-1 font-brand text-[15px] font-semibold">
-            <WorkspaceMenu
-              name={name}
-              others={others}
-              onOpen={props.onOpenWorkspace}
-              onAdd={props.onSwitchWorkspace}
-              onCreateAccount={guest ? props.onCreateAccount : undefined}
-              onInvite={props.onInvite}
-              onManagePeople={props.onManagePeople}
-              onManageApps={props.onManageApps}
-            />
-          </h1>
-        </header>
-        {props.connectionLabel && (
-          <p
-            role="status"
-            className="mx-2.5 mb-2 flex items-center gap-2 rounded-lg bg-copper/10 px-2.5 py-1.5 text-[12px] font-medium text-copper"
-          >
-            <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-copper" />
-            <span className="truncate first-letter:uppercase">{props.connectionLabel}</span>
-          </p>
-        )}
+        <div className="sidebar-column flex min-w-0 flex-col">
+          <header className="titlebar-drag flex h-12 shrink-0 items-center px-2 shadow-[0_1px_0_var(--color-edge)]">
+            <h1 className="min-w-0 flex-1 text-[15px] font-semibold">
+              <WorkspaceMenu
+                name={name}
+                others={others}
+                onOpen={props.onOpenWorkspace}
+                onAdd={props.onSwitchWorkspace}
+                onCreateAccount={guest ? props.onCreateAccount : undefined}
+                onInvite={props.onInvite}
+                onManagePeople={props.onManagePeople}
+                onManageApps={props.onManageApps}
+              />
+            </h1>
+          </header>
+          {props.connectionLabel && (
+            <p
+              role="status"
+              className="mx-2 mt-2 flex items-center gap-2 rounded-lg bg-copper/10 px-2.5 py-1.5 text-[12px] font-medium text-copper"
+            >
+              <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-copper" />
+              <span className="truncate first-letter:uppercase">{props.connectionLabel}</span>
+            </p>
+          )}
 
-        <div className="px-2.5 pb-2">
-          {/* Its words and shortcut are on the button already, so it needs no
+          <div className="px-2 pb-1 pt-2.5">
+            {/* Its words and shortcut are on the button already, so it needs no
               hint. A tooltip would also open when the phone drawer puts focus
               here, and take the Escape meant to close the drawer. */}
-          <button
-            onClick={props.onSearch}
-            data-drawer-focus
-            aria-keyshortcuts="Control+K Meta+K"
-            className="card-warm flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] text-ink-faint hover:text-ink-dim"
-          >
-            <Icon name="search" size={14} />
-            <span className="flex-1 text-left">Jump to…</span>
-            <kbd aria-hidden="true" className="font-sans text-[11px] tracking-wide">
-              {shortcutLabel("Mod+K")}
-            </kbd>
-          </button>
-        </div>
+            <button
+              onClick={props.onSearch}
+              data-drawer-focus
+              aria-keyshortcuts="Control+K Meta+K"
+              className="flex h-8 w-full items-center gap-2 rounded-lg bg-ink/[0.06] px-2.5 text-[13px] text-ink-faint transition-colors hover:bg-ink/[0.09] hover:text-ink-dim"
+            >
+              <Icon name="search" size={14} />
+              <span className="flex-1 text-left">Jump to…</span>
+              <kbd aria-hidden="true" className="font-sans text-[11px] tracking-wide">
+                {shortcutLabel("Mod+K")}
+              </kbd>
+            </button>
+          </div>
 
-        <div className="sidebar-scroll flex-1 overflow-y-auto px-2.5 pb-4">
-          {props.gettingStarted}
-          <ul className="mb-4 space-y-px">
-            <li>
-              <NavRow
-                icon="activity"
-                label="Activity"
-                onClick={props.onActivity}
-                open={props.openPanel === "activity"}
-              >
-                {totalMentions > 0 ? (
-                  <Count label="Unread mentions" strong>
-                    {totalMentions}
-                  </Count>
-                ) : (
-                  unreadConversations > 0 && (
-                    <Count label="Unread conversations">{unreadConversations}</Count>
-                  )
-                )}
-              </NavRow>
-            </li>
-            <li>
-              <NavRow
-                icon="thread"
-                label="Threads"
-                onClick={props.onThreads}
-                open={props.openPanel === "threads"}
-              >
-                {unreadThreads > 0 && (
-                  <Count label="Threads with unread replies">{unreadThreads}</Count>
-                )}
-              </NavRow>
-            </li>
-            <li>
-              <NavRow
-                icon="bookmark"
-                label="Saved"
-                onClick={props.onSaved}
-                open={props.openPanel === "saved"}
-              />
-            </li>
-          </ul>
-
-          <SectionHeader
-            label="Channels"
-            actions={[
-              { label: "Browse channels", icon: "compass", onClick: props.onBrowseChannels },
-              ...(guest
-                ? []
-                : [{ label: "New channel", icon: "plus" as const, onClick: props.onNewChannel }]),
-            ]}
-          />
-          <ul className="mb-4 space-y-px">
-            {rooms.map((ch) => (
-              <ChannelRow
-                key={ch.id}
-                active={ch.id === props.activeChannelId}
-                unread={isUnread(ch.id)}
-                muted={isMuted(ch.id)}
-                draft={hasDraft(ch.id)}
-                huddle={huddleWith(ch.id)}
-                mentions={mentions(ch.id)}
-                onClick={() => props.onSelect(ch.id)}
-                icon={
-                  ch.type === "private" ? (
-                    <span role="img" aria-label="Private channel" title="Private channel">
-                      <Icon name="lock" size={14} />
-                    </span>
+          <div className="sidebar-scroll flex-1 overflow-y-auto px-2 pb-3 pt-1.5">
+            {props.gettingStarted}
+            <ul className="mb-4 space-y-px">
+              <li>
+                <NavRow
+                  icon="activity"
+                  label="Activity"
+                  onClick={props.onActivity}
+                  open={props.openPanel === "activity"}
+                >
+                  {totalMentions > 0 ? (
+                    <Count label="Unread mentions" strong>
+                      {totalMentions}
+                    </Count>
                   ) : (
-                    // Drawn, and still read as "# general" as it was typed.
-                    <>
-                      <Icon name="hash" size={15} />
-                      <span className="sr-only">#</span>
-                    </>
-                  )
-                }
-                label={ch.name}
-              />
-            ))}
-          </ul>
+                    unreadConversations > 0 && (
+                      <Count label="Unread conversations">{unreadConversations}</Count>
+                    )
+                  )}
+                </NavRow>
+              </li>
+              <li>
+                <NavRow
+                  icon="thread"
+                  label="Threads"
+                  onClick={props.onThreads}
+                  open={props.openPanel === "threads"}
+                >
+                  {unreadThreads > 0 && (
+                    <Count label="Threads with unread replies">{unreadThreads}</Count>
+                  )}
+                </NavRow>
+              </li>
+              <li>
+                <NavRow
+                  icon="bookmark"
+                  label="Saved"
+                  onClick={props.onSaved}
+                  open={props.openPanel === "saved"}
+                />
+              </li>
+            </ul>
 
-          {!guest && (
             <SectionHeader
-              label="Direct messages"
+              label="Channels"
+              collapsed={collapsed.has("channels")}
+              onToggle={() => toggleCollapsed("channels")}
               actions={[
-                {
-                  label: "Friends",
-                  icon: "friends",
-                  onClick: props.onFriends,
-                  badge: friendRequests,
-                },
-                { label: "New message", icon: "plus", onClick: props.onNewDm },
+                { label: "Browse channels", icon: "compass", onClick: props.onBrowseChannels },
+                ...(guest
+                  ? []
+                  : [{ label: "New channel", icon: "plus" as const, onClick: props.onNewChannel }]),
               ]}
             />
-          )}
-          <ul className="space-y-px">
-            {dms.map((ch) => {
-              const others = (ch.memberIds ?? []).filter((id) => id !== self?.id);
-              const online = others.some((id) => presence[id] === "online");
-              const first = users[others[0] ?? ""];
-              return (
-                <ChannelRow
-                  key={ch.id}
-                  active={ch.id === props.activeChannelId}
-                  unread={isUnread(ch.id)}
-                  muted={isMuted(ch.id)}
-                  draft={hasDraft(ch.id)}
-                  huddle={huddleWith(ch.id)}
-                  mentions={mentions(ch.id)}
-                  onClick={() => props.onSelect(ch.id)}
-                  icon={
-                    first ? (
-                      <AvatarWithPresence
-                        user={first}
-                        online={online}
-                        size={20}
-                        ring="var(--color-deep)"
-                      />
-                    ) : (
-                      <PresenceDot online={online} />
-                    )
-                  }
-                  label={channelTitle(ch, users, self?.id)}
-                  roomy
+            <ul className="mb-4 space-y-px">
+              {rooms
+                .filter((ch) => shown("channels", ch.id))
+                .map((ch) => (
+                  <ChannelRow
+                    key={ch.id}
+                    active={ch.id === props.activeChannelId}
+                    unread={isUnread(ch.id)}
+                    muted={isMuted(ch.id)}
+                    draft={hasDraft(ch.id)}
+                    huddle={huddleWith(ch.id)}
+                    mentions={mentions(ch.id)}
+                    onClick={() => props.onSelect(ch.id)}
+                    icon={
+                      ch.type === "private" ? (
+                        <span role="img" aria-label="Private channel" title="Private channel">
+                          <Icon name="lock" size={14} />
+                        </span>
+                      ) : (
+                        // Drawn, and still read as "# general" as it was typed.
+                        <>
+                          <Icon name="hash" size={15} />
+                          <span className="sr-only">#</span>
+                        </>
+                      )
+                    }
+                    label={ch.name}
+                  />
+                ))}
+            </ul>
+
+            {!guest && (
+              <SectionHeader
+                label="Direct messages"
+                collapsed={collapsed.has("dms")}
+                onToggle={() => toggleCollapsed("dms")}
+                actions={[
+                  {
+                    label: "Friends",
+                    icon: "friends",
+                    onClick: props.onFriends,
+                    badge: friendRequests,
+                  },
+                  { label: "New message", icon: "plus", onClick: props.onNewDm },
+                ]}
+              />
+            )}
+            <ul className="space-y-px">
+              {dms
+                .filter((ch) => shown("dms", ch.id))
+                .map((ch) => {
+                  const others = (ch.memberIds ?? []).filter((id) => id !== self?.id);
+                  const online = others.some((id) => presence[id] === "online");
+                  const first = users[others[0] ?? ""];
+                  return (
+                    <ChannelRow
+                      key={ch.id}
+                      active={ch.id === props.activeChannelId}
+                      unread={isUnread(ch.id)}
+                      muted={isMuted(ch.id)}
+                      draft={hasDraft(ch.id)}
+                      huddle={huddleWith(ch.id)}
+                      mentions={mentions(ch.id)}
+                      onClick={() => props.onSelect(ch.id)}
+                      icon={
+                        first ? (
+                          <AvatarWithPresence
+                            user={first}
+                            online={online}
+                            size={20}
+                            ring="var(--color-deep)"
+                          />
+                        ) : (
+                          <PresenceDot online={online} />
+                        )
+                      }
+                      label={channelTitle(ch, users, self?.id)}
+                      roomy
+                    />
+                  );
+                })}
+            </ul>
+            {dms.length === 0 && !guest && (
+              <button
+                onClick={props.onNewDm}
+                className="group mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-ink-faint transition-colors hover:bg-ink/[0.05] hover:text-ink"
+              >
+                <span className="flex size-5 items-center justify-center rounded-full border border-dashed border-ink-faint/60 group-hover:border-ink-dim">
+                  <Icon name="plus" size={12} />
+                </span>
+                Send someone a message
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      {/* Discord's floating panel: you, across the foot of the rail and the list. */}
+      <footer className="user-panel m-2 mt-0 shrink-0 rounded-xl border border-edge bg-raised p-1.5 shadow-[0_8px_24px_-12px_rgb(0_0_0/0.5)]">
+        {snoozed && <SnoozedNotice until={dndUntil!} />}
+        <div className="flex items-center gap-0.5">
+          <AccountMenu
+            guest={guest}
+            snoozed={snoozed}
+            onCreateAccount={props.onCreateAccount}
+            onEditProfile={props.onEditProfile}
+            onAccountSettings={props.onAccountSettings}
+            onScheduled={guest ? undefined : props.onScheduled}
+            onShortcuts={props.onShortcuts}
+            onDiagnostics={props.onDiagnostics}
+          />
+          {!snoozed && <SnoozeControl />}
+          {!guest && (
+            <Tooltip label="Settings">
+              <button
+                onClick={props.onAccountSettings}
+                aria-label="Settings"
+                className="group/gear flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.07] hover:text-ink"
+              >
+                <Icon
+                  name="settings"
+                  size={17}
+                  className="transition-transform duration-300 group-hover/gear:rotate-45"
                 />
-              );
-            })}
-          </ul>
-          {dms.length === 0 && !guest && (
-            <button
-              onClick={props.onNewDm}
-              className="group mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-ink-faint transition-colors hover:bg-ink/[0.05] hover:text-ink"
-            >
-              <span className="flex size-5 items-center justify-center rounded-full border border-dashed border-ink-faint/60 group-hover:border-ink-dim">
-                <Icon name="plus" size={12} />
-              </span>
-              Send someone a message
-            </button>
+              </button>
+            </Tooltip>
           )}
         </div>
-
-        <footer className="shrink-0 p-2">
-          {snoozed && <SnoozedNotice until={dndUntil!} />}
-          <div className="flex items-center gap-1">
-            <AccountMenu
-              guest={guest}
-              snoozed={snoozed}
-              onCreateAccount={props.onCreateAccount}
-              onEditProfile={props.onEditProfile}
-              onAccountSettings={props.onAccountSettings}
-              onScheduled={guest ? undefined : props.onScheduled}
-              onShortcuts={props.onShortcuts}
-              onDiagnostics={props.onDiagnostics}
-            />
-            {!snoozed && <SnoozeControl />}
-          </div>
-        </footer>
-      </div>
+      </footer>
     </nav>
   );
+}
+
+/**
+ * Which sidebar categories are folded away, kept on this device. Storage
+ * that is unavailable, as in a private window, only means they reopen.
+ */
+function useCollapsedSections(): [Set<string>, (section: string) => void] {
+  const key = "tandem:collapsed-sections";
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(key) ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggle = (section: string) =>
+    setCollapsed((was) => {
+      const next = new Set(was);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      try {
+        localStorage.setItem(key, JSON.stringify([...next]));
+      } catch {
+        // Kept for this session only.
+      }
+      return next;
+    });
+  return [collapsed, toggle];
 }
 
 /** A count beside a row: quiet for unread, the accent for what names you. */
@@ -332,7 +390,7 @@ function Count(props: { label: string; strong?: boolean; children: ReactNode }) 
     <span
       aria-label={props.label}
       className={`tabular min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-[18px] ${
-        props.strong ? "bg-copper text-ground" : "bg-ink/[0.08] text-ink-dim"
+        props.strong ? "badge-mention" : "bg-ink/[0.08] text-ink-dim"
       }`}
     >
       {props.children}
@@ -353,43 +411,23 @@ function NavRow(props: {
     <button
       onClick={props.onClick}
       aria-current={props.open ? "true" : undefined}
-      className={`flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-sm transition-colors ${
+      className={`flex h-[34px] w-full items-center gap-3 rounded-lg px-2 text-[15px] font-medium transition-colors ${
         props.open
-          ? "bg-ink/[0.08] font-medium text-ink"
-          : "text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
+          ? "bg-ink/[0.09] text-ink"
+          : "text-ink-faint hover:bg-ink/[0.06] hover:text-ink-dim"
       }`}
     >
-      <Icon name={props.icon} size={16} className={props.open ? "text-ink" : "text-ink-faint"} />
+      <Icon name={props.icon} size={18} className={props.open ? "text-ink" : "text-ink-faint"} />
       <span className="min-w-0 flex-1 truncate text-left">{props.label}</span>
       {props.children}
     </button>
   );
 }
 
-/** A workspace's mark: its initials on a colour of its own. */
-function WorkspaceTile(props: { name: string; size?: number; className?: string }) {
-  const size = props.size ?? 24;
-  return (
-    <span
-      aria-hidden="true"
-      className={`flex shrink-0 select-none items-center justify-center rounded-lg font-semibold text-white ${props.className ?? ""}`}
-      style={{
-        width: size,
-        height: size,
-        fontSize: Math.round(size * 0.42),
-        background: workspaceGradient(props.name),
-      }}
-    >
-      {initials(props.name)}
-    </span>
-  );
-}
-
 /**
- * Discord's rail of servers, for Tandem's workspaces: this one on top,
- * marked as current, then this device's other saved sign-ins, then a way to
- * add one. The same choices as the menu on the workspace's name. Shown only
- * when there is somewhere else to go.
+ * Discord's rail of servers, for Tandem's workspaces: this one, marked as on
+ * screen, then this device's other saved sign-ins, then a way to add one.
+ * The same choices as the menu on the workspace's name, one click away.
  */
 function WorkspaceRail(props: {
   name: string;
@@ -402,7 +440,7 @@ function WorkspaceRail(props: {
     <div
       role="group"
       aria-label="Workspaces"
-      className="workspace-rail titlebar-drag flex w-16 shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-edge/60 py-3"
+      className="workspace-rail titlebar-drag flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto pb-3 pt-3"
     >
       <RailItem label={props.name} current badge={props.unread} />
       {props.others.map((w) => (
@@ -413,15 +451,18 @@ function WorkspaceRail(props: {
           onClick={() => props.onOpen?.(w.url)}
         />
       ))}
-      <Tooltip label="Add or join a workspace" side="right">
-        <button
-          onClick={props.onAdd}
-          aria-label="Add or join a workspace"
-          className="flex size-10 items-center justify-center rounded-xl border border-dashed border-edge text-ink-faint transition-colors hover:border-ink-faint hover:text-ink"
-        >
-          <Icon name="plus" size={18} />
-        </button>
-      </Tooltip>
+      <span aria-hidden="true" className="h-0.5 w-8 shrink-0 rounded-full bg-edge" />
+      <div className="group relative flex w-full justify-center">
+        <Tooltip label="Add or join a workspace" side="right">
+          <button
+            onClick={props.onAdd}
+            aria-label="Add or join a workspace"
+            className="squircle flex size-12 items-center justify-center bg-raised text-online hover:bg-online hover:text-ground"
+          >
+            <Icon name="plus" size={22} />
+          </button>
+        </Tooltip>
+      </div>
     </div>
   );
 }
@@ -438,27 +479,25 @@ function RailItem(props: {
   const title = props.title ?? props.label;
   return (
     <div className="group relative flex w-full justify-center">
-      {/* Discord's pill: tall for the workspace on screen, a nub on hover. */}
+      {/* Discord's pill: a bar for the workspace on screen, a nub when pointed at. */}
       <span
         aria-hidden="true"
-        className={`absolute left-0 top-1/2 w-[3px] -translate-y-1/2 rounded-full bg-ink transition-all ${
-          props.current ? "h-6" : "h-0 group-hover:h-3"
-        }`}
+        className="rail-pill"
+        data-state={props.current ? "current" : undefined}
       />
       <Tooltip label={title} side="right">
         <button
           onClick={props.onClick}
           aria-label={props.label}
           aria-current={props.current ? "page" : undefined}
-          className={`relative rounded-xl transition-opacity ${
-            props.current ? "" : "opacity-60 hover:opacity-100"
-          }`}
+          className="squircle relative flex size-12 shrink-0 select-none items-center justify-center text-[15px] font-semibold text-white"
+          style={{ background: workspaceGradient(title) }}
         >
-          <WorkspaceTile name={title} size={40} className="rounded-xl" />
+          {initials(title)}
           {(props.badge ?? 0) > 0 && (
             <span
               aria-hidden="true"
-              className="absolute -bottom-1 -right-1 min-w-5 rounded-full border-2 border-deep bg-copper px-1 text-center text-[11px] font-bold leading-4 text-ground"
+              className="badge-mention absolute -bottom-1 -right-1 min-w-5 rounded-full px-1 text-center text-[11px] font-bold leading-4 ring-4 ring-deep"
             >
               {props.badge}
             </span>
@@ -527,13 +566,16 @@ function WorkspaceMenu(props: {
       label="Workspace"
       items={items}
       align="start"
-      triggerClassName="flex w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-ink/[0.05]"
+      triggerClassName="group/ws flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors hover:bg-ink/[0.06]"
       triggerContent={
         <>
-          <WorkspaceTile name={props.name} />
-          <span className="min-w-0 truncate">{props.name}</span>
+          <span className="min-w-0 flex-1 truncate">{props.name}</span>
           <span className="sr-only">, workspace menu</span>
-          <Icon name="chevronDown" size={14} className="shrink-0 text-ink-faint" />
+          <Icon
+            name="chevronDown"
+            size={16}
+            className="shrink-0 text-ink-faint transition-colors group-hover/ws:text-ink"
+          />
         </>
       }
     />
@@ -654,8 +696,8 @@ function AccountMenu(props: {
             <AvatarWithPresence
               user={self ?? undefined}
               online={!props.snoozed}
-              size={30}
-              ring="var(--color-deep)"
+              size={32}
+              ring="var(--color-raised)"
             />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold">
@@ -716,12 +758,27 @@ function SnoozeControl() {
 
 function SectionHeader(props: {
   label: string;
+  /** Folded away, as Discord's categories fold; a click opens it again. */
+  collapsed?: boolean;
+  onToggle?: () => void;
   /** Each action shows only its icon, and its label names it. */
   actions: { label: string; icon: IconName; onClick: () => void; badge?: number }[];
 }) {
   return (
-    <div className="group/section mb-1 flex h-7 items-center justify-between pl-2 pr-0.5">
-      <span className="text-[12px] font-medium text-ink-faint">{props.label}</span>
+    <div className="group/section mb-0.5 flex h-7 items-center justify-between pr-0.5">
+      <button
+        type="button"
+        onClick={props.onToggle}
+        aria-expanded={props.onToggle ? !props.collapsed : undefined}
+        className="flex min-w-0 flex-1 items-center gap-0.5 rounded-md py-1 pl-0.5 text-left text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-faint transition-colors hover:text-ink-dim"
+      >
+        <Icon
+          name="chevronDown"
+          size={12}
+          className={`shrink-0 transition-transform duration-150 ${props.collapsed ? "-rotate-90" : ""}`}
+        />
+        <span className="truncate">{props.label}</span>
+      </button>
       <span className="flex items-center gap-0.5">
         {props.actions.map((a) => (
           <Tooltip key={a.label} label={a.label}>
@@ -730,11 +787,11 @@ function SectionHeader(props: {
               aria-label={a.badge ? `${a.label}, ${a.badge} new` : a.label}
               className="relative flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-ink/[0.07] hover:text-ink"
             >
-              <Icon name={a.icon} size={14} />
+              <Icon name={a.icon} size={15} />
               {(a.badge ?? 0) > 0 && (
                 <span
                   aria-hidden="true"
-                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-copper ring-2 ring-deep"
+                  className="badge-mention absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-deep"
                 />
               )}
             </button>
@@ -767,20 +824,20 @@ function ChannelRow(props: {
       {showUnread && (
         <span
           aria-hidden="true"
-          className="absolute -left-2.5 top-1/2 h-2 w-[3px] -translate-y-1/2 rounded-r-full bg-ink"
+          className="absolute -left-2 top-1/2 h-2 w-1 -translate-y-1/2 rounded-r-full bg-ink"
         />
       )}
       <button
         onClick={props.onClick}
         aria-current={props.active ? "page" : undefined}
-        className={`channel-row flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm transition-colors ${
+        className={`channel-row flex h-[34px] w-full items-center gap-2 rounded-lg px-2 text-left text-[15px] font-medium transition-colors ${
           props.active
-            ? "bg-ink/[0.08] font-medium text-ink"
+            ? "bg-ink/[0.09] text-ink"
             : props.muted
-              ? "text-ink-faint hover:bg-ink/[0.05]"
+              ? "text-ink-faint hover:bg-ink/[0.06]"
               : props.unread
-                ? "font-semibold text-ink hover:bg-ink/[0.05]"
-                : "text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
+                ? "font-semibold text-ink hover:bg-ink/[0.06]"
+                : "text-ink-faint hover:bg-ink/[0.06] hover:text-ink-dim"
         }`}
       >
         <span
@@ -817,7 +874,7 @@ function ChannelRow(props: {
             aria-label={`${props.mentions} unread ${
               props.mentions === 1 ? "mention" : "mentions"
             } in ${props.label}`}
-            className="tabular min-w-5 shrink-0 rounded-full bg-copper px-1.5 text-center text-[11px] font-bold leading-[18px] text-ground"
+            className="badge-mention tabular min-w-5 shrink-0 rounded-full px-1.5 text-center text-[11px] font-bold leading-[18px]"
           >
             {props.mentions}
           </span>

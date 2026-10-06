@@ -1,9 +1,10 @@
 /*
- * Tandem's look, after chaicode.com (ui.chaicode.com): warm near-black,
- * hairline cards with a faint fill instead of shadows, one orange for what
- * needs you, a pale-cream highlight phrase, buttons with asymmetric corners,
- * frosted menus and a faint hexagon glow behind it all. Quiet chrome, the
- * conversation in front.
+ * Tandem's look, after the best of Discord's 2025 refresh: one graphite app
+ * background that holds the rail of workspaces and the channel list, the
+ * conversation as an inset pane with a rounded corner, a floating panel for
+ * you at the foot of the sidebar, icons that turn from circles to rounded
+ * squares as they are chosen, and motion that is quick and never in the way.
+ * chaicode orange stays the one colour for what needs you.
  *
  * Layout. The window is the darkest surface ("deep"). The sidebar sits on it
  * directly; the conversation and any side panel are cards set into it,
@@ -26,11 +27,11 @@
  * in messages keep the accent so they read as links.
  *
  * The rest of the system, written down:
- * - Type: chaicode.com's faces, bundled (a LAN workspace renders the same
- *   offline): Manrope to read, Montserrat for titles and the highlight
- *   phrase, Onest for names, Geist Mono for code. 10, 11, 12 and 13 px for metadata, labels and compact
- *   controls; 14 px (text-sm) for the interface, dialogs and the sidebar; 15
- *   px for messages; 16 and 17 px for a conversation's and a dialog's name;
+ * - Type: Onest for everything read, Geist Mono for code, both bundled (a
+ *   LAN workspace renders the same offline). 10, 11, 12 and 13 px for
+ *   metadata, labels and compact controls; 14 px (text-sm) for the interface
+ *   and dialogs; 15 px for the channel list; 16 px for messages, as Discord
+ *   sets them, and a conversation's name; 17 px for a dialog's name;
  *   text-xl and text-2xl for empty-state and page titles; 52 px once, for the
  *   sign-in page's headline. theme.test.ts fails on a size outside this scale.
  * - Spacing: Tailwind's 4 px steps.
@@ -51,29 +52,30 @@
  * the icons repeat equal to Onyx's.
  */
 @theme {
-  --color-deep: #0a0a0a; /* the window, the sidebar, the rail */
-  --color-ground: #100f0e; /* the conversation card, the page */
-  --color-raised: #171513; /* side panels, cards, dialogs */
-  --color-lifted: #221f1b; /* hover, menus, chips, the composer */
-  --color-edge: #2b2722; /* hairline borders */
-  --color-ink: #f6f1e9; /* primary text */
-  --color-ink-dim: #b3aba0; /* secondary text */
-  --color-ink-faint: #958d82; /* tertiary text, timestamps */
+  --color-deep: #121214; /* the app: the rail, the sidebar, the title bar */
+  --color-ground: #1a1a1e; /* the conversation pane */
+  --color-raised: #202024; /* side panels, cards, dialogs, your panel */
+  --color-lifted: #2a2a30; /* hover, the chosen row, menus, the composer */
+  --color-edge: #2c2c33; /* hairline borders */
+  --color-ink: #f2f3f5; /* primary text */
+  --color-ink-dim: #b5bac1; /* secondary text */
+  --color-ink-faint: #9a9fa8; /* tertiary text, timestamps */
   /* Keep the token name compatible with existing integration components. */
   /* chaicode.com's orange: what needs you, and the one primary action. */
   --color-copper: #f97316; /* accent */
   --color-copper-deep: #ea670c; /* accent, pressed and hovered */
   --color-online: #4ade80; /* present, live huddles */
-  --color-alert: #ff7b72; /* errors, leaving, destructive */
+  --color-alert: #f8716c; /* mentions, errors, leaving, destructive */
   /* The highlight phrase: one per paragraph, pale cream. */
   --color-cream: #f3d49b;
   --color-mention: rgba(249, 115, 22, 0.08); /* a message that names you */
 
+  /* Onest: open and round like Discord's own face, and bundled. */
   --font-sans:
-    "Manrope Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+    "Onest Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
     "Helvetica Neue", sans-serif;
-  --font-display: "Montserrat Variable", var(--font-sans);
-  --font-brand: "Onest Variable", var(--font-sans);
+  --font-display: var(--font-sans);
+  --font-brand: var(--font-sans);
   --font-mono: "Geist Mono Variable", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
 
   --shadow-float:
@@ -84,6 +86,7 @@
   --animate-pop-in: pop-in 140ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
   --animate-fade-in: fade-in 140ms ease-out both;
   --animate-rise-in: rise-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  --animate-slide-in: slide-in 200ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
 
   @keyframes pop-in {
     from {
@@ -103,6 +106,17 @@
       opacity: 1;
     }
   }
+  /* Revealed from its leading edge: clipped, not moved, so its box never shifts. */
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      clip-path: inset(0 0 0 16%);
+    }
+    to {
+      opacity: 1;
+      clip-path: inset(0);
+    }
+  }
   @keyframes rise-in {
     from {
       opacity: 0;
@@ -117,12 +131,12 @@
 
 :root {
   color-scheme: dark;
-  /* chaicode.com's warm card: a hairline, a faint fill, a little blur. */
-  --card-edge: rgba(255, 214, 170, 0.09);
-  --card-edge-hover: rgba(255, 214, 170, 0.18);
-  --card-fill: rgba(255, 236, 214, 0.025);
-  --glow: rgba(249, 115, 22, 0.22);
-  --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(255,205,160,0.085)'/%3E%3C/svg%3E");
+  /* A card: a hairline, a faint fill, a little blur. */
+  --card-edge: rgba(255, 255, 255, 0.07);
+  --card-edge-hover: rgba(255, 255, 255, 0.14);
+  --card-fill: rgba(255, 255, 255, 0.025);
+  --glow: rgba(249, 115, 22, 0.2);
+  --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(255,255,255,0.05)'/%3E%3C/svg%3E");
   --focus-ring-width: 2px;
   /* How far the conversation card sits in from the window's edges. */
   --inset: 8px;
@@ -131,52 +145,52 @@
 /* White, chosen, or the system's choice on a device that prefers light. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --color-deep: #f4efe6;
-  --color-ground: #fffdf9;
-  --color-raised: #faf6ef;
-  --color-lifted: #efe8dc;
-  --color-edge: #e5dccc;
-  --color-ink: #1c1917;
-  --color-ink-dim: #57514a;
-  --color-ink-faint: #6b6359;
-  /* The orange, deepened until it reads at 4.5:1 on warm paper. */
+  --color-deep: #e9eaee;
+  --color-ground: #ffffff;
+  --color-raised: #f6f7f9;
+  --color-lifted: #ebecf0;
+  --color-edge: #dfe1e6;
+  --color-ink: #0f1012;
+  --color-ink-dim: #4e5058;
+  --color-ink-faint: #5c5f68;
+  /* The orange, deepened until it reads at 4.5:1 on white. */
   --color-copper: #a3470c;
   --color-copper-deep: #8f3e0a;
   --color-online: #116b34;
   --color-alert: #c42b30;
-  /* The highlight phrase, steeped darker so it reads on paper. */
+  /* The highlight phrase, steeped darker so it reads on white. */
   --color-cream: #7a4810;
   --color-mention: rgba(163, 71, 12, 0.06);
-  --card-edge: rgba(120, 72, 24, 0.13);
-  --card-edge-hover: rgba(120, 72, 24, 0.24);
-  --card-fill: rgba(255, 252, 245, 0.55);
+  --card-edge: rgba(15, 16, 18, 0.09);
+  --card-edge-hover: rgba(15, 16, 18, 0.18);
+  --card-fill: rgba(255, 255, 255, 0.6);
   --glow: rgba(249, 115, 22, 0.12);
-  --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(140,82,24,0.08)'/%3E%3C/svg%3E");
+  --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(15,16,18,0.06)'/%3E%3C/svg%3E");
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"] {
     color-scheme: light;
-    --color-deep: #f4efe6;
-    --color-ground: #fffdf9;
-    --color-raised: #faf6ef;
-    --color-lifted: #efe8dc;
-    --color-edge: #e5dccc;
-    --color-ink: #1c1917;
-    --color-ink-dim: #57514a;
-    --color-ink-faint: #6b6359;
-    /* The orange, deepened until it reads at 4.5:1 on warm paper. */
+    --color-deep: #e9eaee;
+    --color-ground: #ffffff;
+    --color-raised: #f6f7f9;
+    --color-lifted: #ebecf0;
+    --color-edge: #dfe1e6;
+    --color-ink: #0f1012;
+    --color-ink-dim: #4e5058;
+    --color-ink-faint: #5c5f68;
+    /* The orange, deepened until it reads at 4.5:1 on white. */
     --color-copper: #a3470c;
     --color-copper-deep: #8f3e0a;
     --color-online: #116b34;
     --color-alert: #c42b30;
-    /* The highlight phrase, steeped darker so it reads on paper. */
+    /* The highlight phrase, steeped darker so it reads on white. */
     --color-cream: #7a4810;
     --color-mention: rgba(163, 71, 12, 0.06);
-    --card-edge: rgba(120, 72, 24, 0.13);
-    --card-edge-hover: rgba(120, 72, 24, 0.24);
-    --card-fill: rgba(255, 252, 245, 0.55);
+    --card-edge: rgba(15, 16, 18, 0.09);
+    --card-edge-hover: rgba(15, 16, 18, 0.18);
+    --card-fill: rgba(255, 255, 255, 0.6);
     --glow: rgba(249, 115, 22, 0.12);
-    --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(140,82,24,0.08)'/%3E%3C/svg%3E");
+    --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(15,16,18,0.06)'/%3E%3C/svg%3E");
   }
 }
 
@@ -313,34 +327,49 @@ textarea::placeholder {
 }
 
 /*
- * The window and its cards. The sidebar has a fixed column, beside the rail
- * of workspaces when there is more than one.
+ * The window, as Discord draws it: one app background holding the rail of
+ * workspaces and the channel list, and the conversation as one inset pane
+ * with a rounded top-left corner. A side panel joins the pane, set off by a
+ * hairline, rather than floating as a card of its own.
  */
 .workspace-sidebar {
   width: auto;
 }
 .sidebar-column {
-  width: 256px;
+  width: 240px;
 }
 .workspace-main,
 .workspace-shell > aside {
   background: var(--color-ground);
 }
 @media (min-width: 761px) and (min-height: 481px) {
+  /* Set in from the top, so its rounded corner shows; the list's header follows. */
+  .workspace-main,
+  .sidebar-column > header {
+    margin-top: var(--inset);
+  }
   .workspace-main {
-    margin: var(--inset) var(--inset) var(--inset) 0;
-    border: 1px solid var(--card-edge);
-    border-radius: 12px;
+    border-top: 1px solid var(--color-edge);
+    border-left: 1px solid var(--color-edge);
+    border-top-left-radius: 14px;
     overflow: hidden;
   }
 }
 @media (min-width: 1024px) {
-  /* Side panels are cards of their own beside the conversation. */
   .workspace-shell > aside {
-    margin: var(--inset) var(--inset) var(--inset) 0;
-    border: 1px solid var(--card-edge) !important;
-    border-radius: 12px;
-    overflow: hidden;
+    margin-top: var(--inset);
+    border-top: 1px solid var(--color-edge);
+    border-left: 1px solid var(--color-edge) !important;
+    animation: var(--animate-slide-in);
+  }
+}
+.header-search {
+  width: 160px;
+}
+@media (max-width: 760px) {
+  .header-search {
+    width: auto;
+    background: transparent;
   }
 }
 .timeline-scroll {
@@ -390,26 +419,70 @@ textarea::placeholder {
   }
 }
 
-/* The highlight phrase: one per paragraph at most, pale cream, in Montserrat. */
+/* The highlight phrase: one per paragraph at most, pale cream. */
 .highlight {
-  font-family: var(--font-display);
   font-weight: 600;
   color: var(--color-cream);
 }
 
-/* Titles in Montserrat, as chaicode.com's cards; a font utility still wins. */
-@layer base {
-  h1,
-  h2,
-  h3 {
-    font-family: var(--font-display);
-    letter-spacing: -0.01em;
-  }
+/* Discord's red for what names you: white on it reads at 4.6:1 in both themes. */
+.badge-mention {
+  background: #da373c;
+  color: #ffffff;
 }
 
-/* A button with its corners cut unevenly: chaicode.com's shape for actions. */
+/* A button for an action: rounded, and it gives a little when pressed. */
 .btn-shape {
-  border-radius: 4px 16px 4px 16px;
+  border-radius: 8px;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    color 120ms ease-out,
+    transform 80ms ease-out;
+}
+.btn-shape:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/*
+ * Discord's server icons: round until pointed at or chosen, then a rounded
+ * square, with a pill at the rail's edge that grows from a dot (unread) to a
+ * nub (pointed at) to a bar (the one on screen).
+ */
+.squircle {
+  border-radius: 50%;
+  transition:
+    border-radius 180ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    background-color 180ms ease-out,
+    color 180ms ease-out;
+}
+.squircle:hover,
+.squircle:focus-visible,
+.squircle[aria-current="page"] {
+  border-radius: 16px;
+}
+.squircle:active {
+  transform: translateY(1px);
+}
+.rail-pill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 4px;
+  height: 0;
+  border-radius: 0 4px 4px 0;
+  background: var(--color-ink);
+  transform: translateY(-50%);
+  transition: height 180ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.rail-pill[data-state="unread"] {
+  height: 8px;
+}
+.group:hover .rail-pill:not([data-state="current"]) {
+  height: 20px;
+}
+.rail-pill[data-state="current"] {
+  height: 40px;
 }
 
 /*
@@ -423,25 +496,6 @@ textarea::placeholder {
   background: radial-gradient(70% 55% at 50% -5%, var(--glow), transparent 70%), var(--hex);
   -webkit-mask-image: linear-gradient(to bottom, black 35%, transparent 95%);
   mask-image: linear-gradient(to bottom, black 35%, transparent 95%);
-}
-.workspace-shell {
-  isolation: isolate;
-}
-/* Beside the conversation the sidebar lets the glow through; as a drawer it covers. */
-@media (min-width: 761px) and (min-height: 481px) {
-  .workspace-sidebar {
-    background: transparent;
-  }
-}
-.workspace-shell::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(40% 40% at 0% 0%, var(--glow), transparent 70%), var(--hex);
-  -webkit-mask-image: linear-gradient(to bottom, black 20%, transparent 80%);
-  mask-image: linear-gradient(to bottom, black 20%, transparent 80%);
 }
 
 /*
@@ -588,7 +642,7 @@ textarea::placeholder {
     animation: var(--animate-fade-in);
   }
   .sidebar-open .sidebar-column {
-    width: min(300px, 88vw);
+    width: min(272px, calc(88vw - 72px));
   }
   .mobile-nav-toggle,
   .sidebar-dismiss {
@@ -635,6 +689,7 @@ textarea::placeholder {
     gap: 4px;
     padding-inline: 8px;
   }
+  .header-search-label,
   .header-secondary,
   .composer-hint,
   .channel-topic {
@@ -670,6 +725,7 @@ textarea::placeholder {
     border-radius: 12px;
     box-shadow: var(--shadow-dialog);
     overflow: hidden;
+    animation: var(--animate-slide-in);
   }
 }
 
@@ -728,28 +784,28 @@ textarea::placeholder {
   border-radius: 6px;
 }
 .theme-swatch[data-swatch="dark"] {
-  background: #0a0a0a;
+  background: #121214;
 }
 .theme-swatch[data-swatch="dark"]::after {
   grid-column: 2;
-  background: #100f0e;
-  box-shadow: inset 0 0 0 1px #2b2722;
+  background: #1a1a1e;
+  box-shadow: inset 0 0 0 1px #2c2c33;
 }
 .theme-swatch[data-swatch="light"] {
-  background: #f4efe6;
+  background: #e9eaee;
 }
 .theme-swatch[data-swatch="light"]::after {
   grid-column: 2;
-  background: #fffdf9;
-  box-shadow: inset 0 0 0 1px #e5dccc;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px #dfe1e6;
 }
 .theme-swatch[data-swatch="system"] {
-  background: linear-gradient(120deg, #0a0a0a 0 50%, #f4efe6 50%);
+  background: linear-gradient(120deg, #121214 0 50%, #e9eaee 50%);
 }
 .theme-swatch[data-swatch="system"]::after {
   grid-column: 2;
-  background: linear-gradient(120deg, #100f0e 0 38%, #fffdf9 38%);
-  box-shadow: inset 0 0 0 1px #2b2722;
+  background: linear-gradient(120deg, #1a1a1e 0 38%, #ffffff 38%);
+  box-shadow: inset 0 0 0 1px #2c2c33;
 }
 
 /* Window drag region for the frameless titlebar */

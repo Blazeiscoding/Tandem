@@ -248,8 +248,15 @@ describe("the workspace switcher", () => {
   });
 
   it("still offers a way to add one when this is the only workspace", async () => {
-    const { user } = sidebar({ admin: false });
-    expect(screen.queryByRole("group", { name: "Workspaces" })).toBeNull();
+    const { user, calls } = sidebar({ admin: false });
+    // Discord's rail is always there: this workspace, marked as on screen, and a way to add one.
+    const rail = screen.getByRole("group", { name: "Workspaces" });
+    expect(within(rail).getByRole("button", { name: "Rocket Team" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await user.click(within(rail).getByRole("button", { name: "Add or join a workspace" }));
+    expect(calls).toEqual(["switch"]);
     await user.click(screen.getByRole("button", { name: "Rocket Team, workspace menu" }));
     expect(
       within(screen.getByRole("menu", { name: "Workspace" }))
@@ -258,9 +265,65 @@ describe("the workspace switcher", () => {
     ).toContain("Add or join a workspace…");
   });
 
-  it("shows the rail of workspaces only once there is another to go to", () => {
-    sidebar({ admin: false, others });
-    expect(screen.getByRole("group", { name: "Workspaces" })).toBeInTheDocument();
+  it("lists this device's other workspaces on the rail, one click away", async () => {
+    const { user, calls } = sidebar({ admin: false, others });
+    const rail = screen.getByRole("group", { name: "Workspaces" });
+    await user.click(within(rail).getByRole("button", { name: "Design Guild · @sam" }));
+    expect(calls).toEqual(["open https://design.example"]);
+  });
+
+  it("folds a category away, keeping the conversation on screen in view", async () => {
+    const user = userEvent.setup();
+    const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
+    const room = (id: string, name: string) => ({
+      id,
+      type: "public" as const,
+      name,
+      topic: "",
+      description: "",
+      creatorId: "U_SAM",
+      archived: false,
+      createdAt: 0,
+    });
+    client.store.setState({
+      self: sam,
+      users: { U_SAM: sam },
+      status: "online",
+      workspaceName: "Rocket Team",
+      channels: { C_A: room("C_A", "alpha"), C_B: room("C_B", "beta") },
+      memberships: { C_A: 0, C_B: 0 },
+    });
+    render(
+      <ClientContext.Provider value={client}>
+        <Sidebar
+          activeChannelId="C_A"
+          onSelect={vi.fn()}
+          onBrowseChannels={vi.fn()}
+          onNewChannel={vi.fn()}
+          onNewDm={vi.fn()}
+          onFriends={vi.fn()}
+          onSearch={vi.fn()}
+          onSaved={vi.fn()}
+          onActivity={vi.fn()}
+          onThreads={vi.fn()}
+          onEditProfile={vi.fn()}
+          onInvite={vi.fn()}
+          onSwitchWorkspace={vi.fn()}
+          onAccountSettings={vi.fn()}
+          connectionLabel={null}
+        />
+      </ClientContext.Provider>,
+    );
+    const nav = screen.getByRole("navigation");
+    const channels = within(nav).getByRole("button", { name: "Channels" });
+    expect(channels).toHaveAttribute("aria-expanded", "true");
+    expect(within(nav).getByRole("button", { name: /beta/ })).toBeVisible();
+    await user.click(channels);
+    expect(channels).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav).queryByRole("button", { name: /beta/ })).toBeNull();
+    expect(within(nav).getByRole("button", { name: /alpha/ })).toBeVisible();
+    await user.click(channels);
+    expect(within(nav).getByRole("button", { name: /beta/ })).toBeVisible();
   });
 });
 
