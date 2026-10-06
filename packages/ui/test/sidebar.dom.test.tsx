@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import type { User } from "@slackoss/protocol";
@@ -63,9 +63,22 @@ function sidebar(options: { admin: boolean; others?: OtherWorkspace[] }) {
   return { calls, client, user: userEvent.setup() };
 }
 
+/** The menu on the workspace's name: bringing people in, running it, and moving elsewhere. */
 async function workspaceMenu(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Rocket Team, workspace menu" }));
   const menu = screen.getByRole("menu", { name: "Workspace" });
+  return {
+    menu,
+    items: within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent),
+  };
+}
+
+/** The menu on your own name: your profile, settings, queued messages and help. */
+async function accountMenu(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /, your account$/ }));
+  const menu = screen.getByRole("menu", { name: "Your account" });
   return {
     menu,
     items: within(menu)
@@ -81,29 +94,75 @@ describe("the workspace menu", () => {
     // Words, not the symbols that used to stand in for them.
     expect(footer).not.toHaveTextContent(/[⚙⇄]/);
     const { menu, items } = await workspaceMenu(user);
-    expect(items).toEqual(["Invite people", "People", "Apps and integrations", "Account settings"]);
+    expect(items).toEqual([
+      "Invite people",
+      "People",
+      "Apps and integrations",
+      "Add or join a workspace…",
+    ]);
     expect(await accessibilityProblems(menu)).toEqual([]);
   });
 
   it("offers members only what they can use", async () => {
     const { user } = sidebar({ admin: false });
     const { items } = await workspaceMenu(user);
-    expect(items).toEqual(["Invite people", "Account settings"]);
+    expect(items).toEqual(["Invite people", "Add or join a workspace…"]);
   });
 
   it("does what each item names", async () => {
     const { user, calls } = sidebar({ admin: true });
-    for (const item of ["Invite people", "People", "Apps and integrations", "Account settings"]) {
+    for (const item of ["Invite people", "People", "Apps and integrations"]) {
       await workspaceMenu(user);
       await user.click(screen.getByRole("menuitem", { name: item }));
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     }
+    await accountMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Account settings" }));
     expect(calls).toEqual(["invite", "people", "apps", "account"]);
   });
 });
 
-describe("help in the workspace menu", () => {
-  it("offers the shortcut sheet and diagnostics when the screen can open them", async () => {
+describe("the account menu", () => {
+  it("keeps what concerns only you apart from the workspace's", async () => {
+    const { user } = sidebar({ admin: true });
+    const { menu, items } = await accountMenu(user);
+    expect(items).toEqual([
+      "💬In a meeting",
+      "🎧Heads down",
+      "🍜Out for lunch",
+      "Profile and status",
+      "Account settings",
+      "Scheduled messages",
+    ]);
+    expect(await accessibilityProblems(menu)).toEqual([]);
+  });
+
+  it("sets a common status in two clicks, and clears it the same way", async () => {
+    const { user, client } = sidebar({ admin: false });
+    const updateMe = vi
+      .spyOn(client.api, "updateMe")
+      .mockImplementation(async (body) => ({ user: { ...sam, ...body } }));
+    await accountMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Set status: In a meeting" }));
+    expect(updateMe).toHaveBeenCalledWith({ statusEmoji: "💬", statusText: "In a meeting" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    // With a status set, the menu offers to clear it, and not the one already set.
+    act(() =>
+      client.store.setState((state) => ({
+        self: { ...state.self!, statusEmoji: "💬", statusText: "In a meeting" },
+      })),
+    );
+    expect(screen.getByRole("button", { name: /, your account$/ })).toHaveTextContent(
+      "💬 In a meeting",
+    );
+    const { items } = await accountMenu(user);
+    expect(items.slice(0, 3)).toEqual(["Clear status", "🎧Heads down", "🍜Out for lunch"]);
+    await user.click(screen.getByRole("menuitem", { name: "Clear status, 💬 In a meeting" }));
+    expect(updateMe).toHaveBeenLastCalledWith({ statusEmoji: "", statusText: "" });
+  });
+
+  it("offers the shortcut sheet, diagnostics and scheduled messages when the screen can open them", async () => {
     const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
     client.store.setState({ self: sam, users: { U_SAM: sam }, status: "online" });
     const opened: string[] = [];
@@ -118,7 +177,7 @@ describe("help in the workspace menu", () => {
           onFriends={vi.fn()}
           onSearch={vi.fn()}
           onSaved={vi.fn()}
-          onScheduled={vi.fn()}
+          onScheduled={() => opened.push("scheduled")}
           onActivity={vi.fn()}
           onThreads={vi.fn()}
           onEditProfile={vi.fn()}
@@ -132,17 +191,23 @@ describe("help in the workspace menu", () => {
       </ClientContext.Provider>,
     );
     const user = userEvent.setup();
-    const { items } = await workspaceMenu(user);
+    const { items } = await accountMenu(user);
     expect(items).toEqual([
-      "Invite people",
+      "💬In a meeting",
+      "🎧Heads down",
+      "🍜Out for lunch",
+      "Profile and status",
       "Account settings",
+      "Scheduled messages",
       "Keyboard shortcuts",
       "Diagnostics",
     ]);
+    await user.click(screen.getByRole("menuitem", { name: "Scheduled messages" }));
+    await accountMenu(user);
     await user.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
-    await workspaceMenu(user);
+    await accountMenu(user);
     await user.click(screen.getByRole("menuitem", { name: "Diagnostics" }));
-    expect(opened).toEqual(["shortcuts", "diagnostics"]);
+    expect(opened).toEqual(["scheduled", "shortcuts", "diagnostics"]);
   });
 });
 
@@ -154,16 +219,17 @@ describe("the workspace switcher", () => {
 
   it("is the workspace's name, and lists the others on this device, most recent first", async () => {
     const { user } = sidebar({ admin: false, others });
-    const trigger = screen.getByRole("button", { name: "Rocket Team, switch workspace" });
+    const trigger = screen.getByRole("button", { name: "Rocket Team, workspace menu" });
     expect(screen.getByRole("heading", { level: 1 })).toContainElement(trigger);
     await user.click(trigger);
-    const menu = screen.getByRole("menu", { name: "Switch workspace" });
+    const menu = screen.getByRole("menu", { name: "Workspace" });
     // A second workspace with this one's name says which account and address it is.
     expect(
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
     ).toEqual([
+      "Invite people",
       "Design Guild · @sam",
       "Rocket Team · @sam.r · 10.0.0.5:8543",
       "Add or join a workspace…",
@@ -173,7 +239,7 @@ describe("the workspace switcher", () => {
 
   it("opens the one chosen, or the way to add another", async () => {
     const { user, calls } = sidebar({ admin: false, others });
-    const trigger = screen.getByRole("button", { name: "Rocket Team, switch workspace" });
+    const trigger = screen.getByRole("button", { name: "Rocket Team, workspace menu" });
     await user.click(trigger);
     await user.click(screen.getByRole("menuitem", { name: "Design Guild · @sam" }));
     await user.click(trigger);
@@ -183,12 +249,18 @@ describe("the workspace switcher", () => {
 
   it("still offers a way to add one when this is the only workspace", async () => {
     const { user } = sidebar({ admin: false });
-    await user.click(screen.getByRole("button", { name: "Rocket Team, switch workspace" }));
+    expect(screen.queryByRole("group", { name: "Workspaces" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Rocket Team, workspace menu" }));
     expect(
-      within(screen.getByRole("menu", { name: "Switch workspace" }))
+      within(screen.getByRole("menu", { name: "Workspace" }))
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Add or join a workspace…"]);
+    ).toContain("Add or join a workspace…");
+  });
+
+  it("shows the rail of workspaces only once there is another to go to", () => {
+    sidebar({ admin: false, others });
+    expect(screen.getByRole("group", { name: "Workspaces" })).toBeInTheDocument();
   });
 });
 
@@ -210,7 +282,7 @@ describe("pausing notifications", () => {
     const time = morning.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
     await user.click(screen.getByRole("button", { name: "Pause notifications" }));
-    await user.click(screen.getByRole("button", { name: `Until tomorrow at ${time}` }));
+    await user.click(screen.getByRole("menuitem", { name: `Until tomorrow at ${time}` }));
 
     expect(client.state.self?.dndUntil).toBe(morning.getTime());
     expect(client.api.updateMe).toHaveBeenCalledWith({ dndUntil: morning.getTime() });

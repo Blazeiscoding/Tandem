@@ -30,6 +30,27 @@ try {
   header.writeUInt32LE(png.length, 14);
   header.writeUInt32LE(22, 18);
   await writeFile(new URL("icon.ico", destination), Buffer.concat([header, png]));
+
+  // The browser client's home-screen icons. The maskable one fills its square
+  // and keeps the mark inside the middle 80%, where every launcher shape shows it.
+  const svg = await readFile(source, "utf8");
+  const web = new URL("apps/web/public/", root);
+  const shots = [
+    { file: "icon-192.png", size: 192, maskable: false },
+    { file: "icon-512.png", size: 512, maskable: false },
+    { file: "icon-maskable-512.png", size: 512, maskable: true },
+    { file: "apple-touch-icon.png", size: 180, maskable: true },
+  ];
+  for (const { file, size, maskable } of shots) {
+    const shot = await browser.newPage({ viewport: { width: size, height: size } });
+    const mark = maskable ? Math.round(size * 0.8) : size;
+    await shot.setContent(
+      `<style>body{margin:0;display:grid;place-items:center;width:${size}px;height:${size}px;` +
+        `background:${maskable ? "#f97316" : "transparent"}}svg{width:${mark}px;height:${mark}px;display:block}</style>${svg}`,
+    );
+    await writeFile(new URL(file, web), await shot.screenshot({ omitBackground: !maskable }));
+    await shot.close();
+  }
 } finally {
   await browser.close();
 }

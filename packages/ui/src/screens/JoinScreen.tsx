@@ -11,6 +11,7 @@ import type {
 import { BrandMark, Icon } from "../components/Icon.js";
 import { Tooltip } from "../components/Tooltip.js";
 import { connectionFailure, host, incompatibleWorkspace } from "../lib/connection.js";
+import { workspaceGradient } from "../lib/format.js";
 import { resumeTarget } from "../lib/resume.js";
 import { buttonClass } from "../components/Button.js";
 import { useTabs } from "../lib/useTabs.js";
@@ -188,112 +189,80 @@ export function JoinScreen({
     setStage({ view: "browse" });
   }
 
+  const authing = stage.view === "auth";
   return (
-    <div className="flex h-full flex-col">
-      {platform.kind === "desktop" && <div className="titlebar-drag h-10 shrink-0" />}
-      <main className="flex flex-1 overflow-y-auto p-4 sm:p-8">
-        <div className="join-layout m-auto grid w-full max-w-[1120px] overflow-hidden rounded-3xl border border-edge bg-raised lg:grid-cols-[1.05fr_1fr]">
-          <section className="join-story hidden flex-col justify-between p-10 lg:flex xl:p-12">
-            <div className="flex items-center gap-3 text-xl font-semibold tracking-tight">
-              <BrandMark size={38} />
+    <div className="relative flex h-full flex-col overflow-hidden bg-deep">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="hex-glow" />
+        <div className="grain" />
+      </div>
+      {platform.kind === "desktop" && <div className="titlebar-drag relative h-10 shrink-0" />}
+      <main className="relative flex flex-1 overflow-y-auto px-4 py-8 sm:px-8">
+        <div className="join-layout m-auto w-full max-w-[440px] animate-rise-in">
+          <header className="mb-8 flex flex-col items-center text-center">
+            <div className="mb-6 flex items-center gap-2.5 font-brand text-[17px] font-semibold tracking-tight">
+              <span className="drop-shadow-[0_6px_18px_color-mix(in_oklab,var(--color-copper)_45%,transparent)]">
+                <BrandMark size={30} />
+              </span>
               Tandem
             </div>
-            <div className="py-12">
-              <h2 className="max-w-[380px] text-[52px] font-semibold leading-[1.06] tracking-[-0.045em]">
-                A place for
-                <br />
-                your people.
-              </h2>
-              <p className="mt-6 max-w-[340px] text-base leading-7 text-ink-dim">
-                Bring your team together in a workspace you host. Every conversation, file, and
-                shared idea stays on your server.
-              </p>
-              {/* An illustration of a channel, not a conversation anyone can read or join. */}
-              <div aria-hidden="true" className="mt-9 rounded-2xl border border-edge bg-ground p-5">
-                <div className="flex items-center gap-2 border-b border-edge pb-4 text-sm font-semibold">
-                  <Icon name="hash" size={17} />
-                  general
-                  <span className="ml-auto text-xs font-normal text-ink-faint">
-                    Conversation preview
-                  </span>
-                </div>
-                <div className="mt-5 flex gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-copper/20 text-xs font-semibold text-copper">
-                    JD
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Jamie Diaz
-                      <span className="ml-2 text-xs font-normal text-ink-faint">9:41 AM</span>
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-ink-dim">
-                      A space for the whole team. What are we working on today?
-                    </p>
-                    <span className="mt-3 inline-flex items-center gap-1.5 text-xs text-copper">
-                      <Icon name="thread" size={14} /> Keep the discussion in a thread
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-dim">
-              <span className="flex items-center gap-2">
-                <Icon name="friends" size={16} /> Built for your team
-              </span>
-              <span className="flex items-center gap-2">
-                <span className="size-1.5 rounded-full bg-online" /> Open source. Self-hosted.
-              </span>
-            </div>
-          </section>
-          <div className="w-full p-6 sm:p-9">
-            <header className="mb-8">
-              <div className="mb-6 flex items-center gap-2 text-lg font-semibold lg:hidden">
-                <BrandMark />
-                Tandem
-              </div>
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-copper">
-                Make yourself at home
-              </div>
-              <h1 className="text-2xl font-semibold tracking-tight">Find your workspace</h1>
-              <p className="mt-2 text-sm leading-relaxed text-ink-dim">
-                Connect to your team’s server, or start a space of your own.
-              </p>
-            </header>
-
-            {stage.view === "auth" ? (
-              <AuthCard
-                url={stage.url}
-                info={stage.info}
-                savedHandle={savedServers.find((s) => s.url === stage.url)?.handle}
-                presetInviteCode={inviteCode}
-                onBack={() => setStage({ view: "browse" })}
-                onConnected={onConnected}
-              />
-            ) : !selfChecked && savedServers.length === 0 && !autoProbe ? (
-              <p className="rounded-xl border border-dashed border-edge px-4 py-8 text-center font-mono text-xs text-ink-faint">
-                looking for this workspace…
+            <span className="glint-badge mb-5 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-medium text-ink-dim">
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-online" />
+              Open source · Self-hosted
+            </span>
+            {authing ? (
+              <p className="text-[15px] text-ink-dim">
+                Your people. Your place. <span className="highlight">Your server.</span>
               </p>
             ) : (
-              <BrowseCard
-                savedServers={savedServers}
-                lanServers={lanServers}
-                lanSupported={!!platform.discoverLan}
-                probing={stage.view === "probing" ? stage.url : null}
-                error={error}
-                selfServed={selfServed}
-                onCancelProbe={cancelProbe}
-                hostingStatus={hostingStatus}
-                hostingStatusError={hostingStatusError}
-                hostingStatusLoading={hostingStatusLoading}
-                lastHosted={lastHosted ?? null}
-                platform={platform}
-                onSelect={probe}
-                onOpenSaved={openSaved}
-                onForget={onForget}
-                onHostClick={onHostClick}
-              />
+              <>
+                <h1 className="text-4xl font-bold leading-tight tracking-[-0.025em]">
+                  Find your <span className="highlight">workspace</span>
+                </h1>
+                <p className="mt-3 max-w-sm text-[15px] leading-relaxed text-ink-dim">
+                  Join your team’s server, or host one right here on this computer.
+                </p>
+              </>
             )}
-          </div>
+          </header>
+
+          {stage.view === "auth" ? (
+            <AuthCard
+              url={stage.url}
+              info={stage.info}
+              savedHandle={savedServers.find((s) => s.url === stage.url)?.handle}
+              presetInviteCode={inviteCode}
+              onBack={() => setStage({ view: "browse" })}
+              onConnected={onConnected}
+            />
+          ) : !selfChecked && savedServers.length === 0 && !autoProbe ? (
+            <p className="rounded-2xl border border-dashed border-edge px-4 py-8 text-center text-sm text-ink-faint">
+              Looking for this workspace…
+            </p>
+          ) : (
+            <BrowseCard
+              savedServers={savedServers}
+              lanServers={lanServers}
+              lanSupported={!!platform.discoverLan}
+              probing={stage.view === "probing" ? stage.url : null}
+              error={error}
+              selfServed={selfServed}
+              onCancelProbe={cancelProbe}
+              hostingStatus={hostingStatus}
+              hostingStatusError={hostingStatusError}
+              hostingStatusLoading={hostingStatusLoading}
+              lastHosted={lastHosted ?? null}
+              platform={platform}
+              onSelect={probe}
+              onOpenSaved={openSaved}
+              onForget={onForget}
+              onHostClick={onHostClick}
+            />
+          )}
+          <footer className="mt-8 flex items-center justify-center gap-2 text-[12px] text-ink-faint">
+            <Icon name="lock" size={12} />
+            Your messages and files stay on your server
+          </footer>
         </div>
       </main>
     </div>
@@ -343,7 +312,7 @@ function ResumeHosted(props: {
   return (
     <section aria-label="Hosted on this computer">
       <SectionLabel>Hosted on this computer</SectionLabel>
-      <div className="rounded-xl border border-copper/40 p-4 text-sm">
+      <div className="card-warm rounded-2xl p-4 text-sm">
         <p className="text-ink">
           <span className="font-semibold">{workspaceName}</span> isn’t running. Its messages, files
           and accounts are still on this computer.
@@ -359,7 +328,7 @@ function ResumeHosted(props: {
           type="button"
           disabled={busy}
           onClick={() => void resume()}
-          className="mt-3 rounded-lg bg-copper px-4 py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+          className={buttonClass("primary", "mt-3 w-full")}
         >
           {busy ? "Starting…" : `Start hosting ${workspaceName}`}
         </button>
@@ -400,7 +369,7 @@ function BrowseCard(props: {
   return (
     <div className="space-y-6">
       {props.error && (
-        <div className="rounded-xl border border-alert/40 bg-alert/10 px-4 py-3 text-sm text-alert">
+        <div className="rounded-xl border border-alert/30 bg-alert/10 px-4 py-3 text-sm text-alert">
           <p>{props.error.text}</p>
           {props.error.retry && (
             <button
@@ -424,7 +393,7 @@ function BrowseCard(props: {
       {props.selfServed && (
         <section>
           <SectionLabel>This workspace</SectionLabel>
-          <ul className="overflow-hidden rounded-xl border border-copper/40">
+          <ul className="card-warm overflow-hidden rounded-2xl">
             <ServerRow
               title={props.selfServed.info.workspaceName}
               subtitle={host(props.selfServed.url)}
@@ -439,7 +408,7 @@ function BrowseCard(props: {
       {props.savedServers.length > 0 && (
         <section>
           <SectionLabel>Your workspaces</SectionLabel>
-          <ul className="overflow-hidden rounded-xl border border-edge">
+          <ul className="card-warm overflow-hidden rounded-2xl">
             {props.savedServers.map((s) => (
               <ServerRow
                 key={s.url}
@@ -463,7 +432,7 @@ function BrowseCard(props: {
           )}
         </SectionLabel>
         {lanNotSaved.length > 0 ? (
-          <ul className="overflow-hidden rounded-xl border border-edge">
+          <ul className="card-warm overflow-hidden rounded-2xl">
             {lanNotSaved.map((l) => {
               const address = hostWithPort(l.host, l.port);
               return (
@@ -489,7 +458,7 @@ function BrowseCard(props: {
             })}
           </ul>
         ) : (
-          <p className="rounded-xl border border-dashed border-edge px-4 py-5 text-center text-sm text-ink-faint">
+          <p className="rounded-2xl border border-dashed border-edge px-4 py-5 text-center text-sm text-ink-faint">
             {props.lanSupported
               ? "Scanning for workspaces on your Wi-Fi…"
               : "LAN discovery works in the desktop app."}
@@ -512,19 +481,19 @@ function BrowseCard(props: {
             onChange={(e) => setAddress(e.target.value)}
             placeholder="192.168.1.42:8543 or chat.yourteam.dev"
             spellCheck={false}
-            className="min-w-0 flex-1 rounded-lg border border-edge bg-raised px-3 py-2.5 font-mono text-sm outline-none placeholder:text-ink-faint focus:border-copper"
+            className="h-10 min-w-0 flex-1 rounded-xl border border-[var(--card-edge)] bg-[var(--card-fill)] px-3.5 text-sm outline-none backdrop-blur transition-colors placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper"
           />
           <button
             type="submit"
             disabled={!address.trim() || props.probing !== null}
-            className={buttonClass("primary")}
+            className={buttonClass("primary", "h-10 rounded-xl")}
           >
             Connect
           </button>
         </form>
         {props.probing && (
           <p className="mt-2 flex items-center gap-2 text-sm text-ink-dim">
-            <span className="font-mono text-xs">Contacting {host(props.probing)}…</span>
+            <span className="text-xs">Contacting {host(props.probing)}…</span>
             <button onClick={props.onCancelProbe} className="underline underline-offset-2">
               Cancel
             </button>
@@ -532,50 +501,76 @@ function BrowseCard(props: {
         )}
       </section>
 
-      {props.onHostClick && (
-        <p className="pt-2 text-center text-sm text-ink-dim">
-          {props.hostingStatusError || props.hostingStatusLoading || !props.hostingStatus ? (
-            <>
-              {props.hostingStatusError
-                ? "Hosting status unavailable. "
-                : "Checking hosting status… "}
-              <button
-                onClick={props.onHostClick}
-                className="font-medium text-copper hover:underline"
-              >
-                Manage hosting
-              </button>
-            </>
-          ) : props.hostingStatus.running ||
-            props.hostingStatus.phase === "starting" ||
-            props.hostingStatus.phase === "stopping" ? (
-            <>
+      {props.onHostClick &&
+        (props.hostingStatusError || props.hostingStatusLoading || !props.hostingStatus ? (
+          <p className="text-center text-sm text-ink-dim">
+            {props.hostingStatusError
+              ? "Hosting status unavailable. "
+              : "Checking hosting status… "}
+            <button onClick={props.onHostClick} className="font-medium text-ink hover:underline">
+              Manage hosting
+            </button>
+          </p>
+        ) : props.hostingStatus.running ||
+          props.hostingStatus.phase === "starting" ||
+          props.hostingStatus.phase === "stopping" ? (
+          <div className="card-warm flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
+            <span className="size-2 shrink-0 animate-pulse rounded-full bg-online" />
+            <span className="min-w-0 flex-1 text-ink-dim">
               {props.hostingStatus.phase === "starting"
-                ? "Starting your workspace… "
+                ? "Starting your workspace…"
                 : props.hostingStatus.phase === "stopping"
-                  ? "Stopping your workspace… "
-                  : "You're hosting on this computer. "}
-              <button
-                onClick={props.onHostClick}
-                className="font-medium text-copper hover:underline"
-              >
-                Manage hosting
-              </button>
-            </>
-          ) : (
-            <>
-              Nothing here yet?{" "}
-              <button
-                onClick={props.onHostClick}
-                className="font-medium text-copper hover:underline"
-              >
-                Host a workspace on this computer
-              </button>
-            </>
-          )}
-        </p>
-      )}
+                  ? "Stopping your workspace…"
+                  : "You're hosting on this computer."}
+            </span>
+            <button
+              onClick={props.onHostClick}
+              className="shrink-0 font-medium text-ink hover:underline"
+            >
+              Manage hosting
+            </button>
+          </div>
+        ) : (
+          <HostCard onClick={props.onHostClick} />
+        ))}
     </div>
+  );
+}
+
+/** Hosting, offered as one of the two ways in rather than a footnote. */
+function HostCard(props: { onClick: () => void }) {
+  const id = useId();
+  return (
+    <section>
+      <div className="mb-3 flex items-center gap-3 text-[12px] text-ink-faint">
+        <span className="h-px flex-1 bg-edge" />
+        or start your own
+        <span className="h-px flex-1 bg-edge" />
+      </div>
+      <button
+        onClick={props.onClick}
+        aria-labelledby={`${id}-title`}
+        aria-describedby={`${id}-body`}
+        className="card-warm group flex w-full items-center gap-3.5 rounded-2xl p-4 text-left hover:bg-ink/[0.03]"
+      >
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-copper/12 text-copper">
+          <Icon name="server" size={20} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span id={`${id}-title`} className="block text-sm font-semibold">
+            Host a workspace on this computer
+          </span>
+          <span id={`${id}-body`} className="mt-0.5 block text-[13px] leading-snug text-ink-faint">
+            Your computer becomes the server. People on your Wi-Fi can join right away.
+          </span>
+        </span>
+        <Icon
+          name="arrow"
+          size={16}
+          className="text-ink-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink"
+        />
+      </button>
+    </section>
   );
 }
 
@@ -588,11 +583,7 @@ function normalizeSafe(input: string): string {
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="mb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-faint">
-      {children}
-    </h2>
-  );
+  return <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-faint">{children}</h2>;
 }
 
 function ServerRow(props: {
@@ -605,29 +596,32 @@ function ServerRow(props: {
 }) {
   return (
     <li className="group border-b border-edge last:border-b-0">
-      <div className="flex items-center bg-raised transition-colors hover:bg-lifted">
+      <div className="flex items-center transition-colors hover:bg-ink/[0.04]">
         <button
           onClick={props.onClick}
           disabled={props.busy}
           className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
         >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-lifted font-semibold text-copper">
+          <span
+            aria-hidden="true"
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-sm font-semibold text-white"
+            style={{ background: workspaceGradient(props.title) }}
+          >
             {props.title[0]?.toUpperCase() ?? "?"}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate font-medium">{props.title}</span>
-            <span className="block truncate font-mono text-xs text-ink-faint">
-              {props.subtitle}
-            </span>
+            <span className="block truncate text-sm font-medium">{props.title}</span>
+            <span className="block truncate text-xs text-ink-faint">{props.subtitle}</span>
           </span>
-          <span className="font-mono text-xs text-ink-faint">{props.busy ? "…" : props.meta}</span>
+          <span className="text-xs text-ink-faint">{props.busy ? "…" : props.meta}</span>
+          <Icon name="arrow" size={14} className="text-ink-faint" />
         </button>
         {props.onForget && (
           <Tooltip label="Forget this workspace">
             <button
               onClick={props.onForget}
               aria-label="Forget this workspace"
-              className="mr-2 rounded p-1 text-ink-faint opacity-0 hover:text-alert focus-visible:opacity-100 group-hover:opacity-100"
+              className="mr-2 rounded-md p-1 text-ink-faint opacity-0 hover:text-alert focus-visible:opacity-100 group-hover:opacity-100"
             >
               <Icon name="close" size={12} />
             </button>
@@ -707,9 +701,44 @@ function AuthCard(props: {
     },
   });
 
+  /**
+   * What is missing or malformed, said before asking the server, with focus
+   * on the field to fix. The button stays enabled: one that silently refuses
+   * gives no reason, and a keyboard cannot even reach it.
+   */
+  function problem(): { text: string; field: "name" | "handle" | "password" } | null {
+    if (mode === "guest")
+      return displayName.trim()
+        ? null
+        : { text: "Enter the name everyone will see.", field: "name" };
+    const name = handle.trim().toLowerCase();
+    if (!name)
+      return {
+        text: mode === "login" ? "Enter your username." : "Choose a username.",
+        field: "handle",
+      };
+    if (mode === "register" && !/^[a-z0-9][a-z0-9._-]{1,31}$/.test(name))
+      return {
+        text: "Usernames are 2 to 32 lowercase letters or numbers, and may use . _ or -.",
+        field: "handle",
+      };
+    if (!password) return { text: "Enter your password.", field: "password" };
+    if (mode === "register" && password.length < 8)
+      return { text: "Use at least 8 characters for your password.", field: "password" };
+    return null;
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const missing = problem();
+    if (missing) {
+      setError(missing.text);
+      document
+        .getElementById(`${id}-${missing.field === "name" ? "guest-name" : missing.field}`)
+        ?.focus();
+      return;
+    }
     setBusy(true);
     const api = new Api(props.url);
     const ticket = ++attempt.current;
@@ -781,32 +810,39 @@ function AuthCard(props: {
   }
 
   const inputCls =
-    "w-full rounded-lg border border-edge bg-ground px-3 py-2.5 text-sm outline-none placeholder:text-ink-faint focus:border-copper";
-  const labelCls = "mb-1 block text-sm font-medium";
-  const hintCls = "mt-1 text-xs text-ink-dim";
+    "h-10 w-full rounded-xl border border-edge bg-ground px-3.5 text-sm outline-none transition-colors placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper";
+  const labelCls = "mb-1.5 block text-[13px] font-medium text-ink-dim";
+  const hintCls = "mt-1.5 text-xs text-ink-faint";
+  const submitCls = buttonClass("primary", "h-10 w-full rounded-xl");
 
   return (
-    <div className="rounded-xl border border-edge bg-raised p-6">
-      <button
-        onClick={props.onBack}
-        className="mb-4 flex items-center gap-1.5 text-sm text-ink-dim transition-colors hover:text-ink"
-      >
-        <Icon name="arrow" size={14} style={{ transform: "rotate(180deg)" }} />
-        All workspaces
-      </button>
-      <h2 className="text-xl font-bold">{props.info.workspaceName}</h2>
-      <p className="mb-5 mt-0.5 font-mono text-xs text-ink-faint">
-        {props.url.replace(/^https?:\/\//, "")} · {props.info.userCount}{" "}
-        {props.info.userCount === 1 ? "member" : "members"}
-      </p>
+    <div className="card-warm rounded-3xl p-6 sm:p-7">
+      <div className="mb-6 flex flex-col items-center text-center">
+        <span
+          aria-hidden="true"
+          className="flex size-14 items-center justify-center rounded-2xl text-xl font-semibold text-white shadow-[0_10px_30px_-10px_rgb(0_0_0/0.6)]"
+          style={{ background: workspaceGradient(props.info.workspaceName) }}
+        >
+          {props.info.workspaceName[0]?.toUpperCase() ?? "?"}
+        </span>
+        <h1 className="mt-4 font-brand text-2xl font-semibold tracking-tight">
+          {props.info.workspaceName}
+        </h1>
+        <p className="mt-1 text-[13px] text-ink-faint">
+          {props.url.replace(/^https?:\/\//, "")} ·{" "}
+          {props.info.userCount === 0
+            ? "No members yet"
+            : `${props.info.userCount} ${props.info.userCount === 1 ? "member" : "members"}`}
+        </p>
+      </div>
 
       {mustReplace ? (
         <>
-          <p className="mb-4 rounded-lg bg-mention px-3 py-2.5 text-sm text-copper">
+          <p className="mb-4 rounded-xl border border-edge bg-ink/[0.04] px-3.5 py-3 text-sm text-ink-dim">
             That password was issued to you by someone else. Choose your own to finish signing in —
             the workspace stays closed until you do.
           </p>
-          <form onSubmit={replacePassword} className="space-y-3">
+          <form onSubmit={replacePassword} className="space-y-4">
             <div>
               <label className={labelCls} htmlFor={`${id}-new-password`}>
                 New password
@@ -843,11 +879,7 @@ function AuthCard(props: {
                 {error}
               </p>
             )}
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full rounded-lg bg-copper py-2.5 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-60"
-            >
+            <button type="submit" disabled={busy} className={submitCls}>
               {busy ? "Saving…" : "Set password and continue"}
             </button>
           </form>
@@ -855,19 +887,25 @@ function AuthCard(props: {
       ) : (
         <>
           {isFirstUser && (
-            <p className="mb-4 rounded-lg bg-mention px-3 py-2.5 text-sm text-copper">
-              This workspace is brand new — the first account becomes its owner.
+            <p className="mb-5 flex items-start gap-2.5 rounded-xl border border-edge bg-ink/[0.04] px-3.5 py-3 text-sm text-ink-dim">
+              <Icon name="sparkle" size={16} className="mt-0.5 text-copper" />
+              <span>This workspace is brand new. The first account becomes its owner.</span>
             </p>
           )}
 
           {hasUsers && (
-            <div {...tabs.listProps} className="mb-4 flex gap-1 rounded-lg bg-ground p-1">
+            <div
+              {...tabs.listProps}
+              className="mb-5 flex gap-1 rounded-xl border border-edge bg-ground p-1"
+            >
               {modes.map((m) => (
                 <button
                   key={m}
                   {...tabs.tabProps(m)}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                    mode === m ? "bg-lifted text-ink" : "text-ink-dim hover:text-ink"
+                  className={`flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                    mode === m
+                      ? "bg-lifted text-ink shadow-[0_1px_2px_rgb(0_0_0/0.25)]"
+                      : "text-ink-faint hover:text-ink"
                   }`}
                 >
                   {MODE_LABELS[m]}
@@ -878,7 +916,7 @@ function AuthCard(props: {
 
           <div {...(hasUsers ? tabs.panelProps : {})}>
             {mode === "guest" ? (
-              <form onSubmit={submit} className="space-y-3">
+              <form onSubmit={submit} noValidate className="space-y-4">
                 <div>
                   <label className={labelCls} htmlFor={`${id}-guest-name`}>
                     Display name
@@ -903,16 +941,12 @@ function AuthCard(props: {
                     {error}
                   </p>
                 )}
-                <button
-                  type="submit"
-                  disabled={busy || !displayName.trim()}
-                  className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
-                >
+                <button type="submit" disabled={busy} className={submitCls}>
                   {busy ? "Joining…" : "Join as guest"}
                 </button>
               </form>
             ) : (
-              <form onSubmit={submit} className="space-y-3">
+              <form onSubmit={submit} noValidate className="space-y-4">
                 <div>
                   <label className={labelCls} htmlFor={`${id}-handle`}>
                     Username
@@ -925,8 +959,14 @@ function AuthCard(props: {
                     autoComplete="username"
                     spellCheck={false}
                     autoCapitalize="none"
+                    aria-describedby={mode === "register" ? `${id}-handle-hint` : undefined}
                     className={inputCls}
                   />
+                  {mode === "register" && (
+                    <p id={`${id}-handle-hint`} className={hintCls}>
+                      Lowercase letters and numbers, such as maya or sam.r
+                    </p>
+                  )}
                 </div>
                 {mode === "register" && (
                   <div>
@@ -1011,11 +1051,7 @@ function AuthCard(props: {
                     {error}
                   </p>
                 )}
-                <button
-                  type="submit"
-                  disabled={busy || !handle.trim() || !password}
-                  className="w-full rounded-lg bg-copper py-2.5 font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
-                >
+                <button type="submit" disabled={busy} className={submitCls}>
                   {busy ? "Connecting…" : mode === "login" ? "Sign in" : "Join workspace"}
                 </button>
               </form>
@@ -1023,6 +1059,13 @@ function AuthCard(props: {
           </div>
         </>
       )}
+      <button
+        onClick={props.onBack}
+        className="mx-auto mt-5 flex items-center gap-1.5 text-[13px] text-ink-faint transition-colors hover:text-ink"
+      >
+        <Icon name="arrow" size={13} style={{ transform: "rotate(180deg)" }} />
+        All workspaces
+      </button>
     </div>
   );
 }

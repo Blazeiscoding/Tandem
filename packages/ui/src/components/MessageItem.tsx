@@ -1,5 +1,5 @@
-import { lazy, memo, Suspense, useState, type ReactNode } from "react";
-import { useCopy, writeClipboard } from "../lib/useCopy.js";
+import { lazy, memo, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { writeClipboard } from "../lib/useCopy.js";
 import { browserLink } from "../lib/deeplink.js";
 import type { FileMeta, ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
@@ -22,7 +22,12 @@ const MessageEditor = lazy(() =>
   import("./MessageEditor.js").then((module) => ({ default: module.MessageEditor })),
 );
 
-const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉", "❤️", "😂"];
+/** The three reactions most messages get; the picker has the rest. */
+const QUICK_REACTIONS = ["👍", "❤️", "😂"];
+/** The row a long press offers on a phone, where a thumb has room for more. */
+const SHEET_REACTIONS = ["👍", "❤️", "😂", "🎉", "👀", "🙏"];
+/** How long a press lasts before it opens the message's actions. */
+const LONG_PRESS_MS = 450;
 
 interface Props {
   message: Message;
@@ -57,7 +62,19 @@ export const MessageItem = memo(function MessageItem({
   const [picking, setPicking] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(false);
-  const { copy, copied } = useCopy(1200);
+  // The toolbar shows on hover; while its menu is open it stays, so the menu
+  // has a trigger to hang from and focus has somewhere to return to.
+  const [moreOpen, setMoreOpen] = useState(false);
+  /** The touch menu, opened by its button or by holding the message. */
+  const [touchMenu, setTouchMenu] = useState(false);
+  const row = useRef<HTMLDivElement>(null);
+  const press = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const cancelPress = () => {
+    if (!press.current) return;
+    clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  useEffect(() => cancelPress, []);
   const shareable = useShareableServer();
   const isSaved = useWorkspace((s) => !!s.saved[message.id]);
   const author = users[message.userId];
@@ -134,54 +151,130 @@ export const MessageItem = memo(function MessageItem({
       setDeleting(false);
     }
   }
+  const copyItem: MenuItem = {
+    id: "link",
+    label: "Copy link to message",
+    icon: "link",
+    // The menu has closed by now, so a notice says whether it worked.
+    onSelect: () =>
+      void writeClipboard(link()).then((ok) =>
+        toast(
+          ok
+            ? { message: "Link copied.", kind: "success" }
+            : { message: "Could not copy the link." },
+        ),
+      ),
+  };
+  const unreadItem: MenuItem = {
+    id: "unread",
+    label: unreadLabel,
+    icon: "markUnread",
+    onSelect: markUnread,
+  };
+  // Pinning changes the channel for everyone, which a guest may not.
+  const pinItems: MenuItem[] =
+    selfRole === "guest" ? [] : [{ id: "pin", label: pinLabel, icon: "pin", onSelect: togglePin }];
+  const deleteItems: MenuItem[] = canDelete
+    ? [
+        {
+          id: "delete",
+          label: "Delete message",
+          icon: "trash",
+          destructive: true,
+          section: true,
+          disabled: deleting,
+          onSelect: () => void deleteMessage(),
+        },
+      ]
+    : [];
+  /** What the message says as shown, names rather than ids. */
+  const copyTextItem: MenuItem = {
+    id: "copy-text",
+    label: "Copy text",
+    onSelect: () => {
+      const shown = row.current?.querySelector<HTMLElement>(".message-text");
+      const text = shown?.innerText ?? shown?.textContent ?? "";
+      void writeClipboard(text).then((ok) =>
+        toast(
+          ok
+            ? { message: "Text copied.", kind: "success" }
+            : { message: "Could not copy the text." },
+        ),
+      );
+    },
+  };
+  /** Everything, named, for a touchscreen, where there is no toolbar. */
   const menuItems: MenuItem[] = [
     ...(inThread
       ? []
-      : [{ id: "reply", label: "Reply in thread", onSelect: () => onOpenThread?.(message.id) }]),
-    { id: "react", label: "Add a reaction…", onSelect: () => setPicking(true) },
-    {
-      id: "link",
-      label: "Copy link to message",
-      // The menu has closed by now, so a notice says whether it worked.
-      onSelect: () =>
-        void writeClipboard(link()).then((ok) =>
-          toast(
-            ok
-              ? { message: "Link copied.", kind: "success" }
-              : { message: "Could not copy the link." },
-          ),
-        ),
-    },
-    { id: "save", label: saveLabel, onSelect: toggleSaved },
-    { id: "unread", label: unreadLabel, onSelect: markUnread },
-    // Pinning changes the channel for everyone, which a guest may not.
-    ...(selfRole === "guest" ? [] : [{ id: "pin", label: pinLabel, onSelect: togglePin }]),
-    ...(mine ? [{ id: "edit", label: "Edit message", onSelect: () => setEditing(true) }] : []),
-    ...(canDelete
+      : [
+          {
+            id: "reply",
+            label: "Reply in thread",
+            icon: "thread" as const,
+            onSelect: () => onOpenThread?.(message.id),
+          },
+        ]),
+    { id: "react", label: "Add a reaction…", icon: "smile", onSelect: () => setPicking(true) },
+    // Holding a message opens this menu rather than selecting its words.
+    ...(message.text ? [{ ...copyTextItem, icon: "fileText" as const }] : []),
+    copyItem,
+    { id: "save", label: saveLabel, icon: "bookmark", onSelect: toggleSaved },
+    unreadItem,
+    ...pinItems,
+    ...(mine
       ? [
           {
-            id: "delete",
-            label: "Delete message",
-            destructive: true,
-            disabled: deleting,
-            onSelect: () => void deleteMessage(),
+            id: "edit",
+            label: "Edit message",
+            icon: "edit" as const,
+            onSelect: () => setEditing(true),
           },
         ]
       : []),
+    ...deleteItems.map((item) => ({ ...item, section: undefined })),
   ];
+  /** What the toolbar keeps behind its last button: the less frequent half. */
+  const moreItems: MenuItem[] = [copyItem, unreadItem, ...pinItems, ...deleteItems];
 
   return (
     <div
+      ref={row}
       role="article"
       aria-label={`Message from ${author?.displayName ?? "unknown"}`}
       tabIndex={0}
-      className={`message-row group relative py-0.5 pl-4 pr-12 transition-colors hover:bg-deep/40 ${
-        compact ? "" : "mt-4"
-      } ${
+      // Holding a message opens its actions, as phones do everywhere else.
+      // A press on a control or a link stays that control's.
+      onTouchStart={(event) => {
+        cancelPress();
+        if (editing || event.touches.length !== 1 || !matchMedia("(hover: none)").matches) return;
+        if ((event.target as Element).closest("button, a, input, textarea, video, audio")) return;
+        const touch = event.touches[0]!;
+        press.current = {
+          x: touch.clientX,
+          y: touch.clientY,
+          timer: window.setTimeout(() => {
+            press.current = null;
+            navigator.vibrate?.(8);
+            setTouchMenu(true);
+          }, LONG_PRESS_MS),
+        };
+      }}
+      onTouchMove={(event) => {
+        const touch = event.touches[0];
+        if (!press.current || !touch) return;
+        if (Math.hypot(touch.clientX - press.current.x, touch.clientY - press.current.y) > 10)
+          cancelPress();
+      }}
+      onTouchEnd={cancelPress}
+      onTouchCancel={cancelPress}
+      className={`message-row group relative py-1 pl-5 pr-12 transition-colors hover:bg-ink/[0.025] ${
+        compact ? "" : "mt-3"
+      } ${moreOpen ? "bg-ink/[0.025]" : ""} ${
         mentionsMe ? "bg-mention shadow-[inset_2px_0_var(--color-copper)] hover:bg-mention" : ""
       } ${highlighted ? "bg-copper/15 hover:bg-copper/15" : ""}`}
     >
-      <div className="flex gap-4">
+      <div className="flex gap-3.5">
         <div className="relative w-10 shrink-0 pt-0.5">
           {!compact && (
             <Tooltip label={profileLabel}>
@@ -202,7 +295,7 @@ export const MessageItem = memo(function MessageItem({
             <time
               dateTime={new Date(message.createdAt).toISOString()}
               title={formatFull(message.createdAt)}
-              className="absolute right-0 top-0.5 hidden select-none whitespace-nowrap pt-1 text-[10px] text-ink-faint group-hover:block"
+              className="absolute right-0 top-0.5 hidden select-none whitespace-nowrap pt-[3px] text-[11px] text-ink-faint group-hover:block"
             >
               {formatTime(message.createdAt)}
             </time>
@@ -210,9 +303,9 @@ export const MessageItem = memo(function MessageItem({
         </div>
         <div className="min-w-0 flex-1">
           {(message.pinned || isSaved) && (
-            <div className="mb-0.5 flex items-center gap-3 text-[11px] text-ink-faint">
+            <div className="mb-0.5 flex items-center gap-3 text-[12px] text-ink-faint">
               {message.pinned && (
-                <span className="flex items-center gap-1 text-copper">
+                <span className="flex items-center gap-1">
                   <Icon name="pin" size={12} />
                   Pinned to this channel
                 </span>
@@ -229,7 +322,7 @@ export const MessageItem = memo(function MessageItem({
             <div className="flex items-baseline gap-2">
               <button
                 onClick={() => onOpenProfile?.(message.userId)}
-                className="text-[15px] font-semibold hover:underline"
+                className="text-[15px] font-semibold leading-snug hover:underline"
               >
                 {author?.displayName ?? "unknown"}
               </button>
@@ -253,7 +346,10 @@ export const MessageItem = memo(function MessageItem({
               fallback={
                 <p role="alert" className="mt-1 text-sm text-ink-dim">
                   The editor could not load. Reload the app to try again.{" "}
-                  <button className="text-copper underline" onClick={() => setEditing(false)}>
+                  <button
+                    className="font-medium text-ink underline"
+                    onClick={() => setEditing(false)}
+                  >
                     Cancel
                   </button>
                 </p>
@@ -272,7 +368,7 @@ export const MessageItem = memo(function MessageItem({
           ) : (
             <>
               {message.text && (
-                <div className="message-text text-[15px] leading-[1.4] text-ink/90">
+                <div className="message-text text-[15px] leading-[1.5] text-ink/90">
                   <Mrkdwn
                     text={message.text}
                     users={users}
@@ -297,7 +393,7 @@ export const MessageItem = memo(function MessageItem({
           )}
 
           {message.reactions.length > 0 && (
-            <div role="group" aria-label="Reactions" className="mt-1 flex flex-wrap gap-1">
+            <div role="group" aria-label="Reactions" className="mt-1.5 flex flex-wrap gap-1">
               {message.reactions.map((g) => {
                 const reacted = selfId ? g.userIds.includes(selfId) : false;
                 // "you" last, as people say it, and never your own name.
@@ -316,15 +412,15 @@ export const MessageItem = memo(function MessageItem({
                     aria-label={`${g.emoji} ${count} ${count === 1 ? "reaction" : "reactions"}, from ${names}`}
                     aria-pressed={reacted}
                     onClick={() => react(g.emoji)}
-                    className={`flex items-center gap-1.5 rounded-lg border px-1.5 py-0.5 text-[13px] transition-colors ${
+                    className={`flex h-6 items-center gap-1 rounded-full border px-2 text-[13px] transition-colors ${
                       reacted
-                        ? "border-copper bg-copper/15"
-                        : "border-transparent bg-lifted hover:border-edge"
+                        ? "border-copper/50 bg-copper/10"
+                        : "border-edge bg-transparent hover:border-ink-faint/50 hover:bg-ink/[0.04]"
                     }`}
                   >
                     <span>{g.emoji}</span>
                     <span
-                      className={`text-[12px] font-semibold ${reacted ? "text-copper" : "text-ink-dim"}`}
+                      className={`tabular text-[12px] font-medium ${reacted ? "text-copper" : "text-ink-dim"}`}
                     >
                       {g.userIds.length}
                     </span>
@@ -337,12 +433,12 @@ export const MessageItem = memo(function MessageItem({
           {!inThread && message.threadRootId && (
             <button
               onClick={() => onOpenThread?.(message.threadRootId!)}
-              className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] text-ink-faint transition-colors hover:border-edge hover:bg-lifted hover:text-ink"
+              className="mt-1 inline-flex items-center gap-1.5 rounded-md text-left text-[12px] text-ink-faint transition-colors hover:text-ink"
             >
-              Also sent to the channel from a thread
-              <span className="inline-flex items-center gap-1 text-copper">
-                View thread
-                <Icon name="arrow" size={13} />
+              <Icon name="thread" size={13} />
+              <span>
+                Also sent to the channel from a thread ·{" "}
+                <span className="font-medium text-ink-dim">View thread</span>
               </span>
             </button>
           )}
@@ -350,77 +446,58 @@ export const MessageItem = memo(function MessageItem({
           {!inThread && message.replyCount > 0 && (
             <button
               onClick={() => onOpenThread?.(message.id)}
-              className="mt-1 flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 text-[13px] font-semibold text-copper transition-colors hover:border-edge hover:bg-lifted"
+              className="-ml-1.5 mt-1 flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[13px] font-medium text-copper transition-colors hover:bg-ink/[0.04]"
             >
+              <Icon name="thread" size={14} />
               {message.replyCount} {message.replyCount === 1 ? "reply" : "replies"}
-              <Icon name="arrow" size={13} className="text-ink-faint" />
+              <Icon name="arrow" size={12} className="text-ink-faint" />
             </button>
           )}
         </div>
       </div>
 
       {!editing && (
-        <div className="message-toolbar absolute -top-4 right-4 hidden max-w-[calc(100%-32px)] items-center overflow-x-auto rounded-lg border border-edge bg-raised shadow-lg group-hover:flex group-focus-within:flex">
+        <div
+          className={`message-toolbar surface-float absolute -top-4 right-4 z-10 max-w-[calc(100%-32px)] items-center gap-px overflow-x-auto rounded-lg p-0.5 ${
+            moreOpen ? "flex" : "hidden group-hover:flex group-focus-within:flex"
+          }`}
+        >
           {QUICK_REACTIONS.map((e) => (
             <ToolbarButton key={e} label={e} onClick={() => react(e)} />
           ))}
           <ToolbarButton
-            label={<Icon name="smile" size={15} />}
+            label={<Icon name="smile" size={16} />}
             title="Add a reaction"
             onClick={() => setPicking(true)}
           />
+          <span aria-hidden="true" className="mx-0.5 h-4 w-px shrink-0 bg-edge" />
           {!inThread && (
             <ToolbarButton
-              label={<Icon name="thread" size={15} />}
+              label={<Icon name="thread" size={16} />}
               title="Reply in thread"
               onClick={() => onOpenThread?.(message.id)}
             />
           )}
           <ToolbarButton
-            label={
-              copied ? (
-                <Icon name={copied.ok ? "check" : "alert"} size={15} />
-              ) : (
-                <Icon name="link" size={15} />
-              )
-            }
-            title={copied && !copied.ok ? "Could not copy the link" : "Copy link to message"}
-            onClick={() => void copy(link())}
-          />
-          <ToolbarButton
-            label={<Icon name="bookmark" size={15} />}
+            label={<Icon name="bookmark" size={16} />}
             title={saveLabel}
             active={isSaved}
             onClick={toggleSaved}
           />
-          <ToolbarButton
-            label={<Icon name="markUnread" size={15} />}
-            title={unreadLabel}
-            onClick={markUnread}
-          />
-          {selfRole !== "guest" && (
-            <ToolbarButton
-              label={<Icon name="pin" size={15} />}
-              title={pinLabel}
-              active={message.pinned}
-              onClick={togglePin}
-            />
-          )}
           {mine && (
             <ToolbarButton
-              label={<Icon name="edit" size={15} />}
+              label={<Icon name="edit" size={16} />}
               title="Edit message"
               onClick={() => setEditing(true)}
             />
           )}
-          {canDelete && (
-            <ToolbarButton
-              label={<Icon name="trash" size={15} />}
-              title="Delete message"
-              disabled={deleting}
-              onClick={() => void deleteMessage()}
-            />
-          )}
+          <Menu
+            label="More actions"
+            tooltip="More actions"
+            items={moreItems}
+            onOpenChange={setMoreOpen}
+            triggerClassName="flex size-7 items-center justify-center rounded-md text-ink-dim transition-colors hover:bg-ink/[0.08] hover:text-ink"
+          />
         </div>
       )}
       {/* A touchscreen has no hover to raise the toolbar, so each message
@@ -430,7 +507,39 @@ export const MessageItem = memo(function MessageItem({
           <Menu
             label={`Actions for message from ${author?.displayName ?? "unknown"}`}
             items={menuItems}
-            triggerClassName="flex size-9 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-lifted hover:text-ink"
+            open={touchMenu}
+            onOpenChange={setTouchMenu}
+            sheet
+            header={(close) => (
+              <div className="flex items-center justify-between">
+                {SHEET_REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    aria-label={`React with ${emoji}`}
+                    onClick={() => {
+                      close();
+                      react(emoji);
+                    }}
+                    className="flex size-11 items-center justify-center rounded-full text-2xl transition-transform active:scale-90"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  aria-label="Add a reaction"
+                  onClick={() => {
+                    close();
+                    setPicking(true);
+                  }}
+                  className="flex size-11 items-center justify-center rounded-full bg-ink/[0.06] text-ink-dim"
+                >
+                  <Icon name="smile" size={20} />
+                </button>
+              </div>
+            )}
+            triggerClassName="flex size-9 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
           />
         </div>
       )}
@@ -451,8 +560,8 @@ function ToolbarButton(props: {
       onClick={props.onClick}
       disabled={props.disabled}
       aria-label={props.title}
-      className={`flex items-center justify-center px-2 py-1.5 text-sm transition-colors hover:bg-lifted disabled:opacity-40 ${
-        props.active ? "bg-copper/25" : ""
+      className={`flex size-7 items-center justify-center rounded-md text-[15px] text-ink-dim transition-colors hover:bg-ink/[0.08] hover:text-ink disabled:opacity-40 ${
+        props.active ? "text-copper" : ""
       }`}
     >
       {props.label}

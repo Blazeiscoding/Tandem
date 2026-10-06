@@ -268,9 +268,7 @@ export function ChannelDetailsDialog(props: {
                 </p>
               )}
               <div>
-                <label className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-                  Topic
-                </label>
+                <label className="mb-1.5 block text-[13px] font-medium text-ink-dim">Topic</label>
                 <input
                   aria-label="Channel topic"
                   maxLength={250}
@@ -285,7 +283,7 @@ export function ChannelDetailsDialog(props: {
                 />
               </div>
               <div>
-                <label className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
+                <label className="mb-1.5 block text-[13px] font-medium text-ink-dim">
                   Description
                 </label>
                 <textarea
@@ -480,7 +478,7 @@ export function ChannelDetailsDialog(props: {
                   <li key={id}>
                     <button
                       onClick={() => props.onOpenProfile(id)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-lifted"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-ink/[0.05]"
                     >
                       <Avatar user={u} size={28} />
                       <span className="min-w-0 flex-1 truncate text-sm">
@@ -517,7 +515,7 @@ export function ChannelDetailsDialog(props: {
                           </p>
                           <button
                             disabled={busy || membersLoading || membersError}
-                            className="text-copper underline"
+                            className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
                             onClick={() => void changeManager(id, managerChange.manager)}
                           >
                             Confirm role change
@@ -533,7 +531,7 @@ export function ChannelDetailsDialog(props: {
                       ) : (
                         <button
                           disabled={busy || membersLoading || membersError}
-                          className="mb-2 ml-2 text-xs text-copper underline"
+                          className="mb-2 ml-2 text-xs font-medium text-ink underline decoration-ink-faint/60"
                           aria-label={`${channel.managerIds.includes(id) ? "Remove manager role from" : "Make channel manager:"} ${u?.displayName}`}
                           onClick={() => {
                             setRemovingId(null);
@@ -592,16 +590,14 @@ export function ChannelDetailsDialog(props: {
             </ul>
             {permissions.invite && !membersLoading && !membersError && notMembers.length > 0 && (
               <div>
-                <div className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-                  Add someone
-                </div>
+                <div className="mb-1.5 text-[13px] font-semibold text-ink">Add someone</div>
                 <ul className="flex flex-wrap gap-1.5">
                   {notMembers.map((u) => (
                     <li key={u.id}>
                       <button
                         onClick={() => addMember(u.id)}
                         disabled={busy}
-                        className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-copper hover:text-ink"
+                        className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink"
                       >
                         + {u.displayName}
                       </button>
@@ -634,7 +630,7 @@ function NotificationSettings({ channelId }: { channelId: ID }) {
             <button
               type="button"
               onClick={() => client.retryChannelPrefs(channelId)}
-              className="font-medium text-copper underline"
+              className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
             >
               Try again
             </button>
@@ -646,9 +642,7 @@ function NotificationSettings({ channelId }: { channelId: ID }) {
         </p>
       )}
       <fieldset className="space-y-1.5" disabled={prefs.muted}>
-        <legend className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-          Notify me about
-        </legend>
+        <legend className="mb-1.5 text-[13px] font-semibold text-ink">Notify me about</legend>
         {LEVELS.map((level) => (
           <label
             key={level.value}

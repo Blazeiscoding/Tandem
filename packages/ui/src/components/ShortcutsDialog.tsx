@@ -1,6 +1,10 @@
 import { useComposerPreferences } from "../lib/composerPreferences.js";
 import { useState } from "react";
 import { Dialog, inputCls } from "./Dialog.js";
+import { modKey } from "../lib/shortcuts.js";
+
+/** The key held for shortcuts, as this keyboard labels it: ⌘ on a Mac, Ctrl elsewhere. */
+const MOD = modKey();
 
 /** What Enter does depends on the preference in Account settings, so the list follows it. */
 function writingKeys(enterSends: boolean): [string, string][] {
@@ -8,10 +12,10 @@ function writingKeys(enterSends: boolean): [string, string][] {
     ? [
         ["Enter", "Send"],
         ["Shift Enter", "New line"],
-        ["Ctrl Enter", "Send without choosing a mention"],
+        [`${MOD} Enter`, "Send without choosing a mention"],
       ]
     : [
-        ["Ctrl Enter", "Send"],
+        [`${MOD} Enter`, "Send"],
         ["Enter", "New line"],
       ];
 }
@@ -22,10 +26,10 @@ const groups = (
   {
     title: "Getting around",
     items: [
-      ["Ctrl K", "Jump to a channel or person"],
-      ["Ctrl F", "Search messages"],
+      [`${MOD} K`, "Jump to a channel or person"],
+      [`${MOD} F`, "Search messages"],
       ["Esc", "Close the open panel or dialog"],
-      ["Ctrl /", "Show this list"],
+      [`${MOD} /`, "Show this list"],
     ],
   },
   {
@@ -33,11 +37,11 @@ const groups = (
     note: "Choose what Enter does in Account settings.",
     items: [
       ...writingKeys(enterSends),
-      ["Ctrl B", "Bold selected text"],
-      ["Ctrl I", "Italic selected text"],
-      ["Ctrl E", "Inline code"],
+      [`${MOD} B`, "Bold selected text"],
+      [`${MOD} I`, "Italic selected text"],
+      [`${MOD} E`, "Inline code"],
       ["@", "Mention someone"],
-      ["Ctrl V", "Paste an image straight in"],
+      [`${MOD} V`, "Paste an image straight in"],
     ],
   },
   {
@@ -92,9 +96,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
       <div className="space-y-4">
         {shown.map((group) => (
           <section key={group.title}>
-            <h3 className="mb-1.5 font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-              {group.title}
-            </h3>
+            <h3 className="mb-1.5 text-[13px] font-semibold text-ink">{group.title}</h3>
             <ul className="space-y-1">
               {group.items.map(([keys, what]) => (
                 <li key={keys} className="flex items-baseline gap-3 text-sm">

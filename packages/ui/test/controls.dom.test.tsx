@@ -172,6 +172,12 @@ describe("the huddle bar", () => {
   });
 });
 
+/** Chooses one of a message's less frequent actions, from its More actions menu. */
+async function choose(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getAllByRole("button", { name: "More actions" })[0]!);
+  await user.click(screen.getByRole("menuitem", { name }));
+}
+
 describe("message actions", () => {
   const message: Message = {
     id: "M_1",
@@ -217,15 +223,13 @@ describe("message actions", () => {
     act(() => profile.focus());
     expect(profile).toHaveAccessibleDescription("View Sam Rivera's profile");
     const toolbar = screen.getByRole("button", { name: "Reply in thread" }).parentElement!;
+    // What a message is answered with most stays in sight; the rest is one menu away.
     const named = [
       "Add a reaction",
       "Reply in thread",
-      "Copy link to message",
       "Remove from Saved",
-      "Mark unread from this message",
-      "Unpin from channel",
       "Edit message",
-      "Delete message",
+      "More actions",
     ];
     for (const name of named) {
       const action = within(toolbar).getByRole("button", { name });
@@ -237,9 +241,21 @@ describe("message actions", () => {
     const reactions = within(toolbar)
       .getAllByRole("button")
       .filter((button) => PICTOGRAPH.test(button.textContent ?? ""));
-    expect(reactions).toHaveLength(6);
+    expect(reactions).toHaveLength(3);
     expect(within(toolbar).getAllByRole("button")).toHaveLength(named.length + reactions.length);
     expect(await accessibilityProblems(toolbar)).toEqual([]);
+
+    await userEvent.setup().click(within(toolbar).getByRole("button", { name: "More actions" }));
+    expect(
+      within(screen.getByRole("menu", { name: "More actions" }))
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Copy link to message",
+      "Mark unread from this message",
+      "Unpin from channel",
+      "Delete message",
+    ]);
   });
 
   it("says a message is pinned or saved in words, without an emoji in front", () => {
@@ -252,7 +268,7 @@ describe("message actions", () => {
   it("deletes only after the shared confirmation is accepted", async () => {
     const user = userEvent.setup();
     const { deleteMessage } = messageItem();
-    await user.click(screen.getByRole("button", { name: "Delete message" }));
+    await choose(user, "Delete message");
 
     const question = screen.getByRole("dialog", { name: "Delete this message?" });
     expect(question).toHaveTextContent(/Everyone in the conversation stops seeing it/);
@@ -260,7 +276,7 @@ describe("message actions", () => {
     await user.click(within(question).getByRole("button", { name: "Cancel" }));
     expect(deleteMessage).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Delete message" }));
+    await choose(user, "Delete message");
     await user.click(
       within(screen.getByRole("dialog", { name: "Delete this message?" })).getByRole("button", {
         name: "Delete",
@@ -274,7 +290,7 @@ describe("message actions", () => {
     const { deleteMessage } = messageItem();
     deleteMessage.mockRejectedValueOnce(new Error("offline"));
 
-    await user.click(screen.getByRole("button", { name: "Delete message" }));
+    await choose(user, "Delete message");
     await user.click(
       within(screen.getByRole("dialog", { name: "Delete this message?" })).getByRole("button", {
         name: "Delete",
@@ -283,7 +299,8 @@ describe("message actions", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /Could not confirm whether the message was deleted/,
     );
-    expect(screen.getByRole("button", { name: "Delete message" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    expect(screen.getByRole("menuitem", { name: "Delete message" })).toBeEnabled();
   });
 
   it("says so when an optimistic toggle comes back undone, and offers it again", async () => {
@@ -296,7 +313,7 @@ describe("message actions", () => {
 
     // The pin flips back on its own. Without the notice that revert is the
     // only sign anything happened, and the toolbar that started it is gone.
-    await user.click(screen.getByRole("button", { name: "Unpin from channel" }));
+    await choose(user, "Unpin from channel");
     expect(await screen.findByText("Could not unpin that message.")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Try again" }));

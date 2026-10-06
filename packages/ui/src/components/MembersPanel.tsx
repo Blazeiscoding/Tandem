@@ -57,16 +57,16 @@ export function MembersPanel(props: {
     <aside
       ref={panel}
       aria-label="Members"
-      className="flex w-[260px] max-w-full shrink-0 flex-col border-l border-edge bg-raised"
+      className="flex w-[260px] max-w-full shrink-0 flex-col border-l border-edge"
     >
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-edge px-4">
-        <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-4 pr-2.5">
+        <h2 ref={heading} tabIndex={-1} className="flex-1 text-[15px] font-semibold outline-none">
           Members
         </h2>
         <button
           onClick={props.onClose}
           aria-label="Close Members"
-          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
         >
           <Icon name="close" size={16} />
         </button>
@@ -109,15 +109,13 @@ function MemberGroup(props: {
   if (props.people.length === 0) return null;
   return (
     <section aria-label={props.title} className="mb-4">
-      <h3 className="mb-1 px-2 text-[11px] font-bold uppercase tracking-[0.06em] text-ink-faint">
-        {props.title}
-      </h3>
+      <h3 className="mb-1 px-2 text-[12px] font-medium text-ink-faint">{props.title}</h3>
       <ul>
         {props.people.map((user) => (
           <li key={user.id}>
             <button
               onClick={() => props.onOpen(user.id)}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-lifted ${
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-ink/[0.05] ${
                 props.online ? "" : "opacity-60 hover:opacity-100"
               }`}
             >

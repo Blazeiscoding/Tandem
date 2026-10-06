@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Platform } from "../platform.js";
+import { Icon } from "./Icon.js";
 
 /** How long "Not now" keeps the banner away on this device. */
 export const NOTIFICATION_PROMPT_SNOOZE_MS = 14 * 24 * 60 * 60 * 1000;
@@ -68,26 +69,31 @@ export function NotificationBanner({
     <div
       role="region"
       aria-label="Notifications"
-      className="flex shrink-0 items-center gap-3 border-b border-edge bg-raised px-4 py-2 text-sm text-ink"
+      className="mx-3 mt-3 flex shrink-0 animate-rise-in flex-wrap items-center gap-x-3 gap-y-2 card-warm rounded-xl px-3.5 py-2.5 text-sm text-ink"
     >
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-copper/12 text-copper">
+        <Icon name="bell" size={15} />
+      </span>
       <span className="min-w-0 flex-1 text-ink-dim">
         Turn on notifications to hear about mentions while Tandem is in the background.
       </span>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void enable()}
-        className="shrink-0 font-medium text-copper hover:underline disabled:opacity-40"
-      >
-        {busy ? "Turning on…" : "Turn on"}
-      </button>
-      <button
-        type="button"
-        onClick={snooze}
-        className="shrink-0 text-ink-dim hover:text-ink hover:underline"
-      >
-        Not now
-      </button>
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={snooze}
+          className="h-7 rounded-lg px-2.5 text-[13px] text-ink-dim transition-colors hover:bg-ink/[0.06] hover:text-ink"
+        >
+          Not now
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void enable()}
+          className="btn-shape h-7 bg-copper px-2.5 text-[13px] font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+        >
+          {busy ? "Turning on…" : "Turn on"}
+        </button>
+      </span>
     </div>
   );
 }

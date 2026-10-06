@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ID, Message } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
-import { channelTitle, formatDay, formatTime } from "../lib/format.js";
+import { channelTitle, formatDay, formatTime, formatWhen } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
 import { Mrkdwn } from "./Mrkdwn.js";
-import { Icon } from "./Icon.js";
+import { Icon, type IconName } from "./Icon.js";
+import { Tooltip } from "./Tooltip.js";
 import { ListStatus } from "./ListStatus.js";
 import { usePanelFocus } from "../lib/usePanelFocus.js";
 
 interface Props {
   title: string;
   emptyHint: ReactNode;
+  /** The mark above an empty list's hint. */
+  emptyIcon?: IconName;
   /** One thing to do about an empty list, such as clearing its filter. */
   emptyAction?: { label: string; run: () => void };
   load: (
@@ -93,24 +96,18 @@ export function MessageListPanel(props: Props) {
     <aside
       ref={panel}
       aria-label={props.title}
-      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-raised"
+      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge"
     >
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-edge px-4">
-        <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-4 pr-2.5">
+        <h2 ref={heading} tabIndex={-1} className="flex-1 text-[15px] font-semibold outline-none">
           {props.title}
         </h2>
         {props.headerExtra}
-        <button
-          disabled={busy}
-          className="ml-auto mr-3 text-xs text-copper disabled:opacity-40"
-          onClick={() => void loadPage(undefined, 0, [undefined])}
-        >
-          Refresh
-        </button>
+        <RefreshButton busy={busy} onClick={() => void loadPage(undefined, 0, [undefined])} />
         <button
           onClick={props.onClose}
           aria-label={`Close ${props.title}`}
-          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
         >
           <Icon name="close" size={16} />
         </button>
@@ -129,6 +126,7 @@ export function MessageListPanel(props: Props) {
           }
           onRetry={() => retry.current?.()}
           empty={messages?.length === 0 ? props.emptyHint : null}
+          emptyIcon={props.emptyIcon}
           emptyAction={props.emptyAction}
         />
         <ul className="space-y-2">
@@ -138,9 +136,9 @@ export function MessageListPanel(props: Props) {
               const channel = channels[m.channelId];
               return (
                 <li key={m.id}>
-                  <div className="w-full rounded-xl border border-edge bg-raised p-3 text-left">
-                    <div className="mb-1.5 flex items-center gap-2 text-[11px] text-ink-faint">
-                      <span className="font-medium text-copper">
+                  <div className="w-full rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-ink/[0.035]">
+                    <div className="mb-1.5 flex items-center gap-2 text-[12px] text-ink-faint">
+                      <span className="truncate font-medium text-ink-dim">
                         {channel
                           ? channel.name
                             ? `#${channel.name}`
@@ -148,12 +146,16 @@ export function MessageListPanel(props: Props) {
                           : "unknown"}
                       </span>
                       {props.itemBadge?.(m)}
-                      <span className="ml-auto font-mono">
-                        {formatDay(m.createdAt)} · {formatTime(m.createdAt)}
-                      </span>
+                      <time
+                        dateTime={new Date(m.createdAt).toISOString()}
+                        title={`${formatDay(m.createdAt)} · ${formatTime(m.createdAt)}`}
+                        className="ml-auto shrink-0"
+                      >
+                        {formatWhen(m.createdAt)}
+                      </time>
                     </div>
-                    <div className="flex gap-2">
-                      <Avatar user={users[m.userId]} size={24} />
+                    <div className="flex gap-2.5">
+                      <Avatar user={users[m.userId]} size={28} />
                       <div className="min-w-0 flex-1">
                         <div className="text-[13px] font-semibold">
                           {users[m.userId]?.displayName ?? "unknown"}
@@ -175,10 +177,11 @@ export function MessageListPanel(props: Props) {
                       </div>
                     </div>
                     <button
-                      className="mt-2 text-xs text-copper underline"
+                      className="ml-[38px] mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink-faint transition-colors hover:text-ink"
                       onClick={() => props.onJump(m.channelId, m.id)}
                     >
                       {props.jumpLabel?.(m) ?? (m.threadRootId ? "Open reply" : "Open message")}
+                      <Icon name="arrow" size={12} />
                     </button>
                   </div>
                 </li>
@@ -186,26 +189,30 @@ export function MessageListPanel(props: Props) {
             })}
         </ul>
       </div>
-      <footer className="border-t border-edge px-4 py-2 text-[11px] text-ink-faint">
+      <footer
+        // An empty list says so above; a count of nothing beneath it is noise.
+        hidden={messages?.length === 0 && page === 0 && !nextCursor}
+        className="border-t border-edge px-4 py-2 text-[12px] text-ink-faint"
+      >
         <div role="status">
           {messages?.length ?? 0}{" "}
           {messages?.length === 1
             ? (props.countNoun?.[0] ?? "message")
-            : (props.countNoun?.[1] ?? "messages")}{" "}
-          · Page {page + 1}
+            : (props.countNoun?.[1] ?? "messages")}
+          {(page > 0 || nextCursor) && ` · Page ${page + 1}`}
         </div>
         {(page > 0 || nextCursor) && (
           <div className="mt-2 flex justify-between text-xs">
             <button
               disabled={busy || page === 0}
-              className="text-copper disabled:opacity-40"
+              className="font-medium text-ink-dim hover:text-ink disabled:opacity-40"
               onClick={() => void loadPage(cursors[page - 1], page - 1, cursors)}
             >
               Previous page
             </button>
             <button
               disabled={busy || !nextCursor}
-              className="text-copper disabled:opacity-40"
+              className="font-medium text-ink-dim hover:text-ink disabled:opacity-40"
               onClick={() => {
                 if (nextCursor)
                   void loadPage(nextCursor, page + 1, [...cursors.slice(0, page + 1), nextCursor]);
@@ -237,6 +244,7 @@ export function PinsPanel(props: {
   return (
     <MessageListPanel
       title="Pinned"
+      emptyIcon="pin"
       emptyHint="Nothing pinned here yet. Pin a message to keep it handy for everyone in the channel."
       load={(cursor, signal) => client.api.listPins(props.channelId, signal, cursor)}
       reloadKey={`${props.channelId}:${pinSignature}`}
@@ -250,12 +258,20 @@ export function PinsPanel(props: {
 export function SavedPanel(props: {
   onClose: () => void;
   onJump: (channelId: ID, messageId: ID) => void;
+  /** Its neighbour: messages queued to send later. */
+  onScheduled?: () => void;
 }) {
   const client = useClient();
   const savedSignature = useWorkspace((s) => Object.keys(s.saved).sort().join(","));
   return (
     <MessageListPanel
       title="Saved"
+      emptyIcon="bookmark"
+      headerExtra={
+        props.onScheduled && (
+          <PanelLink icon="clock" label="Scheduled" onClick={props.onScheduled} />
+        )
+      }
       emptyHint={
         <>
           Choose <Icon name="bookmark" size={13} className="inline align-[-2px]" /> Save for later
@@ -293,6 +309,7 @@ export function ThreadsPanel(props: {
   return (
     <MessageListPanel
       title="Threads"
+      emptyIcon="thread"
       countNoun={["thread", "threads"]}
       emptyHint={
         unreadOnly
@@ -306,10 +323,10 @@ export function ThreadsPanel(props: {
         <button
           onClick={() => setUnreadOnly((on) => !on)}
           aria-pressed={unreadOnly}
-          className={`ml-3 rounded-lg border px-2 py-0.5 text-[11px] transition-colors ${
+          className={`mr-1 h-7 rounded-full border px-2.5 text-[12px] font-medium transition-colors ${
             unreadOnly
-              ? "border-copper text-copper"
-              : "border-edge text-ink-faint hover:border-ink-faint hover:text-ink"
+              ? "border-transparent bg-ink/[0.08] text-ink"
+              : "border-edge text-ink-faint hover:bg-ink/[0.05] hover:text-ink"
           }`}
         >
           Unread only
@@ -323,7 +340,7 @@ export function ThreadsPanel(props: {
       reloadKey={`threads:${unreadOnly}:${followSignature}`}
       itemBadge={(m) =>
         unread[m.id] ? (
-          <span className="rounded-full bg-copper/15 px-2 text-copper">
+          <span className="rounded-full bg-copper px-2 font-semibold text-ground">
             {unread[m.id]} new {unread[m.id] === 1 ? "reply" : "replies"}
           </span>
         ) : null
@@ -332,5 +349,34 @@ export function ThreadsPanel(props: {
       onClose={props.onClose}
       onJump={props.onJump}
     />
+  );
+}
+
+/** Loads a panel's list again; it turns while it does. */
+export function RefreshButton(props: { busy: boolean; onClick: () => void }) {
+  return (
+    <Tooltip label="Refresh">
+      <button
+        disabled={props.busy}
+        aria-label="Refresh"
+        onClick={props.onClick}
+        className="flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink disabled:opacity-60"
+      >
+        <Icon name="refresh" size={15} className={props.busy ? "animate-spin" : ""} />
+      </button>
+    </Tooltip>
+  );
+}
+
+/** A step to a neighbouring panel, beside a panel's name. */
+export function PanelLink(props: { icon: IconName; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={props.onClick}
+      className="mr-1 flex h-7 items-center gap-1.5 rounded-full border border-edge px-2.5 text-[12px] font-medium text-ink-faint transition-colors hover:bg-ink/[0.05] hover:text-ink"
+    >
+      <Icon name={props.icon} size={12} />
+      {props.label}
+    </button>
   );
 }

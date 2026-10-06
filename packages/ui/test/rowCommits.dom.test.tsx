@@ -1,5 +1,5 @@
 import { Profiler, type ProfilerOnRenderCallback } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { WorkspaceClient, type WorkspaceState } from "@slackoss/client-core";
 import type { Channel, ID, Message, User } from "@slackoss/protocol";
 import { describe, expect, it } from "vitest";
@@ -175,10 +175,23 @@ describe("message rows and changes they do show", () => {
 
   it("render every row when your role changes, since it decides who may delete", async () => {
     const { renderedBy } = timeline();
-    const deletable = () => screen.queryAllByRole("button", { name: "Delete message" }).length;
-    expect(deletable()).toBe(0);
+    // Delete sits in each row's More actions menu; what a row offers there is
+    // decided when the row renders.
+    const offersDelete = async () => {
+      const triggers = screen.getAllByRole("button", { name: "More actions" });
+      expect(triggers).toHaveLength(ROWS);
+      fireEvent.click(triggers.at(-1)!);
+      const menu = await screen.findByRole("menu", { name: "More actions" });
+      const offered = within(menu)
+        .getAllByRole("menuitem")
+        .some((item) => item.textContent === "Delete message");
+      fireEvent.keyDown(menu, { key: "Escape" });
+      fireEvent.click(document.body);
+      return offered;
+    };
+    expect(await offersDelete()).toBe(false);
     expect(renderedBy((s) => ({ self: { ...s.self!, role: "admin" } }))).toHaveLength(ROWS);
     // An admin may delete anyone's message, so every row offers it now.
-    expect(deletable()).toBe(ROWS);
+    expect(await offersDelete()).toBe(true);
   });
 });

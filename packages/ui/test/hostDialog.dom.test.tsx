@@ -189,8 +189,14 @@ describe("hosting a workspace from the host dialog", () => {
 
     const name = await screen.findByRole("textbox", { name: "Workspace name" });
     const start = screen.getByRole("button", { name: "Start hosting" });
-    expect(start).toBeDisabled();
     expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
+    // The button stays usable and says what is missing, rather than refusing silently.
+    await user.click(start);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Name the workspace first, such as Rocket Team.",
+    );
+    expect(name).toHaveFocus();
+    expect(hosting.start).not.toHaveBeenCalled();
     await user.type(name, "  Rocket Team ");
     await user.click(start);
 

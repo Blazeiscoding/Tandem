@@ -12,12 +12,12 @@ export function LazyPanel(props: { name: string; onClose: () => void; children: 
       fallback={
         <aside
           aria-label={`${props.name} unavailable`}
-          className="w-[420px] max-w-full border-l border-edge bg-raised p-5 text-sm"
+          className="w-[420px] max-w-full border-l border-edge p-5 text-sm"
         >
           <p role="alert">
             {props.name} could not load. Close it to keep chatting, or reload the app to try again.
           </p>
-          <div className="mt-3 flex gap-4 text-copper">
+          <div className="mt-3 flex gap-4 font-medium text-ink">
             <button onClick={props.onClose}>Close {props.name.toLowerCase()}</button>
             <button onClick={() => window.location.reload()}>Reload app</button>
           </div>
@@ -28,10 +28,13 @@ export function LazyPanel(props: { name: string; onClose: () => void; children: 
         fallback={
           <aside
             role="status"
-            className="w-[420px] max-w-full border-l border-edge bg-raised p-5 text-sm text-ink-faint"
+            className="w-[380px] max-w-full border-l border-edge p-5 text-sm text-ink-faint"
           >
             Loading {props.name.toLowerCase()}…
-            <button className="ml-3 text-copper" onClick={props.onClose}>
+            <button
+              className="ml-3 font-medium text-ink-dim hover:text-ink"
+              onClick={props.onClose}
+            >
               Close
             </button>
           </aside>
@@ -52,7 +55,10 @@ export function LazyDialog(props: { loading: string; onClose: () => void; childr
           <p className="text-sm text-ink-dim">
             Close this view to keep chatting, or reload the app to try again.
           </p>
-          <button className="mt-3 text-sm text-copper" onClick={() => window.location.reload()}>
+          <button
+            className="mt-3 text-sm font-medium text-ink"
+            onClick={() => window.location.reload()}
+          >
             Reload app
           </button>
         </Dialog>

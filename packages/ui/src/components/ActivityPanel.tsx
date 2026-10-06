@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { isMessageRead } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
-import { channelTitle, formatTime } from "../lib/format.js";
+import { channelTitle, formatTime, formatWhen } from "../lib/format.js";
+import { Avatar } from "./Avatar.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Icon } from "./Icon.js";
+import { RefreshButton } from "./MessageListPanel.js";
 import { Tooltip } from "./Tooltip.js";
 import { ListStatus } from "./ListStatus.js";
 import { usePanelFocus } from "../lib/usePanelFocus.js";
@@ -121,43 +123,43 @@ export function ActivityPanel({
     <aside
       ref={panel}
       aria-label="Activity"
-      className="flex w-[420px] max-w-full shrink-0 flex-col border-l border-edge bg-raised"
+      className="flex w-[420px] max-w-full shrink-0 flex-col border-l border-edge"
     >
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge px-4">
-        <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-4 pr-2.5">
+        <h2 ref={heading} tabIndex={-1} className="flex-1 text-[15px] font-semibold outline-none">
           Activity
         </h2>
-        <button
-          className="ml-auto text-xs text-copper disabled:opacity-40"
-          disabled={loading}
+        <RefreshButton
+          busy={loading}
           onClick={() => {
             setCursors([undefined]);
             setRevision((v) => v + 1);
           }}
-        >
-          Refresh
-        </button>
+        />
         <button
           aria-label="Close activity"
-          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
           onClick={onClose}
         >
           <Icon name="close" size={16} />
         </button>
       </header>
-      <div {...tabs.listProps} className="flex gap-2 border-b border-edge p-3">
+      <div
+        {...tabs.listProps}
+        className="m-3 mb-1 flex gap-1 rounded-xl border border-edge bg-deep/40 p-1"
+      >
         {MODES.map((value) => (
           <button
             key={value}
             {...tabs.tabProps(value)}
-            className={`flex-1 rounded-lg px-3 py-2 text-sm ${mode === value ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-lifted"}`}
+            className={`flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${mode === value ? "bg-lifted text-ink shadow-[0_1px_2px_rgb(0_0_0/0.2)]" : "text-ink-faint hover:text-ink"}`}
           >
             {value === "unread" ? "Unread" : "Mentions"}
           </button>
         ))}
       </div>
       <div {...tabs.panelProps} className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={loading}>
-        <p className="mb-3 text-xs text-ink-faint">
+        <p className="mb-2 px-1 text-xs text-ink-faint">
           {mode === "unread"
             ? "Unread messages in conversations you joined."
             : "Direct and room-wide mentions in conversations you joined."}
@@ -177,66 +179,93 @@ export function ActivityPanel({
                   : "No mentions yet."
               : null
           }
+          emptyIcon={mode === "unread" ? "check" : "at"}
         />
-        <ul className="space-y-3">
+        <ul className="space-y-1">
           {messages.map((message) => {
             const unread = !isMessageRead(message, { memberships, threadFollows, repliesRead });
+            const channel = channels[message.channelId]!;
+            const author = users[message.userId];
+            const isRoom = channel.type === "public" || channel.type === "private";
             return (
-              <li key={message.id} className="rounded-xl border border-edge bg-raised p-3">
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-medium text-copper">
-                    {channelTitle(channels[message.channelId]!, users, client.state.self?.id)}
-                  </span>
-                  {unread && <span className="rounded bg-copper/15 px-1 text-copper">Unread</span>}
-                  <time
-                    dateTime={new Date(message.createdAt).toISOString()}
-                    className="ml-auto text-ink-faint"
-                  >
-                    {new Date(message.createdAt).toLocaleDateString()}{" "}
-                    {formatTime(message.createdAt)}
-                  </time>
-                </div>
-                <p className="mb-1 text-xs font-medium text-ink-dim">
-                  {users[message.userId]?.displayName ?? "Unknown member"}
-                  {message.threadRootId ? " · Thread reply" : ""}
-                </p>
-                <div className="text-sm">
-                  <Mrkdwn
-                    text={message.text}
-                    users={users}
-                    channels={channels}
-                    selfId={client.state.self?.id}
+              <li
+                key={message.id}
+                className="group relative rounded-xl px-3 py-2.5 transition-colors hover:bg-ink/[0.035]"
+              >
+                {unread && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0.5 top-4 size-1.5 rounded-full bg-copper"
                   />
-                </div>
-                {message.files.length > 0 && (
-                  <p className="mt-1 text-xs text-ink-faint">
-                    {message.files.length} attachment{message.files.length === 1 ? "" : "s"}
-                  </p>
                 )}
-                <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-copper">
-                  <button
-                    className="underline"
-                    onClick={() => onJump(message.channelId, message.id)}
-                  >
-                    Open in conversation
-                  </button>
-                  {unread && (
-                    <Tooltip label="Mark this conversation read through this message">
-                      <button
-                        onClick={() =>
-                          client.markRead(message.channelId, message.seq, { explicit: true })
-                        }
+                <div className="flex gap-2.5">
+                  <Avatar user={author} size={30} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-1.5 text-[13px]">
+                      <span className="truncate font-semibold">
+                        {author?.displayName ?? "Unknown member"}
+                      </span>
+                      {isRoom && (
+                        <span className="truncate text-ink-faint">
+                          in {channelTitle(channel, users, client.state.self?.id)}
+                        </span>
+                      )}
+                      {unread && <span className="sr-only">, unread</span>}
+                      <time
+                        dateTime={new Date(message.createdAt).toISOString()}
+                        title={`${new Date(message.createdAt).toLocaleDateString()} ${formatTime(message.createdAt)}`}
+                        className="ml-auto shrink-0 text-[12px] text-ink-faint"
                       >
-                        Read through here
+                        {formatWhen(message.createdAt)}
+                      </time>
+                    </div>
+                    {message.threadRootId && (
+                      <p className="text-[12px] text-ink-faint">Thread reply</p>
+                    )}
+                    <div className="mt-0.5 line-clamp-3 text-sm text-ink-dim">
+                      <Mrkdwn
+                        text={message.text}
+                        users={users}
+                        channels={channels}
+                        selfId={client.state.self?.id}
+                      />
+                    </div>
+                    {message.files.length > 0 && (
+                      <p className="mt-1 text-xs text-ink-faint">
+                        {message.files.length} attachment{message.files.length === 1 ? "" : "s"}
+                      </p>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[12px] font-medium">
+                      <button
+                        className="inline-flex items-center gap-1 text-ink-dim hover:text-ink"
+                        onClick={() => onJump(message.channelId, message.id)}
+                      >
+                        Open in conversation
+                        <Icon name="arrow" size={12} />
                       </button>
-                    </Tooltip>
-                  )}
+                      {unread && (
+                        <Tooltip label="Mark this conversation read through this message">
+                          <button
+                            className="text-ink-faint hover:text-ink"
+                            onClick={() =>
+                              client.markRead(message.channelId, message.seq, { explicit: true })
+                            }
+                          >
+                            Read through here
+                          </button>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </li>
             );
           })}
         </ul>
-        <div className="mt-4 flex justify-between text-sm text-copper">
+        <div
+          hidden={cursors.length === 1 && !result?.nextCursor}
+          className="mt-4 flex justify-between px-1 text-sm font-medium text-ink-dim"
+        >
           <button
             disabled={loading || cursors.length === 1}
             onClick={() => setCursors((values) => values.slice(0, -1))}

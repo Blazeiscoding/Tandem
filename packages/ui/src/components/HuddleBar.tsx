@@ -89,7 +89,7 @@ export function HuddleBar({
     <div
       role="region"
       aria-label="Active huddle"
-      className="flex flex-wrap items-center gap-3 border-t border-copper/40 bg-raised px-5 py-3"
+      className="mx-4 mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-online/25 bg-online/[0.06] px-4 py-2.5"
     >
       {/* The minimum width is what sends the controls to a line of their own on a phone. */}
       <div className="flex min-w-40 flex-1 items-center gap-2.5">
@@ -166,85 +166,5 @@ export function HuddleBar({
   );
 }
 
-/** Header control: start a huddle, join the running one, or show you're in it. */
-export function HuddleButton({ channelId }: { channelId: ID }) {
-  const client = useClient();
-  const participants = useWorkspace((s) => s.huddles[channelId]);
-  const inThis = useWorkspace((s) => s.huddle?.channelId === channelId);
-  const [error, setError] = useState<string | null>(null);
-  const [joining, setJoining] = useState(false);
-  const calls = useCallPreferences();
-  const currentRoom = useRef({ client, channelId });
-  currentRoom.current = { client, channelId };
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const count = participants?.length ?? 0;
-
-  async function join() {
-    setError(null);
-    setJoining(true);
-    try {
-      await calls.joinHuddle(
-        client,
-        channelId,
-        () =>
-          mounted.current &&
-          currentRoom.current.client === client &&
-          currentRoom.current.channelId === channelId,
-      );
-    } catch (err) {
-      if (mounted.current) {
-        setError(err instanceof Error ? err.message : "Could not join this huddle.");
-        setTimeout(() => {
-          if (mounted.current) setError(null);
-        }, 4000);
-      }
-    } finally {
-      if (mounted.current) setJoining(false);
-    }
-  }
-
-  if (inThis) {
-    return (
-      <span className="flex items-center gap-2 rounded-lg bg-online/15 px-2.5 py-1.5 text-[13px] font-medium text-online">
-        <Icon name="headphones" size={18} />
-        <span className="header-secondary">In huddle</span>
-      </span>
-    );
-  }
-
-  const label = count > 0 ? `Join the huddle (${count})` : "Start a huddle";
-  return (
-    <Tooltip label={label}>
-      <button
-        onClick={join}
-        disabled={joining}
-        aria-label={label}
-        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium transition-colors ${
-          error
-            ? "text-alert"
-            : count > 0
-              ? "bg-online/15 text-online hover:bg-online/25"
-              : "text-ink-faint hover:bg-lifted/60 hover:text-ink"
-        }`}
-      >
-        {error ? (
-          <span role="alert">{error}</span>
-        ) : joining ? (
-          "Joining…"
-        ) : (
-          <>
-            <Icon name="headphones" size={20} />
-            <span className="header-secondary">Huddle</span>
-            {count > 0 && <span className="font-mono text-[11px]">{count}</span>}
-          </>
-        )}
-      </button>
-    </Tooltip>
-  );
-}
+/** The header's control lives on its own, so the bar can load only for a call. */
+export { HuddleButton } from "./HuddleButton.js";

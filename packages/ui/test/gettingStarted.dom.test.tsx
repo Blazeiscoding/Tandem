@@ -90,11 +90,12 @@ describe("getting started, for whoever set the workspace up", () => {
     const { calls, user } = checklist();
     const card = await section();
     expect(card).toHaveTextContent("4 of 4 left");
+    // Each step is one row, named for what pressing it does.
     expect(stepNames(card)).toEqual([
-      "Create a channelNew channel",
-      "Invite someoneInvite",
-      "Turn on notificationsSettings",
-      "Try a huddle in #generalStart",
+      "Create a channel",
+      "Invite someone",
+      "Turn on notifications",
+      "Try a huddle in #general",
     ]);
     for (const name of [
       "New channel: Create a channel",

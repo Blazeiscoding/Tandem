@@ -12,10 +12,16 @@ package names, `SLACKOSS_*` settings, data locations, application ID, Docker vol
 names and `slackoss://` links are intentionally retained for compatibility. No data
 migration is needed. The working name has not been trademark-cleared.
 
-The refreshed interface includes a slate-and-periwinkle theme, drawn line icons
-where controls once used emoji, an original vector mark,
-keyboard-accessible controls, narrow-window navigation, and a capped live
-timeline that follows new messages without growing indefinitely. See
+The interface follows the [chaicode.com look](https://ui.chaicode.com/) and
+stays quiet: warm near-black Onyx and warm-paper White themes that follow the
+device, chaicode orange reserved for what needs you, a pale-cream highlight
+phrase, warm hairline cards, buttons with asymmetric corners, frosted menus and
+a faint hexagon glow, bundled Manrope, Montserrat, Onest and Geist Mono type,
+the conversation set as a card into the window, drawn line icons, menus split by
+what they concern (the workspace's name, or your own), keyboard-accessible
+controls, narrow-window navigation, and a capped live timeline that follows new
+messages without growing indefinitely. See the
+[UI and UX plan](docs/UX-PLAN-2026-10-05.md) and
 [frontend checks and measurements](docs/VALIDATION.md#tandem-frontend-refresh).
 To regenerate the checked-in desktop icons from the SVG, install Playwright's
 Chromium and run `node scripts/generate-icons.mjs`. Normal packaging uses the
@@ -33,6 +39,7 @@ The [2 October improvement plan](docs/IMPROVEMENT-PLAN-2026-10-02.md) reviews th
 Its [deep investigation and reproducible evidence](docs/research/2026-10-02-deep/README.md) cover real failure paths, client lifecycle, desktop packaging/IPC, and measured optimization candidates.
 The [3 October review](docs/IMPROVEMENT-PLAN-2026-10-03.md) checks the latest fixes and records further storage, shutdown, microphone and integration lifecycle improvements with fresh reproducible evidence.
 The [4 October implementation](docs/IMPLEMENTATION-2026-10-04.md) addresses those twelve findings and records regression and integration validation.
+The [UI and UX improvement plan](docs/UX-PLAN-2026-10-05.md) reviews the desktop app and browser client screen by screen and orders hierarchy, navigation, first-run, search, settings and phone work into phases with acceptance checks.
 
 Open-source team chat that **you** host. Run the server on a VPS, or click
 **"Host a workspace"** in the desktop app and serve your team straight from your

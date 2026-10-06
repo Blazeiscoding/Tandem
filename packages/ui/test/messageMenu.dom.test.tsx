@@ -101,6 +101,7 @@ describe("a message's menu", () => {
     ).toEqual([
       "Reply in thread",
       "Add a reaction…",
+      "Copy text",
       "Copy link to message",
       "Save for later",
       "Mark unread from this message",
@@ -142,6 +143,13 @@ describe("a message's menu", () => {
     await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Copy link to message"));
     expect(await screen.findByText("Link copied.")).toBeVisible();
     expect(await navigator.clipboard.readText()).toBe("http://127.0.0.1:9/#/c/C_GENERAL/m/M_1");
+  });
+
+  it("copies the words as shown, for a phone where holding the message opens this menu", async () => {
+    const { user } = messageFrom(sam, sam);
+    await user.click(within(await openMenu(user, "Sam Rivera")).getByText("Copy text"));
+    expect(await screen.findByText("Text copied.")).toBeVisible();
+    expect(await navigator.clipboard.readText()).toBe("Standup notes are in the doc.");
   });
 });
 

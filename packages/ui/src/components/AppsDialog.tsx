@@ -29,7 +29,7 @@ function SecretRow({
   const [shown, setShown] = useState(false);
   return (
     <div className="mt-2 rounded-lg border border-copper/40 bg-copper/10 p-2.5">
-      <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-copper">
+      <div className="mb-1 text-[12px] font-medium text-copper">
         {label}
         {once && " · shown once"}
       </div>
@@ -40,14 +40,14 @@ function SecretRow({
         {!once && (
           <button
             onClick={() => setShown((v) => !v)}
-            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-lifted hover:text-ink"
+            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
           >
             {shown ? "Hide" : "Reveal"}
           </button>
         )}
         <button
           onClick={() => void copy(value)}
-          className={`shrink-0 rounded px-2 py-1 text-[11px] hover:bg-lifted hover:text-ink ${
+          className={`shrink-0 rounded px-2 py-1 text-[11px] hover:bg-ink/[0.05] hover:text-ink ${
             copied && !copied.ok ? "text-alert" : "text-ink-dim"
           }`}
         >
@@ -56,7 +56,7 @@ function SecretRow({
         {onReplace && (
           <button
             onClick={onReplace}
-            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-lifted hover:text-ink"
+            className="shrink-0 rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-ink/[0.05] hover:text-ink"
           >
             Replace
           </button>
@@ -67,11 +67,7 @@ function SecretRow({
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mb-1 mt-3 font-mono text-[10px] uppercase tracking-widest text-ink-faint">
-      {children}
-    </div>
-  );
+  return <div className="mb-1 mt-3 text-[12px] text-ink-faint">{children}</div>;
 }
 
 /** Admin view for integrations: bot tokens, webhooks, commands and events. */
@@ -86,6 +82,8 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
   const loadVersion = useRef(0);
   const loadInFlight = useRef(false);
   const [name, setName] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   /** Bot tokens from this session only; the server never returns them again. */
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -143,7 +141,12 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setCreateError("Name the app first, such as Deploy Bot.");
+      nameInput.current?.focus();
+      return;
+    }
+    setCreateError(null);
     setBusy(true);
     try {
       const r = await client.api.createApp({ name: name.trim() });
@@ -162,6 +165,8 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
       setSecrets((s) => ({ ...s, [r.app.id]: r.token }));
       setName("");
       load();
+    } catch {
+      setCreateError("Could not create the app. Check your connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -224,36 +229,47 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog title="Apps and integrations" onClose={onClose} width={620}>
-      <p className="mb-4 text-sm text-ink-dim">
-        Each app posts as its own bot user. Its token works with part of Slack&rsquo;s Web API, and
-        webhooks, slash commands, buttons and events use Slack&rsquo;s shapes and signatures, so
-        many Slack integrations can be pointed here. Not all of them: a message&rsquo;s{" "}
-        <code className="font-mono text-copper">ts</code> is an id rather than a time, and there is
-        no OAuth, Socket Mode or scopes. Before relying on one, check{" "}
+      <p className="text-sm text-ink-dim">
+        Connect bots, webhooks and slash commands. Each app posts as its own bot user, and many
+        Slack integrations work when pointed here.
+      </p>
+      <p className="mb-5 mt-1.5 text-[13px] leading-relaxed text-ink-faint">
+        Not everything carries over: there is no OAuth, Socket Mode or scopes, and a message&rsquo;s{" "}
+        <code className="font-mono text-ink-dim">ts</code> is an id rather than a time.{" "}
         <a
           href={INTEGRATION_CONTRACT_URL}
           target="_blank"
           rel="noreferrer"
-          className="text-copper underline decoration-copper/40 hover:decoration-copper"
+          className="font-medium text-ink underline decoration-ink-faint/60 underline-offset-2 hover:decoration-ink"
         >
           <code className="font-mono">docs/INTEGRATIONS.md</code>
-        </a>
-        , which lists every supported method and each difference from Slack.
+        </a>{" "}
+        lists every supported method.
       </p>
 
-      <form onSubmit={create} className="mb-5 flex gap-2">
+      <form onSubmit={create} noValidate className="mb-5 flex gap-2">
         <input
+          ref={nameInput}
           aria-label="App name"
+          aria-invalid={!!createError || undefined}
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            setCreateError(null);
+          }}
           placeholder="App name, e.g. Deploy Bot"
           className={inputCls}
         />
-        <button type="submit" disabled={busy || !name.trim()} className={buttonClass("primary")}>
+        <button type="submit" disabled={busy} className={buttonClass("primary")}>
           Create
         </button>
       </form>
 
+      {createError && (
+        <p role="alert" className="-mt-3 mb-4 text-sm text-alert">
+          {createError}
+        </p>
+      )}
       {rotateError && (
         <p role="alert" className="mb-3 text-sm text-alert">
           {rotateError}
@@ -357,7 +373,7 @@ export function AppsDialog({ onClose }: { onClose: () => void }) {
                 <button
                   key={c.id}
                   onClick={() => void addWebhook(a.id, c.id)}
-                  className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-copper hover:text-ink"
+                  className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink"
                 >
                   #{c.name}
                 </button>
@@ -460,7 +476,7 @@ function CommandList({ app, onChanged }: { app: AppDetail; onChanged: () => void
         <button
           type="submit"
           disabled={busy || !command.trim() || !url.trim()}
-          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
+          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink disabled:opacity-40"
         >
           Add
         </button>
@@ -592,7 +608,7 @@ function SubscriptionList({ app, onChanged }: { app: AppDetail; onChanged: () =>
           <button
             type="submit"
             disabled={busy || !url.trim()}
-            className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
+            className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink disabled:opacity-40"
           >
             {busy ? "Verifying…" : "Subscribe"}
           </button>
@@ -664,7 +680,7 @@ function InteractivityUrl({ app, onChanged }: { app: AppDetail; onChanged: () =>
         <button
           type="submit"
           disabled={busy || url.trim() === app.interactivityUrl}
-          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-ink disabled:opacity-40"
+          className="rounded-lg border border-edge px-2 py-1 text-[12px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink disabled:opacity-40"
         >
           {busy ? "Checking…" : "Save"}
         </button>

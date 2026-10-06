@@ -96,12 +96,13 @@ describe("the colour tokens", () => {
         "copper-deep",
         "online",
         "alert",
+        "cream",
       ]),
     );
   });
 
   it("keep every ink readable on every surface", () => {
-    const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert"];
+    const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert", "cream"];
     const surfaces = ["deep", "ground", "raised", "lifted"];
     expect(
       unreadable(inks.flatMap((ink) => surfaces.map((s): [string, string] => [ink, s]))),
@@ -121,7 +122,7 @@ describe("the colour tokens", () => {
 });
 
 describe("the other themes", () => {
-  const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert"];
+  const inks = ["ink", "ink-dim", "ink-faint", "copper", "online", "alert", "cream"];
   const surfaces = ["deep", "ground", "raised", "lifted"];
   const everyPair = inks.flatMap((ink) => surfaces.map((s): [string, string] => [ink, s]));
   const fills: [string, string][] = [
@@ -200,14 +201,16 @@ describe("colours written outside the stylesheet", () => {
   it("match it, so no part of the app keeps the previous palette", () => {
     const tokens = colourTokens();
     // What the window and the browser show before the page paints, and the
-    // title bar drawn over it.
+    // title bar drawn over it: the window's own surface.
     expect(hexes(read("apps/desktop/src/main/index.ts"))).toEqual([
-      tokens.ground,
-      tokens.ground,
+      tokens.deep,
+      tokens.deep,
       tokens["ink-dim"],
     ]);
     for (const page of ["apps/web/index.html", "apps/desktop/src/renderer/index.html"])
-      expect(hexes(read(page)), page).toEqual([tokens.ground]);
+      expect(hexes(read(page)), page).toEqual([tokens.deep]);
+    // What a phone shows while the installed client starts, and its bars.
+    expect(hexes(read("apps/web/public/manifest.webmanifest"))).toEqual([tokens.deep, tokens.deep]);
     // The mark the favicon and the desktop icons are drawn from, as BrandMark draws it.
     for (const icon of [
       "apps/web/public/tandem.svg",

@@ -1,103 +1,198 @@
 /*
- * Tandem's look: Discord's shape with Slack's order. A rail of
- * workspaces on the far left, the workspace's channels beside it, the
- * conversation in the middle and threads, members or a panel on the right.
- * Two themes for now, each a full set of the tokens below: Onyx, near-black
- * surfaces stepping up in lightness from the rail to the conversation, and
- * White. "System" picks whichever the device prefers. Account settings
- * chooses, per device.
+ * Tandem's look, after chaicode.com (ui.chaicode.com): warm near-black,
+ * hairline cards with a faint fill instead of shadows, one orange for what
+ * needs you, a pale-cream highlight phrase, buttons with asymmetric corners,
+ * frosted menus and a faint hexagon glow behind it all. Quiet chrome, the
+ * conversation in front.
+ *
+ * Layout. The window is the darkest surface ("deep"). The sidebar sits on it
+ * directly; the conversation and any side panel are cards set into it,
+ * lighter, with a hairline edge and rounded corners, so the eye lands on
+ * what people wrote rather than on the furniture around it. On a phone the
+ * cards fill the screen and lose their margins.
+ *
+ * Two themes, each a full set of the tokens below: Onyx, warm near-black,
+ * and White, warm paper. "System" follows the device, and is the default.
  *
  * Surfaces, darkest to lightest in Onyx (lightest to darkest in White):
- * - deep: the workspace rail and the huddle stage, behind video;
- * - raised: the sidebar, side panels and cards;
- * - ground: the conversation, the page;
+ * - deep: the window, the sidebar, the rail, the huddle stage behind video;
+ * - ground: the conversation card and the page;
+ * - raised: side panels' insets, cards and dialogs;
  * - lifted: hover, menus, chips and the composer.
  *
- * The rest of the system, written down:
- * - Type: 10, 11, 12 and 13 px for metadata, labels and compact controls; 14 px
- *   (text-sm) for dialog and panel text; 15 px for messages and the page; 16
- *   px for a sidebar heading; 17 px for a conversation's name; text-lg and
- *   text-2xl for dialog and empty-state titles; 52 px once, for the sign-in
- *   page's headline. theme.test.ts fails on a size outside this scale.
- * - Spacing: Tailwind's 4 px steps. Rows use 0.5 to 2, panels and dialogs 3 to
- *   6, and nothing sits on an odd pixel unless it lines up with an icon.
- * - Radius: rounded (4 px) for keys and chips inside text, rounded-lg for
- *   controls, rows and code blocks, rounded-md for the tabs inside a tab strip,
- *   rounded-xl for cards, the composer and message attachments, rounded-2xl
- *   for dialogs, video tiles and a workspace's rail icon, rounded-3xl for a
- *   card that fills a page, such as sign-in, rounded-full for avatars, dots
- *   and pills. theme.test.ts fails on any other.
- * - Focus: a ring in the accent, --focus-ring-width wide, 3 px out from the
- *   control.
+ * One accent, for one meaning: what needs you. Unread mentions, the one
+ * primary action in a view, your own reaction, the focus ring. Everything
+ * else is ink, weight and space. Links in chrome are ink; links people wrote
+ * in messages keep the accent so they read as links.
  *
- * Onyx's accent and alert are light, so text written on them takes the ground
- * colour; in White they are deep, and the ground there is white. Every ink
- * clears 4.5:1 on every surface in both. packages/ui/test/theme.test.ts holds
- * both, and keeps the colours the window, the pages and the icons repeat equal
- * to Onyx's.
+ * The rest of the system, written down:
+ * - Type: chaicode.com's faces, bundled (a LAN workspace renders the same
+ *   offline): Manrope to read, Montserrat for titles and the highlight
+ *   phrase, Onest for names, Geist Mono for code. 10, 11, 12 and 13 px for metadata, labels and compact
+ *   controls; 14 px (text-sm) for the interface, dialogs and the sidebar; 15
+ *   px for messages; 16 and 17 px for a conversation's and a dialog's name;
+ *   text-xl and text-2xl for empty-state and page titles; 52 px once, for the
+ *   sign-in page's headline. theme.test.ts fails on a size outside this scale.
+ * - Spacing: Tailwind's 4 px steps.
+ * - Radius: rounded (4 px) for keys and chips inside text, rounded-md for tabs
+ *   inside a tab strip, rounded-lg for controls and rows, rounded-xl for
+ *   cards, the composer and the conversation card, rounded-2xl for dialogs and
+ *   video tiles, rounded-3xl for a card that fills a page, rounded-full for
+ *   avatars, dots and pills. theme.test.ts fails on any other.
+ * - Elevation: hairline borders first, shadows only for what floats (menus,
+ *   dialogs, toolbars).
+ * - Motion: 120–180 ms, ease-out, nothing travels more than a few pixels.
+ *   Nothing opened from the keyboard many times a day animates.
+ * - Focus: a ring in the accent, --focus-ring-width wide, 2 px out.
+ *
+ * Every ink clears 4.5:1 on every surface in both themes, and text written on
+ * the accent and alert fills takes the ground colour. packages/ui/test/
+ * theme.test.ts holds both, and keeps the colours the window, the pages and
+ * the icons repeat equal to Onyx's.
  */
 @theme {
-  --color-deep: #050507; /* the workspace rail, the huddle stage */
-  --color-ground: #0f0f12; /* the conversation, the page */
-  --color-raised: #17171b; /* sidebar, panels, cards */
-  --color-lifted: #222228; /* hover, menus, chips, the composer */
-  --color-edge: #2e2e36; /* borders */
-  --color-ink: #f4f4f7; /* primary text */
-  --color-ink-dim: #c6c6d0; /* secondary text */
-  --color-ink-faint: #9b9ba8; /* tertiary text, timestamps */
+  --color-deep: #0a0a0a; /* the window, the sidebar, the rail */
+  --color-ground: #100f0e; /* the conversation card, the page */
+  --color-raised: #171513; /* side panels, cards, dialogs */
+  --color-lifted: #221f1b; /* hover, menus, chips, the composer */
+  --color-edge: #2b2722; /* hairline borders */
+  --color-ink: #f6f1e9; /* primary text */
+  --color-ink-dim: #b3aba0; /* secondary text */
+  --color-ink-faint: #958d82; /* tertiary text, timestamps */
   /* Keep the token name compatible with existing integration components. */
-  /* The accent is ChaiCode's orange (dsa.chaicode.com), exactly in Onyx. */
-  --color-copper: #ff8b3d; /* accent: unread, selected, links, primary actions */
-  --color-copper-deep: #eb8038; /* accent, pressed and hovered */
+  /* chaicode.com's orange: what needs you, and the one primary action. */
+  --color-copper: #f97316; /* accent */
+  --color-copper-deep: #ea670c; /* accent, pressed and hovered */
   --color-online: #4ade80; /* present, live huddles */
-  --color-alert: #ff7b72; /* errors, leaving and mention counts */
-  --color-mention: rgba(255, 139, 61, 0.1); /* a message that names you */
+  --color-alert: #ff7b72; /* errors, leaving, destructive */
+  /* The highlight phrase: one per paragraph, pale cream. */
+  --color-cream: #f3d49b;
+  --color-mention: rgba(249, 115, 22, 0.08); /* a message that names you */
 
   --font-sans:
-    "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
-  --font-mono: "Cascadia Code", ui-monospace, "JetBrains Mono", Consolas, monospace;
+    "Manrope Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+    "Helvetica Neue", sans-serif;
+  --font-display: "Montserrat Variable", var(--font-sans);
+  --font-brand: "Onest Variable", var(--font-sans);
+  --font-mono: "Geist Mono Variable", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
+
+  --shadow-float:
+    0 0 0 1px rgb(0 0 0 / 0.04), 0 2px 4px -1px rgb(0 0 0 / 0.18),
+    0 12px 32px -8px rgb(0 0 0 / 0.45);
+  --shadow-dialog: 0 0 0 1px rgb(0 0 0 / 0.05), 0 32px 80px -16px rgb(0 0 0 / 0.6);
+
+  --animate-pop-in: pop-in 140ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  --animate-fade-in: fade-in 140ms ease-out both;
+  --animate-rise-in: rise-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
 :root {
   color-scheme: dark;
+  /* chaicode.com's warm card: a hairline, a faint fill, a little blur. */
+  --card-edge: rgba(255, 214, 170, 0.09);
+  --card-edge-hover: rgba(255, 214, 170, 0.18);
+  --card-fill: rgba(255, 236, 214, 0.025);
+  --glow: rgba(249, 115, 22, 0.22);
+  --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(255,205,160,0.085)'/%3E%3C/svg%3E");
   --focus-ring-width: 2px;
+  /* How far the conversation card sits in from the window's edges. */
+  --inset: 8px;
 }
 
 /* White, chosen, or the system's choice on a device that prefers light. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --color-deep: #e9e9ee;
-  --color-ground: #ffffff;
-  --color-raised: #f5f5f7;
-  --color-lifted: #ebebf0;
-  --color-edge: #d4d4dc;
-  --color-ink: #0f0f14;
-  --color-ink-dim: #3b3b47;
-  --color-ink-faint: #5c5c6a;
-  /* ChaiCode's light orange (#dd6412), deepened until it reads at 4.5:1 here. */
-  --color-copper: #ac4e0e;
-  --color-copper-deep: #9b460d;
+  --color-deep: #f4efe6;
+  --color-ground: #fffdf9;
+  --color-raised: #faf6ef;
+  --color-lifted: #efe8dc;
+  --color-edge: #e5dccc;
+  --color-ink: #1c1917;
+  --color-ink-dim: #57514a;
+  --color-ink-faint: #6b6359;
+  /* The orange, deepened until it reads at 4.5:1 on warm paper. */
+  --color-copper: #a3470c;
+  --color-copper-deep: #8f3e0a;
   --color-online: #116b34;
   --color-alert: #c42b30;
-  --color-mention: rgba(172, 78, 14, 0.08);
+  /* The highlight phrase, steeped darker so it reads on paper. */
+  --color-cream: #7a4810;
+  --color-mention: rgba(163, 71, 12, 0.06);
+  --card-edge: rgba(120, 72, 24, 0.13);
+  --card-edge-hover: rgba(120, 72, 24, 0.24);
+  --card-fill: rgba(255, 252, 245, 0.55);
+  --glow: rgba(249, 115, 22, 0.12);
+  --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(140,82,24,0.08)'/%3E%3C/svg%3E");
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"] {
     color-scheme: light;
-    --color-deep: #e9e9ee;
-    --color-ground: #ffffff;
-    --color-raised: #f5f5f7;
-    --color-lifted: #ebebf0;
-    --color-edge: #d4d4dc;
-    --color-ink: #0f0f14;
-    --color-ink-dim: #3b3b47;
-    --color-ink-faint: #5c5c6a;
-    /* ChaiCode's light orange (#dd6412), deepened until it reads at 4.5:1 here. */
-    --color-copper: #ac4e0e;
-    --color-copper-deep: #9b460d;
+    --color-deep: #f4efe6;
+    --color-ground: #fffdf9;
+    --color-raised: #faf6ef;
+    --color-lifted: #efe8dc;
+    --color-edge: #e5dccc;
+    --color-ink: #1c1917;
+    --color-ink-dim: #57514a;
+    --color-ink-faint: #6b6359;
+    /* The orange, deepened until it reads at 4.5:1 on warm paper. */
+    --color-copper: #a3470c;
+    --color-copper-deep: #8f3e0a;
     --color-online: #116b34;
     --color-alert: #c42b30;
-    --color-mention: rgba(172, 78, 14, 0.08);
+    /* The highlight phrase, steeped darker so it reads on paper. */
+    --color-cream: #7a4810;
+    --color-mention: rgba(163, 71, 12, 0.06);
+    --card-edge: rgba(120, 72, 24, 0.13);
+    --card-edge-hover: rgba(120, 72, 24, 0.24);
+    --card-fill: rgba(255, 252, 245, 0.55);
+    --glow: rgba(249, 115, 22, 0.12);
+    --hex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='31.18' height='54' viewBox='0 0 31.18 54'%3E%3Cpath d='M15.59 0L31.18 9v18L15.59 36 0 27V9zM15.59 36v18' fill='none' stroke='rgba(140,82,24,0.08)'/%3E%3C/svg%3E");
+  }
+}
+
+/* White's shadows are softer: on a light page a heavy shadow reads as dirt. */
+:root[data-theme="light"] {
+  --shadow-float:
+    0 0 0 1px rgb(17 17 20 / 0.06), 0 2px 4px -1px rgb(17 17 20 / 0.06),
+    0 12px 32px -8px rgb(17 17 20 / 0.16);
+  --shadow-dialog: 0 0 0 1px rgb(17 17 20 / 0.06), 0 32px 80px -16px rgb(17 17 20 / 0.28);
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --shadow-float:
+      0 0 0 1px rgb(17 17 20 / 0.06), 0 2px 4px -1px rgb(17 17 20 / 0.06),
+      0 12px 32px -8px rgb(17 17 20 / 0.16);
+    --shadow-dialog: 0 0 0 1px rgb(17 17 20 / 0.06), 0 32px 80px -16px rgb(17 17 20 / 0.28);
   }
 }
 
@@ -106,7 +201,7 @@
  * people who read a lot of it. Messages are a size smaller and rows closer.
  */
 :root[data-density="compact"] body {
-  font-size: 14px;
+  font-size: 13px;
 }
 :root[data-density="compact"] .message-row {
   padding-block: 0;
@@ -117,7 +212,7 @@
 }
 :root[data-density="compact"] .channel-row {
   margin-block: 0;
-  padding-block: 5px;
+  padding-block: 3px;
 }
 
 html,
@@ -129,31 +224,60 @@ body,
 }
 
 body {
-  background: var(--color-ground);
+  background: var(--color-deep);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: 14px;
+  font-optical-sizing: auto;
+  letter-spacing: -0.003em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* Checkboxes, radios and ranges in the accent, not the browser's blue. */
+  accent-color: var(--color-copper);
+}
+
+/* Times and counts line up as they change. */
+time,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.012em;
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-copper) 28%, transparent);
+  background: color-mix(in oklab, var(--color-copper) 30%, transparent);
 }
 
+/* Scrollbars that stay out of the way until the pointer is over them. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: var(--color-edge) transparent;
+}
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-edge);
+  background: transparent;
   border-radius: 5px;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--color-edge);
   background-clip: content-box;
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--color-ink-faint);
   background-clip: content-box;
-  border: 2px solid transparent;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -174,19 +298,50 @@ button:disabled {
 }
 button:focus-visible,
 a:focus-visible,
-[tabindex="0"]:focus-visible {
+[tabindex="0"]:focus-visible,
+summary:focus-visible {
   outline: var(--focus-ring-width) solid var(--color-copper);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 button {
   transition-duration: 120ms;
 }
-textarea {
-  scrollbar-width: thin;
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-ink-faint);
+  opacity: 1;
 }
-/* The rail of workspaces (72 px) and the channels beside it. */
+
+/*
+ * The window and its cards. The sidebar has a fixed column, beside the rail
+ * of workspaces when there is more than one.
+ */
 .workspace-sidebar {
-  width: 320px;
+  width: auto;
+}
+.sidebar-column {
+  width: 256px;
+}
+.workspace-main,
+.workspace-shell > aside {
+  background: var(--color-ground);
+}
+@media (min-width: 761px) and (min-height: 481px) {
+  .workspace-main {
+    margin: var(--inset) var(--inset) var(--inset) 0;
+    border: 1px solid var(--card-edge);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+}
+@media (min-width: 1024px) {
+  /* Side panels are cards of their own beside the conversation. */
+  .workspace-shell > aside {
+    margin: var(--inset) var(--inset) var(--inset) 0;
+    border: 1px solid var(--card-edge) !important;
+    border-radius: 12px;
+    overflow: hidden;
+  }
 }
 .timeline-scroll {
   position: relative;
@@ -203,12 +358,214 @@ textarea {
 .join-layout {
   min-height: min-content;
 }
-.join-story {
-  background: linear-gradient(
-    145deg,
-    color-mix(in oklab, var(--color-copper) 22%, var(--color-ground)),
-    var(--color-ground) 75%
-  );
+
+/*
+ * Something set slightly apart and floating: menus, toolbars, the composer's
+ * pickers. Frosted, as chaicode.com's menus are, with a warm hairline.
+ */
+.surface-float {
+  background: color-mix(in oklab, var(--color-lifted) 86%, transparent);
+  border: 1px solid var(--card-edge);
+  box-shadow: var(--shadow-float);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+}
+
+/*
+ * chaicode.com's warm card: a hairline, a faint fill, a little blur, no
+ * shadow. A component, so a utility on the same element still wins.
+ */
+@layer components {
+  .card-warm {
+    border: 1px solid var(--card-edge);
+    background: var(--card-fill);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    transition:
+      border-color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .card-warm:is(a, button):hover {
+    border-color: var(--card-edge-hover);
+  }
+}
+
+/* The highlight phrase: one per paragraph at most, pale cream, in Montserrat. */
+.highlight {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-cream);
+}
+
+/* Titles in Montserrat, as chaicode.com's cards; a font utility still wins. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+}
+
+/* A button with its corners cut unevenly: chaicode.com's shape for actions. */
+.btn-shape {
+  border-radius: 4px 16px 4px 16px;
+}
+
+/*
+ * The page behind everything: a faint hexagon lattice under a warm glow that
+ * fades out towards the bottom, warm in White too.
+ */
+.hex-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(70% 55% at 50% -5%, var(--glow), transparent 70%), var(--hex);
+  -webkit-mask-image: linear-gradient(to bottom, black 35%, transparent 95%);
+  mask-image: linear-gradient(to bottom, black 35%, transparent 95%);
+}
+.workspace-shell {
+  isolation: isolate;
+}
+/* Beside the conversation the sidebar lets the glow through; as a drawer it covers. */
+@media (min-width: 761px) and (min-height: 481px) {
+  .workspace-sidebar {
+    background: transparent;
+  }
+}
+.workspace-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(40% 40% at 0% 0%, var(--glow), transparent 70%), var(--hex);
+  -webkit-mask-image: linear-gradient(to bottom, black 20%, transparent 80%);
+  mask-image: linear-gradient(to bottom, black 20%, transparent 80%);
+}
+
+/*
+ * chaicode.com's badge: a pill whose 1 px edge has an orange glint running
+ * round it. Still for anyone who asks for less motion.
+ */
+@property --glint-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.glint-badge {
+  position: relative;
+  isolation: isolate;
+  background: var(--card-fill);
+}
+.glint-badge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  padding: 1px;
+  border-radius: inherit;
+  background:
+    conic-gradient(
+      from var(--glint-angle),
+      transparent 0deg,
+      transparent 250deg,
+      var(--color-copper) 320deg,
+      transparent 360deg
+    ),
+    linear-gradient(var(--card-edge), var(--card-edge));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: glint 3.2s linear infinite;
+}
+@keyframes glint {
+  to {
+    --glint-angle: 360deg;
+  }
+}
+
+/* A soft field of light behind the sign-in card, drifting slowly. */
+.aurora {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      40% 35% at 30% 30%,
+      color-mix(in oklab, var(--color-copper) 26%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      35% 30% at 72% 62%,
+      color-mix(in oklab, #b26bff 14%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      30% 30% at 50% 90%,
+      color-mix(in oklab, var(--color-copper) 10%, transparent),
+      transparent 70%
+    );
+  filter: blur(40px);
+  opacity: 0.85;
+  animation: aurora-drift 24s ease-in-out infinite alternate;
+}
+:root[data-theme="light"] .aurora {
+  opacity: 0.55;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] .aurora {
+    opacity: 0.55;
+  }
+}
+@keyframes aurora-drift {
+  from {
+    transform: translate3d(-3%, -2%, 0) rotate(0deg);
+  }
+  to {
+    transform: translate3d(3%, 2%, 0) rotate(6deg);
+  }
+}
+/* A faint grain over the field, so the gradient does not band. */
+.grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: radial-gradient(var(--color-ink) 0.5px, transparent 0.5px);
+  background-size: 3px 3px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+/* The dots that say someone is typing. */
+.typing-dots span {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-right: 2px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: none;
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 
 /*
@@ -226,12 +583,20 @@ textarea {
     position: absolute;
     inset: 0 auto 0 0;
     z-index: 40;
-    width: min(320px, 88vw);
-    box-shadow: 16px 0 40px #0005;
+    max-width: 88vw;
+    box-shadow: 16px 0 40px #0006;
+    animation: var(--animate-fade-in);
+  }
+  .sidebar-open .sidebar-column {
+    width: min(300px, 88vw);
   }
   .mobile-nav-toggle,
   .sidebar-dismiss {
     display: inline-flex;
+  }
+  /* A keyboard hint means nothing on a touchscreen. */
+  .sidebar-column kbd {
+    display: none;
   }
 }
 
@@ -242,7 +607,7 @@ textarea {
  */
 @media (max-height: 480px) {
   .channel-header {
-    height: 52px;
+    height: 48px;
   }
   .channel-topic {
     display: none;
@@ -257,28 +622,22 @@ textarea {
 }
 
 /*
- * The composer's formatting buttons take a row of their own. On a phone that
- * row is room the message needs, so they fold behind one button there; the
- * keyboard shortcuts still work either way.
+ * The composer's formatting buttons fold behind one button ("Aa") until asked
+ * for, leaving the composer to what is being written. The keyboard shortcuts
+ * work either way.
  */
-.formatting-toggle {
+.formatting-buttons:not([data-expanded]) {
   display: none;
 }
 
 @media (max-width: 760px) {
   .channel-header {
-    gap: 6px;
-    padding-inline: 10px;
+    gap: 4px;
+    padding-inline: 8px;
   }
   .header-secondary,
   .composer-hint,
   .channel-topic {
-    display: none;
-  }
-  .formatting-toggle {
-    display: inline-flex;
-  }
-  .formatting-buttons:not([data-expanded]) {
     display: none;
   }
   .workspace-shell > aside {
@@ -289,8 +648,8 @@ textarea {
     max-width: 100%;
   }
   .composer-shell {
-    padding-inline: 12px;
-    padding-bottom: 12px;
+    padding-inline: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
 }
 
@@ -303,11 +662,14 @@ textarea {
 @media (min-width: 761px) and (max-width: 1023px) {
   .workspace-shell > aside {
     position: absolute;
-    inset: 0 0 0 auto;
+    inset: var(--inset) var(--inset) var(--inset) auto;
     z-index: 30;
-    width: min(420px, 100%);
+    width: min(420px, calc(100% - 2 * var(--inset)));
     max-width: 100%;
-    box-shadow: -16px 0 40px #0005;
+    border: 1px solid var(--color-edge) !important;
+    border-radius: 12px;
+    box-shadow: var(--shadow-dialog);
+    overflow: hidden;
   }
 }
 
@@ -321,7 +683,7 @@ textarea {
 }
 @media (hover: none) {
   .message-toolbar {
-    display: none;
+    display: none !important;
   }
   .message-more {
     display: block;
@@ -352,22 +714,42 @@ textarea {
 
 /*
  * The theme cards in Account settings: each shows its theme in miniature
- * (the rail, the sidebar and the conversation) whatever theme is on now.
+ * (the window, the sidebar and the conversation card) whatever theme is on now.
  */
 .theme-swatch {
   display: grid;
-  grid-template-columns: 14% 30% 1fr;
+  grid-template-columns: 34% 1fr;
   height: 56px;
   overflow: hidden;
+  padding: 6px 6px 6px 0;
+}
+.theme-swatch::after {
+  content: "";
+  border-radius: 6px;
 }
 .theme-swatch[data-swatch="dark"] {
-  background: linear-gradient(90deg, #050507 14%, #17171b 14% 44%, #0f0f12 44%);
+  background: #0a0a0a;
+}
+.theme-swatch[data-swatch="dark"]::after {
+  grid-column: 2;
+  background: #100f0e;
+  box-shadow: inset 0 0 0 1px #2b2722;
 }
 .theme-swatch[data-swatch="light"] {
-  background: linear-gradient(90deg, #e9e9ee 14%, #f5f5f7 14% 44%, #ffffff 44%);
+  background: #f4efe6;
+}
+.theme-swatch[data-swatch="light"]::after {
+  grid-column: 2;
+  background: #fffdf9;
+  box-shadow: inset 0 0 0 1px #e5dccc;
 }
 .theme-swatch[data-swatch="system"] {
-  background: linear-gradient(120deg, #050507 0 20%, #0f0f12 20% 50%, #f5f5f7 50% 80%, #ffffff 80%);
+  background: linear-gradient(120deg, #0a0a0a 0 50%, #f4efe6 50%);
+}
+.theme-swatch[data-swatch="system"]::after {
+  grid-column: 2;
+  background: linear-gradient(120deg, #100f0e 0 38%, #fffdf9 38%);
+  box-shadow: inset 0 0 0 1px #2b2722;
 }
 
 /* Window drag region for the frameless titlebar */
@@ -378,4 +760,24 @@ textarea {
 .titlebar-drag input,
 .titlebar-drag [role="button"] {
   -webkit-app-region: no-drag;
+}
+
+/* A menu on a phone rises from the bottom, within a thumb's reach. */
+.menu-sheet {
+  left: 8px;
+  right: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+}
+
+/* On a touchscreen, holding a message opens its actions (Copy text among
+   them) instead of selecting words; links keep the system's own menu. */
+@media (hover: none) and (pointer: coarse) {
+  .message-row {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .message-row a {
+    -webkit-touch-callout: default;
+  }
 }

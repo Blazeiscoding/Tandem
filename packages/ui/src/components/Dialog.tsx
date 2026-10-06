@@ -25,12 +25,12 @@ export function Dialog({
       onClose={onClose}
       dismissible={dismissible}
       describedBy={describedBy}
-      backdropClassName="flex items-start justify-center bg-black/60 px-3 pt-[10vh]"
-      className="max-h-[80vh] max-w-full overflow-y-auto rounded-2xl border border-edge bg-raised p-5 shadow-2xl outline-none"
+      backdropClassName="flex items-start justify-center bg-black/50 px-3 pt-[12vh] backdrop-blur-[2px] animate-fade-in"
+      className="max-h-[78vh] max-w-full animate-pop-in overflow-y-auto rounded-2xl border border-[var(--card-edge)] bg-raised p-6 shadow-[var(--shadow-dialog)] outline-none"
       style={{ width }}
     >
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-bold">{title}</h2>
+      <div className="-mr-2 -mt-1.5 mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-[17px] font-semibold tracking-tight">{title}</h2>
         <button
           type="button"
           onClick={() => {
@@ -38,7 +38,7 @@ export function Dialog({
           }}
           disabled={!dismissible}
           aria-label="Close"
-          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
         >
           <Icon name="close" size={16} />
         </button>
@@ -49,4 +49,4 @@ export function Dialog({
 }
 
 export const inputCls =
-  "w-full rounded-lg border border-edge bg-ground px-3 py-2.5 text-sm outline-none placeholder:text-ink-faint focus:border-copper";
+  "w-full rounded-lg border border-edge bg-ground px-3 py-2 text-sm outline-none transition-colors placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper/70 focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-copper)_14%,transparent)]";

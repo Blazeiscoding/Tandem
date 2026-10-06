@@ -1,3 +1,12 @@
+/*
+ * The chaicode.com faces, bundled, so a workspace on a LAN with no internet
+ * renders the same as one online: Manrope for reading, Montserrat for titles
+ * and the highlight phrase, Onest for the name, Geist Mono for code.
+ */
+@import "@fontsource-variable/manrope/wght.css";
+@import "@fontsource-variable/montserrat/wght.css";
+@import "@fontsource-variable/onest/wght.css";
+@import "@fontsource-variable/geist-mono/wght.css";
 @import "tailwindcss";
 @import "@slackoss/ui/theme.css";
 @source "../../../packages/ui/src";

@@ -45,6 +45,11 @@ export function useToast(): Show {
   return show;
 }
 
+/** The same, where a screen may be drawn without notices, as in a test. */
+export function useOptionalToast(): Show | null {
+  return useContext(ToastContext);
+}
+
 /** A success has been read by the time it goes; a failure is not guessed at. */
 const SUCCESS_LIFETIME = 5000;
 /** Beyond this the oldest notice is older news than the screen has room for. */
@@ -242,7 +247,7 @@ function ToastItem({
         event.stopPropagation();
         close();
       }}
-      className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-lifted p-3 text-sm text-ink shadow-xl ${
+      className={`pointer-events-auto flex animate-pop-in items-start gap-3 rounded-xl border bg-lifted p-3 text-sm text-ink shadow-[var(--shadow-float)] ${
         failed ? "border-alert/40" : "border-edge"
       }`}
     >

@@ -5,16 +5,16 @@ export type ButtonVariant = "primary" | "secondary" | "danger" | "quiet";
 const VARIANTS: Record<ButtonVariant, string> = {
   // The one thing a dialog or form is for.
   primary:
-    "rounded-lg bg-copper px-4 py-2.5 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40",
+    "btn-shape inline-flex h-9 items-center justify-center gap-2 bg-copper px-4 text-sm font-semibold text-ground shadow-[inset_0_1px_0_rgb(255_255_255/0.2)] transition-colors hover:bg-copper-deep disabled:opacity-40",
   // Everything else a dialog offers beside it.
   secondary:
-    "rounded-lg border border-edge px-3 py-2 text-sm text-ink-dim transition-colors hover:bg-lifted hover:text-ink disabled:opacity-40",
+    "btn-shape inline-flex h-9 items-center justify-center gap-2 border border-[var(--card-edge-hover)] px-3.5 text-sm font-medium text-ink transition-colors hover:border-copper/60 hover:bg-copper/[0.06] disabled:opacity-40",
   // Removing, revoking and signing out, when that is what is being confirmed.
   danger:
-    "rounded-lg bg-alert px-4 py-2.5 text-sm font-semibold text-ground transition-colors hover:opacity-90 disabled:opacity-40",
+    "btn-shape inline-flex h-9 items-center justify-center gap-2 bg-alert px-4 text-sm font-semibold text-ground transition-colors hover:opacity-90 disabled:opacity-40",
   // Cancel, and actions that should not draw the eye.
   quiet:
-    "rounded-lg px-3 py-2 text-sm text-ink-dim transition-colors hover:bg-lifted hover:text-ink disabled:opacity-40",
+    "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium text-ink-dim transition-colors hover:bg-ink/[0.06] hover:text-ink disabled:opacity-40",
 };
 
 /** The classes for a button of this kind, with any the caller adds for layout. */

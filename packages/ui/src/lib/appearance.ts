@@ -6,8 +6,8 @@ import type { Platform } from "../platform.js";
 
 /**
  * Onyx ("dark") and White ("light"); "system" follows what the device
- * prefers. More themes are to come; the high-contrast one that was here folds
- * into Onyx until then.
+ * prefers, and is where a device starts. More themes are to come; the
+ * high-contrast one that was here folds into Onyx until then.
  */
 export const THEMES = ["system", "dark", "light"] as const;
 export type Theme = (typeof THEMES)[number];
@@ -27,8 +27,8 @@ const stores = new WeakMap<Platform, ReturnType<typeof createAppearance>>();
 
 function createAppearance(platform: Platform) {
   const store = createStore<Appearance>(() => ({
-    // Onyx, the dark theme, is the default.
-    theme: "dark",
+    // A device starts where its owner already said they want to be.
+    theme: "system",
     density: "comfortable",
     loaded: false,
     error: null,
@@ -57,8 +57,11 @@ function createAppearance(platform: Platform) {
       store.setState({
         theme: (THEMES as readonly unknown[]).includes(saved?.theme)
           ? (saved!.theme as Theme)
-          : // Whatever this device chose before, Onyx is the nearest now.
-            "dark",
+          : // The high-contrast theme folded into Onyx; with nothing saved, or a
+            // theme that no longer exists, follow the device.
+            saved?.theme === "contrast"
+            ? "dark"
+            : "system",
         density: (DENSITIES as readonly unknown[]).includes(saved?.density)
           ? (saved!.density as Density)
           : "comfortable",

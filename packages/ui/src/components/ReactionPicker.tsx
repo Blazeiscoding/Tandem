@@ -51,7 +51,7 @@ export function ReactionPicker(props: { onPick: (emoji: string) => void; onClose
             {...list.optionProps(i)}
             aria-label={label}
             onClick={() => pick(emoji)}
-            className={`cursor-pointer rounded-lg p-1.5 text-center text-2xl transition-colors hover:bg-lifted ${
+            className={`cursor-pointer rounded-lg p-1.5 text-center text-2xl transition-colors hover:bg-ink/[0.05] ${
               i === list.active ? "bg-copper/15" : ""
             }`}
           >

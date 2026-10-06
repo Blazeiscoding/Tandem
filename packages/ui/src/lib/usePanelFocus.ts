@@ -23,7 +23,11 @@ export function usePanelFocus({ takeFocus }: { takeFocus: boolean }) {
   );
 
   useEffect(() => {
-    const toggle = opener?.hasAttribute("aria-pressed") || opener?.hasAttribute("aria-expanded");
+    // A menu's button says whether its menu is open, not the panel: a panel
+    // chosen from a menu takes focus like one opened from anywhere else.
+    const toggle =
+      (opener?.hasAttribute("aria-pressed") || opener?.hasAttribute("aria-expanded")) &&
+      !opener?.hasAttribute("aria-haspopup");
     const covered = !!opener?.closest("[inert]");
     if (takeFocus && (!toggle || covered)) heading.current?.focus({ preventScroll: true });
     const element = panel.current;

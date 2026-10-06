@@ -148,7 +148,7 @@ function ConfirmDialog({
           // on, and so Tab reaches it before the button that cannot be undone.
           autoFocus={destructive}
           onClick={() => settle(false)}
-          className="rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim transition-colors hover:text-ink"
+          className={buttonClass("quiet")}
         >
           {cancelLabel}
         </button>

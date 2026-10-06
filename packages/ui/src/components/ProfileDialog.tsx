@@ -6,6 +6,7 @@ import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { FriendActions } from "./FriendsDialog.js";
 import { buttonClass } from "./Button.js";
+import { STATUS_PRESETS } from "../lib/status.js";
 
 /** Someone else's profile, with a shortcut to open a DM with them. */
 export function ProfileDialog(props: {
@@ -45,7 +46,7 @@ export function ProfileDialog(props: {
           <div className="flex items-center gap-2">
             <h3 className="truncate text-lg font-bold">{user.displayName}</h3>
             {user.role !== "member" && (
-              <span className="rounded-full border border-edge px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-copper">
+              <span className="rounded-full bg-ink/[0.07] px-2 py-0.5 text-[11px] font-medium capitalize text-ink-dim">
                 {user.role}
               </span>
             )}
@@ -61,7 +62,7 @@ export function ProfileDialog(props: {
       </div>
 
       {(user.statusEmoji || user.statusText) && (
-        <p className="mt-4 rounded-lg border border-edge bg-ground px-3 py-2 text-sm">
+        <p className="card-warm mt-4 rounded-lg px-3 py-2 text-sm">
           {user.statusEmoji && <span className="mr-1.5">{user.statusEmoji}</span>}
           {user.statusText}
         </p>
@@ -90,14 +91,6 @@ export function ProfileDialog(props: {
     </Dialog>
   );
 }
-
-const STATUS_PRESETS = [
-  { emoji: "💬", text: "In a meeting" },
-  { emoji: "🎧", text: "Heads down" },
-  { emoji: "🍜", text: "Out for lunch" },
-  { emoji: "🌴", text: "On holiday" },
-  { emoji: "🤒", text: "Off sick" },
-];
 
 /** Edit your own name and status, in Account settings. */
 export function ProfileForm() {
@@ -150,7 +143,7 @@ export function ProfileForm() {
         <div className="min-w-0 flex-1">
           <label
             htmlFor={`${id}-display-name`}
-            className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint"
+            className="mb-1.5 block text-[13px] font-medium text-ink-dim"
           >
             Display name
           </label>
@@ -165,9 +158,7 @@ export function ProfileForm() {
       </div>
 
       <fieldset>
-        <legend className="mb-1 block font-mono text-[11px] uppercase tracking-widest text-ink-faint">
-          Status
-        </legend>
+        <legend className="mb-1.5 block text-[13px] font-medium text-ink-dim">Status</legend>
         <div className="flex gap-2">
           <input
             aria-label="Status emoji"
@@ -196,7 +187,7 @@ export function ProfileForm() {
                 setStatusText(p.text);
                 setSaved(false);
               }}
-              className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-copper hover:text-ink"
+              className="rounded-full border border-edge px-2.5 py-1 text-xs text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink"
             >
               {p.emoji} {p.text}
             </button>

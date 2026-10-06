@@ -339,7 +339,7 @@ test(
       await alice.getByRole("button", { name: "Friends", exact: true }).click();
       await alice.getByRole("tab", { name: "Add friends", exact: true }).click();
       await alice.getByRole("button", { name: "Add friend", exact: true }).click();
-      await bob.getByRole("button", { name: "Friends 1" }).click();
+      await bob.getByRole("button", { name: "Friends, 1 new" }).click();
       await bob.getByRole("tab", { name: "Requests (1)", exact: true }).click();
       await bob.getByRole("button", { name: "Accept", exact: true }).click();
       await alice.getByRole("tab", { name: "Friends", exact: true }).click();
@@ -763,7 +763,8 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
     refusePins ? route.abort("connectionfailed") : route.fallback(),
   );
   await latestArticle.hover();
-  await latestArticle.getByRole("button", { name: "Pin to channel", exact: true }).click();
+  await latestArticle.getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Pin to channel", exact: true }).click();
   const refusedPin = notice(page, "Could not pin that message.");
   await expect(refusedPin).toBeVisible();
   await expectInsideViewport(page, refusedPin);
@@ -905,16 +906,18 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   );
   await page.keyboard.press("Escape");
   await expect(search).toHaveCount(0);
-  const scheduledToggle = page.getByRole("button", { name: "Scheduled messages", exact: true });
-  await scheduledToggle.click();
+  // Scheduled messages are yours, so they are in the menu on your name. Chosen
+  // there, the panel takes focus, and closing it hands focus back to the menu.
+  const accountMenu = page.getByRole("button", { name: /, your account$/ });
+  await accountMenu.click();
+  await page.getByRole("menuitem", { name: "Scheduled messages", exact: true }).click();
   const scheduled = page.getByRole("complementary", { name: "Scheduled messages", exact: true });
-  // The toggle that opened the panel keeps focus, and closing the panel from
-  // inside hands focus back to it.
-  await expect(scheduled.getByRole("heading", { name: "Scheduled", exact: true })).toBeVisible();
-  await expect(scheduledToggle).toBeFocused();
+  const scheduledHeading = scheduled.getByRole("heading", { name: "Scheduled", exact: true });
+  await expect(scheduledHeading).toBeVisible();
+  await expect(scheduledHeading).toBeFocused();
   await scheduled.getByRole("button", { name: "Close scheduled messages", exact: true }).click();
   await expect(scheduled).toHaveCount(0);
-  await expect(scheduledToggle).toBeFocused();
+  await expect(accountMenu).toBeFocused();
   await page.getByRole("heading", { name: "#design-studio", exact: true }).click();
   const details = page.getByRole("dialog", { name: "#design-studio", exact: true });
   await expect(details).toBeVisible();
@@ -1404,7 +1407,7 @@ test("database failure keeps saved work private and retries without an empty fal
   const composer = (tab: Page) =>
     tab.getByRole("textbox", { name: "Message #general", exact: true });
   const notifications = async (tab: Page) => {
-    await tab.getByRole("button", { name: "Workspace", exact: true }).click();
+    await tab.getByRole("button", { name: /, your account$/ }).click();
     await tab.getByRole("menuitem", { name: "Account settings" }).click();
     const settings = tab.getByRole("dialog", { name: "Account settings" });
     await settings.getByRole("tab", { name: "Notifications", exact: true }).click();
@@ -1740,7 +1743,7 @@ test("deactivating someone signs them out of the app they already have open", as
     await register(leaverPage, "frank");
     await expect(leaverPage.locator("textarea")).toBeVisible();
 
-    await ownerPage.getByRole("button", { name: "Workspace", exact: true }).click();
+    await ownerPage.getByRole("button", { name: /, workspace menu$/ }).click();
     await ownerPage.getByRole("menuitem", { name: "People", exact: true }).click();
     const dialog = ownerPage.getByRole("dialog", { name: "People" });
     await expect(dialog).toBeVisible();
@@ -1766,10 +1769,15 @@ test("deactivating someone signs them out of the app they already have open", as
       dialog.getByRole("region", { name: "Recent changes" }).getByText("You deactivated frank"),
     ).toBeVisible();
 
-    // Frank's open app does not keep working: it drops back to the join screen.
-    await expect(leaverPage.getByText("Find your workspace", { exact: true })).toBeVisible({
-      timeout: 20_000,
-    });
+    // Frank's open app does not keep working: it drops back to the join
+    // screen, which may go straight to this workspace's sign-in.
+    await expect(
+      leaverPage
+        .getByPlaceholder("192.168.1.42:8543 or chat.yourteam.dev")
+        .or(leaverPage.getByLabel("Username", { exact: true }))
+        .first(),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(leaverPage.locator("textarea")).toHaveCount(0);
 
     // And signing back in from that same screen is refused.
     await openAuthCard(leaverPage);
@@ -1795,7 +1803,7 @@ test("an admin who never copied a bot token can replace it, and the old one stop
   const page = await context.newPage();
   try {
     await signIn(page, "alice");
-    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("button", { name: /, workspace menu$/ }).click();
     await page.getByRole("menuitem", { name: "Apps and integrations", exact: true }).click();
     let dialog = page.getByRole("dialog", { name: "Apps and integrations" });
     await dialog.getByPlaceholder("App name, e.g. Deploy Bot").fill("Rotation Demo");
@@ -1811,7 +1819,7 @@ test("an admin who never copied a bot token can replace it, and the old one stop
     // Closing the dialog is how a token shown once gets lost.
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("button", { name: /, workspace menu$/ }).click();
     await page.getByRole("menuitem", { name: "Apps and integrations", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Apps and integrations" });
     const reopened = dialog.locator("li").filter({ hasText: "Rotation Demo" }).first();
@@ -1858,7 +1866,7 @@ test("an invite code that got out can be revoked from the dialog that made it", 
   try {
     await signIn(page, "alice");
 
-    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("button", { name: /, workspace menu$/ }).click();
     await page.getByRole("menuitem", { name: "Invite people", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Invite people" });
     await dialog.getByRole("button", { name: "Generate invite code", exact: true }).click();
@@ -1982,7 +1990,7 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
 
     // The link is a browser's, built on the address this browser uses. That
     // address is this computer's own, and the dialog says so.
-    await hostPage.getByRole("button", { name: "Workspace", exact: true }).click();
+    await hostPage.getByRole("button", { name: /, workspace menu$/ }).click();
     await hostPage.getByRole("menuitem", { name: "Invite people", exact: true }).click();
     const dialog = hostPage.getByRole("dialog", { name: "Invite people" });
     await dialog.getByRole("button", { name: "Generate invite code", exact: true }).click();
@@ -2036,7 +2044,8 @@ test("an invite link lets someone into an invite-only workspace from a browser, 
     // Copying a message's link gives the browser form of it.
     const latestRow = hostPage.locator(`[data-mid="${latest.id}"]`);
     await latestRow.hover();
-    await latestRow.getByRole("button", { name: "Copy link to message", exact: true }).click();
+    await latestRow.getByRole("button", { name: "More actions", exact: true }).click();
+    await hostPage.getByRole("menuitem", { name: "Copy link to message", exact: true }).click();
     expect(await hostPage.evaluate(() => navigator.clipboard.readText())).toBe(
       messageLink(latest.id),
     );
@@ -2447,7 +2456,7 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
 
     // A side panel is a place too: Back closes it, and a reload keeps it open.
     const saved = page.getByRole("complementary", { name: "Saved", exact: true });
-    await page.getByRole("button", { name: "Saved messages", exact: true }).click();
+    await nav.getByRole("button", { name: "Saved", exact: true }).click();
     await expect(saved).toBeVisible();
     await expect(thread).toHaveCount(0);
     await expect(page).toHaveURL(`${origin}/#/c/${design.id}/p/saved`);
@@ -2466,7 +2475,7 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     const here = `${origin}/#/c/${design.id}/p/saved`;
     await expect(page).toHaveURL(here);
     const steps = await page.evaluate(() => history.length);
-    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page.getByRole("button", { name: /, your account$/ }).click();
     await page.getByRole("menuitem", { name: "Account settings" }).click();
     const settings = page.getByRole("dialog", { name: "Account settings" });
     await expect(settings).toBeVisible();
@@ -2555,17 +2564,20 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     // A theme chosen in Account settings recolours the page at once, and a
     // reload keeps it.
     const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    // Onyx's ground, then White's.
-    expect(await background()).toBe("rgb(15, 15, 18)");
+    // Nothing chosen yet follows the device, which is light here: White's
+    // warm paper, then Onyx's near-black.
+    expect(await background()).toBe("rgb(244, 239, 230)");
     await page.goto(`${origin}/#/c/${design.id}/d/account/appearance`);
     const appearance = page.getByRole("tabpanel", { name: "Appearance" });
-    await appearance.getByRole("radio", { name: /^White/ }).check();
-    await expect.poll(background).toBe("rgb(255, 255, 255)");
+    await appearance.getByRole("radio", { name: /^Onyx/ }).check();
+    await expect.poll(background).toBe("rgb(10, 10, 10)");
     await page.reload();
     await expect(page.locator("textarea")).toBeVisible();
-    await expect.poll(background).toBe("rgb(255, 255, 255)");
-    await appearance.getByRole("radio", { name: /^Onyx/ }).check();
-    await expect.poll(background).toBe("rgb(15, 15, 18)");
+    await expect.poll(background).toBe("rgb(10, 10, 10)");
+    await appearance.getByRole("radio", { name: /^White/ }).check();
+    await expect.poll(background).toBe("rgb(244, 239, 230)");
+    await appearance.getByRole("radio", { name: /^Match this device/ }).check();
+    await expect.poll(background).toBe("rgb(244, 239, 230)");
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
 
@@ -2714,6 +2726,32 @@ test("on a touchscreen each message offers its actions in a menu, and any emoji 
     await picker.getByRole("option", { name: "Celebrate party", exact: true }).tap();
     await expect(picker).toHaveCount(0);
     await expect(row.getByRole("button", { name: /🎉\s*1/ })).toBeVisible();
+
+    // Holding the message opens the same actions as a sheet along the bottom,
+    // with a row of reactions a thumb reaches in one more tap.
+    await row.getByText("Launch is on Friday", { exact: true }).evaluate(async (text) => {
+      const at = text.getBoundingClientRect();
+      const touch = new Touch({
+        identifier: 1,
+        target: text,
+        clientX: at.left + 4,
+        clientY: at.top + 4,
+      });
+      text.dispatchEvent(
+        new TouchEvent("touchstart", { bubbles: true, touches: [touch], changedTouches: [touch] }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      text.dispatchEvent(
+        new TouchEvent("touchend", { bubbles: true, touches: [], changedTouches: [touch] }),
+      );
+    });
+    await expect(menu).toBeVisible();
+    await expectInsideViewport(page, menu);
+    const sheet = (await menu.boundingBox())!;
+    expect(sheet.y + sheet.height).toBeGreaterThan(844 - 120);
+    await page.getByRole("button", { name: "React with 👍", exact: true }).tap();
+    await expect(menu).toHaveCount(0);
+    await expect(row.getByRole("button", { name: /👍\s*1/ })).toBeVisible();
 
     await more.tap();
     await menu.getByRole("menuitem", { name: "Reply in thread", exact: true }).tap();
@@ -2885,11 +2923,11 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     await page.keyboard.press("Escape");
     await expect(search).toHaveCount(0);
 
-    // Settings, from the workspace menu.
-    const workspaceMenu = page.getByRole("button", { name: "Workspace", exact: true });
-    await pressUntilFocused(page, "Shift+Tab", workspaceMenu, 80);
+    // Settings, from the menu on your own name.
+    const accountMenu = page.getByRole("button", { name: /, your account$/ });
+    await pressUntilFocused(page, "Shift+Tab", accountMenu, 80);
     await page.keyboard.press("Enter");
-    const menu = page.getByRole("menu", { name: "Workspace" });
+    const menu = page.getByRole("menu", { name: "Your account" });
     await pressUntilFocused(
       page,
       "ArrowDown",
@@ -2906,7 +2944,7 @@ test("somebody with only a keyboard signs in, switches channel, replies, reacts,
     await expect(settings.getByRole("form", { name: "Your profile" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
-    await expect(workspaceMenu).toBeFocused();
+    await expect(accountMenu).toBeFocused();
 
     // Help is in the same menu: diagnostics show versions and the connection,
     // taken from the real server, before anything is copied.
@@ -3051,8 +3089,9 @@ test("the layout holds at phone, tablet, laptop and short-window sizes", async (
       } else {
         await expect(navigation, where).toBeVisible();
         await expect(openNavigation, where).toBeHidden();
-        // The rail of workspaces and the channels beside it.
-        expect((await box(navigation)).width, where).toBe(320);
+        // The channels column. The rail of workspaces joins it only once this
+        // device has a second workspace to go to.
+        expect((await box(navigation)).width, where).toBe(256);
       }
       await page.screenshot({ path: info.outputPath(`layout-${size.name}.png`) });
 
@@ -3068,8 +3107,9 @@ test("the layout holds at phone, tablet, laptop and short-window sizes", async (
         await expect(page.locator("main"), where).toHaveAttribute("inert", "");
       } else if (size.width < 1024) {
         // Between a phone and a laptop it is a sheet over the conversation,
-        // which would otherwise be squeezed to a sliver beside it.
-        expect(threadBox.x + threadBox.width, where).toBeCloseTo(size.width, 0);
+        // which would otherwise be squeezed to a sliver beside it, set in from
+        // the window's edge like the conversation's own card.
+        expect(threadBox.x + threadBox.width, where).toBeCloseTo(size.width - 8, 0);
         expect(threadBox.width, where).toBe(420);
         await expect(page.locator("main"), where).toHaveAttribute("inert", "");
       } else {
@@ -3206,7 +3246,7 @@ test("a visitor joins with only a name where guests are allowed, and can keep it
     await expect(nav.getByText("Guest", { exact: true })).toBeVisible();
 
     // Keeping the identity as an account: same person, now a member.
-    await nav.getByRole("button", { name: "Workspace", exact: true }).click();
+    await nav.getByRole("button", { name: /, workspace menu$/ }).click();
     await page.getByRole("menuitem", { name: "Create an account", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Create an account", exact: true });
     await dialog.getByLabel("Username", { exact: true }).fill("vic");

@@ -33,7 +33,7 @@ export function FriendActions({ userId }: { userId: ID }) {
           <button
             disabled={busy}
             onClick={() => void update("request")}
-            className={buttonClass("primary")}
+            className={buttonClass("secondary", "h-8 px-3 text-[13px]")}
           >
             Add friend
           </button>
@@ -42,7 +42,7 @@ export function FriendActions({ userId }: { userId: ID }) {
           <button
             disabled={busy}
             onClick={() => void update("accept")}
-            className={buttonClass("primary")}
+            className={buttonClass("primary", "h-8 px-3 text-[13px]")}
           >
             Accept
           </button>
@@ -51,7 +51,7 @@ export function FriendActions({ userId }: { userId: ID }) {
           <button
             disabled={busy}
             onClick={() => void update("remove")}
-            className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:bg-lifted disabled:opacity-50"
+            className={buttonClass("quiet", "h-8 px-3 text-[13px]")}
           >
             {relationship.status === "incoming"
               ? "Decline"
@@ -104,12 +104,15 @@ export function FriendsDialog({
       <p className="mb-4 text-sm text-ink-dim">
         Connect with people in this workspace. Your friends and requests stay on this server.
       </p>
-      <div {...tabs.listProps} className="mb-4 flex gap-2">
+      <div
+        {...tabs.listProps}
+        className="mb-4 flex gap-1 rounded-xl border border-edge bg-deep/40 p-1"
+      >
         {FRIENDS_TABS.map((value) => (
           <button
             key={value}
             {...tabs.tabProps(value)}
-            className={`rounded-lg px-3 py-2 text-sm ${tab === value ? "bg-copper/15 text-copper" : "text-ink-dim hover:bg-lifted"}`}
+            className={`flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${tab === value ? "bg-lifted text-ink shadow-[0_1px_2px_rgb(0_0_0/0.2)]" : "text-ink-faint hover:text-ink"}`}
           >
             {value === "friends"
               ? "Friends"
@@ -138,7 +141,7 @@ export function FriendsDialog({
             </p>
           )}
           {rows.map((user) => (
-            <div key={user.id} className="rounded-xl border border-edge bg-ground p-3">
+            <div key={user.id} className="card-warm rounded-xl p-3">
               <button
                 onClick={() => onOpenProfile(user.id)}
                 className="mb-3 flex w-full items-center gap-3 text-left"

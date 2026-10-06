@@ -8,6 +8,7 @@ import { Mrkdwn } from "./Mrkdwn.js";
 import { MESSAGE_LIMIT } from "./FormattingToolbar.js";
 import { Icon } from "./Icon.js";
 import { ListStatus } from "./ListStatus.js";
+import { PanelLink, RefreshButton } from "./MessageListPanel.js";
 import { usePanelFocus } from "../lib/usePanelFocus.js";
 
 function draftText(value: string | undefined): string | undefined {
@@ -23,7 +24,12 @@ function draftText(value: string | undefined): string | undefined {
 }
 
 /** Messages queued to go out later, with the option to call them back. */
-export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId: ID) => void }) {
+export function ScheduledPanel(props: {
+  onClose: () => void;
+  onJump: (channelId: ID) => void;
+  /** Its neighbour: messages saved for later. */
+  onSaved?: () => void;
+}) {
   const client = useClient();
   const { panel, heading } = usePanelFocus({ takeFocus: true });
   const users = useWorkspace((s) => s.users);
@@ -156,23 +162,18 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
     <aside
       ref={panel}
       aria-label="Scheduled messages"
-      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge bg-raised"
+      className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge"
     >
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-edge px-4">
-        <h2 ref={heading} tabIndex={-1} className="font-bold outline-none">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-4 pr-2.5">
+        <h2 ref={heading} tabIndex={-1} className="flex-1 text-[15px] font-semibold outline-none">
           Scheduled
         </h2>
-        <button
-          className="ml-auto mr-2 text-xs text-copper disabled:opacity-40"
-          disabled={loading || busy !== null}
-          onClick={() => void load()}
-        >
-          {loading ? "Refreshing…" : "Refresh"}
-        </button>
+        {props.onSaved && <PanelLink icon="bookmark" label="Saved" onClick={props.onSaved} />}
+        <RefreshButton busy={loading || busy !== null} onClick={() => void load()} />
         <button
           onClick={props.onClose}
           aria-label="Close scheduled messages"
-          className="rounded-lg p-1.5 text-ink-dim transition-colors hover:bg-lifted hover:text-ink"
+          className="flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
         >
           <Icon name="close" size={16} />
         </button>
@@ -196,6 +197,7 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
               </>
             ) : null
           }
+          emptyIcon="clock"
         />
         {editing && (
           <form
@@ -247,7 +249,7 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                 <button
                   type="button"
                   disabled={busy !== null}
-                  className="ml-1 text-copper underline"
+                  className="ml-1 font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
                   onClick={() => {
                     setEditing(currentEdit);
                     setEditText(currentEdit.text);
@@ -301,7 +303,7 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                   <button
                     onClick={() => props.onJump(s.channelId)}
                     disabled={!channel}
-                    className="font-medium text-copper hover:underline"
+                    className="font-medium text-ink hover:underline"
                   >
                     {channel
                       ? channel.name
@@ -340,7 +342,7 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     disabled={busy !== null || editing !== null}
-                    className="rounded-lg border border-edge px-2.5 py-1 text-xs text-ink-dim hover:border-copper"
+                    className="rounded-lg border border-edge px-2.5 py-1 text-xs text-ink-dim hover:border-ink-faint/50"
                     onClick={() => {
                       setEditing(s);
                       edited.current = false;
@@ -371,13 +373,13 @@ export function ScheduledPanel(props: { onClose: () => void; onJump: (channelId:
                       setConfirmation({ id: s.id, kind: "send" });
                       setChanging(null);
                     }}
-                    className="rounded-lg border border-edge px-2.5 py-1 text-[12px] text-ink-dim transition-colors hover:border-copper hover:text-copper"
+                    className="rounded-lg border border-edge px-2.5 py-1 text-[12px] text-ink-dim transition-colors hover:border-ink-faint/50 hover:text-ink"
                   >
                     {s.status === "queued" ? "Send now" : "Retry now"}
                   </button>
                   <button
                     disabled={busy !== null}
-                    className="rounded-lg border border-edge px-2.5 py-1 text-xs text-ink-dim hover:border-copper"
+                    className="rounded-lg border border-edge px-2.5 py-1 text-xs text-ink-dim hover:border-ink-faint/50"
                     onClick={() => {
                       setChanging(s.id);
                       setWhen(localDateTime(new Date(Math.max(s.sendAt, Date.now() + 3600_000))));
