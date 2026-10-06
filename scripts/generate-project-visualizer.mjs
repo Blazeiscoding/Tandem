@@ -55,7 +55,6 @@ const guide = JSON.parse(read("docs/visualizer/content/guide.json"));
 
 function areaFor(path) {
   if (path.startsWith("docs/visualizer/")) return "visualizer";
-  if (path.startsWith("docs/research/")) return "research";
   if (path.startsWith("docs/")) return "docs";
   if (path.startsWith("packages/")) return path.split("/")[1];
   if (path.startsWith("apps/")) return path.split("/")[1];
@@ -69,7 +68,6 @@ function areaFor(path) {
   return "root";
 }
 function kindFor(path) {
-  if (path.startsWith("docs/research/")) return "research";
   if (/\.(png|ico|jpg|jpeg|webp|gif)$/i.test(path)) return "asset";
   if (/\.(test|spec)\./.test(path) || /\/test\//.test(path) || path.startsWith("tests/"))
     return "test";
@@ -219,15 +217,6 @@ function describe(path, kind, source, analysis) {
         "Imports link this coverage to the modules exercised directly. Shared fixtures and indirect runtime calls can extend coverage beyond those links.",
       ],
       concepts: ["regression coverage"],
-    };
-  if (kind === "research")
-    return {
-      summary: `Research ${/\.(json|txt|log)$/.test(path) ? "evidence" : "artifact"}: ${posix.basename(path)}. Preserves the observations from ${path.split("/")[2]}.`,
-      details: [
-        "Read the adjacent report or README for the fixture, revision, machine and interpretation. Diagnostic tests can pass while reproducing an unresolved defect.",
-        "Historical measurements belong to their recorded setup; they are not fresh performance claims for the current checkout.",
-      ],
-      concepts: ["historical evidence", "reproduction"],
     };
   if (kind === "documentation") {
     const title = source.match(/^#\s+(.+)$/m)?.[1];

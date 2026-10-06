@@ -1,3 +1,0 @@
-AUDIT {"phase":"result","mode":"delivery_queue_recovery","healthStatus":200,"failedReads":1,"retained":{"pending":1,"failed":0,"retrying":0,"dropped":0,"lastError":null,"lastFailedAt":null},"backgroundDuring":[{"queue":"event deliveries","since":1790938932641,"failures":1}],"backgroundAfter":[],"received":[{"seq":1}],"trigger":"unaltered production 5000ms interval; one local Store read fault; actual loopback outbound recovers on next interval"}
-
-STDERR:

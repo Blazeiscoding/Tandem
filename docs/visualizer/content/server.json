@@ -628,11 +628,7 @@
         {
           "title": "Respect the scope of cleanup",
           "description": "Active database copies are cleaned. Historical backups, freed storage blocks and payloads already delivered to external apps are not recalled or securely erased by these operations.",
-          "files": [
-            "packages/server/src/store.ts",
-            "packages/server/src/db.ts",
-            "docs/IMPLEMENTATION-2026-10-04.md"
-          ]
+          "files": ["packages/server/src/store.ts", "packages/server/src/db.ts"]
         }
       ]
     },
@@ -668,11 +664,7 @@
         {
           "title": "OPEN Q01: protect the publication interval",
           "description": "Current Windows code releases its hold to rename the folder. A concurrent server can create a fresh target during that gap; failed publication then cannot roll back over the new target. The original survives aside. A stable admission identity outside the renamed folder is proposed follow-up, not implemented here.",
-          "files": [
-            "packages/server/src/backup.ts",
-            "docs/MORE-IMPROVEMENTS-2026-10-04.md",
-            "docs/research/2026-10-04-next/server/restore-gap.json"
-          ]
+          "files": ["packages/server/src/backup.ts"]
         },
         {
           "title": "Open restored data under normal version rules",

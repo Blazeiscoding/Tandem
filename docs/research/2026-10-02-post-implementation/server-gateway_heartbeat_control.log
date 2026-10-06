@@ -1,4 +1,0 @@
-AUDIT {"phase":"armed","mode":"gateway_heartbeat_control","authenticatedSocket":true,"productionTrigger":"unaltered 30000ms Gateway heartbeat interval"}
-AUDIT {"phase":"result","healthStatus":200,"mode":"gateway_heartbeat_control","socketCloseCodes":[1006]}
-
-STDERR:

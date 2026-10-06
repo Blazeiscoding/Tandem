@@ -1320,8 +1320,7 @@
           "files": [
             "packages/ui/src/lib/workspaceAddressTrust.ts",
             "packages/ui/src/lib/notificationPreview.ts",
-            "packages/ui/src/App.tsx",
-            "docs/MORE-IMPROVEMENTS-2026-10-04.md"
+            "packages/ui/src/App.tsx"
           ]
         }
       ]
@@ -1466,8 +1465,7 @@
             "packages/ui/src/lib/route.ts",
             "packages/ui/src/lib/threadPosition.ts",
             "packages/ui/src/lib/usePanelFocus.ts",
-            "packages/ui/src/components/Modal.tsx",
-            "docs/MORE-IMPROVEMENTS-2026-10-04.md"
+            "packages/ui/src/components/Modal.tsx"
           ]
         }
       ]

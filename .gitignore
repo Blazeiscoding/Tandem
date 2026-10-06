@@ -15,3 +15,12 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# Plans, audits and research notes stay on the machine that wrote them. On
+# GitHub, docs/ holds the project atlas and how Tandem is run and extended.
+/docs/*
+!/docs/visualizer/
+!/docs/PROJECT-VISUALIZER.html
+!/docs/CI.md
+!/docs/DEPLOYMENT.md
+!/docs/INTEGRATIONS.md

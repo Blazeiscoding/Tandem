@@ -1,9 +1,7 @@
 # Atlas validation — 4 October 2026
 
-These checks validate the project atlas. The application's N01–N12 validation
-record remains [the implementation evidence](../IMPLEMENTATION-2026-10-04.md).
-Creating the atlas changes documentation, generation/preview tools and root
-commands; it does not change application runtime source.
+These checks validate the project atlas. Creating the atlas changes
+documentation, generation/preview tools and root commands; it does not change application runtime source.
 
 ## Generator and embedded source
 

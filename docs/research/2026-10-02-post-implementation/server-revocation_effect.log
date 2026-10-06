@@ -1,3 +1,0 @@
-AUDIT {"phase":"result","mode":"revocation_effect","removed":{"status":200,"body":{"ok":true}},"denied":{"status":404,"body":{"error":"channel_not_found","message":"channel_not_found"}},"injectedReads":1,"stale":{"clientStatus":"online","cachedChannel":true,"cachedMembership":true,"cachedText":["synthetic private content"],"lastSeq":3},"healed":{"cachedChannel":false,"cachedTimeline":false,"status":"online"},"scope":"actual WorkspaceClient/HTTP/native WebSocket; one local Store.memberships read failure during afterCommit access effect. Already-delivered cached data remains until reconnect; no new server access or private-data leak claimed"}
-
-STDERR:

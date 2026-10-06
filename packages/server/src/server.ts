@@ -114,9 +114,9 @@ const SCHEDULED_ATTEMPTS = 3;
  * the workspace this many in all; the flush takes due rows a batch at a time,
  * yielding between batches; and a held row is looked at again after a pause,
  * or as soon as what held it clears, rather than on every tick. A batch of ten
- * held the loop for about 13 ms (median) when 2,000 came due at once in
- * docs/VALIDATION.md's run, where fifty held it for about 64 ms; draining took
- * the same three seconds either way.
+ * held the loop for about 13 ms (median) when 2,000 came due at once, where
+ * fifty held it for about 64 ms; draining took the same three seconds either
+ * way.
  */
 export const SCHEDULED_LIMITS = {
   perAccount: 200,

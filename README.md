@@ -20,26 +20,14 @@ a faint hexagon glow, bundled Manrope, Montserrat, Onest and Geist Mono type,
 the conversation set as a card into the window, drawn line icons, menus split by
 what they concern (the workspace's name, or your own), keyboard-accessible
 controls, narrow-window navigation, and a capped live timeline that follows new
-messages without growing indefinitely. See the
-[UI and UX plan](docs/UX-PLAN-2026-10-05.md) and
-[frontend checks and measurements](docs/VALIDATION.md#tandem-frontend-refresh).
+messages without growing indefinitely.
 To regenerate the checked-in desktop icons from the SVG, install Playwright's
 Chromium and run `node scripts/generate-icons.mjs`. Normal packaging uses the
 checked-in assets and does not need this step.
 
 Early-stage, independently developed team chat under the [MIT license](LICENSE).
-See [deployment and backups](docs/DEPLOYMENT.md), [validation results and limits](docs/VALIDATION.md),
-[contributing](CONTRIBUTING.md), and [security](SECURITY.md). Not affiliated with Slack or Salesforce.
-
-The [current implementation plan](docs/IMPLEMENTATION-PLAN-2026-10-01.md) orders the
-17 reviewed issues and further improvements into scoped work with implementation status and acceptance checks.
-The [September update backlog](docs/UPDATE-PLAN-2026-09-30.md) retains detailed tickets and implementation history.
-The [optimization plan](docs/OPTIMIZATION-PLAN-2026-09-30.md) covers Electron, chat and server improvements researched from T3 Code and other applications.
-The [2 October improvement plan](docs/IMPROVEMENT-PLAN-2026-10-02.md) reviews the current code and prioritizes remaining reliability, performance and delivery work with evidence and acceptance checks.
-Its [deep investigation and reproducible evidence](docs/research/2026-10-02-deep/README.md) cover real failure paths, client lifecycle, desktop packaging/IPC, and measured optimization candidates.
-The [3 October review](docs/IMPROVEMENT-PLAN-2026-10-03.md) checks the latest fixes and records further storage, shutdown, microphone and integration lifecycle improvements with fresh reproducible evidence.
-The [4 October implementation](docs/IMPLEMENTATION-2026-10-04.md) addresses those twelve findings and records regression and integration validation.
-The [UI and UX improvement plan](docs/UX-PLAN-2026-10-05.md) reviews the desktop app and browser client screen by screen and orders hierarchy, navigation, first-run, search, settings and phone work into phases with acceptance checks.
+See [deployment and backups](docs/DEPLOYMENT.md), [contributing](CONTRIBUTING.md),
+and [security](SECURITY.md). Not affiliated with Slack or Salesforce.
 
 Open-source team chat that **you** host. Run the server on a VPS, or click
 **"Host a workspace"** in the desktop app and serve your team straight from your
@@ -383,8 +371,7 @@ installer selection and measured baseline; optimized remote timings remain to be
 File transfers stream through the server, a channel keeps a bounded window of
 messages in memory however far back you scroll, idle attachment blobs are
 evicted, and password derivations run off the main event loop with bounded
-concurrency. See
-[measured results](docs/VALIDATION.md) for the workload and remaining performance limits.
+concurrency.
 
 ## Roadmap
 
