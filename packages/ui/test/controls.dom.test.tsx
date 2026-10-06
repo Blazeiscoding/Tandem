@@ -115,13 +115,14 @@ describe("the huddle bar", () => {
     const status = within(screen.getByRole("region", { name: "Active huddle" })).getByRole(
       "status",
     );
-    expect(status).toHaveTextContent("2 participants · Connecting…");
+    expect(status).toHaveTextContent("With Priya Shah · Connecting…");
     expect(screen.queryByRole("button", { name: "Why? See the call log" })).toBeNull();
     stuck("needs_relay");
     expect(status).toHaveTextContent("Can't connect to Priya Shah · Trying again");
-    expect(screen.getByRole("img", { name: "Priya Shah (can't connect)" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Why? See the call log" }));
     expect(onShowCallLog).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Everyone in the huddle (2)" }));
+    expect(screen.getByRole("listitem", { name: "Priya Shah, can't connect" })).toBeVisible();
   });
 
   it("names each control for what it controls, and says whether it is on without renaming it", () => {
@@ -155,13 +156,23 @@ describe("the huddle bar", () => {
   it("says who is in the huddle, and offers Leave in words", async () => {
     const { calls, user } = huddleBar();
     const region = screen.getByRole("region", { name: "Active huddle" });
-    const people = within(region).getByRole("list", { name: "In the huddle" });
+    expect(within(region).getByRole("status")).toHaveTextContent(/^With Priya Shah$/);
+    expect(await accessibilityProblems(region)).toEqual([]);
+
+    // The faces are too small to tell people apart, so they open everyone by name.
+    const everyone = within(region).getByRole("button", { name: "Everyone in the huddle (2)" });
+    await user.click(everyone);
+    expect(everyone).toHaveAttribute("aria-expanded", "true");
+    const roster = screen.getByRole("dialog", { name: "Everyone in the huddle" });
+    const people = within(roster).getByRole("list", { name: "In the huddle" });
     expect(
       within(people)
-        .getAllByRole("img")
-        .map((face) => face.getAttribute("aria-label")),
-    ).toEqual(["You", "Priya Shah (muted)"]);
-    expect(within(region).getByRole("status")).toHaveTextContent("2 participants");
+        .getAllByRole("listitem")
+        .map((row) => row.getAttribute("aria-label")),
+    ).toEqual(["You", "Priya Shah, muted"]);
+    expect(await accessibilityProblems(roster)).toEqual([]);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Everyone in the huddle" })).toBeNull();
 
     await user.click(within(region).getByRole("button", { name: "Mute microphone" }));
     expect(calls.mic).toHaveBeenCalledOnce();
@@ -364,7 +375,7 @@ describe("channel rows", () => {
     ).toBeVisible();
     // A public channel's mark is a drawn #, so its name is the channel's alone.
     expect(
-      within(nav).getByRole("button", { name: /^# ?general ?Huddle in progress$/ }),
+      within(nav).getByRole("button", { name: /^# ?general ?Huddle with Priya Shah$/ }),
     ).toBeVisible();
     expect(within(nav).getByRole("button", { name: "New channel" })).toBeVisible();
     expect(within(nav).getByRole("button", { name: "New message" })).toBeVisible();

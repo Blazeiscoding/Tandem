@@ -353,7 +353,7 @@ test(
       await expect(bob.getByText("Message while Bob is offline", { exact: true })).toBeVisible();
       await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
       await expect(alice.getByText("Huddle in #general", { exact: true })).toBeVisible();
-      await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
+      await bob.getByRole("button", { name: "Join the huddle with alice", exact: true }).click();
       for (const page of [alice, bob]) {
         await expect
           .poll(() =>
@@ -469,9 +469,9 @@ test("a call says which route it connected on, and one that cannot connect says 
 
     // A call on this machine connects straight away, on routes of its own network.
     await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
-    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
-    for (const page of [alice, bob])
-      await expect(bar(page).getByRole("status")).toHaveText("2 participants");
+    await bob.getByRole("button", { name: "Join the huddle with alice", exact: true }).click();
+    await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
+    await expect(bar(bob).getByRole("status")).toHaveText("With alice");
     const aliceReport = await diagnostics(alice);
     await expect(aliceReport).toContainText("Call log on this device (times in UTC)");
     await expect(aliceReport).toContainText("[@bobby] Sent the call setup.");
@@ -507,8 +507,8 @@ test("a call says which route it connected on, and one that cannot connect says 
       };
     });
     await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
-    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
-    await expect(bar(bob).getByRole("status")).toHaveText("2 participants · Connecting…");
+    await bob.getByRole("button", { name: "Join the huddle with alice", exact: true }).click();
+    await expect(bar(bob).getByRole("status")).toHaveText("With alice · Connecting…");
     // After long enough, it says so rather than spinning, and offers why.
     await expect(bar(bob).getByRole("status")).toHaveText("Can't connect to alice · Trying again", {
       timeout: 25_000,
