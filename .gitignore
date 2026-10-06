@@ -24,3 +24,6 @@ data/
 !/docs/CI.md
 !/docs/DEPLOYMENT.md
 !/docs/INTEGRATIONS.md
+
+# A slideshow kept on the machine that made it.
+/tandem-codebase-tour.html
