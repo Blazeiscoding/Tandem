@@ -15,18 +15,27 @@ pnpm visualizer:serve
 Open `http://127.0.0.1:4178`. `VISUALIZER_PORT` changes the loopback port. The server
 serves only the generated page and does not expose arbitrary repository files.
 
-Use **File explorer** to search file paths and explanations. Enable **Search source**
-to search the embedded code as well. Filter by area and file kind; select a file
-to inspect its explanation, source, symbols, named tests and dependency links.
-Source is paged in 240-line sections; line links and the jump control go directly
-to a declaration. Navigation and selection are encoded in the URL hash, so
-browser Back and Forward and copied deep links work. Press `/` to focus file
-search. On narrow screens the explorer and reader stack vertically.
+Press `/` or `Ctrl K` anywhere to search file names, declarations, journeys and
+changes together.
 
-**How it works** follows real code paths. **Improvements** distinguishes
-implemented changes, measured historical effects and open follow-ups. Each
-claim links to embedded reports or original evidence. **Evidence & limits**
-explains validation scope, measurement limits and index coverage.
+- **Overview** maps how the browser, desktop app, shared interface, client
+  replica, protocol and server connect, and charts how much code each layer holds.
+- **Files** is a folder tree beside a reader. Filter the tree by name, kind or
+  layer, or tick **Search inside files too** to match source text. A file opens on
+  its explanation; **Source** shows the whole file with find, go to line, line
+  wrapping and an outline, **Declarations** lists what it defines and its named
+  tests, and **Connections** draws what it imports and what imports it. Click a
+  line number to copy a link to that line. Arrow keys move through the tree.
+- **How it works** follows one action through the code, step by step. Its
+  handoff map shows which layer each step works in.
+- **Improvements** lists implemented, measured and open changes with their
+  before and after, mechanism, measurements, files and limits.
+- **Scope & limits** says what the atlas can and cannot show.
+
+Every view, file, tab and line has its own address, so Back, Forward and copied
+links work. The page follows the device's light or dark setting; the button in
+the top bar picks Onyx, White or the device setting and remembers the choice. On
+a phone the navigation moves into a menu and the file tree and reader take turns.
 
 ## Maintaining the atlas
 
@@ -64,6 +73,13 @@ actual current files, not an older commit's source. The page embeds source as
 escaped JSON and renders text safely; it never executes embedded application
 code. The generated HTML is intentionally excluded from Prettier because its
 embedded source and data are deterministic generator output.
+
+The page embeds the Latin subsets of Manrope, Montserrat and Geist Mono from the
+web app's installed `@fontsource-variable` packages, so it matches Tandem offline.
+Run `pnpm install` first; the generator stops if they are missing. Layer colours
+group the eleven areas into six layers so a colour can name one: the five hues
+and the neutral were checked for colour-vision separation on both themes, and
+every chart also labels its values.
 
 The [atlas validation record](VALIDATION.md) covers its generator and browser
 interactions.
