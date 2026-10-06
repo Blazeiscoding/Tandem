@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <meta
       name="description"
-      content="An offline, interactive guide to Tandem's code, architecture, optimizations and evidence."
+      content="An offline, interactive guide to Tandem's code: its layers, every file, how requests travel through it and what changed."
     />
-    <title>Tandem • Project atlas</title>
+    <title>Tandem project atlas</title>
     <style>
       /* VISUALIZER_STYLES */
     </style>
@@ -16,60 +16,67 @@
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <div class="shell">
-      <aside class="rail" aria-label="Project navigation">
-        <a href="#overview" class="brand" aria-label="Tandem project atlas home"
-          ><span class="brand-mark" aria-hidden="true">t.</span
-          ><span>Tandem<small>PROJECT ATLAS</small></span></a
-        >
-        <div class="rail-label">THE CODE, EXPLAINED</div>
-        <nav id="navigation">
-          <a href="#overview" data-view="overview"><span aria-hidden="true">◈</span> Overview</a>
-          <a href="#files" data-view="files"
-            ><span aria-hidden="true">⌘</span> File explorer <b id="nav-count"></b
-          ></a>
-          <a href="#flows" data-view="flows"><span aria-hidden="true">⇢</span> How it works</a>
-          <a href="#improvements" data-view="improvements"
-            ><span aria-hidden="true">↗</span> Improvements</a
-          >
-          <a href="#evidence" data-view="evidence"
-            ><span aria-hidden="true">✓</span> Evidence & limits</a
-          >
-        </nav>
-        <div class="rail-note">
-          <span class="live-dot"></span> Offline documentation<br /><small
-            >Source, explanations and evidence<br />travel together in this one file.</small
-          >
-        </div>
-        <div class="rail-bottom">
-          <span>SNAPSHOT BASE</span
-          ><a id="revision-link" target="_blank" rel="noopener noreferrer"></a
-          ><small id="snapshot-digest"></small>
-        </div>
+      <aside class="sidebar" id="sidebar" aria-label="Atlas navigation">
+        <a href="#overview" class="brand">
+          <span class="brand-mark" aria-hidden="true">t.</span>
+          <span class="brand-text"><strong>Tandem</strong><span>Project atlas</span></span>
+        </a>
+        <nav class="nav" id="navigation" aria-label="Sections"></nav>
+        <section class="nav-layers" aria-labelledby="layers-heading">
+          <h2 id="layers-heading">Layers</h2>
+          <div id="layer-links"></div>
+        </section>
+        <div class="snapshot" id="snapshot"></div>
       </aside>
+      <div class="scrim" id="scrim" hidden></div>
       <div class="workspace">
         <header class="topbar">
-          <div class="breadcrumb">
-            Tandem <span>/</span> <strong id="breadcrumb">Overview</strong>
-          </div>
-          <div class="top-actions">
-            <span class="offline-pill">● OFFLINE READY</span
-            ><button id="open-search" class="quiet-button" type="button">
-              Find a file <kbd>/</kbd>
-            </button>
-          </div>
+          <button
+            class="icon-button menu-button"
+            id="menu-button"
+            type="button"
+            aria-label="Open navigation"
+            aria-controls="sidebar"
+            aria-expanded="false"
+          ></button>
+          <div class="crumbs" id="crumbs"></div>
+          <button class="search-trigger" id="open-search" type="button" aria-haspopup="dialog">
+            <span class="search-trigger-icon" aria-hidden="true"></span>
+            <span class="search-trigger-label">Search files, code and journeys</span>
+            <kbd id="search-shortcut">Ctrl K</kbd>
+          </button>
+          <button class="icon-button" id="theme-button" type="button"></button>
         </header>
         <main id="main" tabindex="-1"></main>
-        <footer>
-          Built from the repository, with reviewed runtime explanations.
-          <a href="#evidence">Read the scope and limits</a>.<span id="footer-hash"></span>
-        </footer>
       </div>
     </div>
+    <dialog class="palette" id="palette" aria-label="Search the atlas">
+      <div class="palette-field">
+        <span class="palette-icon" aria-hidden="true"></span>
+        <input
+          id="palette-input"
+          type="text"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="palette-results"
+          aria-autocomplete="list"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Search files, declarations, journeys and changes"
+        />
+        <kbd>Esc</kbd>
+      </div>
+      <div class="palette-results" id="palette-results" role="listbox" aria-label="Results"></div>
+      <div class="palette-foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> to move</span><span><kbd>Enter</kbd> to open</span>
+      </div>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
     <noscript
-      ><p>
-        This visualizer needs JavaScript. All source data is embedded; it makes no network requests.
-        Enable JavaScript and reopen this file.
+      ><p class="noscript">
+        This atlas needs JavaScript. Everything it shows is inside this file and it makes no network
+        requests. Turn JavaScript on and reopen the file.
       </p></noscript
     >
     <script id="project-data" type="application/json">
