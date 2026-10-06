@@ -225,7 +225,7 @@ describe("the huddle bar, with the video put away", () => {
       </ClientContext.Provider>,
     );
     expect(screen.getByRole("status")).toHaveTextContent(
-      "2 participants · Priya Shah is sharing their screen",
+      "With Priya Shah · Priya Shah is sharing their screen",
     );
   });
 });

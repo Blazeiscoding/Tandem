@@ -4,47 +4,124 @@ import { useClient, useWorkspace } from "../context.js";
 import { channelTitle } from "../lib/format.js";
 import { Avatar } from "./Avatar.js";
 import { Icon } from "./Icon.js";
+import { Popover } from "./Popover.js";
 import { HuddleControls } from "./HuddleControls.js";
 import { HuddleAudio } from "./HuddleAudio.js";
 import { Tooltip } from "./Tooltip.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
+import { namesList } from "../lib/catchUp.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
+
+/** Someone in the call, as the bar and its roster need them. */
+interface Person {
+  key: string;
+  user: User | undefined;
+  /** "You" or a display name. */
+  name: string;
+  speaking: boolean;
+  muted: boolean;
+  connecting: boolean;
+  /** Connecting has taken long enough to know something is wrong. */
+  stuck: boolean;
+}
+
+/** How many faces the bar shows before the rest are counted. */
+const FACES = 4;
+
+/** What is true of someone besides their name, for a label or the roster. */
+function stateOf(p: Person): string | null {
+  if (p.connecting) return p.stuck ? "can't connect" : "connecting…";
+  if (p.speaking) return "talking";
+  if (p.muted) return "muted";
+  return null;
+}
 
 /**
  * A face in the huddle bar. The ring is the answer to "who is talking?", which
  * in a call of more than three people is the only question anyone has.
  */
-function HuddleFace({
-  user,
-  title,
-  speaking,
-  muted,
-  dim,
-}: {
-  user: User | undefined;
-  title: string;
-  speaking?: boolean;
-  muted?: boolean;
-  dim?: boolean;
-}) {
+function HuddleFace({ person, size = 24 }: { person: Person; size?: number }) {
+  const state = stateOf(person);
   return (
-    <li className="flex shrink-0">
-      <span
-        role="img"
-        aria-label={title}
-        title={title}
-        className={`relative flex rounded-full ring-2 transition-colors ${
-          speaking ? "ring-online" : "ring-transparent"
-        } ${dim ? "opacity-40" : ""}`}
-      >
-        <Avatar user={user} size={22} />
-        {muted && (
-          <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-raised p-0.5 text-ink-dim">
-            <Icon name="micOff" size={9} />
-          </span>
-        )}
-      </span>
-    </li>
+    <span
+      title={state ? `${person.name} (${state})` : person.name}
+      className={`relative flex shrink-0 rounded-full ring-2 transition-colors ${
+        person.speaking ? "ring-online" : "ring-transparent"
+      } ${person.connecting ? "opacity-40" : ""}`}
+    >
+      <Avatar user={person.user} size={size} />
+      {person.muted && (
+        <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-raised p-0.5 text-ink-dim">
+          <Icon name="micOff" size={9} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Everyone in the call, by name, with who is talking, muted or still
+ * connecting. The faces in the bar are too small to tell people apart by, so
+ * they open this.
+ */
+function HuddlePeople({ people }: { people: Person[] }) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const extra = people.length - FACES;
+  return (
+    <>
+      <Tooltip label="See everyone in the huddle">
+        <button
+          ref={anchor}
+          type="button"
+          aria-label={`Everyone in the huddle (${people.length})`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="flex h-10 shrink-0 items-center gap-1.5 rounded-full px-2 transition-colors hover:bg-ink/[0.05]"
+        >
+          {people.slice(0, FACES).map((p) => (
+            <HuddleFace key={p.key} person={p} />
+          ))}
+          {extra > 0 && (
+            <span className="tabular flex h-6 min-w-6 items-center justify-center rounded-full bg-ink/[0.08] px-1.5 text-[11px] font-semibold text-ink-dim">
+              +{extra}
+            </span>
+          )}
+        </button>
+      </Tooltip>
+      {open && (
+        <Popover label="Everyone in the huddle" anchor={anchor} onClose={() => setOpen(false)}>
+          <p className="px-4 pb-1 pt-3 text-xs font-semibold text-ink-faint">
+            In the huddle · {people.length}
+          </p>
+          <ul aria-label="In the huddle" className="px-2 pb-2">
+            {people.map((p) => {
+              const state = stateOf(p);
+              return (
+                <li
+                  key={p.key}
+                  aria-label={state ? `${p.name}, ${state}` : p.name}
+                  className="flex items-center gap-2.5 rounded-lg px-2 py-1.5"
+                >
+                  <HuddleFace person={p} size={28} />
+                  <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
+                  {state && (
+                    <span
+                      className={`shrink-0 text-xs ${
+                        p.stuck ? "text-alert" : p.speaking ? "text-online" : "text-ink-faint"
+                      }`}
+                    >
+                      {state[0]!.toUpperCase() + state.slice(1)}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Popover>
+      )}
+    </>
   );
 }
 
@@ -78,12 +155,43 @@ export function HuddleBar({
   const connecting = huddle.peers.some((p) => !p.connected);
   // Someone who has taken too long to connect: say so, and offer the reason.
   const stuck = huddle.peers.filter((p) => !p.connected && p.trouble);
+  const people: Person[] = [
+    {
+      key: "self",
+      user: selfId ? users[selfId] : undefined,
+      name: "You",
+      speaking: huddle.speaking,
+      muted: huddle.micMuted,
+      connecting: false,
+      stuck: false,
+    },
+    ...huddle.peers.map((p) => ({
+      key: p.userId,
+      user: users[p.userId],
+      name: users[p.userId]?.displayName ?? "Someone",
+      speaking: p.connected && p.speaking,
+      muted: p.connected && p.micMuted,
+      connecting: !p.connected,
+      stuck: !p.connected && !!p.trouble,
+    })),
+  ];
   const sharer = huddle.peers.find((p) => p.screenStream);
   const sharing = sharer
     ? ` · ${users[sharer.userId]?.displayName ?? "Someone"} is sharing their screen`
     : huddle.sharingScreen
       ? " · You're sharing your screen"
       : "";
+  // Everyone by name, so the line answers "who is here?" without a hover.
+  const summary =
+    huddle.peers.length === 0
+      ? "Waiting for someone to join…"
+      : stuck.length > 0
+        ? `Can't connect to ${stuck
+            .map((p) => users[p.userId]?.displayName ?? "someone")
+            .join(", ")} · Trying again`
+        : `With ${namesList(huddle.peers.map((p) => users[p.userId]?.displayName ?? "someone"))}${
+            connecting ? " · Connecting…" : ""
+          }${sharing}`;
 
   return (
     <div
@@ -98,14 +206,8 @@ export function HuddleBar({
           <div className="truncate text-sm font-semibold" title={`Huddle in ${where}`}>
             Huddle in {where}
           </div>
-          <div role="status" className="truncate text-xs text-ink-faint">
-            {huddle.peers.length === 0
-              ? "Waiting for someone to join…"
-              : stuck.length > 0
-                ? `Can't connect to ${stuck
-                    .map((p) => users[p.userId]?.displayName ?? "someone")
-                    .join(", ")} · Trying again`
-                : `${huddle.peers.length + 1} participants${connecting ? " · Connecting…" : ""}${sharing}`}
+          <div role="status" className="truncate text-xs text-ink-faint" title={summary}>
+            {summary}
           </div>
           {stuck.length > 0 && onShowCallLog && (
             <button
@@ -119,35 +221,7 @@ export function HuddleBar({
         </div>
       </div>
 
-      <ul
-        aria-label="In the huddle"
-        className="flex min-w-0 max-w-40 items-center gap-1.5 overflow-x-auto p-1"
-      >
-        <HuddleFace
-          user={selfId ? users[selfId] : undefined}
-          title={`You${huddle.micMuted ? " (muted)" : ""}`}
-          speaking={huddle.speaking}
-          muted={huddle.micMuted}
-        />
-        {huddle.peers.map((p) => (
-          <HuddleFace
-            key={p.userId}
-            user={users[p.userId]}
-            title={`${users[p.userId]?.displayName ?? "unknown"}${
-              p.connected
-                ? p.micMuted
-                  ? " (muted)"
-                  : ""
-                : p.trouble
-                  ? " (can't connect)"
-                  : " (connecting…)"
-            }`}
-            speaking={p.speaking}
-            muted={p.micMuted}
-            dim={!p.connected}
-          />
-        ))}
-      </ul>
+      <HuddlePeople people={people} />
 
       <HuddleAudio peers={huddle.peers} />
 

@@ -11,6 +11,8 @@ import { Tooltip } from "./Tooltip.js";
 import { Menu, type MenuItem } from "./Menu.js";
 import { useOptionalToast } from "./Toast.js";
 import { STATUS_PRESETS } from "../lib/status.js";
+import { huddleNames } from "../lib/huddleView.js";
+import { namesList } from "../lib/catchUp.js";
 
 interface Props {
   activeChannelId: ID | null;
@@ -96,7 +98,7 @@ export function Sidebar(props: Props) {
   const hasDraft = (id: ID) => !!drafts[id];
   // Muted channels still show unread state, just quietly.
   const isMuted = (id: ID) => prefs[id]?.muted ?? false;
-  const huddleCount = (id: ID) => huddles[id]?.length ?? 0;
+  const huddleWith = (id: ID) => huddleNames(huddles[id] ?? [], users, self?.id);
   const mentions = (id: ID) => mentionCounts[id] ?? 0;
   const totalMentions = Object.values(mentionCounts).reduce((sum, n) => sum + n, 0);
   const unreadConversations = Object.keys(memberships).filter((id) => isUnread(id)).length;
@@ -222,7 +224,7 @@ export function Sidebar(props: Props) {
                 unread={isUnread(ch.id)}
                 muted={isMuted(ch.id)}
                 draft={hasDraft(ch.id)}
-                huddle={huddleCount(ch.id)}
+                huddle={huddleWith(ch.id)}
                 mentions={mentions(ch.id)}
                 onClick={() => props.onSelect(ch.id)}
                 icon={
@@ -269,7 +271,7 @@ export function Sidebar(props: Props) {
                   unread={isUnread(ch.id)}
                   muted={isMuted(ch.id)}
                   draft={hasDraft(ch.id)}
-                  huddle={huddleCount(ch.id)}
+                  huddle={huddleWith(ch.id)}
                   mentions={mentions(ch.id)}
                   onClick={() => props.onSelect(ch.id)}
                   icon={
@@ -748,8 +750,8 @@ function ChannelRow(props: {
   unread: boolean;
   muted: boolean;
   draft: boolean;
-  /** How many people are in this channel’s huddle; 0 for none. */
-  huddle: number;
+  /** Who is in this channel’s huddle, by name; empty for none. */
+  huddle: string[];
   /** Unread messages here that name this user; 0 for none. */
   mentions: number;
   icon: React.ReactNode;
@@ -789,14 +791,15 @@ function ChannelRow(props: {
           {props.icon}
         </span>{" "}
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
-        {props.huddle > 0 && (
+        {props.huddle.length > 0 && (
           <span
             role="img"
-            aria-label="Huddle in progress"
-            title="Huddle in progress"
-            className="shrink-0 text-online"
+            aria-label={`Huddle with ${namesList(props.huddle)}`}
+            title={`Huddle with ${namesList(props.huddle)}`}
+            className="flex shrink-0 items-center gap-0.5 text-online"
           >
             <Icon name="headphones" size={14} />
+            <span className="tabular text-[11px] font-semibold">{props.huddle.length}</span>
           </span>
         )}
         {props.draft && !props.active && (

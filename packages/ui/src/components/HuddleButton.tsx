@@ -1,15 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
+import { Avatar } from "./Avatar.js";
 import { Icon } from "./Icon.js";
 import { Tooltip } from "./Tooltip.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
+import { huddleNames } from "../lib/huddleView.js";
+import { namesList } from "../lib/catchUp.js";
+
+/** How many faces the button shows before it counts the rest. */
+const FACES = 3;
 
 /** Header control: start a huddle, join the running one, or show you're in it. */
 export function HuddleButton({ channelId }: { channelId: ID }) {
   const client = useClient();
   const participants = useWorkspace((s) => s.huddles[channelId]);
   const inThis = useWorkspace((s) => s.huddle?.channelId === channelId);
+  const users = useWorkspace((s) => s.users);
+  const selfId = useWorkspace((s) => s.self?.id);
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const calls = useCallPreferences();
@@ -22,7 +30,8 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
       mounted.current = false;
     };
   }, []);
-  const count = participants?.length ?? 0;
+  const inside = participants ?? [];
+  const count = inside.length;
 
   async function join() {
     setError(null);
@@ -57,7 +66,11 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
     );
   }
 
-  const label = count > 0 ? `Join the huddle (${count})` : "Start a huddle";
+  // Who is in it, so nobody has to join to find out.
+  const label =
+    count > 0
+      ? `Join the huddle with ${namesList(huddleNames(inside, users, selfId))}`
+      : "Start a huddle";
   return (
     <Tooltip label={label}>
       <button
@@ -80,7 +93,18 @@ export function HuddleButton({ channelId }: { channelId: ID }) {
           <>
             <Icon name="headphones" size={16} />
             <span className="header-secondary">{count > 0 ? "Join" : "Huddle"}</span>
-            {count > 0 && <span className="tabular text-[12px]">{count}</span>}
+            {count > 0 && (
+              <span className="flex items-center" aria-hidden="true">
+                {inside.slice(0, FACES).map((id) => (
+                  <span key={id} className="-ml-1 flex rounded-full ring-2 ring-ground first:ml-0">
+                    <Avatar user={users[id]} size={18} />
+                  </span>
+                ))}
+                {count > FACES && (
+                  <span className="tabular ml-1 text-[12px]">+{count - FACES}</span>
+                )}
+              </span>
+            )}
           </>
         )}
       </button>
