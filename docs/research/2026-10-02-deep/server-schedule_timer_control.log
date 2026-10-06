@@ -1,4 +1,0 @@
-AUDIT {"phase":"ready","mode":"schedule_timer_control","port":50083,"scheduledStatus":"queued"}
-AUDIT {"phase":"result","healthy":true,"nativeTimerPosted":true,"scheduledStatus":"sent"}
-
---- STDERR ---

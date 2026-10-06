@@ -59,17 +59,10 @@
       "color": "mint"
     },
     {
-      "id": "research",
-      "title": "Research archive",
-      "summary": "Dated probes, reports and raw results preserve why a change was proposed. A successful diagnostic can establish a defect rather than repair it.",
-      "entry": "docs/research/2026-10-04-next/README.md",
-      "color": "orange"
-    },
-    {
       "id": "docs",
-      "title": "Decisions & operations",
-      "summary": "Deployment instructions, implementation records, validation boundaries and future work. Plans are distinguished from implementation evidence.",
-      "entry": "docs/VALIDATION.md",
+      "title": "Operations",
+      "summary": "Hosting and backups, CI duration and caching, and the integration contract that the server tests hold to the code.",
+      "entry": "docs/DEPLOYMENT.md",
       "color": "blue"
     },
     {
@@ -118,11 +111,7 @@
     {
       "title": "Optimize against evidence",
       "text": "Indexes, bounded work, stable references and import boundaries address specific costs. Read the fixture and limits before treating a historical benchmark as a general speed claim.",
-      "files": [
-        "docs/research/2026-10-02-followup-measurements/README.md",
-        "scripts/measure-mixed.mts",
-        "docs/OPTIMIZATION-PLAN-2026-09-30.md"
-      ]
+      "files": ["scripts/measure-mixed.mts"]
     }
   ],
   "reading": [
@@ -143,36 +132,11 @@
       "text": "Improvements distinguishes implemented controls, historical measured changes and open follow-ups. Evidence links open the embedded original report or raw results."
     }
   ],
-  "validation": [
-    {
-      "value": "1,847",
-      "label": "package tests passed",
-      "detail": "Recorded for the N01–N12 implementation, with two existing skips. Protocol 27 · server 616 · client 235 · UI 716 · desktop 253.",
-      "path": "docs/implementation/2026-10-04/validation.json"
-    },
-    {
-      "value": "23 + 8",
-      "label": "browser + Windows scenarios",
-      "detail": "The local record includes full runs and focused successful reruns, and explains its initial harness failures. Final PR checks subsequently passed.",
-      "path": "docs/IMPLEMENTATION-2026-10-04.md"
-    },
-    {
-      "value": "10 / 10",
-      "label": "forced build/type tasks",
-      "detail": "Zero cache hits in the recorded forced build/typecheck. Tooling tests: 28. Cache input checks: 15 mutations and 101 assertions.",
-      "path": "docs/implementation/2026-10-04/validation.json"
-    },
-    {
-      "value": "499.5 kB",
-      "label": "desktop renderer entry",
-      "detail": "Recorded 499,463 bytes against 500,000. Web entry 496,783 bytes. This atlas is separate documentation and is not imported into either renderer.",
-      "path": "docs/implementation/2026-10-04/validation.json"
-    }
-  ],
+  "validation": [],
   "limits": [
     "This is a source snapshot, not a live monitor. Its input digest identifies the embedded files; regenerate it after changes. The base commit identifies the checkout, not a claim that all local files were committed there.",
     "Every tracked file is indexed except this generated HTML itself. Explicit atlas source files are added before their first commit. Ignored builds, node_modules, user data and unrelated untracked directories are not scanned.",
-    "All runtime source files in apps and packages have reviewed file explanations. Test, research, documentation, configuration and asset descriptions also use structural metadata. Generated symbol and import indexes do not infer every line's intent.",
+    "All runtime source files in apps and packages have reviewed file explanations. Test, documentation, configuration and asset descriptions also use structural metadata. Generated symbol and import indexes do not infer every line's intent.",
     "Imports are static source references, including literal dynamic imports and workspace package entries. They are not a runtime call graph; type-only imports, indirect exports and injected adapters can change how the code runs.",
     "Text source is complete and paged for responsive reading. Binary assets show metadata. Symbol indexing covers named declarations, class methods and top-level values, not every anonymous closure or generated declaration.",
     "Benchmarks belong to their recorded revision, hardware, sample count and fixture. A smaller archive does not establish faster startup. Bundle-entry limits do not measure the full import closure or decoded media memory.",

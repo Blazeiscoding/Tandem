@@ -1,3 +1,0 @@
-AUDIT {"phase":"result","mode":"cleanup_fairness","failure":"valid-ID directories produce real unlink failure; no filesystem mock","observations":[{"phase":"flush-1","pending":{"n":101},"healthyExists":true,"countedBytes":21},{"phase":"flush-2","pending":{"n":101},"healthyExists":true,"countedBytes":21},{"phase":"flush-3","pending":{"n":101},"healthyExists":true,"countedBytes":21},{"phase":"restart-and-flush","pending":{"n":101},"healthyExists":true,"countedBytes":21},{"phase":"repair-first-flush","pending":{"n":1},"healthyExists":true,"countedBytes":21},{"phase":"repair-second-flush","pending":{"n":0},"healthyExists":false,"countedBytes":0}]}
-
---- STDERR ---

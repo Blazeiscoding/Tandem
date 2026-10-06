@@ -66,4 +66,4 @@ code. The generated HTML is intentionally excluded from Prettier because its
 embedded source and data are deterministic generator output.
 
 The [atlas validation record](VALIDATION.md) covers its generator and browser
-interactions. It is separate from the application's historical validation.
+interactions.

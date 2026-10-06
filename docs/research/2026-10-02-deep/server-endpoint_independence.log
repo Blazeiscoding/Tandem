@@ -1,3 +1,0 @@
-AUDIT {"phase":"result","mode":"endpoint_independence","transport":"real loopback HTTP with one deliberately held response; no timer replacement","whileHeld":{"received":[{"endpoint":"/slow","event":1},{"endpoint":"/fast","event":2}],"healthyServer":200,"fastPending":1,"reusedPromise":true,"slowStillHeld":true},"afterRelease":[{"endpoint":"/slow","event":1},{"endpoint":"/fast","event":2},{"endpoint":"/fast","event":3}],"remaining":{"waiting":0,"oldestWaitingAt":null,"failed":0}}
-
---- STDERR ---

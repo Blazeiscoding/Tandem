@@ -1,7 +1,5 @@
 /**
- * What publishing costs in time, where F10 and F11 cut the work (the counts
- * are in docs/research/2026-10-02-post-implementation/server-report.md, S4
- * and S5). Runs a real workspace server on a disk database and times:
+ * What publishing costs in time, where F10 and F11 cut the work. Runs a real workspace server on a disk database and times:
  *
  * - F10: deleting a thread root with 20 replies, 21 deletion events, in a
  *   private channel of 50, 500 and 2,000 members, with nobody connected and

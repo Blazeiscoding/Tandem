@@ -1,3 +1,0 @@
-AUDIT {"phase":"result","mode":"retry_order","accepted":{"status":200,"body":{"ok":true,"retried":3,"waiting":3}},"received":[{"seq":4,"historical":false},{"seq":1,"historical":true},{"seq":2,"historical":true},{"seq":3,"historical":true},{"seq":5,"historical":false},{"seq":6,"historical":false}],"queue":{"pending":498,"failed":0,"retrying":0,"dropped":0,"lastError":null,"lastFailedAt":null},"orderInversions":[[4,1]],"transport":"production HTTP retry endpoint and delivery pump to actual loopback HTTP; synthetic queue payloads; sixth response held to bound work"}
-
-STDERR:
