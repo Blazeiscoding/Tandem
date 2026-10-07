@@ -27,10 +27,25 @@ import {
 import type { OutboxChanges } from "@slackoss/client-core/outbox";
 import type { DraftChanges } from "@slackoss/client-core/drafts";
 import { applyRecordChanges, isRecordChanges } from "@slackoss/client-core/records";
-import { createWorkspaceServer } from "@slackoss/server";
+import {
+  cloudflareIceServers,
+  createWorkspaceServer,
+  isTurn,
+  type CallRelay,
+  type WorkspaceServer,
+} from "@slackoss/server";
 import createBackupWorker from "./backupWorker?nodeWorker";
 import type { BackupJob, BackupReply } from "./backupWorker.js";
 import { createSettingsStorage } from "./settings.js";
+import {
+  CALL_RELAY_KEY,
+  decodeRelay,
+  encodeRelay,
+  resolveDraft,
+  summarize,
+  type CallRelaySummary,
+} from "./callRelay.js";
+import type { CredentialProtector } from "./credentials.js";
 import { ClosePreparation } from "./closePreparation.js";
 import { appRecipients, guarded, rendererUrlTrust, settingKey } from "./ipcBoundary.js";
 import { writeGateReport } from "./releaseGate.js";
@@ -197,14 +212,18 @@ handle("deeplink:consume", () => {
 
 // ---------- settings and OS-protected saved sign-ins ----------
 
-const settings = createSettingsStorage(join(app.getPath("userData"), "settings.json"), {
+const credentialProtector: CredentialProtector = {
   isAvailable: () =>
     safeStorage.isEncryptionAvailable() &&
     (process.platform !== "linux" ||
       !["basic_text", "unknown"].includes(safeStorage.getSelectedStorageBackend())),
   encryptString: (value) => safeStorage.encryptString(value),
   decryptString: (value) => safeStorage.decryptString(value),
-});
+};
+const settings = createSettingsStorage(
+  join(app.getPath("userData"), "settings.json"),
+  credentialProtector,
+);
 const closePreparation = new ClosePreparation();
 handle("window:preparedClose", (event, id: unknown, saved: unknown) =>
   closePreparation.acknowledge(event.sender.id, id, saved),
@@ -264,6 +283,22 @@ handle("storage:initialize", (_e, key: unknown, value: unknown) =>
 );
 
 const writeSetting = (key: string, value: unknown) => settings.set(key, value);
+
+/** Running workspaces that calls can be given a relay by, so a change reaches them at once. */
+const relayServers = new Set<WorkspaceServer>();
+let callRelay: Promise<CallRelay | null> | null = null;
+
+function savedCallRelay(): Promise<CallRelay | null> {
+  callRelay ??= settings
+    .get(CALL_RELAY_KEY, { strict: true })
+    .then((value) => decodeRelay(value, credentialProtector))
+    .catch((error: unknown) => {
+      // Read again next time: a locked key store may be unlocked by then.
+      callRelay = null;
+      throw error;
+    });
+  return callRelay;
+}
 handle("storage:set", (_e, key: unknown, value: unknown) => writeSetting(settingKey(key), value));
 
 // Outbox changes from every window are merged here, one at a time; the other
@@ -487,7 +522,11 @@ const hosting = createHostingController({
       webDistPath: app.isPackaged
         ? join(process.resourcesPath, "web")
         : join(import.meta.dirname, "../../../web/dist"),
+      // A relay that cannot be read leaves calls on this network working;
+      // the hosting window says why.
+      relay: isolated ? null : await savedCallRelay().catch(() => null),
     });
+    if (!isolated) relayServers.add(server);
     const configured = publicAddressConfig();
     // An external carrier may already be forwarding this port, and an app-owned
     // connector may have survived an ungraceful exit. Never leave registration
@@ -502,7 +541,10 @@ const hosting = createHostingController({
       reannounce: () => server.reannounce(),
       connectedPeople: () => server.connectedPeople(),
       onConnectedChange: (listener) => server.onConnectedChange(listener),
-      stop: () => server.stop(),
+      stop: async () => {
+        await server.stop();
+        relayServers.delete(server);
+      },
       setPublicUrl: (url) => server.setPublicUrl(url),
       // cloudflared reaches this embedded server from loopback. Believe its
       // visitor address only while the controller owns a live connector.
@@ -741,6 +783,53 @@ handle("hosting:setPublicAddress", async (_e, value: unknown) => {
   // carrier only after persistence succeeds.
   await hosting.setPublicAddress(saving);
   return hostingStatus();
+});
+
+// ---------- the TURN relay for calls between networks ----------
+
+async function relayStatus(): Promise<CallRelaySummary & { error?: string }> {
+  try {
+    const relay = await savedCallRelay();
+    const error = [...relayServers].map((server) => server.relayError()).find(Boolean);
+    return { ...summarize(relay), ...(error ? { error } : {}) };
+  } catch (error) {
+    return { kind: "none", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+handle("hosting:relay", () => relayStatus());
+handle("hosting:setRelay", async (_e, draft: unknown) => {
+  const relay = resolveDraft(draft, await savedCallRelay().catch(() => null));
+  const stored = relay ? encodeRelay(relay, credentialProtector) : null;
+  try {
+    await writeSetting(CALL_RELAY_KEY, stored);
+  } catch {
+    // Filesystem errors can name the Windows account; say what to do instead.
+    throw new Error(
+      "Tandem could not save the relay. Check that its settings folder is writable, then try again.",
+    );
+  }
+  callRelay = Promise.resolve(relay);
+  // Calls already connected keep their route; calls started from now, and
+  // retries of ones that did not connect, are given this relay.
+  for (const server of relayServers) server.setRelay(relay);
+  return relayStatus();
+});
+/**
+ * The relay a draft describes, as a call would be given it, so the hosting
+ * window can check it gives a route before anyone depends on it. A
+ * Cloudflare password asked for here lasts ten minutes.
+ */
+handle("hosting:testRelay", async (_e, draft: unknown) => {
+  const relay = resolveDraft(draft, await savedCallRelay().catch(() => null));
+  if (!relay) throw new Error("Choose a relay to test.");
+  const servers =
+    relay.kind === "cloudflare"
+      ? await cloudflareIceServers(relay, { ttl: 600 })
+      : [{ urls: relay.urls, username: relay.username, credential: relay.credential }];
+  return servers
+    .map((server) => ({ ...server, urls: [server.urls].flat().filter(isTurn) }))
+    .filter((server) => server.urls.length > 0);
 });
 
 function publishHostingStatus(): void {

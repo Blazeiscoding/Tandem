@@ -7,6 +7,7 @@ import { ACCESS_POLICIES, DEFAULT_PORT, type AccessPolicy } from "@slackoss/prot
 import { createWorkspaceServer, SERVER_VERSION } from "./server.js";
 import { backupWorkspace, inventoryBackup, restoreWorkspace, verifyBackup } from "./backup.js";
 import { listAccounts, recoverAccount } from "./recover.js";
+import { relayFromEnvironment } from "./relay.js";
 import { parseIceServers } from "./rtc.js";
 import {
   ConfigError,
@@ -410,6 +411,7 @@ const server = await createWorkspaceServer({
   rateLimits: values["no-rate-limits"] || envSetting("RATE_LIMITS") === "off" ? false : undefined,
   logger: true,
   iceServers: parseIceServers(envSetting("ICE_SERVERS")),
+  relay: relayFromEnvironment(envSetting),
 }).catch((err: unknown) => refuse(describeStartupError(err, { port, host })));
 
 console.log(`\n  Tandem server v${SERVER_VERSION} is running`);
