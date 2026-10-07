@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, resolve, relative, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -364,8 +364,29 @@ if (checking) {
   for (const key of ["revision", "revisionDate", "trackedCount"])
     data.meta[key] = embedded.meta[key];
 }
+// The page carries Tandem's own faces so it looks the same offline. They come
+// from the web app's installed packages; a checkout without apps/web (the
+// freshness fixture) falls back to system fonts.
+const faces = [
+  ["Onest Variable", "onest", "100 900"],
+  ["Geist Mono Variable", "geist-mono", "100 900"],
+];
+function fontFaces() {
+  if (!existsSync(resolve(root, "apps/web/package.json"))) return "";
+  return faces
+    .map(([family, name, weight]) => {
+      const file = resolve(
+        root,
+        `apps/web/node_modules/@fontsource-variable/${name}/files/${name}-latin-wght-normal.woff2`,
+      );
+      if (!existsSync(file)) throw new Error(`Missing ${file}. Run pnpm install.`);
+      const data = readFileSync(file).toString("base64");
+      return `@font-face{font-family:"${family}";font-style:normal;font-display:swap;font-weight:${weight};src:url(data:font/woff2;base64,${data}) format("woff2")}\n`;
+    })
+    .join("");
+}
 const parts = {
-  STYLES: read("docs/visualizer/style.css"),
+  STYLES: fontFaces() + read("docs/visualizer/style.css"),
   DATA: JSON.stringify(data)
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")

@@ -268,13 +268,13 @@ export const MessageItem = memo(function MessageItem({
       }}
       onTouchEnd={cancelPress}
       onTouchCancel={cancelPress}
-      className={`message-row group relative py-1 pl-5 pr-12 transition-colors hover:bg-ink/[0.025] ${
-        compact ? "" : "mt-3"
-      } ${moreOpen ? "bg-ink/[0.025]" : ""} ${
+      className={`message-row group relative py-0.5 pl-4 pr-12 transition-colors duration-75 hover:bg-ink/[0.03] ${
+        compact ? "" : "mt-4"
+      } ${moreOpen ? "bg-ink/[0.03]" : ""} ${
         mentionsMe ? "bg-mention shadow-[inset_2px_0_var(--color-copper)] hover:bg-mention" : ""
       } ${highlighted ? "bg-copper/15 hover:bg-copper/15" : ""}`}
     >
-      <div className="flex gap-3.5">
+      <div className="flex gap-4">
         <div className="relative w-10 shrink-0 pt-0.5">
           {!compact && (
             <Tooltip label={profileLabel}>
@@ -322,7 +322,7 @@ export const MessageItem = memo(function MessageItem({
             <div className="flex items-baseline gap-2">
               <button
                 onClick={() => onOpenProfile?.(message.userId)}
-                className="text-[15px] font-semibold leading-snug hover:underline"
+                className="text-[16px] font-medium leading-snug hover:underline"
               >
                 {author?.displayName ?? "unknown"}
               </button>
@@ -368,7 +368,7 @@ export const MessageItem = memo(function MessageItem({
           ) : (
             <>
               {message.text && (
-                <div className="message-text text-[15px] leading-[1.5] text-ink/90">
+                <div className="message-text text-[16px] leading-[1.375] text-ink/90">
                   <Mrkdwn
                     text={message.text}
                     users={users}
@@ -412,10 +412,10 @@ export const MessageItem = memo(function MessageItem({
                     aria-label={`${g.emoji} ${count} ${count === 1 ? "reaction" : "reactions"}, from ${names}`}
                     aria-pressed={reacted}
                     onClick={() => react(g.emoji)}
-                    className={`flex h-6 items-center gap-1 rounded-full border px-2 text-[13px] transition-colors ${
+                    className={`flex h-6 items-center gap-1.5 rounded-lg border px-1.5 text-[15px] transition-colors active:scale-95 ${
                       reacted
-                        ? "border-copper/50 bg-copper/10"
-                        : "border-edge bg-transparent hover:border-ink-faint/50 hover:bg-ink/[0.04]"
+                        ? "border-copper/60 bg-copper/15"
+                        : "border-transparent bg-lifted hover:border-ink-faint/40"
                     }`}
                   >
                     <span>{g.emoji}</span>

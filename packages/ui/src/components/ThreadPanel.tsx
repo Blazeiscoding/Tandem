@@ -183,7 +183,7 @@ export function ThreadPanel({
       aria-label="Thread"
       className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge"
     >
-      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-4 pr-2.5">
+      <header className="flex h-12 shrink-0 items-center gap-1 pl-4 pr-2 shadow-[0_1px_0_var(--color-edge)]">
         <h2 className="flex-1 text-[15px] font-semibold">Thread</h2>
         {root && (
           <Tooltip

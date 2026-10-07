@@ -57,9 +57,9 @@ export function MembersPanel(props: {
     <aside
       ref={panel}
       aria-label="Members"
-      className="flex w-[260px] max-w-full shrink-0 flex-col border-l border-edge"
+      className="flex w-[240px] max-w-full shrink-0 flex-col border-l border-edge"
     >
-      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-4 pr-2.5">
+      <header className="flex h-12 shrink-0 items-center gap-1 pl-4 pr-2 shadow-[0_1px_0_var(--color-edge)]">
         <h2 ref={heading} tabIndex={-1} className="flex-1 text-[15px] font-semibold outline-none">
           Members
         </h2>
@@ -71,7 +71,7 @@ export function MembersPanel(props: {
           <Icon name="close" size={16} />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-4">
         <ListStatus
           loading={loaded === null && !failed}
           placeholder={loaded === null}
@@ -109,17 +109,25 @@ function MemberGroup(props: {
   if (props.people.length === 0) return null;
   return (
     <section aria-label={props.title} className="mb-4">
-      <h3 className="mb-1 px-2 text-[12px] font-medium text-ink-faint">{props.title}</h3>
+      <h3 className="mb-1 px-2 text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-faint">
+        {props.title}
+      </h3>
       <ul>
         {props.people.map((user) => (
           <li key={user.id}>
             <button
               onClick={() => props.onOpen(user.id)}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-ink/[0.05] ${
-                props.online ? "" : "opacity-60 hover:opacity-100"
+              // Away reads quieter in its words, not faded, so it stays readable.
+              className={`group/member flex h-[42px] w-full items-center gap-3 rounded-lg px-2 text-left transition-colors duration-100 hover:bg-ink/[0.06] ${
+                props.online ? "text-ink" : "text-ink-faint hover:text-ink-dim"
               }`}
             >
-              <AvatarWithPresence user={user} online={props.online} size={32} />
+              <AvatarWithPresence
+                user={user}
+                online={props.online}
+                size={32}
+                ring="var(--color-ground)"
+              />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px] font-medium">{user.displayName}</span>
                 {(user.statusText || user.statusEmoji) && (

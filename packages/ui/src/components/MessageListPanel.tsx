@@ -98,7 +98,7 @@ export function MessageListPanel(props: Props) {
       aria-label={props.title}
       className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge"
     >
-      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-4 pr-2.5">
+      <header className="flex h-12 shrink-0 items-center gap-1 pl-4 pr-2 shadow-[0_1px_0_var(--color-edge)]">
         <h2 ref={heading} tabIndex={-1} className="flex-1 text-[15px] font-semibold outline-none">
           {props.title}
         </h2>

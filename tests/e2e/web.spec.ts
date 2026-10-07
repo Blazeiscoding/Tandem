@@ -353,7 +353,7 @@ test(
       await expect(bob.getByText("Message while Bob is offline", { exact: true })).toBeVisible();
       await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
       await expect(alice.getByText("Huddle in #general", { exact: true })).toBeVisible();
-      await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
+      await bob.getByRole("button", { name: "Join the huddle with alice", exact: true }).click();
       for (const page of [alice, bob]) {
         await expect
           .poll(() =>
@@ -469,9 +469,9 @@ test("a call says which route it connected on, and one that cannot connect says 
 
     // A call on this machine connects straight away, on routes of its own network.
     await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
-    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
-    for (const page of [alice, bob])
-      await expect(bar(page).getByRole("status")).toHaveText("2 participants");
+    await bob.getByRole("button", { name: "Join the huddle with alice", exact: true }).click();
+    await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
+    await expect(bar(bob).getByRole("status")).toHaveText("With alice");
     const aliceReport = await diagnostics(alice);
     await expect(aliceReport).toContainText("Call log on this device (times in UTC)");
     await expect(aliceReport).toContainText("[@bobby] Sent the call setup.");
@@ -507,8 +507,8 @@ test("a call says which route it connected on, and one that cannot connect says 
       };
     });
     await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
-    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
-    await expect(bar(bob).getByRole("status")).toHaveText("2 participants · Connecting…");
+    await bob.getByRole("button", { name: "Join the huddle with alice", exact: true }).click();
+    await expect(bar(bob).getByRole("status")).toHaveText("With alice · Connecting…");
     // After long enough, it says so rather than spinning, and offers why.
     await expect(bar(bob).getByRole("status")).toHaveText("Can't connect to alice · Trying again", {
       timeout: 25_000,
@@ -588,9 +588,9 @@ test("the microphone and speaker can be changed in a call, from the call and fro
       });
 
     await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
-    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
-    for (const page of [alice, bob])
-      await expect(bar(page).getByRole("status")).toHaveText("2 participants");
+    await bob.getByRole("button", { name: "Join the huddle with alice", exact: true }).click();
+    await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
+    await expect(bar(bob).getByRole("status")).toHaveText("With alice");
     await expect.poll(bobHearsBytes).toBeGreaterThan(0);
     expect(await aliceSends()).toEqual(["Fake Default Audio Input live"]);
 
@@ -657,7 +657,7 @@ test("the microphone and speaker can be changed in a call, from the call and fro
     await alice.keyboard.press("Escape");
     // Leaving settings closes the test microphone and the preview, and the call carries on.
     await expect.poll(aliceSends).toEqual(["Fake Audio Input 1 live"]);
-    await expect(bar(alice).getByRole("status")).toHaveText("2 participants");
+    await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
     expect(errors).toEqual([]);
   } finally {
     await a.close().catch(() => {});
@@ -2691,19 +2691,19 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     // reload keeps it.
     const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     // Nothing chosen yet follows the device, which is light here: White's
-    // warm paper, then Onyx's near-black.
-    expect(await background()).toBe("rgb(244, 239, 230)");
+    // page colour, then Onyx's graphite.
+    expect(await background()).toBe("rgb(233, 234, 238)");
     await page.goto(`${origin}/#/c/${design.id}/d/account/appearance`);
     const appearance = page.getByRole("tabpanel", { name: "Appearance" });
     await appearance.getByRole("radio", { name: /^Onyx/ }).check();
-    await expect.poll(background).toBe("rgb(10, 10, 10)");
+    await expect.poll(background).toBe("rgb(18, 18, 20)");
     await page.reload();
     await expect(page.locator("textarea")).toBeVisible();
-    await expect.poll(background).toBe("rgb(10, 10, 10)");
+    await expect.poll(background).toBe("rgb(18, 18, 20)");
     await appearance.getByRole("radio", { name: /^White/ }).check();
-    await expect.poll(background).toBe("rgb(244, 239, 230)");
+    await expect.poll(background).toBe("rgb(233, 234, 238)");
     await appearance.getByRole("radio", { name: /^Match this device/ }).check();
-    await expect.poll(background).toBe("rgb(244, 239, 230)");
+    await expect.poll(background).toBe("rgb(233, 234, 238)");
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
 
@@ -3215,9 +3215,8 @@ test("the layout holds at phone, tablet, laptop and short-window sizes", async (
       } else {
         await expect(navigation, where).toBeVisible();
         await expect(openNavigation, where).toBeHidden();
-        // The channels column. The rail of workspaces joins it only once this
-        // device has a second workspace to go to.
-        expect((await box(navigation)).width, where).toBe(256);
+        // Discord's rail of workspaces (72 px) beside the channels column (240 px).
+        expect((await box(navigation)).width, where).toBe(312);
       }
       await page.screenshot({ path: info.outputPath(`layout-${size.name}.png`) });
 

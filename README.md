@@ -12,12 +12,14 @@ package names, `SLACKOSS_*` settings, data locations, application ID, Docker vol
 names and `slackoss://` links are intentionally retained for compatibility. No data
 migration is needed. The working name has not been trademark-cleared.
 
-The interface follows the [chaicode.com look](https://ui.chaicode.com/) and
-stays quiet: warm near-black Onyx and warm-paper White themes that follow the
-device, chaicode orange reserved for what needs you, a pale-cream highlight
-phrase, warm hairline cards, buttons with asymmetric corners, frosted menus and
-a faint hexagon glow, bundled Manrope, Montserrat, Onest and Geist Mono type,
-the conversation set as a card into the window, drawn line icons, menus split by
+The interface takes the best of Discord's 2025 desktop and stays quiet:
+graphite Onyx and White themes that follow the device, one app background that
+holds a rail of workspaces (round icons that turn to rounded squares, with
+Discord's pills) and the channel list with folding categories, the conversation
+as an inset pane with a rounded corner, a floating panel for you at the foot of
+the sidebar, red badges for what names you, a profile card, chaicode orange
+reserved for the one primary action, bundled Onest and Geist Mono type, drawn
+line icons, quick motion that respects reduced-motion settings, menus split by
 what they concern (the workspace's name, or your own), keyboard-accessible
 controls, narrow-window navigation, and a capped live timeline that follows new
 messages without growing indefinitely.

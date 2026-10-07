@@ -238,7 +238,7 @@ export function WorkspaceScreen({
     <ClientContext.Provider value={client}>
       <div className="flex h-full min-h-0 flex-col">
         {/* Room for the window's own controls, drawn over the window's surface. */}
-        {platform.kind === "desktop" && <div className="titlebar-drag h-10 shrink-0 bg-deep" />}
+        {platform.kind === "desktop" && <TitleBar />}
         <div className="min-h-0 flex-1">
           <WorkspaceStorageGate
             client={client}
@@ -1111,7 +1111,7 @@ function WorkspaceInner({
             </button>
           </div>
         )}
-        <header className="channel-header titlebar-drag flex h-14 shrink-0 items-center gap-1 border-b border-edge pl-3 pr-2.5">
+        <header className="channel-header titlebar-drag flex h-12 shrink-0 items-center gap-1 pl-2 pr-2 shadow-[0_1px_0_var(--color-edge)]">
           <button
             id="open-navigation"
             className="mobile-nav-toggle rounded-lg p-2 text-ink-dim hover:bg-ink/[0.06]"
@@ -1123,12 +1123,12 @@ function WorkspaceInner({
           </button>
           <button
             onClick={() => activeChannelId && setDialog({ kind: "channel-details" })}
-            className="flex min-w-0 flex-1 items-baseline gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-ink/[0.04]"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-ink/[0.04]"
           >
             <h2 className="shrink-0 truncate text-[16px] font-semibold leading-tight">
               {isRoom ? (
                 <>
-                  <span className="mr-0.5 font-normal text-ink-faint">#</span>
+                  <span className="mr-1 font-normal text-ink-faint">#</span>
                   {title}
                 </>
               ) : (
@@ -1136,9 +1136,12 @@ function WorkspaceInner({
               )}
             </h2>
             {activeChannel?.topic && (
-              <p className="channel-topic min-w-0 truncate text-[13px] text-ink-faint">
-                {activeChannel.topic}
-              </p>
+              <>
+                <span aria-hidden="true" className="channel-topic h-5 w-px shrink-0 bg-edge" />
+                <p className="channel-topic min-w-0 truncate text-[13px] text-ink-faint">
+                  {activeChannel.topic}
+                </p>
+              </>
             )}
           </button>
           <div className="flex shrink-0 items-center gap-0.5">
@@ -1162,13 +1165,15 @@ function WorkspaceInner({
                 }
               />
             )}
+            {/* Discord's search box: it reads as a field, and opens search. */}
             <Tooltip label="Search messages" keys={shortcutLabel("Mod+F")}>
               <button
                 onClick={() => setDialog({ kind: "search" })}
                 aria-label="Search messages"
-                className="flex size-9 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink"
+                className="header-search ml-1 flex h-7 items-center justify-between gap-2 rounded-md bg-deep px-2 text-[13px] text-ink-faint transition-colors hover:text-ink-dim"
               >
-                <Icon name="search" size={18} />
+                <span className="header-search-label">Search</span>
+                <Icon name="search" size={15} />
               </button>
             </Tooltip>
           </div>
@@ -1423,6 +1428,21 @@ function WorkspaceInner({
 }
 
 /** An icon in the conversation's header that opens a side panel, and shows when it is open. */
+/**
+ * The desktop window's title bar, as Discord's: where you are, in the middle,
+ * on the app's own background, with the window's controls over its right end.
+ */
+function TitleBar() {
+  const name = useWorkspace((s) => s.workspaceName);
+  return (
+    <div className="titlebar-drag flex h-10 shrink-0 items-center justify-center bg-deep">
+      <span aria-hidden="true" className="truncate px-36 text-[13px] font-semibold text-ink-dim">
+        {name}
+      </span>
+    </div>
+  );
+}
+
 function HeaderToggle(props: {
   label: string;
   icon: IconName;
@@ -1437,13 +1457,11 @@ function HeaderToggle(props: {
         onClick={props.onClick}
         aria-label={props.label}
         aria-pressed={props.pressed}
-        className={`${props.secondary ? "header-secondary " : ""}flex size-9 items-center justify-center rounded-lg transition-colors ${
-          props.pressed
-            ? "bg-ink/[0.08] text-ink"
-            : "text-ink-faint hover:bg-ink/[0.06] hover:text-ink"
+        className={`${props.secondary ? "header-secondary " : ""}flex size-8 items-center justify-center rounded-md transition-colors ${
+          props.pressed ? "text-ink" : "text-ink-faint hover:text-ink-dim"
         }`}
       >
-        <Icon name={props.icon} size={18} />
+        <Icon name={props.icon} size={20} />
       </button>
     </Tooltip>
   );

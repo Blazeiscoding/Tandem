@@ -221,6 +221,6 @@ describe("compact controls explain themselves with the shared tooltip", () => {
 
     act(() => c.store.setState({ huddles: { C_GENERAL: ["U_PRIYA"] } }));
     rerender(button);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Join the huddle (1)");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Join the huddle with Priya Shah");
   });
 });

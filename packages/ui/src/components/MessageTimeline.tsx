@@ -208,6 +208,17 @@ export const MessageTimeline = memo(function MessageTimeline({
   // reader at the bottom would find the newest message under the composer.
   const content = useRef<HTMLDivElement>(null);
   const roving = useRovingMessages(content);
+  // Another conversation fades in rather than snapping, as Discord's does;
+  // not for anyone who asked for less motion.
+  const shownChannel = useRef(channelId);
+  useEffect(() => {
+    if (shownChannel.current === channelId) return;
+    shownChannel.current = channelId;
+    const el = content.current;
+    if (!el || typeof el.animate !== "function") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
+  }, [channelId]);
   useEffect(() => {
     const el = scroller.current;
     const inner = content.current;
@@ -431,10 +442,13 @@ export const MessageTimeline = memo(function MessageTimeline({
                 <div
                   role="separator"
                   aria-label="New messages"
-                  className="relative my-2 flex items-center gap-2 px-5 text-[11px] font-semibold text-copper"
+                  className="relative my-2 flex items-center gap-1 pl-4 pr-3.5"
                 >
-                  <span className="h-px flex-1 bg-copper/50" />
-                  New
+                  {/* Discord's red rule, with its tag at the end of the line. */}
+                  <span className="h-px flex-1 bg-[#da373c]" />
+                  <span className="badge-mention rounded-md px-1.5 text-[10px] font-bold uppercase leading-4 tracking-wide">
+                    New
+                  </span>
                 </div>
               )}
               <MessageItem
@@ -616,11 +630,9 @@ export function JumpToLatestBar({ channelId, onJump }: { channelId: ID; onJump?:
 
 function DayDivider({ ts }: { ts: number }) {
   return (
-    <div className="relative my-5 flex items-center gap-3 px-5" role="separator">
+    <div className="relative my-4 flex items-center gap-2 px-4" role="separator">
       <div className="h-px flex-1 bg-edge" />
-      <span className="rounded-full border border-edge px-2.5 py-0.5 text-[12px] font-medium text-ink-dim">
-        {formatDay(ts)}
-      </span>
+      <span className="text-[12px] font-semibold text-ink-faint">{formatDay(ts)}</span>
       <div className="h-px flex-1 bg-edge" />
     </div>
   );
@@ -652,21 +664,21 @@ function ChannelIntro({
     : others.map((id) => users[id]?.displayName ?? "unknown").join(", ") || "Just you";
   const person = !isRoom && others.length === 1 ? users[others[0]!] : undefined;
   return (
-    <div className="px-5 pb-2 pt-8 animate-rise-in">
+    <div className="px-4 pb-2 pt-8 animate-rise-in">
       <div className="mb-3 flex items-center gap-3">
         {person ? (
-          <Avatar user={person} size={48} />
+          <Avatar user={person} size={68} />
         ) : (
-          <span className="card-warm flex size-12 items-center justify-center rounded-xl text-copper">
+          <span className="flex size-[68px] items-center justify-center rounded-full bg-lifted text-ink">
             <Icon
               name={isRoom ? (channel.type === "private" ? "lock" : "hash") : "friends"}
-              size={22}
+              size={36}
             />
           </span>
         )}
       </div>
-      <h2 className="text-2xl font-bold tracking-tight">{name}</h2>
-      <p className="mt-1 max-w-xl text-[15px] leading-relaxed text-ink-dim">
+      <h2 className="text-3xl font-bold tracking-tight">{name}</h2>
+      <p className="mt-1.5 max-w-xl text-[16px] leading-relaxed text-ink-dim">
         {/* One highlight phrase, as chaicode.com writes a paragraph. */}
         {isRoom ? (
           channel.description || (
