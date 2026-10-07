@@ -48,7 +48,11 @@ export function AvatarWithPresence({
   /** The colour behind the avatar, so the dot reads as cut out of it. */
   ring?: string;
 }) {
-  const dot = Math.max(10, Math.round(size * 0.32));
+  // Dot, ring and overhang all scale with the avatar, so a 20px sidebar
+  // avatar gets a 6px dot in a 2px ring rather than a 32px avatar's 10 in 3.
+  const dot = Math.max(6, Math.round(size * 0.32));
+  const cut = Math.max(2, Math.round(size / 10));
+  const overhang = -Math.round(size / 16);
   return (
     <span className="relative inline-flex shrink-0">
       <Avatar user={user} size={size} />
@@ -57,10 +61,10 @@ export function AvatarWithPresence({
         style={{
           width: dot,
           height: dot,
-          right: -2,
-          bottom: -2,
+          right: overhang,
+          bottom: overhang,
           background: online ? "var(--color-online)" : "var(--color-ink-faint)",
-          boxShadow: `0 0 0 3px ${ring}`,
+          boxShadow: `0 0 0 ${cut}px ${ring}`,
         }}
       />
     </span>
