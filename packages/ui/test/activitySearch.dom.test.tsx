@@ -428,14 +428,64 @@ describe("the search dialog", () => {
     const { dialog, box, spy } = renderSearch(() => new Promise((resolve) => (answer = resolve)));
     await user.type(box, "mockups{Enter}");
     expect(within(dialog).getByRole("status")).toHaveTextContent("Searching…");
-    const submit = within(dialog).getByRole("button", { name: "Search" });
-    expect(submit).toBeDisabled();
     await user.type(box, "{Enter}");
     expect(spy).toHaveBeenCalledOnce();
 
     answer({ messages: [message("M2", "The mockups are ready", 2)], nextCursor: null });
     await within(dialog).findByText(/are ready/);
-    expect(submit).toBeEnabled();
+    expect(spy).toHaveBeenCalledOnce();
+  });
+
+  it("searches as it is typed, and keeps only what Enter settles on", async () => {
+    const user = userEvent.setup();
+    const { dialog, box, spy } = renderSearch(async () => ({
+      messages: [message("M5", "The mockups are ready", 5)],
+      nextCursor: null,
+    }));
+    await user.type(box, "mock");
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent("1 results · Page 1 · Newest first · “mock”"),
+    );
+    expect(spy.mock.calls.map((call) => call[0])).toEqual(["mock"]);
+    expect(within(dialog).queryByRole("list", { name: "Recent searches" })).toBeNull();
+
+    // Enter keeps the search it already has, without asking again.
+    await user.keyboard("{Enter}");
+    const recent = await within(dialog).findByRole("list", { name: "Recent searches" });
+    expect(recent).toHaveTextContent("mock");
+    expect(spy).toHaveBeenCalledOnce();
+
+    // Emptying the box puts the recent searches back in place of the results.
+    await user.clear(box);
+    await waitFor(() => expect(dialog).not.toHaveTextContent("1 results"));
+  });
+
+  it("searches at once on Enter, even while what was typed before is still out", async () => {
+    const user = userEvent.setup();
+    const { dialog, box, spy } = renderSearch((q) =>
+      q === "mock"
+        ? new Promise(() => {})
+        : Promise.resolve({
+            messages: [message("M5", "The mockups are ready", 5)],
+            nextCursor: null,
+          }),
+    );
+    await user.type(box, "mock");
+    await waitFor(() => expect(spy).toHaveBeenCalledOnce());
+    await user.type(box, "ups{Enter}");
+    expect(spy).toHaveBeenLastCalledWith("mockups", 30, expect.anything());
+    await within(dialog).findByText(/are ready/);
+    expect(await within(dialog).findByRole("list", { name: "Recent searches" })).toHaveTextContent(
+      "mockups",
+    );
+  });
+
+  it("leaves a date being written alone until Enter", async () => {
+    const user = userEvent.setup();
+    const { box, spy } = renderSearch(async () => ({ messages: [], nextCursor: null }));
+    await user.type(box, "before:2026-0");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(spy).not.toHaveBeenCalled();
   });
 
   describe("finding files (IMP-02)", () => {

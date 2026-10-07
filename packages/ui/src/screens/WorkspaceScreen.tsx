@@ -100,8 +100,10 @@ const HuddleBar = lazy(() =>
 const ViewModal = lazy(() =>
   import("../components/ViewModal.js").then((module) => ({ default: module.ViewModal })),
 );
+/** Fetched as the header's search box is entered, so Enter there opens it at once. */
+const loadSearchDialog = () => import("../components/SearchDialog.js");
 const SearchDialog = lazy(() =>
-  import("../components/SearchDialog.js").then((module) => ({ default: module.SearchDialog })),
+  loadSearchDialog().then((module) => ({ default: module.SearchDialog })),
 );
 // Forms opened now and then, and the video stage shown only during a call
 // with video, load on first use too.
@@ -1165,17 +1167,7 @@ function WorkspaceInner({
                 }
               />
             )}
-            {/* Discord's search box: it reads as a field, and opens search. */}
-            <Tooltip label="Search messages" keys={shortcutLabel("Mod+F")}>
-              <button
-                onClick={() => setDialog({ kind: "search" })}
-                aria-label="Search messages"
-                className="header-search ml-1 flex h-7 items-center justify-between gap-2 rounded-md bg-deep px-2 text-[13px] text-ink-faint transition-colors hover:text-ink-dim"
-              >
-                <span className="header-search-label">Search</span>
-                <Icon name="search" size={15} />
-              </button>
-            </Tooltip>
+            <HeaderSearch onSearch={(query) => setDialog({ kind: "search", query })} />
           </div>
         </header>
 
@@ -1427,7 +1419,6 @@ function WorkspaceInner({
   return <OpenMessageContext.Provider value={openMessage}>{screen}</OpenMessageContext.Provider>;
 }
 
-/** An icon in the conversation's header that opens a side panel, and shows when it is open. */
 /**
  * The desktop window's title bar, as Discord's: where you are, in the middle,
  * on the app's own background, with the window's controls over its right end.
@@ -1443,6 +1434,60 @@ function TitleBar() {
   );
 }
 
+/**
+ * Discord's search box: a field, where what is typed is searched on Enter and
+ * the search then follows further typing. A phone has no room for a field, so
+ * there it is a button that opens search.
+ */
+function HeaderSearch(props: { onSearch: (query: string) => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <>
+      <div className="header-search relative ml-1 flex h-7 items-center rounded-md bg-deep text-[13px]">
+        <Tooltip label="Search messages" keys={shortcutLabel("Mod+F")}>
+          <input
+            type="search"
+            enterKeyHint="search"
+            aria-label="Search messages"
+            placeholder="Search"
+            maxLength={200}
+            value={value}
+            onFocus={() => void loadSearchDialog()}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (isImeKey(e.nativeEvent)) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                props.onSearch(value.trim());
+                setValue("");
+              } else if (e.key === "Escape" && value) {
+                e.preventDefault();
+                setValue("");
+              }
+            }}
+            className="h-full w-full min-w-0 bg-transparent pl-2 pr-7 text-ink placeholder:text-ink-faint focus:outline-none"
+          />
+        </Tooltip>
+        <Icon
+          name="search"
+          size={15}
+          className="pointer-events-none absolute right-2 text-ink-faint"
+        />
+      </div>
+      <Tooltip label="Search messages" keys={shortcutLabel("Mod+F")}>
+        <button
+          onClick={() => props.onSearch("")}
+          aria-label="Search messages"
+          className="header-search-button size-8 items-center justify-center rounded-md text-ink-faint transition-colors hover:text-ink-dim"
+        >
+          <Icon name="search" size={18} />
+        </button>
+      </Tooltip>
+    </>
+  );
+}
+
+/** An icon in the conversation's header that opens a side panel, and shows when it is open. */
 function HeaderToggle(props: {
   label: string;
   icon: IconName;
