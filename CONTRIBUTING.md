@@ -110,7 +110,7 @@ formatting, so an unformatted file fails the build rather than starting an
 argument in review.
 
 Browser checks: `pnpm exec playwright install chromium`, then `pnpm test:e2e`
-after building. Windows checks: `pnpm --filter @slackoss/desktop package --win`,
+after building. Windows checks: `pnpm build:win`,
 then `pnpm test:desktop`. These tests use temporary workspaces and fake media.
 
 The script every visit to the client downloads has a 500 kB budget. After
