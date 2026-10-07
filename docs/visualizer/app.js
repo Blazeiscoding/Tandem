@@ -29,10 +29,11 @@
     tooling: "Tooling",
     asset: "Assets",
   };
+  // Listed in the order the improvements page groups them: open work first.
   const statuses = {
-    implemented: { label: "Implemented", icon: "check" },
-    measured: { label: "Measured", icon: "gauge" },
     "follow-up": { label: "Open", icon: "circle" },
+    measured: { label: "Measured", icon: "gauge" },
+    implemented: { label: "Implemented", icon: "check" },
   };
   const views = {
     overview: { label: "Overview", icon: "map" },
@@ -175,8 +176,8 @@
     paths.length
       ? `<div class="file-refs">${paths.map((path) => fileRef(path)).join("")}</div>`
       : "";
-  const statusPill = (status) =>
-    `<span class="status status-${escape(status)}">${icon(statuses[status].icon)}${statuses[status].label}</span>`;
+  const statusMark = (status) =>
+    `<span class="status-mark status-${escape(status)}" title="${statuses[status].label}">${icon(statuses[status].icon)}<span class="sr-only">${statuses[status].label}: </span></span>`;
   const empty = (title, text, action = "") =>
     `<div class="empty"><h3>${escape(title)}</h3><p>${escape(text)}</p>${action}</div>`;
   const pageHead = (title, intro, aside = "") =>
@@ -189,7 +190,6 @@
       layer,
       files: members.length,
       lines: members.reduce((sum, file) => sum + file.lines, 0),
-      tests: members.filter((file) => file.kind === "test").length,
     };
   });
   const flowFiles = (flow) => [...new Set(flow.steps.flatMap((step) => step.files))];
@@ -226,22 +226,13 @@
 
   // ---------- chrome ----------
   function renderChrome() {
+    // Only the open count earns a place in the navigation; the other totals are
+    // on the pages themselves.
     const open = improvements.filter((item) => item.status === "follow-up").length;
-    const counts = {
-      files: number(files.length),
-      flows: String(flows.length),
-      improvements: `${open} open`,
-    };
     document.getElementById("navigation").innerHTML = Object.entries(views)
       .map(
         ([key, view]) =>
-          `<a href="#${key}" data-view="${key}">${icon(view.icon)}<span>${escape(view.label)}</span>${counts[key] ? `<b class="${key === "improvements" ? "count-accent" : ""}">${counts[key]}</b>` : ""}</a>`,
-      )
-      .join("");
-    document.getElementById("layer-links").innerHTML = layerStats
-      .map(
-        ({ layer, files: count }) =>
-          `<a href="#files?layer=${layer.id}" style="--c: var(--layer-${layer.id})"><span class="dot" aria-hidden="true"></span>${escape(layer.title)}<b>${number(count)}</b></a>`,
+          `<a href="#${key}" data-view="${key}">${icon(view.icon)}<span>${escape(view.label)}</span>${key === "improvements" && open ? `<b>${open} open</b>` : ""}</a>`,
       )
       .join("");
     const date = new Date(meta.revisionDate);
@@ -312,26 +303,32 @@
       <a class="arch-store" href="${escape(href("packages/server/src/store.ts"))}" ${layerStyle("server")}><strong>One workspace folder</strong><span>SQLite database, uploaded files and backups</span></a>
     </figure>`;
   }
-  function compositionChart() {
+  // One section answers both "how big is each layer" and "what lives in it": the
+  // bar gives the proportions, each row names the layer's areas.
+  function layersSection() {
     const total = layerStats.reduce((sum, stat) => sum + stat.lines, 0);
-    return `<section class="section composition" aria-labelledby="composition-title">
-      <div class="section-head"><h2 id="composition-title">What the code is made of</h2><p>${number(total)} lines of text across ${number(files.length)} files, by layer. Select a layer to list its files.</p></div>
+    return `<section class="section" aria-labelledby="layers-title">
+      <div class="section-head"><h2 id="layers-title">What each layer holds</h2><p>${number(total)} lines across ${number(files.length)} files. Each area opens on the file to read first.</p></div>
       <div class="stack">${layerStats
         .map(
           (stat) =>
             `<a class="stack-part" href="#files?layer=${stat.layer.id}" style="--c: var(--layer-${stat.layer.id}); flex-grow: ${stat.lines}" aria-label="${escape(`${stat.layer.title}: ${Math.round((100 * stat.lines) / total)}% of lines. List its files`)}" data-tip="${escape(`${stat.layer.title}: ${number(stat.lines)} lines in ${number(stat.files)} files`)}"><span>${Math.round((100 * stat.lines) / total)}%</span></a>`,
         )
         .join("")}</div>
-      <table class="stack-table"><thead><tr><th scope="col">Layer</th><th scope="col">Files</th><th scope="col">Lines</th><th scope="col">Test files</th><th scope="col">Share</th></tr></thead><tbody>${layerStats
-        .map(
-          (stat) =>
-            `<tr><th scope="row"><a href="#files?layer=${stat.layer.id}" style="--c: var(--layer-${stat.layer.id})"><span class="dot" aria-hidden="true"></span>${escape(stat.layer.title)}</a><small>${escape(stat.layer.areas.map(areaTitle).join(", "))}</small></th><td>${number(stat.files)}</td><td>${number(stat.lines)}</td><td>${number(stat.tests)}</td><td>${((100 * stat.lines) / total).toFixed(1)}%</td></tr>`,
-        )
-        .join("")}</tbody></table>
+      <div class="layer-groups">${layerStats
+        .map(({ layer, files: count, lines }) => {
+          const areas = guide.areas.filter((area) => layer.areas.includes(area.id));
+          return `<div class="layer-group" style="--c: var(--layer-${layer.id})"><h3><a href="#files?layer=${layer.id}"><span class="dot" aria-hidden="true"></span>${escape(layer.title)}</a><small>${number(count)} files, ${number(lines)} lines</small></h3><ul>${areas
+            .map(
+              (area) =>
+                `<li><a href="${escape(href(area.entry))}"><span class="area-name">${escape(area.title)}</span><span class="area-summary">${escape(area.summary)}</span></a></li>`,
+            )
+            .join("")}</ul></div>`;
+        })
+        .join("")}</div>
     </section>`;
   }
   function overview() {
-    const open = improvements.filter((item) => item.status === "follow-up").length;
     const firstFlows = [
       flows[0],
       flows.find((flow) => flow.area === "server"),
@@ -347,30 +344,10 @@
             <a class="button primary" href="#flows">Follow a request through the code</a>
             <a class="button" href="#files">Browse the files</a>
           </div>
-          <dl class="hero-facts">
-            <div><dt>Files</dt><dd>${number(meta.fileCount)}</dd></div>
-            <div><dt>Lines of text</dt><dd>${number(meta.totalLines)}</dd></div>
-            <div><dt>Declarations</dt><dd>${number(meta.symbols)}</dd></div>
-            <div><dt>Import links</dt><dd>${number(meta.edges)}</dd></div>
-          </dl>
         </div>
         ${architecture()}
       </section>
-      ${compositionChart()}
-      <section class="section" aria-labelledby="areas-title">
-        <div class="section-head"><h2 id="areas-title">Where each responsibility lives</h2><p>Each area opens on the file to read first.</p></div>
-        <div class="layer-groups">${layers
-          .map((layer) => {
-            const areas = guide.areas.filter((area) => layer.areas.includes(area.id));
-            return `<div class="layer-group" style="--c: var(--layer-${layer.id})"><h3><span class="dot" aria-hidden="true"></span>${escape(layer.title)}</h3><ul>${areas
-              .map(
-                (area) =>
-                  `<li><a href="${escape(href(area.entry))}"><span class="area-name">${escape(area.title)}</span><span class="area-count">${number(files.filter((file) => file.area === area.id).length)} files</span><span class="area-summary">${escape(area.summary)}</span><code>${escape(area.entry)}</code></a></li>`,
-              )
-              .join("")}</ul></div>`;
-          })
-          .join("")}</div>
-      </section>
+      ${layersSection()}
       <section class="section" aria-labelledby="principles-title">
         <div class="section-head"><h2 id="principles-title">The rules the code keeps</h2><p>Four ideas that explain most of the design decisions.</p></div>
         <div class="principles">${guide.principles
@@ -390,15 +367,6 @@
           .join(
             "",
           )}<a class="journey-teaser more" href="#flows"><strong>All ${flows.length} journeys</strong><span>Sign-in, sending, reconnecting, huddles, apps, backups, the desktop host and the release pipeline.</span></a></div>
-      </section>
-      <section class="section usage" aria-labelledby="usage-title">
-        <div class="section-head"><h2 id="usage-title">Getting around</h2></div>
-        <ul class="usage-list">
-          <li><kbd>/</kbd> or <kbd>Ctrl K</kbd><span>Search every file, declaration, journey and change.</span></li>
-          <li><kbd>↑</kbd> <kbd>↓</kbd><span>Move through the file tree; <kbd>→</kbd> opens a folder.</span></li>
-          <li>${icon("link")}<span>Every view and line has its own address. Copy it to share the exact place.</span></li>
-          <li>${icon("spark")}<span>${open} findings are still open. They are marked in orange wherever they appear.</span></li>
-        </ul>
       </section>
     </div>`;
   }
@@ -580,7 +548,10 @@
     </div>`;
   }
   function explainPane(file) {
-    const related = improvements.filter((item) => item.files.includes(file.path));
+    const order = Object.keys(statuses);
+    const related = improvements
+      .filter((item) => item.files.includes(file.path))
+      .sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
     const journeys = flows
       .map((flow) => ({
         flow,
@@ -598,7 +569,6 @@
       <p class="lead">${escape(file.summary)}</p>
       ${file.curated ? "" : `<p class="note">This description is generated from the file's structure. Runtime files carry a reviewed explanation; this one is ${escape((kinds[file.kind] ?? file.kind).toLowerCase())}.</p>`}
       <div class="prose">${file.details.map((detail) => `<p>${escape(detail)}</p>`).join("")}</div>
-      ${file.concepts.length ? `<ul class="concepts" aria-label="Concepts">${file.concepts.map((concept) => `<li>${escape(concept)}</li>`).join("")}</ul>` : ""}
       ${
         keySymbols.length
           ? `<section class="block"><h2>Start reading here</h2><div class="symbol-grid">${keySymbols
@@ -640,7 +610,7 @@
           ? `<section class="block"><h2>Changes and open work here</h2><div class="link-list">${related
               .map(
                 (item) =>
-                  `<a href="#improvements?id=${encodeURIComponent(item.id)}" class="${item.status === "follow-up" ? "is-open" : ""}">${statusPill(item.status)}<span>${escape(item.title)}</span><small>${escape(item.id)}</small></a>`,
+                  `<a href="#improvements?id=${encodeURIComponent(item.id)}" class="${item.status === "follow-up" ? "is-open" : ""}">${statusMark(item.status)}<span>${escape(item.title)}</span><small>${escape(item.id)}</small></a>`,
               )
               .join("")}</div></section>`
           : ""
@@ -1008,7 +978,7 @@
             .filter((item) => item.area === area)
             .map(
               (item) =>
-                `<a href="#flows?id=${encodeURIComponent(item.id)}" ${item === flow ? 'aria-current="page"' : ""}><span>${escape(item.title)}</span><small>${item.steps.length} steps</small></a>`,
+                `<a href="#flows?id=${encodeURIComponent(item.id)}" ${item === flow ? 'aria-current="page"' : ""}>${escape(item.title)}</a>`,
             )
             .join("")}</div>`,
       )
@@ -1089,10 +1059,10 @@
     const change = metric ? metricChange(metric) : null;
     return `<article class="imp ${open ? "open" : ""} ${item.status === "follow-up" ? "is-open" : ""}" id="improvement-${escape(item.id)}">
       <button type="button" class="imp-row" data-improvement="${escape(item.id)}" aria-expanded="${open}" aria-controls="detail-${escape(item.id)}">
-        ${statusPill(item.status)}
+        ${statusMark(item.status)}
         <span class="imp-title">${escape(item.title)}</span>
-        <span class="imp-meta"><span class="imp-id">${escape(item.id)}</span><span>${escape(item.category)}</span></span>
         ${change !== null ? `<span class="imp-headline" title="${escape(metric.label)}">${escape(metric.before)} to ${escape(metric.after)} ${escape(metric.unit)}<span class="delta ${change > 0 ? "up" : "down"}">${changeText(change)}</span></span>` : '<span class="imp-headline"></span>'}
+        <span class="imp-id">${escape(item.id)}</span>
         ${icon("chevron", "imp-caret")}
       </button>
       <div class="imp-body" id="detail-${escape(item.id)}" ${open ? "" : "hidden"}>${open ? improvementDetail(item) : ""}</div>
@@ -1117,17 +1087,23 @@
     if (!list) return;
     const id = route().params.get("id");
     const matches = improvementMatches();
-    const order = { "follow-up": 0, measured: 1, implemented: 2 };
-    matches.sort((a, b) => order[a.status] - order[b.status]);
+    // A heading per status carries the status once, instead of a label on every row.
     list.innerHTML = matches.length
-      ? matches.map((item) => improvementRow(item, item.id === id)).join("")
+      ? Object.entries(statuses)
+          .map(([status, { label }]) => {
+            const group = matches.filter((item) => item.status === status);
+            return group.length
+              ? `<section class="imp-group" aria-labelledby="group-${status}"><h2 id="group-${status}">${label} <b>${group.length}</b></h2>${group.map((item) => improvementRow(item, item.id === id)).join("")}</section>`
+              : "";
+          })
+          .join("")
       : empty(
           "Nothing matches",
           "Clear the search or pick another status.",
           `<button type="button" class="button small" data-action="reset-improvements">Show all changes</button>`,
         );
     document.getElementById("imp-count").textContent =
-      `${matches.length} of ${improvements.length}`;
+      matches.length === improvements.length ? "" : `${matches.length} of ${improvements.length}`;
     document
       .querySelectorAll("[data-status-filter]")
       .forEach((button) =>
@@ -1152,21 +1128,6 @@
     const categories = [...new Set(improvements.map((item) => item.category))].sort();
     return `<div class="page">
       ${pageHead("What changed, and what is still open", "Each record says what the code did before, what it does now, how, and how it was checked. Open findings stay listed until they are fixed.")}
-      <figure class="status-split"><div class="split-bar" role="img" aria-label="${escape(
-        Object.entries(counts)
-          .map(([status, count]) => `${count} ${statuses[status].label.toLowerCase()}`)
-          .join(", "),
-      )}">${Object.entries(counts)
-        .map(
-          ([status, count]) =>
-            `<span class="split-part split-${status}" style="flex-grow:${count}"></span>`,
-        )
-        .join("")}</div><figcaption>${Object.entries(counts)
-        .map(
-          ([status, count]) =>
-            `<span class="split-key split-${status}"><span class="dot" aria-hidden="true"></span><strong>${count}</strong> ${statuses[status].label.toLowerCase()}</span>`,
-        )
-        .join("")}</figcaption></figure>
       <div class="imp-tools">
         <div class="segmented" role="group" aria-label="Status">${[
           ["all", "All", improvements.length],
@@ -1191,10 +1152,6 @@
     return `<div class="page narrow">
       ${pageHead("What this atlas can and cannot tell you", "It is a snapshot of the source, explained. It does not run anything, so it cannot prove that tests pass or that numbers still hold today.")}
       ${guide.validation.length ? `<div class="validation">${guide.validation.map((record) => `<article><strong>${escape(record.value)}</strong><h3>${escape(record.label)}</h3><p>${escape(record.detail)}</p>${fileRef(record.path)}</article>`).join("")}</div>` : ""}
-      <section class="baseline">
-        <div><h2>The latest repair batch</h2><p>N01–N12 cover safer logging, durable device storage, close preparation, mute intent, form ownership, content cleanup, callbacks, attachment invalidation and hosting cleanup. Schema 37 cleans active database copies. Q01–Q13 remain open, each with its own reproduction.</p><a class="text-link" href="#improvements">See every change</a></div>
-        <a class="baseline-pr" href="${escape(meta.repository)}/pull/246" target="_blank" rel="noopener noreferrer"><span>Merged in</span><strong>PR #246${icon("external")}</strong><code>4501593</code></a>
-      </section>
       <section class="section"><div class="section-head"><h2>Read these before quoting a number</h2></div><ul class="limits-list">${guide.limits.map((limit) => `<li>${escape(limit)}</li>`).join("")}</ul></section>
       <section class="section"><div class="section-head"><h2>Words used here</h2></div><dl class="glossary">${guide.glossary.map((item) => `<div><dt>${escape(item.term)}</dt><dd>${escape(item.meaning)}</dd></div>`).join("")}</dl></section>
       <section class="section snapshot-facts"><div class="section-head"><h2>This snapshot</h2></div>
@@ -1212,9 +1169,15 @@
   // ---------- render ----------
   function render() {
     const { view, params } = route();
+    // Files and journeys bring their own list pane, so the navigation folds to
+    // icons there rather than standing as a second column of names.
+    const rail = view === "files" || view === "flows";
+    document.querySelector(".shell").classList.toggle("rail", rail);
     document.querySelectorAll("#navigation [data-view]").forEach((link) => {
       if (link.dataset.view === view) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
+      if (rail) link.title = views[link.dataset.view].label;
+      else link.removeAttribute("title");
     });
     crumbs(view, params);
     setNav(false);

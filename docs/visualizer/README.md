@@ -19,7 +19,8 @@ Press `/` or `Ctrl K` anywhere to search file names, declarations, journeys and
 changes together.
 
 - **Overview** maps how the browser, desktop app, shared interface, client
-  replica, protocol and server connect, and charts how much code each layer holds.
+  replica, protocol and server connect, charts how much code each layer holds and
+  names the areas inside each layer.
 - **Files** is a folder tree beside a reader. Filter the tree by name, kind or
   layer, or tick **Search inside files too** to match source text. A file opens on
   its explanation; **Source** shows the whole file with find, go to line, line
@@ -28,14 +29,15 @@ changes together.
   line number to copy a link to that line. Arrow keys move through the tree.
 - **How it works** follows one action through the code, step by step. Its
   handoff map shows which layer each step works in.
-- **Improvements** lists implemented, measured and open changes with their
+- **Improvements** groups open, measured and implemented changes, each with its
   before and after, mechanism, measurements, files and limits.
 - **Scope & limits** says what the atlas can and cannot show.
 
 Every view, file, tab and line has its own address, so Back, Forward and copied
 links work. The page follows the device's light or dark setting; the button in
-the top bar picks Onyx, White or the device setting and remembers the choice. On
-a phone the navigation moves into a menu and the file tree and reader take turns.
+the top bar picks Onyx, White or the device setting and remembers the choice.
+Beside the file tree and the journey list the navigation folds to icons. On a
+phone it moves into a menu and the file tree and reader take turns.
 
 ## Maintaining the atlas
 
@@ -74,8 +76,8 @@ escaped JSON and renders text safely; it never executes embedded application
 code. The generated HTML is intentionally excluded from Prettier because its
 embedded source and data are deterministic generator output.
 
-The page embeds the Latin subsets of Manrope, Montserrat and Geist Mono from the
-web app's installed `@fontsource-variable` packages, so it matches Tandem offline.
+The page embeds the Latin subsets of Onest and Geist Mono from the web app's
+installed `@fontsource-variable` packages, so it matches Tandem offline.
 Run `pnpm install` first; the generator stops if they are missing. Layer colours
 group the eleven areas into six layers so a colour can name one: the five hues
 and the neutral were checked for colour-vision separation on both themes, and
