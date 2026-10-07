@@ -12,6 +12,9 @@ import { Icon } from "./Icon.js";
 import { ListStatus } from "./ListStatus.js";
 import { buttonClass } from "./Button.js";
 
+/** How long typing pauses before what is typed is searched. */
+const LIVE_DELAY = 250;
+
 const MODIFIER_HELP = [
   { token: "from:@name", what: "by one person" },
   { token: "in:#channel", what: "in one channel" },
@@ -123,7 +126,15 @@ function SearchHints({ query }: { query: string }) {
   );
 }
 
-/** Full-text search over the workspace's messages and the names of their files. */
+/** One search's words and conversation as a single comparable value. */
+const keyOf = (criteria: { query: string; channelId?: ID }) =>
+  JSON.stringify([criteria.query, criteria.channelId ?? null]);
+
+/**
+ * Full-text search over the workspace's messages and the names of their
+ * files. It searches as it is typed; Enter searches at once and keeps the
+ * search among the recent ones.
+ */
 export function SearchDialog(props: {
   onClose: () => void;
   onJump: (channelId: ID, messageId: ID) => void;
@@ -157,6 +168,10 @@ export function SearchDialog(props: {
   const request = useRef<AbortController | null>(null);
   const failed = useRef<(() => void) | null>(null);
   const list = useRef<HTMLUListElement>(null);
+  /** The first page last asked for, so the same question is not asked twice. */
+  const asked = useRef<string | null>(null);
+  /** A search Enter was pressed on before it answered, to remember when it does. */
+  const committed = useRef<string | null>(null);
   const query = [
     q.trim(),
     author && `from:${author}`,
@@ -166,28 +181,54 @@ export function SearchDialog(props: {
   ]
     .filter(Boolean)
     .join(" ");
+  const criteria = { query, channelId: scope || undefined };
+  const key = keyOf(criteria);
+  const unreadable = useMemo(() => parseSearchQuery(query).invalid.length > 0, [query]);
 
   useEffect(() => () => request.current?.abort(), []);
 
-  // Words brought from the palette are searched straight away.
+  // Words brought from the palette or the header are searched straight away.
   const initial = useRef(props.initialQuery?.trim().slice(0, 200));
   useEffect(() => {
-    if (initial.current) void search({ query: initial.current }, undefined, 0, [undefined]);
+    if (initial.current)
+      void search({ query: initial.current }, undefined, 0, [undefined], { remember: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on opening
   }, []);
+
+  // Results follow what is typed and chosen, once typing pauses. A date still
+  // being written is left alone: the hints already say it is not one yet.
+  useEffect(() => {
+    if (!query && !scope) {
+      request.current?.abort();
+      asked.current = null;
+      setResults(null);
+      setSubmitted(null);
+      setBusy(false);
+      setError(null);
+      return;
+    }
+    if (query.length > 200 || unreadable || asked.current === key) return;
+    const timer = setTimeout(() => {
+      if (asked.current !== key) void search(criteria, undefined, 0, [undefined]);
+    }, LIVE_DELAY);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the criteria
+  }, [key, unreadable]);
 
   async function search(
     criteria: { query: string; channelId?: ID },
     cursor: ID | undefined,
     nextPage: number,
     nextCursors: (ID | undefined)[],
+    opts: { remember?: boolean } = {},
   ) {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     failed.current = () => {
-      void search(criteria, cursor, nextPage, nextCursors);
+      void search(criteria, cursor, nextPage, nextCursors, opts);
     };
+    if (nextPage === 0) asked.current = keyOf(criteria);
     setBusy(true);
     setError(null);
     try {
@@ -201,7 +242,11 @@ export function SearchDialog(props: {
       setSubmitted(criteria);
       setPage(nextPage);
       setCursors(nextCursors);
-      if (nextPage === 0) recent.remember(criteria);
+      // Only a search someone settled on is kept, not each one typed on the way.
+      if (nextPage === 0 && (opts.remember || committed.current === keyOf(criteria))) {
+        committed.current = null;
+        recent.remember(criteria);
+      }
       list.current?.closest('[role="dialog"]')?.scrollTo({ top: 0 });
     } catch (err) {
       if (!controller.signal.aborted)
@@ -218,7 +263,13 @@ export function SearchDialog(props: {
   function run(e: React.FormEvent) {
     e.preventDefault();
     if ((!query && !scope) || query.length > 200) return;
-    void search({ query, channelId: scope || undefined }, undefined, 0, [undefined]);
+    // Already asked as it was typed: wait for that answer, or keep it.
+    if (asked.current === key && !error) {
+      if (busy) committed.current = key;
+      else if (submitted) recent.remember(submitted);
+      return;
+    }
+    void search(criteria, undefined, 0, [undefined], { remember: true });
   }
 
   function repeat(entry: RecentSearch) {
@@ -228,7 +279,7 @@ export function SearchDialog(props: {
     setContains("");
     setAfter("");
     setBefore("");
-    void search(entry, undefined, 0, [undefined]);
+    void search(entry, undefined, 0, [undefined], { remember: true });
   }
 
   return (
@@ -252,7 +303,7 @@ export function SearchDialog(props: {
           <button
             type="submit"
             className={buttonClass("primary")}
-            disabled={busy || (!query && !scope) || query.length > 200}
+            disabled={(!query && !scope) || query.length > 200}
           >
             Search
           </button>
@@ -521,7 +572,11 @@ export function SearchDialog(props: {
                         data-search-open
                         className="inline-flex items-center gap-1 font-medium text-ink-dim hover:text-ink"
                         disabled={busy || !ch}
-                        onClick={() => props.onJump(m.channelId, m.id)}
+                        onClick={() => {
+                          // A result someone opens is one they were looking for.
+                          if (submitted) recent.remember(submitted);
+                          props.onJump(m.channelId, m.id);
+                        }}
                       >
                         Open in conversation
                         <Icon name="arrow" size={12} />

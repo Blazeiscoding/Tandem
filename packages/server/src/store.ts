@@ -3620,8 +3620,16 @@ export class Store {
     };
     if (query.terms.length === 0) return this.hydrateMessages(page([], limit));
 
-    // Quote every term so user input can never break FTS5 syntax.
-    const fts = query.terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" ");
+    // Quote every term so user input can never break FTS5 syntax. The last
+    // one matches as the start of a word, so a search run as it is typed
+    // finds "mockups" from "mock"; one with no letter or digit has no word
+    // to start.
+    const fts = query.terms
+      .map((t, i) => {
+        const phrase = `"${t.replaceAll('"', '""')}"`;
+        return i === query.terms.length - 1 && /[\p{L}\p{N}]/u.test(t) ? `${phrase}*` : phrase;
+      })
+      .join(" ");
     // A message is found by the name of a file attached to it too, when every
     // term is in that one name (IMP-02). Only terms with a letter or digit in
     // them: "." alone would otherwise find every file there is.

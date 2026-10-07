@@ -504,6 +504,27 @@ describe("workspace server", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
   });
 
+  it("finds a word from its start while the last one is still being typed", async () => {
+    const general = server.store.getChannelByName("general")!;
+    await api(`/api/channels/${general.id}/messages`, {
+      token: aliceToken,
+      body: { text: "the quokkas arrived for the budget review" },
+    });
+    const find = async (q: string) =>
+      (
+        await api<{ messages: Message[] }>(`/api/search?q=${encodeURIComponent(q)}`, {
+          token: aliceToken,
+        })
+      ).data.messages.filter((m) => m.text.includes("quokkas"));
+
+    expect(await find("quok")).toHaveLength(1);
+    expect(await find("budget rev")).toHaveLength(1);
+    // Only the last word is a start; the words before it are whole.
+    expect(await find("quok budget")).toHaveLength(0);
+    // A last word with nothing to start a word from cannot break the query.
+    expect(await find("quokkas .")).toHaveLength(1);
+  });
+
   it("filters search with from:, in:, has: and date modifiers", async () => {
     const general = server.store.getChannelByName("general")!;
     await api(`/api/channels/${general.id}/messages`, {
