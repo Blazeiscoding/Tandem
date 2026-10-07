@@ -412,7 +412,7 @@ describe("the diagnostics dialog", () => {
       "09:30:16.250 #general: @lee still not connected to @sam after 15 s. " +
         "routes here 2 host, 1 srflx; from them 1 host, 1 srflx; 1 STUN, 0 TURN; ICE checking, tried again 1×. " +
         "Both of you found public addresses, but your networks will not let you reach each other directly. " +
-        "A call between them needs a TURN relay set up by the host.",
+        "A call between them needs a TURN relay. The host adds one in Manage hosting, under Calls from other networks.",
     );
     expect(report).not.toHaveTextContent("Lee Park");
   });

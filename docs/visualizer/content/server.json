@@ -245,6 +245,16 @@
       "concepts": ["WebRTC", "ICE configuration"]
     },
     {
+      "path": "packages/server/src/relay.ts",
+      "summary": "A TURN relay for calls between networks that will not connect directly: Cloudflare's, or any other.",
+      "details": [
+        "callRelaySchema accepts a Cloudflare TURN key (ID and API token) or another relay's turn:/turns: addresses, username and password. relayFromEnvironment reads a Cloudflare key from TANDEM_CLOUDFLARE_TURN_KEY_ID and TANDEM_CLOUDFLARE_TURN_API_TOKEN, both or neither.",
+        "cloudflareIceServers asks Cloudflare's credential endpoint for a password that lasts a day, leaves out port 53 (browsers block it), and turns refusals into words a host can act on without repeating the token.",
+        "createRelaySource reuses one Cloudflare password for an hour and one request for everyone joining at once; after a refusal calls go without a relay for 30 seconds before it asks again, and error() says why. withRelay adds the relay after the workspace's own servers, leaving out an address already given."
+      ],
+      "concepts": ["TURN", "short-lived credentials", "WebRTC"]
+    },
+    {
       "path": "packages/server/src/securityHeaders.ts",
       "summary": "Defines browser and desktop content policies that fit a multi-workspace chat client.",
       "details": [
