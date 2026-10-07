@@ -35,7 +35,8 @@ async function api(path, token, body, method = body ? "POST" : "GET") {
 }
 // Compose hands the server its ICE servers under their Tandem name. A
 // value still set under the previous name has to arrive, rather than the
-// default being passed in its place.
+// default being passed in its place. A Cloudflare TURN key is passed as set,
+// and empty, meaning no relay, when it is not.
 const composeFile = fileURLToPath(new URL("../docker/docker-compose.yml", import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), "tandem-compose-"));
 try {
@@ -44,7 +45,13 @@ try {
   writeFileSync(envFile, "");
   const composed = (settings) => {
     const env = { ...process.env, ...settings };
-    for (const key of ["TANDEM_ICE_SERVERS", "GATHERLINE_ICE_SERVERS", "SLACKOSS_ICE_SERVERS"])
+    for (const key of [
+      "TANDEM_ICE_SERVERS",
+      "GATHERLINE_ICE_SERVERS",
+      "SLACKOSS_ICE_SERVERS",
+      "TANDEM_CLOUDFLARE_TURN_KEY_ID",
+      "TANDEM_CLOUDFLARE_TURN_API_TOKEN",
+    ])
       if (!(key in settings)) delete env[key];
     const config = execFileSync(
       "docker",
@@ -54,16 +61,18 @@ try {
     return JSON.parse(config).services.slackoss.environment;
   };
   const stun = (host) => JSON.stringify([{ urls: `stun:${host}:3478` }]);
-  assert.deepEqual(composed({}), { TANDEM_ICE_SERVERS: "[]" });
+  const noRelay = { TANDEM_CLOUDFLARE_TURN_KEY_ID: "", TANDEM_CLOUDFLARE_TURN_API_TOKEN: "" };
+  assert.deepEqual(composed({}), { TANDEM_ICE_SERVERS: "[]", ...noRelay });
   assert.deepEqual(composed({ SLACKOSS_ICE_SERVERS: stun("old.example.org") }), {
     TANDEM_ICE_SERVERS: stun("old.example.org"),
+    ...noRelay,
   });
   assert.deepEqual(
     composed({
       SLACKOSS_ICE_SERVERS: stun("old.example.org"),
       GATHERLINE_ICE_SERVERS: stun("newer.example.org"),
     }),
-    { TANDEM_ICE_SERVERS: stun("newer.example.org") },
+    { TANDEM_ICE_SERVERS: stun("newer.example.org"), ...noRelay },
   );
   assert.deepEqual(
     composed({
@@ -71,8 +80,13 @@ try {
       GATHERLINE_ICE_SERVERS: stun("newer.example.org"),
       TANDEM_ICE_SERVERS: stun("new.example.org"),
     }),
-    { TANDEM_ICE_SERVERS: stun("new.example.org") },
+    { TANDEM_ICE_SERVERS: stun("new.example.org"), ...noRelay },
   );
+  const relay = {
+    TANDEM_CLOUDFLARE_TURN_KEY_ID: "turn-key-id",
+    TANDEM_CLOUDFLARE_TURN_API_TOKEN: "turn-key-token",
+  };
+  assert.deepEqual(composed(relay), { TANDEM_ICE_SERVERS: "[]", ...relay });
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

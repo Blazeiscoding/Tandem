@@ -332,6 +332,15 @@
       "concepts": ["device lists", "switch then save", "audio output routing"]
     },
     {
+      "path": "packages/ui/src/lib/relayProbe.ts",
+      "summary": "Checks a TURN relay gives this computer a route, the way a call would ask.",
+      "details": [
+        "probeRelay opens a connection allowed only relayed routes and offers a data channel so it gathers them; a relay candidate means the relay answered and took the username and password.",
+        "A 401 from the relay reads as a refused password, anything else as a relay this computer could not reach; it gives up after ten seconds and always closes the connection."
+      ],
+      "concepts": ["TURN", "ICE gathering"]
+    },
+    {
       "path": "packages/ui/src/lib/composerPreferences.ts",
       "summary": "Shares the Enter-to-send choice across composers on this device.",
       "details": [
@@ -980,6 +989,15 @@
         "safety hold",
         "native operations"
       ]
+    },
+    {
+      "path": "packages/ui/src/components/CallRelaySettings.tsx",
+      "summary": "The Calls from other networks card in Manage hosting: no relay, Cloudflare, or another TURN server.",
+      "details": [
+        "Shows the saved relay without its secret; a token or password left empty keeps the saved one for the same key or username. Save reaches calls that start afterwards.",
+        "Test asks the app for the relay servers a call would be given and runs probeRelay, saying whether the relay works, refused the password, or could not be reached. A refusal calls found out about since is shown as an alert."
+      ],
+      "concepts": ["TURN", "hosting settings"]
     },
     {
       "path": "packages/ui/src/components/ShareableServer.tsx",

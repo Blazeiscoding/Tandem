@@ -1664,3 +1664,21 @@ describe("an address the host already has", () => {
     expect(await accessibilityProblems(dialog)).toEqual([]);
   });
 });
+
+describe("a relay for calls from other networks", () => {
+  it("is offered beside the running workspace, where the public link is", async () => {
+    const { hosting } = fakeHosting({ ...running, tunnelAvailable: true });
+    const relay = {
+      get: vi.fn(async () => ({ kind: "none" as const })),
+      set: vi.fn(),
+      test: vi.fn(),
+    };
+    render(<Harness hosting={{ ...hosting, relay }} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Workspace is live" });
+    const card = await within(dialog).findByRole("region", { name: "Calls from other networks" });
+    expect(await within(card).findByRole("radio", { name: "No relay" })).toBeChecked();
+    expect(relay.get).toHaveBeenCalledTimes(1);
+    expect(await accessibilityProblems(dialog)).toEqual([]);
+  });
+});

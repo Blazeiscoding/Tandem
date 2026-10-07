@@ -81,6 +81,7 @@ import { imageSize } from "./imageSize.js";
 import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { parsePort, parsePublicUrl } from "./config.js";
+import { callRelaySchema, createRelaySource, withRelay, type CallRelay } from "./relay.js";
 import { iceServersSchema } from "./rtc.js";
 import {
   APP_CALLS_IN_FLIGHT,
@@ -280,6 +281,12 @@ export interface ServerOptions {
   /** Private deployments default to LAN-only media with no external ICE service. */
   iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
   /**
+   * A TURN relay for calls between networks that will not connect directly,
+   * given to calls after `iceServers`. A Cloudflare relay's password is asked
+   * for when calls need one; its API token never leaves this server.
+   */
+  relay?: CallRelay | null;
+  /**
    * How much one caller may do. `false` turns rationing off, which is
    * reasonable on a LAN where everyone is already trusted and unreasonable
    * anywhere reachable from outside it.
@@ -362,6 +369,10 @@ export interface WorkspaceServer {
   setTrustLoopbackProxy: (enabled: boolean) => void;
   /** Replaces the STUN and TURN servers that calls started from now on are given. */
   setIceServers: (servers: NonNullable<ServerOptions["iceServers"]>) => void;
+  /** Replaces the relay that calls started from now on are given, or removes it with null. */
+  setRelay: (relay: CallRelay | null) => void;
+  /** Why the relay gave calls no password last time it was asked, until it does. */
+  relayError: () => string | null;
   /** Whether an account after the first needs an invite code. */
   inviteOnly: () => boolean;
   /**
@@ -459,6 +470,13 @@ async function startWorkspaceServer(
   let publicUrl =
     opts.publicUrl === undefined ? undefined : parsePublicUrl(opts.publicUrl, "publicUrl");
   let iceServers = opts.iceServers ?? [];
+  const relaySource = (relay: CallRelay | null) =>
+    createRelaySource(relay === null ? null : callRelaySchema.parse(relay), {
+      // The reason only: the request carried the API token.
+      onError: (error) =>
+        app.log.warn({ reason: error.message }, "the call relay gave no password"),
+    });
+  let relay = relaySource(opts.relay ?? null);
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
   // Before anything reads or changes the folder: a second server would keep
   // its own count of the attachments and run its own queue and clean-up.
@@ -1601,7 +1619,7 @@ async function startWorkspaceServer(
   app.get("/api/rtc-config", async (req, reply) => {
     requireUser(req);
     reply.header("Cache-Control", "no-store");
-    return { iceServers };
+    return { iceServers: withRelay(iceServers, await relay.servers()) };
   });
 
   // Bound simultaneous password derivations; each scrypt job uses substantial
@@ -4638,6 +4656,11 @@ async function startWorkspaceServer(
     setIceServers: (servers) => {
       iceServers = iceServersSchema.parse(servers);
     },
+    setRelay: (next) => {
+      // Parsed before anything changes, so a refused relay leaves the old one.
+      relay = relaySource(next);
+    },
+    relayError: () => relay.error(),
     inviteOnly,
     setInviteOnly: (value) => {
       if (typeof value !== "boolean") throw new TypeError("inviteOnly must be a boolean");

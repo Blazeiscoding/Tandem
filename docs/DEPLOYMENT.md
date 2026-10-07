@@ -198,11 +198,23 @@ visitor-address header only from a loopback peer so its unauthenticated limits
 remain separate per visitor. It stops trusting that header as soon as the public
 link closes; LAN and other network peers cannot supply it.
 
-**Open to all** adds Cloudflare's STUN service for peer-to-peer huddles, but it
-does not add a TURN relay. Chat and invites can work while audio, camera, or
-screen sharing fails between restrictive or symmetric NATs. A deployment that
-needs reliable internet huddles should supply its own TURN service through
-`TANDEM_ICE_SERVERS`, as described under [Voice and huddles](#voice-and-huddles).
+**Open to all** adds Cloudflare's STUN service for peer-to-peer huddles. That is
+enough for most networks, but some, such as mobile data and strict office
+networks, will not let two people reach each other directly: chat works while
+their call stays on **Connecting…**. Calls between them need a TURN relay. Add
+one in **Manage hosting**, under **Calls from other networks**:
+
+- **Cloudflare**: a TURN key's ID and API token, from the Realtime section of the
+  Cloudflare dashboard. The token stays on the host computer, encrypted by the
+  operating system; each call is given a password from Cloudflare that lasts a
+  day.
+- **Another TURN server**: its `turn:` or `turns:` addresses, username and
+  password. Everyone in a call is given that username and password.
+
+**Test** checks that the relay gives this computer a route before anyone
+depends on it. A change reaches calls that start afterwards; a call stuck on
+**Connecting…** picks it up when it retries. If Cloudflare later refuses the key,
+the card says so.
 
 ### Use an address you already have
 
@@ -530,6 +542,17 @@ The authenticated `/api/rtc-config` endpoint supplies it to members. Static TURN
 credentials are visible to workspace members; use scoped credentials, quotas, and
 rotation on your relay. This repository does not deploy a TURN service for you.
 Allow the relay's listening and media ports according to its configuration.
+
+For Cloudflare's relay, give the server the TURN key instead, and it asks
+Cloudflare for a password that lasts a day whenever calls need one. Members only
+ever receive that password; the API token stays with the server:
+
+```dotenv
+TANDEM_CLOUDFLARE_TURN_KEY_ID=your-turn-key-id
+TANDEM_CLOUDFLARE_TURN_API_TOKEN=your-turn-key-api-token
+```
+
+Set both or neither. They are given to calls after `TANDEM_ICE_SERVERS`.
 
 ### When a call will not connect
 

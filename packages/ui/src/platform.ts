@@ -37,6 +37,21 @@ export type HostingStart = ({ folder: string } | { workspaceName: string }) & {
   activate?: boolean;
 };
 
+/**
+ * The TURN relay calls hosted on this computer are given, without its secret.
+ * `error` says why it is not working, when something has said so.
+ */
+export type CallRelaySetting =
+  | { kind: "none"; error?: string }
+  | { kind: "cloudflare"; keyId: string; error?: string }
+  | { kind: "custom"; urls: string[]; username: string; error?: string };
+
+/** A relay to save or test. A secret left out keeps the saved one for the same key or username. */
+export type CallRelayDraft =
+  | { kind: "none" }
+  | { kind: "cloudflare"; keyId: string; apiToken?: string }
+  | { kind: "custom"; urls: string[]; username: string; credential?: string };
+
 /** What a restored backup brings with it once it is put back in use. */
 export interface RestoreInventory {
   /** Where its apps are sent events, commands and button clicks. */
@@ -257,6 +272,16 @@ export interface Platform {
      * published, so the setting never holds an address that will not work.
      */
     setPublicAddress?: (address: string) => Promise<HostingStatus>;
+    /**
+     * The TURN relay for calls between networks that will not connect
+     * directly: the one saved, saving another, and the relay servers a draft
+     * gives a call, to check they give a route before anyone needs them.
+     */
+    relay?: {
+      get: () => Promise<CallRelaySetting>;
+      set: (draft: CallRelayDraft) => Promise<CallRelaySetting>;
+      test: (draft: CallRelayDraft) => Promise<RTCIceServer[]>;
+    };
     /** The workspace this computer hosted last, if it remembers. */
     lastHosted?: () => Promise<LastHosted | null>;
     /** Every workspace hosted on this computer. Absent from apps older than the list. */
