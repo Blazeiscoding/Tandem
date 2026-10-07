@@ -7,6 +7,8 @@ import type {
 import type { AccessPolicy } from "@slackoss/protocol";
 import type {
   AutoBackup,
+  CallRelayDraft,
+  CallRelaySetting,
   DiscoveredServer,
   HostedWorkspaces,
   HostingStart,
@@ -71,6 +73,9 @@ interface SlackossBridge {
   hostingSetInviteOnly: (inviteOnly: boolean) => Promise<HostingStatus>;
   hostingSetAccessPolicy: (policy: AccessPolicy) => Promise<HostingStatus>;
   hostingSetPublicAddress: (address: string) => Promise<HostingStatus>;
+  hostingRelay: () => Promise<CallRelaySetting>;
+  hostingSetRelay: (draft: CallRelayDraft) => Promise<CallRelaySetting>;
+  hostingTestRelay: (draft: CallRelayDraft) => Promise<RTCIceServer[]>;
   onHostingStatus: (cb: (status: HostingStatus) => void) => () => void;
   consumeDeepLink: () => Promise<string | null>;
   onDeepLink: (cb: (url: string) => void) => () => void;
@@ -203,6 +208,11 @@ export function electronPlatform(): Platform {
       setInviteOnly: (inviteOnly) => bridge.hostingSetInviteOnly(inviteOnly),
       setAccessPolicy: (policy) => bridge.hostingSetAccessPolicy(policy),
       setPublicAddress: (address) => plainly(bridge.hostingSetPublicAddress(address)),
+      relay: {
+        get: () => bridge.hostingRelay(),
+        set: (draft) => plainly(bridge.hostingSetRelay(draft)),
+        test: (draft) => plainly(bridge.hostingTestRelay(draft)),
+      },
       subscribe: (cb) => bridge.onHostingStatus(cb),
     },
   };

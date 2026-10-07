@@ -24,6 +24,6 @@ export const CALL_CAUSES: Record<CallCause, string> = {
   no_public_route_there:
     "Their device offered only addresses on its own network, so it cannot be reached from outside it.",
   needs_relay:
-    "Both of you found public addresses, but your networks will not let you reach each other directly. A call between them needs a TURN relay set up by the host.",
+    "Both of you found public addresses, but your networks will not let you reach each other directly. A call between them needs a TURN relay. The host adds one in Manage hosting, under Calls from other networks.",
   unknown: "The reason is not clear from here. The call log has every step.",
 };

@@ -49,6 +49,9 @@ export interface SlackossBridge {
     policy: "invite_only" | "account_required" | "guest_allowed",
   ) => Promise<unknown>;
   hostingSetPublicAddress: (address: string) => Promise<unknown>;
+  hostingRelay: () => Promise<unknown>;
+  hostingSetRelay: (draft: unknown) => Promise<unknown>;
+  hostingTestRelay: (draft: unknown) => Promise<unknown>;
   onHostingStatus: (cb: (status: unknown) => void) => () => void;
   /** A tandem:// (or legacy slackoss://) link that launched the app, if any. */
   consumeDeepLink: () => Promise<string | null>;
@@ -119,6 +122,9 @@ const bridge: SlackossBridge = {
   hostingSetInviteOnly: (inviteOnly) => ipcRenderer.invoke("hosting:setInviteOnly", inviteOnly),
   hostingSetAccessPolicy: (policy) => ipcRenderer.invoke("hosting:setAccessPolicy", policy),
   hostingSetPublicAddress: (address) => ipcRenderer.invoke("hosting:setPublicAddress", address),
+  hostingRelay: () => ipcRenderer.invoke("hosting:relay"),
+  hostingSetRelay: (draft) => ipcRenderer.invoke("hosting:setRelay", draft),
+  hostingTestRelay: (draft) => ipcRenderer.invoke("hosting:testRelay", draft),
   onHostingStatus: (cb) => {
     const listener = (_e: unknown, status: unknown) => cb(status);
     ipcRenderer.on("hosting:changed", listener);

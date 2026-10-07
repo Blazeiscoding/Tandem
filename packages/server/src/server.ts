@@ -81,6 +81,7 @@ import { imageSize } from "./imageSize.js";
 import { blocksToActions, parseView, payloadToText } from "./blockKit.js";
 import { OutboundError, postToUrl } from "./outbound.js";
 import { parsePort, parsePublicUrl } from "./config.js";
+import { callRelaySchema, createRelaySource, withRelay, type CallRelay } from "./relay.js";
 import { iceServersSchema } from "./rtc.js";
 import {
   APP_CALLS_IN_FLIGHT,
@@ -280,6 +281,12 @@ export interface ServerOptions {
   /** Private deployments default to LAN-only media with no external ICE service. */
   iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
   /**
+   * A TURN relay for calls between networks that will not connect directly,
+   * given to calls after `iceServers`. A Cloudflare relay's password is asked
+   * for when calls need one; its API token never leaves this server.
+   */
+  relay?: CallRelay | null;
+  /**
    * How much one caller may do. `false` turns rationing off, which is
    * reasonable on a LAN where everyone is already trusted and unreasonable
    * anywhere reachable from outside it.
@@ -362,6 +369,10 @@ export interface WorkspaceServer {
   setTrustLoopbackProxy: (enabled: boolean) => void;
   /** Replaces the STUN and TURN servers that calls started from now on are given. */
   setIceServers: (servers: NonNullable<ServerOptions["iceServers"]>) => void;
+  /** Replaces the relay that calls started from now on are given, or removes it with null. */
+  setRelay: (relay: CallRelay | null) => void;
+  /** Why the relay gave calls no password last time it was asked, until it does. */
+  relayError: () => string | null;
   /** Whether an account after the first needs an invite code. */
   inviteOnly: () => boolean;
   /**
@@ -459,6 +470,13 @@ async function startWorkspaceServer(
   let publicUrl =
     opts.publicUrl === undefined ? undefined : parsePublicUrl(opts.publicUrl, "publicUrl");
   let iceServers = opts.iceServers ?? [];
+  const relaySource = (relay: CallRelay | null) =>
+    createRelaySource(relay === null ? null : callRelaySchema.parse(relay), {
+      // The reason only: the request carried the API token.
+      onError: (error) =>
+        app.log.warn({ reason: error.message }, "the call relay gave no password"),
+    });
+  let relay = relaySource(opts.relay ?? null);
   const dbPath = opts.dataDir === ":memory:" ? ":memory:" : join(opts.dataDir, "workspace.db");
   // Before anything reads or changes the folder: a second server would keep
   // its own count of the attachments and run its own queue and clean-up.
@@ -476,10 +494,6 @@ async function startWorkspaceServer(
   if (!store.getMeta("workspace_name")) store.setMeta("workspace_name", "My Workspace");
   // Slack payloads carry a team id; ours is generated once and never changes.
   if (!store.getMeta("workspace_id")) store.setMeta("workspace_id", ulid());
-  if (!store.getMeta("default_channel_id")) {
-    const general = store.getChannelByName("general");
-    if (general?.type === "public") store.setMeta("default_channel_id", general.id);
-  }
   // Before guest access, invite_only alone said who could join: on, invited
   // accounts; off, any account. A workspace keeps that until its host chooses.
   if (!isAccessPolicy(store.getMeta("access_policy")))
@@ -1601,7 +1615,7 @@ async function startWorkspaceServer(
   app.get("/api/rtc-config", async (req, reply) => {
     requireUser(req);
     reply.header("Cache-Control", "no-store");
-    return { iceServers };
+    return { iceServers: withRelay(iceServers, await relay.servers()) };
   });
 
   // Bound simultaneous password derivations; each scrypt job uses substantial
@@ -1630,17 +1644,13 @@ async function startWorkspaceServer(
     };
   });
 
-  /** Puts someone new in the room everyone starts in. */
-  const joinDefaultChannel = (userId: ID, emit: typeof recordEvent) => {
-    // Renaming the default room must not change who new accounts join.
-    const defaultId = store.getMeta("default_channel_id");
-    const preferred = defaultId ? store.getChannel(defaultId) : null;
-    const general =
-      preferred?.type === "public" && !preferred.archived
-        ? preferred
-        : store.listChannelsVisibleTo(userId).find((c) => c.type === "public" && !c.archived);
-    if (general && store.addMember(general.id, userId)) {
-      emit({ type: "member.joined", channelId: general.id, userId }, general.id);
+  /** Puts someone new in every open public channel, as a new channel takes in everyone. */
+  const joinPublicChannels = (userId: ID, emit: typeof recordEvent) => {
+    for (const channel of store.listChannelsVisibleTo(userId)) {
+      if (channel.type !== "public" || channel.archived) continue;
+      if (store.addMember(channel.id, userId)) {
+        emit({ type: "member.joined", channelId: channel.id, userId }, channel.id);
+      }
     }
   };
 
@@ -1700,11 +1710,10 @@ async function startWorkspaceServer(
           creatorId: user.id,
           memberIds: [user.id],
         });
-        store.setMeta("default_channel_id", general.id);
         emit({ type: "channel.created", channel: general }, general.id);
       } else {
         emit({ type: "user.joined", user }, null);
-        joinDefaultChannel(user.id, emit);
+        joinPublicChannels(user.id, emit);
       }
 
       const { token, tokenHash } = newSessionToken();
@@ -1746,7 +1755,7 @@ async function startWorkspaceServer(
         role: "guest",
       });
       emit({ type: "user.joined", user }, null);
-      joinDefaultChannel(user.id, emit);
+      joinPublicChannels(user.id, emit);
       const { token, tokenHash } = newSessionToken();
       store.createSession(tokenHash, user.id, deviceName(req), GUEST_SESSION_TTL_MS);
       return { token, user };
@@ -1978,12 +1987,21 @@ async function startWorkspaceServer(
     return mutate((emit) => {
       if (body.type === "public" || body.type === "private") {
         if (store.getChannelByName(body.name)) throw new HttpError(409, "name_taken");
-        const memberIds =
-          body.type === "private" ? [...new Set([me.id, ...(body.memberIds ?? [])])] : [me.id];
-        for (const id of memberIds) {
-          const member = store.getUser(id);
-          if (!member) throw new HttpError(400, "unknown_user", id);
-          if (member.role === "guest") throw guestRestricted();
+        // A public channel takes in everyone here, as Discord's do, so it
+        // shows up for them at once; each can leave it. A private one only
+        // the people it was made for.
+        const memberIds = [
+          ...new Set([
+            me.id,
+            ...(body.type === "private" ? (body.memberIds ?? []) : store.listPeopleIds()),
+          ]),
+        ];
+        if (body.type === "private") {
+          for (const id of memberIds) {
+            const member = store.getUser(id);
+            if (!member) throw new HttpError(400, "unknown_user", id);
+            if (member.role === "guest") throw guestRestricted();
+          }
         }
         const channel = store.createChannel({
           type: body.type,
@@ -4638,6 +4656,11 @@ async function startWorkspaceServer(
     setIceServers: (servers) => {
       iceServers = iceServersSchema.parse(servers);
     },
+    setRelay: (next) => {
+      // Parsed before anything changes, so a refused relay leaves the old one.
+      relay = relaySource(next);
+    },
+    relayError: () => relay.error(),
     inviteOnly,
     setInviteOnly: (value) => {
       if (typeof value !== "boolean") throw new TypeError("inviteOnly must be a boolean");

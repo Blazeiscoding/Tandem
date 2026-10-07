@@ -57,6 +57,16 @@
       "concepts": ["safeStorage", "secrets", "validation", "compatibility"]
     },
     {
+      "path": "apps/desktop/src/main/callRelay.ts",
+      "summary": "Keeps the hosted workspaces' call relay in the settings file, its secret encrypted by the OS.",
+      "details": [
+        "resolveDraft turns what Manage hosting sends into a relay, keeping the saved API token or password when the key ID or username is unchanged and saying what to correct otherwise.",
+        "encodeRelay and decodeRelay store the token or password with the same safeStorage protector as saved sign-ins, refusing rather than writing it in plain text, and fail without echoing it. summarize gives the window everything but the secret.",
+        "The main process hands the relay to each workspace it starts, changes it on running ones when saved, and answers Test with the relay servers a call would be given (a Cloudflare password asked for there lasts ten minutes)."
+      ],
+      "concepts": ["safeStorage", "secrets", "TURN"]
+    },
+    {
       "path": "apps/desktop/src/main/draftsStorage.ts",
       "summary": "Merges per-conversation draft changes through the settings owner.",
       "details": [

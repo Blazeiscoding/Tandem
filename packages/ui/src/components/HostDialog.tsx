@@ -15,6 +15,7 @@ import { formatDay, formatTime } from "../lib/format.js";
 import { isImeKey } from "../lib/textInput.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { buttonClass } from "./Button.js";
+import { CallRelaySettings } from "./CallRelaySettings.js";
 
 type Hosting = NonNullable<Platform["hosting"]>;
 
@@ -1582,6 +1583,9 @@ export function HostDialog(props: {
                 </>
               )}
             </div>
+          )}
+          {props.hosting.relay && !status.isolated && (
+            <CallRelaySettings relay={props.hosting.relay} disabled={unavailable} />
           )}
         </div>
       )}
