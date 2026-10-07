@@ -402,6 +402,9 @@ describe("agreeing with the server about replies", () => {
 
   it("does not count replies written before joining a channel as this account's to read", async () => {
     const { channel } = await owner.createChannel({ type: "public", name: "earlier" });
+    // A public channel takes everyone in when it is made; this account leaves
+    // it, to join after the replies are written.
+    await client.api.leaveChannel(channel.id);
     const { message: root } = await owner.sendMessage(channel.id, { text: "Old", nonce: "old" });
     const { message: old } = await owner.sendMessage(channel.id, {
       text: "<!here> old reply",
