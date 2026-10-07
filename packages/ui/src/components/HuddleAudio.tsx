@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HuddlePeer } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
+import { useSpeaker } from "../lib/mediaDevices.js";
 
 type PlaybackFailure = "gesture" | "failed";
 
@@ -16,8 +17,14 @@ type PlaybackCallbacks = {
 };
 
 /** Attach each microphone stream even when the call has no video. */
-function PeerAudio({ peer, register, report }: { peer: HuddlePeer } & PlaybackCallbacks) {
+function PeerAudio({
+  peer,
+  speakerId,
+  register,
+  report,
+}: { peer: HuddlePeer; speakerId: string } & PlaybackCallbacks) {
   const ref = useRef<HTMLAudioElement>(null);
+  useSpeaker(ref, speakerId);
   useEffect(() => {
     const element = ref.current;
     if (!element || !peer.audioStream) return;
@@ -52,7 +59,14 @@ function PeerAudio({ peer, register, report }: { peer: HuddlePeer } & PlaybackCa
 }
 
 /** One gesture retries all blocked peers, without restarting audible streams. */
-export function HuddleAudio({ peers }: { peers: HuddlePeer[] }) {
+export function HuddleAudio({
+  peers,
+  speakerId = "",
+}: {
+  peers: HuddlePeer[];
+  /** The speaker chosen in Voice & video settings; "" for the system's default. */
+  speakerId?: string;
+}) {
   const retries = useRef(new Map<ID, () => void>());
   const [blocked, setBlocked] = useState<Map<ID, PlaybackFailure>>(() => new Map());
   const register = useCallback<PlaybackCallbacks["register"]>((id, retry) => {
@@ -93,7 +107,13 @@ export function HuddleAudio({ peers }: { peers: HuddlePeer[] }) {
   return (
     <>
       {peers.map((peer) => (
-        <PeerAudio key={peer.userId} peer={peer} register={register} report={report} />
+        <PeerAudio
+          key={peer.userId}
+          peer={peer}
+          speakerId={speakerId}
+          register={register}
+          report={report}
+        />
       ))}
       {blocked.size > 0 && (
         <div className="flex flex-wrap items-center gap-2">

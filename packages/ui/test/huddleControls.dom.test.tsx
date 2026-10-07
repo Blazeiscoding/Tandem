@@ -3,8 +3,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient } from "@slackoss/client-core";
 import type { User } from "@slackoss/protocol";
-import { ClientContext } from "../src/context.js";
+import { ClientContext, PlatformContext } from "../src/context.js";
+import { webPlatform } from "../src/platform.js";
 import { HuddleControls } from "../src/components/HuddleControls.js";
+
+/** Where call preferences are kept, as in the app. */
+const platform = webPlatform();
 
 /**
  * The camera and screen buttons in a huddle (CALL-01). Closing the screen
@@ -47,9 +51,11 @@ function controls(overlay = false, micLost = false) {
   const share = vi.spyOn(client, "toggleScreenShare");
   const retryMic = vi.spyOn(client, "retryMicrophone").mockImplementation(() => {});
   render(
-    <ClientContext.Provider value={client}>
-      <HuddleControls overlay={overlay} />
-    </ClientContext.Provider>,
+    <PlatformContext.Provider value={platform}>
+      <ClientContext.Provider value={client}>
+        <HuddleControls overlay={overlay} />
+      </ClientContext.Provider>
+    </PlatformContext.Provider>,
   );
   return { camera, share, retryMic };
 }

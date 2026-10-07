@@ -106,7 +106,8 @@
       "summary": "Owns microphone capture, WebRTC peer connections and call media state.",
       "details": [
         "HuddleSession creates a mesh connection per participant with fixed microphone, camera and screen transceivers. Deterministic offer ownership prevents both peers from offering at once; camera and screen changes use replaceTrack instead of another negotiation.",
-        "Microphone recovery requests the current default device after loss, replaces audio tracks for peers, and exposes micLost with device-change retry when no microphone is available.",
+        "Microphone recovery asks again for the chosen microphone, falling back to the system default after loss, replaces audio tracks for peers, and exposes micLost with device-change retry when no microphone is available.",
+        "setMicrophone and setCamera change devices mid-call: the new device opens (asked for exactly) before the old one stops, so one that will not start rejects and leaves the call as it was. Once open it reaches every peer through replaceTrack on the fixed slot, with no renegotiation, keeping the mute choice. A counter per kind drops an older choice that finishes after a newer one. A camera that reports busy is retried with the current one closed, since a virtual camera built on the webcam (NVIDIA Broadcast over a USB camera, as tested) cannot start while the webcam is held; if it still will not start the previous camera is reopened, and failing that the camera is turned off and announced.",
         "N04 keeps the latest mute intent separate from a particular MediaStreamTrack. Adopting a delayed or replacement microphone applies the current choice, and captured streams arriving after destruction are stopped.",
         "Remote speaking levels come from synchronization-source audio metadata; only the local microphone needs a Web Audio analyser. Samples run every 120 ms with a 500 ms hold, and publish to the UI only when speaking state changes.",
         "Camera/screen prompts, peer signals and teardown have owned lifetimes. testMicrophone opens a local level meter without sending media anywhere and returns an explicit stop operation.",
@@ -118,8 +119,18 @@
         "mute intent",
         "audio level sampling",
         "media cleanup",
-        "N04"
+        "N04",
+        "device switching"
       ]
+    },
+    {
+      "path": "packages/client-core/src/devices.ts",
+      "summary": "Says which microphone and camera to open, and lists the devices to choose from.",
+      "details": [
+        "microphoneConstraints and cameraConstraints are the one place a huddle's capture constraints are written. A saved device is asked for loosely, so one left unplugged falls back to the default instead of failing the join; a device chosen just now is asked for exactly, so a failure is reported rather than another device opening silently. Echo cancellation, noise suppression and automatic gain are on unless turned off. Cameras are asked for with resizeMode crop-and-scale: without it Chromium handed over a virtual camera's full 1080p, past the 1280 cap, which a mesh would send to everyone.",
+        "listMediaDevices drops Chromium's 'default' and 'communications' stand-ins, numbers devices whose names the browser keeps back before permission, and names what the system default currently is. canChooseSpeaker detects setSinkId."
+      ],
+      "concepts": ["capture constraints", "device enumeration", "permission-gated labels"]
     },
     {
       "path": "packages/client-core/src/capture.ts",
@@ -302,13 +313,23 @@
     },
     {
       "path": "packages/ui/src/lib/callPreferences.ts",
-      "summary": "Makes every huddle entry point wait for the current join-muted choice.",
+      "summary": "Keeps how huddles start on this device: join muted, and the chosen devices.",
       "details": [
         "A per-Platform shared Zustand store loads the device preference strictly and validates its boolean shape. Unknown or damaged preferences expose retry and keep the microphone off.",
         "Join waits while initialization or saving is pending, then checks whether the caller still wants this channel and whether the client remains usable. N04 fences old reads with a load version so a retry or acknowledged explicit choice wins.",
-        "A confirmed absent record is handled as a first-use default; the conservative muted state applies while the record is unresolved or unreadable."
+        "A confirmed absent record is handled as a first-use default; the conservative muted state applies while the record is unresolved or unreadable.",
+        "The same record keeps the chosen microphone, camera and speaker ids and the three microphone processing switches. Only keys that were chosen are written; on load a field of the wrong type is dropped rather than making the whole record unreadable. joinHuddle passes the microphone and camera choices to the session."
       ],
-      "concepts": ["join preferences", "latest intent", "async fencing", "N04"]
+      "concepts": ["join preferences", "latest intent", "async fencing", "N04", "device choices"]
+    },
+    {
+      "path": "packages/ui/src/lib/mediaDevices.ts",
+      "summary": "Lists devices for the pickers and applies a device choice to a call in progress.",
+      "details": [
+        "useMediaDevices lists microphones, cameras and speakers, again on devicechange and on demand once a permission grant makes names available.",
+        "chooseDevices switches the live huddle first (microphone or camera) and saves the choice only once the device opened, so a failed choice rejects and changes nothing. useSpeaker routes an audio element through the chosen speaker with setSinkId."
+      ],
+      "concepts": ["device lists", "switch then save", "audio output routing"]
     },
     {
       "path": "packages/ui/src/lib/composerPreferences.ts",
@@ -1019,16 +1040,18 @@
       "summary": "Provides shared microphone, camera, screen-share and leave actions.",
       "details": [
         "Used by both the compact bar and fullscreen stage so the call actions stay available in either layout.",
-        "Stable accessible names plus aria-pressed describe toggles; captureFailure distinguishes a cancelled picker from a permission/device problem. A lost microphone exposes retry."
+        "Stable accessible names plus aria-pressed describe toggles; captureFailure distinguishes a cancelled picker from a permission/device problem. A lost microphone exposes retry.",
+        "Beside Mute and Camera, a small arrow opens a menu of microphones and speakers, or cameras, with the chosen one ticked (menuitemradio) and a link to Voice & video settings. The menus are left out of the full-screen overlay, because menus open on the page beneath a fullscreen element."
       ],
-      "concepts": ["media controls", "accessible toggles", "capture errors"]
+      "concepts": ["media controls", "accessible toggles", "capture errors", "device menus"]
     },
     {
       "path": "packages/ui/src/components/HuddleAudio.tsx",
       "summary": "Keeps each remote microphone playing independently of video layout.",
       "details": [
         "Peer audio elements attach microphone streams even when the call has no camera or the video stage is hidden.",
-        "Playback refusal produces a recovery action; one user gesture retries blocked peers while already audible streams are left intact. This avoids duplicate audio from video elements."
+        "Playback refusal produces a recovery action; one user gesture retries blocked peers while already audible streams are left intact. This avoids duplicate audio from video elements.",
+        "Each peer's audio element plays through the speaker chosen in Voice & video settings."
       ],
       "concepts": ["remote audio", "autoplay recovery", "media attachment"]
     },
@@ -1046,10 +1069,19 @@
       "path": "packages/ui/src/components/MicrophoneCheck.tsx",
       "summary": "Lets the user test local microphone level before joining a huddle.",
       "details": [
-        "Starts client-core's local testMicrophone and displays the selected device label and level when measurable.",
+        "Opens the chosen microphone with the chosen processing through client-core's testMicrophone, shows its name and level, and opens it again when the choice changes. An optional playback sends the voice to the chosen speaker.",
         "Nothing is sent to peers or the server. Stopping the check or closing settings stops the captured tracks."
       ],
       "concepts": ["local microphone test", "hardware lifetime"]
+    },
+    {
+      "path": "packages/ui/src/components/VoiceVideoSettings.tsx",
+      "summary": "The Voice & video section of Account settings: devices, processing and tests.",
+      "details": [
+        "Microphone, speaker (where setSinkId exists) and camera pickers with the system default first; a chosen device that is unplugged stays listed as such. Changes apply to a huddle in progress through chooseDevices and are kept for every workspace on this device.",
+        "Echo cancellation, noise suppression and automatic volume switches, a microphone test with playback, a two-tone speaker test, a mirrored camera preview, and join-muted. When the browser keeps device names back it offers to ask for the microphone once."
+      ],
+      "concepts": ["device settings", "local media tests"]
     },
     {
       "path": "packages/ui/src/components/DiagnosticsDialog.tsx",

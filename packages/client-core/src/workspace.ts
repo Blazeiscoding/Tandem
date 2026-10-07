@@ -21,6 +21,7 @@ import { Api, ApiError, type CommandHint } from "./api.js";
 import { FileCache } from "./fileCache.js";
 import { captureFailure } from "./capture.js";
 import type { CallLogLine, HuddleSession, HuddleState } from "./huddle.js";
+import type { MicrophoneSettings } from "./devices.js";
 
 class HuddleJoinRefusedError extends Error {}
 
@@ -2770,10 +2771,14 @@ export class WorkspaceClient {
 
   /**
    * Joins the channel's huddle, starting one if nobody is in it, with the
-   * microphone off when `muted`. Throws if the microphone is unavailable or
-   * admission fails, releasing local media and leaving no half-joined room.
+   * microphone off when `muted`, and the devices chosen in Voice & video
+   * settings. Throws if the microphone is unavailable or admission fails,
+   * releasing local media and leaving no half-joined room.
    */
-  async joinHuddle(channelId: ID, options: { muted?: boolean } = {}): Promise<void> {
+  async joinHuddle(
+    channelId: ID,
+    options: { muted?: boolean; microphone?: MicrophoneSettings; cameraId?: string } = {},
+  ): Promise<void> {
     this.leaveHuddle();
     const attempt = this.huddleAttempt;
     const selfId = this.state.self?.id;
@@ -2805,6 +2810,8 @@ export class WorkspaceClient {
       config,
       {
         refreshConfig: () => this.api.rtcConfig(),
+        microphone: options.microphone,
+        cameraId: options.cameraId,
         onReport: (peer, report) => {
           if (this.huddleReports && this.session === session)
             this.sendSocket({ type: "huddle.report", channelId, peer, report });
@@ -2903,6 +2910,16 @@ export class WorkspaceClient {
 
   async toggleCamera(): Promise<void> {
     await this.session?.toggleCamera();
+  }
+
+  /** Changes the huddle's microphone, or its processing, while in one. */
+  async setMicrophone(settings: MicrophoneSettings): Promise<void> {
+    await this.session?.setMicrophone(settings);
+  }
+
+  /** Changes the huddle's camera; while it is off, the next one it turns on. */
+  async setCamera(deviceId: string | undefined): Promise<void> {
+    await this.session?.setCamera(deviceId);
   }
 
   private sendSocket(msg: unknown): void {

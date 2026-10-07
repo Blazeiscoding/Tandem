@@ -9,6 +9,7 @@ import {
   type ID,
 } from "@slackoss/protocol";
 import { CALL_CAUSES, type CallLogLine } from "./callLog.js";
+import { cameraConstraints, microphoneConstraints, type MicrophoneSettings } from "./devices.js";
 
 export type { CallLogLine } from "./callLog.js";
 
@@ -46,6 +47,10 @@ export interface HuddleSessionOptions {
   refreshConfig?: () => Promise<RTCConfiguration>;
   /** Hears how each connection went, for the host's call log. */
   onReport?: (peerId: ID, report: CallReport) => void;
+  /** The microphone chosen in Voice & video settings, and how to process it. */
+  microphone?: MicrophoneSettings;
+  /** The camera chosen there; missing for the system's default. */
+  cameraId?: string;
 }
 
 export interface HuddleState {
@@ -115,6 +120,11 @@ export class HuddleSession {
   private muted = false;
   private micLost = false;
   private recoveringMic: Promise<boolean> | null = null;
+  /** The newest microphone or camera choice, so an older one finishing late is dropped. */
+  private micChoice = 0;
+  private cameraChoice = 0;
+  private microphone: MicrophoneSettings;
+  private cameraId: string | undefined;
   private cameraTrack: MediaStreamTrack | null = null;
   private screenTrack: MediaStreamTrack | null = null;
   private localCameraStream: MediaStream | null = null;
@@ -139,6 +149,8 @@ export class HuddleSession {
     private rtcConfig: RTCConfiguration = { iceServers: [] },
     private options: HuddleSessionOptions = {},
   ) {
+    this.microphone = options.microphone ?? {};
+    this.cameraId = options.cameraId;
     this.note(`Call settings: ${describeServers(rtcConfig)}.`);
   }
 
@@ -162,7 +174,7 @@ export class HuddleSession {
     this.muted = muted;
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
+      stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints(this.microphone));
     } catch (err) {
       this.note(`The microphone did not start: ${describeError(err)}.`);
       throw err;
@@ -194,7 +206,8 @@ export class HuddleSession {
 
   /**
    * The microphone stopped: unplugged, or its permission taken back. Asks for
-   * one again, which is whatever the system now has as its default, and sends
+   * one again, the chosen one if it is still there and otherwise whatever the
+   * system now has as its default, and sends
    * it to everyone in place of the old one, muted if it was (CALL-01). With
    * none to be had the huddle says so, tells the others this side is muted
    * rather than leaving them to wonder at the silence, and tries again when a
@@ -213,7 +226,9 @@ export class HuddleSession {
 
   private async replaceMicrophone(): Promise<boolean> {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
+      const stream = await navigator.mediaDevices.getUserMedia(
+        microphoneConstraints(this.microphone),
+      );
       if (this.destroyed) {
         stream.getTracks().forEach((track) => track.stop());
         return false;
@@ -236,6 +251,48 @@ export class HuddleSession {
       this.announceMedia();
       this.onChange?.();
     }
+  }
+
+  /**
+   * Changes the microphone, or how its sound is processed, mid-call. The new
+   * one opens before the old one closes, so a device that will not start
+   * leaves everyone still hearing the old one, and this rejects as
+   * `startLocalAudio` does. Once open it goes to everyone in the old one's
+   * place, muted if that was.
+   */
+  async setMicrophone(settings: MicrophoneSettings): Promise<void> {
+    if (this.destroyed) return;
+    const choice = ++this.micChoice;
+    if (!this.localStream) {
+      this.microphone = settings;
+      return;
+    }
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, true));
+    } catch (err) {
+      this.note(`The chosen microphone did not start: ${describeError(err)}.`);
+      throw err;
+    }
+    if (this.destroyed || choice !== this.micChoice) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    this.microphone = settings;
+    this.note("Changed to the chosen microphone.");
+    for (const track of this.localStream?.getTracks() ?? []) {
+      track.onended = null;
+      track.stop();
+    }
+    this.adoptMicrophone(stream);
+    this.stopWaitingForMicrophone();
+    await Promise.all(
+      [...this.peers.values()].map((peer) =>
+        peer.audioTx?.sender.replaceTrack(stream.getAudioTracks()[0] ?? null).catch(() => {}),
+      ),
+    );
+    this.announceMedia();
+    this.onChange?.();
   }
 
   private readonly onDeviceChange = () => void this.recoverMicrophone();
@@ -720,16 +777,7 @@ export class HuddleSession {
     this.acquiringCamera = true;
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          // 360p went soft as soon as a tile was bigger than a thumbnail. The
-          // encoder still steps down on its own when the network cannot keep up.
-          width: { ideal: 960, max: 1280 },
-          height: { ideal: 540, max: 720 },
-          frameRate: { ideal: 24, max: 30 },
-        },
-        audio: false,
-      });
+      stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(this.cameraId));
     } finally {
       this.acquiringCamera = false;
     }
@@ -739,6 +787,77 @@ export class HuddleSession {
     }
     const track = stream.getVideoTracks()[0];
     if (!track) return;
+    this.cameraTrack = track;
+    this.localCameraStream = stream;
+    track.onended = () => this.stopCamera();
+    await this.publish("camera", track);
+  }
+
+  /**
+   * Changes the camera. While it is on, the new one opens before the old one
+   * closes, so one that will not start leaves the picture as it was and this
+   * rejects; while it is off, the choice waits for it to be turned on.
+   */
+  async setCamera(deviceId: string | undefined): Promise<void> {
+    if (this.destroyed) return;
+    const choice = ++this.cameraChoice;
+    const current = this.cameraTrack;
+    if (!current) {
+      this.cameraId = deviceId;
+      return;
+    }
+    if (deviceId && current.getSettings?.().deviceId === deviceId) {
+      this.cameraId = deviceId;
+      return;
+    }
+    const open = (id: string | undefined, exact: boolean) =>
+      navigator.mediaDevices.getUserMedia(cameraConstraints(id, exact));
+    // Turned off, left or chosen again while a camera opened.
+    const overtaken = () =>
+      this.destroyed || choice !== this.cameraChoice || this.cameraTrack !== current;
+    let stream: MediaStream;
+    try {
+      stream = await open(deviceId, true);
+    } catch (err) {
+      if (!isBusy(err) || overtaken()) {
+        this.note(`The chosen camera did not start: ${describeError(err)}.`);
+        throw err;
+      }
+      // Many cameras open only once at a time, and one built on another (a
+      // virtual camera over the webcam) cannot start while that is held here.
+      // Let go of this one and try again, putting it back if that fails too.
+      this.note("The chosen camera was busy; trying again with this one closed.");
+      const previous = current.getSettings?.().deviceId;
+      current.onended = null;
+      current.stop();
+      try {
+        stream = await open(deviceId, true);
+      } catch (again) {
+        this.note(`The chosen camera did not start: ${describeError(again)}.`);
+        const restored = await open(previous, false).catch(() => null);
+        if (restored?.getVideoTracks()[0] && !overtaken()) await this.adoptCamera(restored);
+        else {
+          restored?.getTracks().forEach((t) => t.stop());
+          if (this.cameraTrack === current) this.stopCamera();
+        }
+        throw again;
+      }
+    }
+    if (overtaken() || !stream.getVideoTracks()[0]) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    this.cameraId = deviceId;
+    await this.adoptCamera(stream);
+  }
+
+  /** Puts a newly opened camera in place of the one being sent, and sends it. */
+  private async adoptCamera(stream: MediaStream): Promise<void> {
+    const track = stream.getVideoTracks()[0]!;
+    if (this.cameraTrack) {
+      this.cameraTrack.onended = null;
+      this.cameraTrack.stop();
+    }
     this.cameraTrack = track;
     this.localCameraStream = stream;
     track.onended = () => this.stopCamera();
@@ -1007,11 +1126,11 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
-/** The microphone a huddle asks for, at the start and after losing one. */
-const MICROPHONE: MediaStreamConstraints = {
-  audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-  video: false,
-};
+/** A device another app, or another device built on it, is holding. */
+function isBusy(err: unknown): boolean {
+  const name = typeof err === "object" && err !== null && "name" in err ? err.name : "";
+  return name === "NotReadableError" || name === "AbortError";
+}
 
 /** What the browser would have said, had it offered a way to ask at all. */
 function unsupported(kind: string): DOMException {
@@ -1030,6 +1149,8 @@ function peakLevel(analyser: AnalyserNode, samples: Uint8Array<ArrayBuffer>): nu
 export interface MicrophoneTest {
   /** The device's name, where the browser gives one; empty otherwise. */
   label: string;
+  /** What it hears, for playing back to the person testing it. */
+  stream: MediaStream;
   /** False where the browser cannot measure sound, so no level will come. */
   metered: boolean;
   /** Closes the microphone. Safe to call more than once. */
@@ -1037,14 +1158,17 @@ export interface MicrophoneTest {
 }
 
 /**
- * Opens the microphone the way a huddle does and reports how loud it is,
- * several times a second, until stopped, so someone can check it before a
- * call. Nothing is sent anywhere. Rejects as `startLocalAudio` does, for
- * `captureFailure` to word.
+ * Opens the microphone the way a huddle would with the settings being tried,
+ * and reports how loud it is several times a second, until stopped, so
+ * someone can check it before a call. Nothing is sent anywhere. Rejects as
+ * `startLocalAudio` does, for `captureFailure` to word.
  */
-export async function testMicrophone(onLevel: (level: number) => void): Promise<MicrophoneTest> {
+export async function testMicrophone(
+  onLevel: (level: number) => void,
+  settings: MicrophoneSettings = {},
+): Promise<MicrophoneTest> {
   if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
-  const stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
+  const stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, true));
   let context: AudioContext | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   const Ctx = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
@@ -1065,6 +1189,7 @@ export async function testMicrophone(onLevel: (level: number) => void): Promise<
   }
   return {
     label: stream.getAudioTracks()[0]?.label ?? "",
+    stream,
     metered: timer !== null,
     stop() {
       if (timer) clearInterval(timer);

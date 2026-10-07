@@ -19,6 +19,8 @@ export interface MenuItem {
   section?: string | true;
   /** Danger-zone actions read red. */
   destructive?: boolean;
+  /** One of a set to choose from, ticked when it is the one chosen. */
+  checked?: boolean;
   disabled?: boolean;
   onSelect: () => void;
 }
@@ -43,6 +45,8 @@ interface MenuProps {
   header?: (close: () => void) => React.ReactNode;
   /** On a phone, rise from the bottom of the screen within a thumb's reach. */
   sheet?: boolean;
+  /** How wide it opens, for items such as device names that need the room. */
+  width?: number;
 }
 
 /**
@@ -65,6 +69,7 @@ export function Menu({
   open: openProp,
   header,
   sheet = false,
+  width,
 }: MenuProps) {
   const [openState, setOpenState] = useState(false);
   const open = openProp ?? openState;
@@ -100,6 +105,7 @@ export function Menu({
           items={items}
           header={header}
           sheet={sheet}
+          width={width}
           align={align}
           anchor={() => trigger.current?.getBoundingClientRect() ?? null}
           onClose={() => setOpen(false)}
@@ -118,6 +124,7 @@ function MenuPanel({
   header,
   sheet,
   align,
+  width: wanted,
   anchor,
   onClose,
 }: {
@@ -126,6 +133,7 @@ function MenuPanel({
   header?: (close: () => void) => React.ReactNode;
   sheet: boolean;
   align: "start" | "end";
+  width?: number;
   anchor: () => DOMRect | null;
   onClose: () => void;
 }) {
@@ -156,7 +164,10 @@ function MenuPanel({
     }
     // A sheet is placed by its class: along the bottom, wherever the trigger is.
     if (asSheet) return;
-    const width = Math.max(200, Math.min(280, box.width));
+    const width = Math.min(
+      wanted ?? Math.max(200, Math.min(280, box.width)),
+      window.innerWidth - 16,
+    );
     const height = Math.min(el.offsetHeight, window.innerHeight - 16);
     const roomBelow = window.innerHeight - box.bottom - 8;
     const top =
@@ -279,7 +290,8 @@ function MenuPanel({
             )}
             <button
               type="button"
-              role="menuitem"
+              role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+              aria-checked={item.checked}
               data-menu-index={index}
               tabIndex={-1}
               disabled={item.disabled}
@@ -317,7 +329,14 @@ function MenuPanel({
                   {item.emoji}
                 </span>
               )}
-              {item.label}
+              {item.checked === undefined ? (
+                item.label
+              ) : (
+                <>
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  {item.checked && <Icon name="check" size={14} className="shrink-0 text-copper" />}
+                </>
+              )}
             </button>
           </div>
         ))}

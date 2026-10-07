@@ -368,8 +368,7 @@ if (checking) {
 // from the web app's installed packages; a checkout without apps/web (the
 // freshness fixture) falls back to system fonts.
 const faces = [
-  ["Manrope Variable", "manrope", "200 800"],
-  ["Montserrat Variable", "montserrat", "100 900"],
+  ["Onest Variable", "onest", "100 900"],
   ["Geist Mono Variable", "geist-mono", "100 900"],
 ];
 function fontFaces() {

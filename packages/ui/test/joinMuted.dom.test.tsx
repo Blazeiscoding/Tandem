@@ -50,12 +50,12 @@ function setup(saved: unknown = null) {
 }
 
 describe("joining huddles with the microphone off", () => {
-  it("is a choice under Calls, off until chosen, and kept on this device", async () => {
+  it("is a choice under Voice & video, off until chosen, and kept on this device", async () => {
     const user = userEvent.setup();
     const { client, set, wrap } = setup();
     vi.spyOn(client.api, "listSessions").mockResolvedValue({ sessions: [] });
     render(wrap(<AccountDialog onClose={() => {}} onSignedOut={() => {}} section="calls" />));
-    const panel = screen.getByRole("tabpanel", { name: "Calls" });
+    const panel = screen.getByRole("tabpanel", { name: "Voice & video" });
     const box = within(panel).getByRole("checkbox", {
       name: "Join huddles with my microphone off",
     });

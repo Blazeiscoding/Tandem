@@ -3,10 +3,14 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient, type HuddlePeer, type HuddleState } from "@slackoss/client-core";
 import type { Channel, User } from "@slackoss/protocol";
-import { ClientContext } from "../src/context.js";
+import { ClientContext, PlatformContext } from "../src/context.js";
+import { webPlatform } from "../src/platform.js";
 import { HuddleBar } from "../src/components/HuddleBar.js";
 import { bestFit, HuddleStage, type HuddleView } from "../src/components/HuddleStage.js";
 import { accessibilityProblems } from "./accessibility.js";
+
+/** Where call preferences are kept, as in the app. */
+const platform = webPlatform();
 
 // jsdom has no media pipeline: a video only needs somewhere to put a stream.
 beforeAll(() => {
@@ -78,15 +82,19 @@ function stage(huddle: Partial<HuddleState>, view: HuddleView = "docked") {
   const client = huddleClient(huddle);
   const onViewChange = vi.fn();
   const utils = render(
-    <ClientContext.Provider value={client}>
-      <HuddleStage view={view} onViewChange={onViewChange} />
-    </ClientContext.Provider>,
+    <PlatformContext.Provider value={platform}>
+      <ClientContext.Provider value={client}>
+        <HuddleStage view={view} onViewChange={onViewChange} />
+      </ClientContext.Provider>
+    </PlatformContext.Provider>,
   );
   const rerender = (next: HuddleView) =>
     utils.rerender(
-      <ClientContext.Provider value={client}>
-        <HuddleStage view={next} onViewChange={onViewChange} />
-      </ClientContext.Provider>,
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <HuddleStage view={next} onViewChange={onViewChange} />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
     );
   return { client, onViewChange, rerender, user: userEvent.setup() };
 }
@@ -203,16 +211,20 @@ describe("the huddle bar, with the video put away", () => {
     const client = huddleClient({ localCameraStream: stream() });
     const onViewChange = vi.fn();
     const { rerender } = render(
-      <ClientContext.Provider value={client}>
-        <HuddleBar view="hidden" onViewChange={onViewChange} />
-      </ClientContext.Provider>,
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <HuddleBar view="hidden" onViewChange={onViewChange} />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
     );
     await userEvent.setup().click(screen.getByRole("button", { name: "Show video" }));
     expect(onViewChange).toHaveBeenCalledWith("docked");
     rerender(
-      <ClientContext.Provider value={client}>
-        <HuddleBar view="docked" onViewChange={onViewChange} />
-      </ClientContext.Provider>,
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <HuddleBar view="docked" onViewChange={onViewChange} />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
     );
     expect(screen.queryByRole("button", { name: "Show video" })).not.toBeInTheDocument();
   });
@@ -220,9 +232,11 @@ describe("the huddle bar, with the video put away", () => {
   it("says who is sharing, in the status a screen reader announces", () => {
     const client = huddleClient({ peers: [peer("U_PRIYA", { screenStream: stream() })] });
     render(
-      <ClientContext.Provider value={client}>
-        <HuddleBar />
-      </ClientContext.Provider>,
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <HuddleBar />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
     );
     expect(screen.getByRole("status")).toHaveTextContent(
       "With Priya Shah · Priya Shah is sharing their screen",

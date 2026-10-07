@@ -93,7 +93,7 @@ describe("account settings, a section at a time", () => {
       "Notifications",
       "Appearance",
       "Composing",
-      "Calls",
+      "Voice & video",
       "Security",
       "Devices",
       "Storage",

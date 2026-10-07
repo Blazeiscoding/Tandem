@@ -44,8 +44,8 @@
   --t-key: #c3b3f2;
   --t-literal: #f08f8f;
   --font-sans:
-    "Manrope Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-display: "Montserrat Variable", var(--font-sans);
+    "Onest Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: var(--font-sans);
   --font-mono: "Geist Mono Variable", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
   --topbar: 56px;
   --sidebar: 248px;

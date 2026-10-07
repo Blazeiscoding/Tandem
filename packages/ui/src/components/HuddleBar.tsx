@@ -133,16 +133,20 @@ export function HuddleBar({
   view = "docked",
   onViewChange,
   onShowCallLog,
+  onOpenSettings,
 }: {
   view?: HuddleView;
   onViewChange?: (view: HuddleView) => void;
   /** Opens the call log, for someone who cannot connect to know why. */
   onShowCallLog?: () => void;
+  /** Opens Voice & video settings. */
+  onOpenSettings?: () => void;
 }) {
   const huddle = useWorkspace((s) => s.huddle);
   const users = useWorkspace((s) => s.users);
   const channels = useWorkspace((s) => s.channels);
   const selfId = useWorkspace((s) => s.self?.id);
+  const speakerId = useCallPreferences().devices.speakerId;
 
   if (!huddle) return null;
   const channel = channels[huddle.channelId];
@@ -223,7 +227,7 @@ export function HuddleBar({
 
       <HuddlePeople people={people} />
 
-      <HuddleAudio peers={huddle.peers} />
+      <HuddleAudio peers={huddle.peers} speakerId={speakerId} />
 
       {view === "hidden" && onViewChange && huddleHasVideo(huddle) && (
         <button
@@ -235,7 +239,7 @@ export function HuddleBar({
         </button>
       )}
 
-      <HuddleControls />
+      <HuddleControls onOpenSettings={onOpenSettings} />
     </div>
   );
 }
