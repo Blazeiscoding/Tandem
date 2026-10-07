@@ -2,7 +2,7 @@
 
 ## Windows and LAN
 
-Build an installer with `pnpm --filter @slackoss/desktop package --win`.
+Build an installer with `pnpm build:win`.
 The output is `apps/desktop/release/Tandem Setup 0.1.0.exe`. Local builds are
 unsigned unless you supply a signing certificate; Windows may show SmartScreen.
 A published release carries the installer, the server bundle and `SHA256SUMS`;
