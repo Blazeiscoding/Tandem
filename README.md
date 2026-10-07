@@ -51,7 +51,7 @@ Node 24+ and pnpm 10:
   node apps/server-cli/dist/slackoss-server.js --data ./demo-data --name "Demo Team"
   ```
 
-- **In the desktop app** on Windows: `pnpm --filter @slackoss/desktop package --win`,
+- **In the desktop app** on Windows: `pnpm build:win`,
   install `apps/desktop/release/Tandem Setup 0.1.0.exe`, and choose
   **Host a workspace on this computer**.
 - **With Docker**: `docker compose -f docker/docker-compose.yml up -d --build`.
@@ -359,7 +359,7 @@ Accounts and friends are not shared across unrelated workspace servers.
 ## Windows installer and validation
 
 ```sh
-pnpm --filter @slackoss/desktop package --win
+pnpm build:win
 pnpm test:desktop
 pnpm build
 pnpm test:e2e
