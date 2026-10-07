@@ -2569,19 +2569,19 @@ test("Back, Forward and a reload return to the conversation, thread and panel so
     // reload keeps it.
     const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     // Nothing chosen yet follows the device, which is light here: White's
-    // warm paper, then Onyx's near-black.
-    expect(await background()).toBe("rgb(244, 239, 230)");
+    // page colour, then Onyx's graphite.
+    expect(await background()).toBe("rgb(233, 234, 238)");
     await page.goto(`${origin}/#/c/${design.id}/d/account/appearance`);
     const appearance = page.getByRole("tabpanel", { name: "Appearance" });
     await appearance.getByRole("radio", { name: /^Onyx/ }).check();
-    await expect.poll(background).toBe("rgb(10, 10, 10)");
+    await expect.poll(background).toBe("rgb(18, 18, 20)");
     await page.reload();
     await expect(page.locator("textarea")).toBeVisible();
-    await expect.poll(background).toBe("rgb(10, 10, 10)");
+    await expect.poll(background).toBe("rgb(18, 18, 20)");
     await appearance.getByRole("radio", { name: /^White/ }).check();
-    await expect.poll(background).toBe("rgb(244, 239, 230)");
+    await expect.poll(background).toBe("rgb(233, 234, 238)");
     await appearance.getByRole("radio", { name: /^Match this device/ }).check();
-    await expect.poll(background).toBe("rgb(244, 239, 230)");
+    await expect.poll(background).toBe("rgb(233, 234, 238)");
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL(`${origin}/#/c/${design.id}`);
 
@@ -3093,9 +3093,8 @@ test("the layout holds at phone, tablet, laptop and short-window sizes", async (
       } else {
         await expect(navigation, where).toBeVisible();
         await expect(openNavigation, where).toBeHidden();
-        // The channels column. The rail of workspaces joins it only once this
-        // device has a second workspace to go to.
-        expect((await box(navigation)).width, where).toBe(256);
+        // Discord's rail of workspaces (72 px) beside the channels column (240 px).
+        expect((await box(navigation)).width, where).toBe(312);
       }
       await page.screenshot({ path: info.outputPath(`layout-${size.name}.png`) });
 

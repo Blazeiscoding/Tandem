@@ -702,7 +702,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }
 
   return (
-    <div ref={shell} className="composer-shell relative shrink-0 px-4 pb-4">
+    <div ref={shell} className="composer-shell relative shrink-0 px-4 pb-5">
       {dropArea && (
         <div
           aria-hidden="true"
@@ -872,10 +872,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       )}
       <fieldset
         disabled={archived || scheduling || recoveryBlocksSend}
-        className={`min-w-0 rounded-xl border bg-raised transition-[border-color,box-shadow] ${
+        className={`min-w-0 rounded-lg border bg-lifted transition-[border-color,box-shadow] duration-150 ${
           dragging
             ? "border-copper bg-copper/5"
-            : "border-[var(--card-edge-hover)] focus-within:border-copper/30 focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-copper)_7%,transparent)]"
+            : "border-transparent focus-within:border-ink-faint/25"
         }`}
       >
         {preview && (
@@ -977,9 +977,12 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
               <button
                 onClick={() => filePicker.current?.click()}
                 aria-label="Attach a file"
-                className="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-ink/[0.07] hover:text-ink"
+                className="group/attach flex size-8 items-center justify-center rounded-md"
               >
-                <Icon name="attach" size={16} />
+                {/* Discord's round plus: the way to add anything to a message. */}
+                <span className="flex size-6 items-center justify-center rounded-full bg-ink-dim text-lifted transition-colors group-hover/attach:bg-ink">
+                  <Icon name="plus" size={14} strokeWidth={2.6} />
+                </span>
               </button>
             </Tooltip>
           )}

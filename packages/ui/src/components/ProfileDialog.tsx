@@ -3,6 +3,9 @@ import { ApiError } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
 import { useClient, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
+import { Modal } from "./Modal.js";
+import { Icon } from "./Icon.js";
+import { avatarColor } from "../lib/format.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { FriendActions } from "./FriendsDialog.js";
 import { buttonClass } from "./Button.js";
@@ -38,57 +41,87 @@ export function ProfileDialog(props: {
     }
   }
 
+  const online = presence === "online";
   return (
-    <Dialog title="Profile" onClose={props.onClose}>
-      <div className="flex items-center gap-4">
-        <Avatar user={user} size={64} />
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-lg font-bold">{user.displayName}</h3>
-            {user.role !== "member" && (
-              <span className="rounded-full bg-ink/[0.07] px-2 py-0.5 text-[11px] font-medium capitalize text-ink-dim">
-                {user.role}
-              </span>
-            )}
-          </div>
-          <div className="font-mono text-sm text-ink-faint">@{user.handle}</div>
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-ink-dim">
-            <span
-              className={`size-2 rounded-full ${presence === "online" ? "bg-online" : "bg-edge"}`}
-            />
-            {presence === "online" ? "Active now" : "Away"}
-          </div>
-        </div>
-      </div>
-
-      {(user.statusEmoji || user.statusText) && (
-        <p className="card-warm mt-4 rounded-lg px-3 py-2 text-sm">
-          {user.statusEmoji && <span className="mr-1.5">{user.statusEmoji}</span>}
-          {user.statusText}
-        </p>
-      )}
-
-      {user.id !== selfId && !user.isBot && (
-        <div className="mt-4">
-          <FriendActions userId={user.id} />
-        </div>
-      )}
-      {user.id !== selfId && dmError && (
-        <p role="alert" className="mt-4 text-sm text-alert">
-          {dmError}
-        </p>
-      )}
-      {user.id !== selfId && (
+    // Discord's profile card: a band of the person's colour, their picture
+    // set into it, and who they are on a card of its own beneath.
+    <Modal
+      title="Profile"
+      onClose={props.onClose}
+      backdropClassName="flex animate-fade-in items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
+      className="w-[340px] max-w-full animate-pop-in overflow-hidden rounded-2xl border border-edge bg-raised shadow-[var(--shadow-dialog)] outline-none"
+    >
+      <div
+        className="relative h-[92px]"
+        style={{
+          background: `linear-gradient(135deg, ${avatarColor(user.id)}, ${avatarColor(user.id, 0.45)})`,
+        }}
+      >
         <button
-          // Not `disabled`, so focus stays on the button while it works and it can try again.
-          aria-disabled={opening || undefined}
-          onClick={() => void message(user.id, user.displayName)}
-          className={buttonClass("primary", "mt-4 w-full aria-disabled:opacity-60")}
+          onClick={props.onClose}
+          aria-label="Close"
+          className="absolute right-2.5 top-2.5 flex size-8 items-center justify-center rounded-full bg-black/35 text-white transition-colors hover:bg-black/55"
         >
-          {opening ? "Opening…" : `Message ${user.displayName}`}
+          <Icon name="close" size={16} />
         </button>
-      )}
-    </Dialog>
+      </div>
+      <div className="px-4 pb-4">
+        <div className="-mt-11 mb-3 flex items-end justify-between">
+          <span className="relative rounded-full bg-raised p-1.5">
+            <Avatar user={user} size={80} />
+            <span
+              role="img"
+              aria-label={online ? "Active now" : "Away"}
+              className={`absolute bottom-2 right-2 size-5 rounded-full ring-4 ring-raised ${
+                online ? "bg-online" : "bg-ink-faint"
+              }`}
+            />
+          </span>
+          {user.role !== "member" && (
+            <span className="mb-1 rounded-full bg-ink/[0.07] px-2.5 py-0.5 text-[12px] font-medium capitalize text-ink-dim">
+              {user.role}
+            </span>
+          )}
+        </div>
+        <div className="rounded-xl bg-deep/70 p-3.5">
+          <h2 className="truncate text-xl font-bold leading-tight">{user.displayName}</h2>
+          <div className="text-sm text-ink-dim">@{user.handle}</div>
+          <div className="mt-2 flex items-center gap-1.5 text-[13px] text-ink-dim">
+            <span
+              aria-hidden="true"
+              className={`size-2 rounded-full ${online ? "bg-online" : "bg-ink-faint"}`}
+            />
+            {online ? "Active now" : "Away"}
+          </div>
+          {(user.statusEmoji || user.statusText) && (
+            <p className="mt-3 border-t border-edge pt-3 text-sm">
+              {user.statusEmoji && <span className="mr-1.5">{user.statusEmoji}</span>}
+              {user.statusText}
+            </p>
+          )}
+          {user.id !== selfId && !user.isBot && (
+            <div className="mt-3 border-t border-edge pt-3">
+              <FriendActions userId={user.id} />
+            </div>
+          )}
+        </div>
+        {user.id !== selfId && dmError && (
+          <p role="alert" className="mt-3 text-sm text-alert">
+            {dmError}
+          </p>
+        )}
+        {user.id !== selfId && (
+          <button
+            // Not `disabled`, so focus stays on the button while it works and it can try again.
+            aria-disabled={opening || undefined}
+            onClick={() => void message(user.id, user.displayName)}
+            className={buttonClass("primary", "mt-3 w-full aria-disabled:opacity-60")}
+          >
+            {opening ? "Opening…" : `Message ${user.displayName}`}
+          </button>
+        )}
+      </div>
+    </Modal>
   );
 }
 
