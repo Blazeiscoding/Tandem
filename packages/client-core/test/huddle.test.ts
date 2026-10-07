@@ -808,3 +808,166 @@ describe("testing a microphone before a call (CALL-01)", () => {
     await expect(testMicrophone(() => {})).rejects.toMatchObject({ name: "NotAllowedError" });
   });
 });
+
+describe("choosing the microphone and camera (Voice & video)", () => {
+  type Track = {
+    kind: string;
+    enabled: boolean;
+    stop: () => void;
+    onended?: (() => void) | null;
+    getSettings?: () => { deviceId?: string };
+  };
+  const track = (kind: string, deviceId = ""): Track => ({
+    kind,
+    enabled: true,
+    stop: vi.fn(),
+    getSettings: () => ({ deviceId }),
+  });
+  const stream = (t: Track) => new FakeMediaStream([t]) as unknown as MediaStream;
+
+  /** A call with one peer, its microphone and choices as given. */
+  async function inCall(first: Track, options: ConstructorParameters<typeof HuddleSession>[4]) {
+    const sent: { to: ID; signal: HuddleSignal }[] = [];
+    const session = new HuddleSession(
+      "C1",
+      "A",
+      { send: (msg) => sent.push({ to: msg.to, signal: msg.signal }) },
+      undefined,
+      options,
+    );
+    const ask = vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(stream(first));
+    await session.startLocalAudio();
+    session.syncParticipants(["A", "B"]);
+    await flush();
+    return { session, sent, ask, pc: FakePeerConnection.instances[0]! };
+  }
+
+  it("opens the chosen microphone, cleaned up as chosen, and lets an absent one fall back", async () => {
+    const { session, ask } = await inCall(track("audio"), {
+      microphone: { deviceId: "usb-mic", noiseSuppression: false },
+    });
+    // Asked for loosely: a headset left at home must not cost the call.
+    expect(ask.mock.calls[0]![0]).toEqual({
+      audio: {
+        channelCount: 1,
+        deviceId: "usb-mic",
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    session.destroy();
+  });
+
+  it("changes the microphone mid-call for everyone, without a new offer, muted as it was", async () => {
+    const old = track("audio", "built-in");
+    const { session, sent, ask, pc } = await inCall(old, {});
+    session.toggleMic();
+    sent.length = 0;
+    const next = track("audio", "usb-mic");
+    ask.mockResolvedValueOnce(stream(next));
+
+    await session.setMicrophone({ deviceId: "usb-mic", echoCancellation: false });
+
+    // Asked for exactly: a choice made just now that will not open says so.
+    expect(ask.mock.calls[1]![0]).toMatchObject({
+      audio: { deviceId: { exact: "usb-mic" }, echoCancellation: false },
+    });
+    expect(pc.transceivers[0]!.sender.track).toBe(next);
+    expect(old.stop).toHaveBeenCalled();
+    expect(next.enabled).toBe(false);
+    expect(sent.some((m) => m.signal.kind === "offer")).toBe(false);
+    expect(sent.at(-1)!.signal).toMatchObject({ kind: "media", muted: true });
+    // Losing it later asks for the chosen one again before the default.
+    next.onended!();
+    await flush();
+    expect(ask.mock.calls[2]![0]).toMatchObject({ audio: { deviceId: "usb-mic" } });
+    session.destroy();
+  });
+
+  it("keeps the microphone it has when the chosen one will not start", async () => {
+    const old = track("audio");
+    const { session, ask, pc } = await inCall(old, {});
+    ask.mockRejectedValueOnce(new DOMException("busy", "NotReadableError"));
+
+    await expect(session.setMicrophone({ deviceId: "busy-mic" })).rejects.toMatchObject({
+      name: "NotReadableError",
+    });
+    expect(pc.transceivers[0]!.sender.track).toBe(old);
+    expect(old.stop).not.toHaveBeenCalled();
+    expect(session.log.at(-1)!.text).toMatch(/chosen microphone did not start/);
+    session.destroy();
+  });
+
+  it("keeps only the newest of two choices made in quick succession", async () => {
+    const { session, ask, pc } = await inCall(track("audio"), {});
+    let finishFirst!: (s: MediaStream) => void;
+    ask.mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)));
+    const second = track("audio", "second");
+    ask.mockResolvedValueOnce(stream(second));
+    const first = track("audio", "first");
+
+    const slow = session.setMicrophone({ deviceId: "first" });
+    await session.setMicrophone({ deviceId: "second" });
+    finishFirst(stream(first));
+    await slow;
+
+    expect(pc.transceivers[0]!.sender.track).toBe(second);
+    expect(first.stop).toHaveBeenCalled();
+    session.destroy();
+  });
+
+  it("changes a camera that is on in place, and keeps a choice for one that is off", async () => {
+    const { session, ask, pc } = await inCall(track("audio"), { cameraId: "front" });
+    const front = track("video", "front");
+    ask.mockResolvedValueOnce(stream(front));
+    await session.toggleCamera();
+    expect(ask.mock.calls[1]![0]).toMatchObject({ video: { deviceId: "front" }, audio: false });
+    expect(pc.transceivers[1]!.sender.track).toBe(front);
+
+    const desk = track("video", "desk");
+    ask.mockResolvedValueOnce(stream(desk));
+    await session.setCamera("desk");
+    expect(ask.mock.calls[2]![0]).toMatchObject({ video: { deviceId: { exact: "desk" } } });
+    expect(pc.transceivers[1]!.sender.track).toBe(desk);
+    expect(front.stop).toHaveBeenCalled();
+    expect(session.state().localCameraStream?.getVideoTracks()[0]).toBe(desk);
+    // The one already showing is not opened twice.
+    await session.setCamera("desk");
+    expect(ask).toHaveBeenCalledTimes(3);
+
+    await session.toggleCamera();
+    await session.setCamera("front");
+    expect(ask).toHaveBeenCalledTimes(3);
+    ask.mockResolvedValueOnce(stream(track("video", "front")));
+    await session.toggleCamera();
+    expect(ask.mock.calls[3]![0]).toMatchObject({ video: { deviceId: "front" } });
+    session.destroy();
+  });
+
+  it("leaves the camera as it was when the chosen one will not start", async () => {
+    const { session, ask, pc } = await inCall(track("audio"), {});
+    const front = track("video", "front");
+    ask.mockResolvedValueOnce(stream(front));
+    await session.toggleCamera();
+    ask.mockRejectedValueOnce(new DOMException("gone", "NotFoundError"));
+
+    await expect(session.setCamera("unplugged")).rejects.toMatchObject({ name: "NotFoundError" });
+    expect(pc.transceivers[1]!.sender.track).toBe(front);
+    expect(front.stop).not.toHaveBeenCalled();
+    expect(session.cameraOn).toBe(true);
+    session.destroy();
+  });
+
+  it("tests the microphone being chosen, exactly, and hands back what it hears", async () => {
+    const opened = stream(track("audio", "usb-mic"));
+    const ask = vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(opened);
+    const test = await testMicrophone(() => {}, { deviceId: "usb-mic", autoGainControl: false });
+    expect(ask.mock.calls[0]![0]).toMatchObject({
+      audio: { deviceId: { exact: "usb-mic" }, autoGainControl: false },
+    });
+    expect(test.stream).toBe(opened);
+    test.stop();
+  });
+});

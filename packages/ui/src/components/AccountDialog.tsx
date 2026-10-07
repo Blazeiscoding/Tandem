@@ -5,7 +5,6 @@ import { formatBytes } from "../lib/format.js";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { accountError, deviceLabel } from "../lib/account.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
-import { useCallPreferences } from "../lib/callPreferences.js";
 import {
   NOTIFICATION_PREVIEWS,
   previewAccount,
@@ -18,7 +17,7 @@ import { DENSITIES, THEMES, useAppearance, type Theme } from "../lib/appearance.
 import { Dialog, inputCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
 import { ProfileForm } from "./ProfileDialog.js";
-import { MicrophoneCheck } from "./MicrophoneCheck.js";
+import { VoiceVideoSettings } from "./VoiceVideoSettings.js";
 import { buttonClass } from "./Button.js";
 
 type Confirmation =
@@ -31,7 +30,7 @@ const SECTIONS: readonly { id: AccountSection; label: string }[] = [
   { id: "notifications", label: "Notifications" },
   { id: "appearance", label: "Appearance" },
   { id: "composing", label: "Composing" },
-  { id: "calls", label: "Calls" },
+  { id: "calls", label: "Voice & video" },
   { id: "security", label: "Security" },
   { id: "devices", label: "Devices" },
   { id: "storage", label: "Storage" },
@@ -70,7 +69,6 @@ export function AccountDialog({
   const [section, setSection] = useState<AccountSection>(initialSection);
   const self = useWorkspace((s) => s.self);
   const composer = useComposerPreferences();
-  const calls = useCallPreferences();
   const alive = useRef(true);
   const loadVersion = useRef(0);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -306,47 +304,7 @@ export function AccountDialog({
               )}
             </section>
           )}
-          {section === "calls" && (
-            <section aria-labelledby="account-calls-title">
-              <h3 id="account-calls-title" className="font-semibold">
-                Huddles
-              </h3>
-              <label className="mt-3 flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={calls.joinMuted}
-                  disabled={!calls.loaded || calls.saving}
-                  onChange={(event) => void calls.setJoinMuted(event.target.checked)}
-                />
-                Join huddles with my microphone off
-              </label>
-              <p className="mt-2 text-sm text-ink-dim">
-                Nothing you say is sent until you turn the microphone on in the huddle. Applies to
-                huddles in every workspace on this device.
-              </p>
-              {calls.saving && (
-                <p role="status" className="mt-2 text-sm text-ink-dim">
-                  Saving preference…
-                </p>
-              )}
-              {calls.error && (
-                <p role="alert" className="mt-2 text-sm text-alert">
-                  {calls.error}
-                </p>
-              )}
-              {calls.unreadable && (
-                <button
-                  type="button"
-                  disabled={!calls.loaded || calls.saving}
-                  onClick={() => void calls.retryLoad()}
-                  className={buttonClass("secondary", "mt-2")}
-                >
-                  Retry loading call preferences
-                </button>
-              )}
-              <MicrophoneCheck />
-            </section>
-          )}
+          {section === "calls" && <VoiceVideoSettings />}
           {section === "security" && (
             <>
               <section aria-labelledby="account-password-title">

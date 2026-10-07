@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { captureFailure, testMicrophone, type MicrophoneTest } from "@slackoss/client-core";
+import {
+  captureFailure,
+  testMicrophone,
+  type MicrophoneSettings,
+  type MicrophoneTest,
+} from "@slackoss/client-core";
+import { useSpeaker } from "../lib/mediaDevices.js";
 import { buttonClass } from "./Button.js";
 
 type Check =
@@ -10,38 +16,61 @@ type Check =
 
 /**
  * Hearing whether the microphone works before a huddle (CALL-01): which one
- * the browser opened, and a meter that moves when someone speaks. Nothing is
- * sent anywhere, and the microphone closes when the check stops or the
- * settings close.
+ * the browser opened, a meter that moves when someone speaks, and their own
+ * voice played back if they ask. It opens the microphone and processing
+ * chosen in settings, and opens it again when they change. Nothing is sent
+ * anywhere, and the microphone closes when the check stops or the settings
+ * close.
  */
-export function MicrophoneCheck() {
+export function MicrophoneCheck({
+  settings = {},
+  speakerId = "",
+  onOpened,
+}: {
+  settings?: MicrophoneSettings;
+  /** Where to play the voice back; "" for the system's default. */
+  speakerId?: string;
+  /** Told once a microphone opens, as the browser then gives devices' names. */
+  onOpened?: () => void;
+}) {
   const [check, setCheck] = useState<Check>({ phase: "idle" });
+  const [playback, setPlayback] = useState(false);
   const test = useRef<MicrophoneTest | null>(null);
   const alive = useRef(true);
+  const attempt = useRef(0);
+  const echo = useRef<HTMLAudioElement>(null);
+  useSpeaker(echo, speakerId);
 
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
+      attempt.current++;
       test.current?.stop();
       test.current = null;
     };
   }, []);
 
   async function start() {
+    const mine = ++attempt.current;
+    test.current?.stop();
+    test.current = null;
     setCheck({ phase: "starting" });
     try {
       const opened = await testMicrophone((level) => {
-        if (alive.current) setCheck((now) => (now.phase === "listening" ? { ...now, level } : now));
-      });
-      if (!alive.current) {
+        if (alive.current && attempt.current === mine)
+          setCheck((now) => (now.phase === "listening" ? { ...now, level } : now));
+      }, settings);
+      if (!alive.current || attempt.current !== mine) {
         opened.stop();
         return;
       }
       test.current = opened;
+      if (echo.current) echo.current.srcObject = opened.stream;
       setCheck({ phase: "listening", label: opened.label, metered: opened.metered, level: 0 });
+      onOpened?.();
     } catch (err) {
-      if (alive.current)
+      if (alive.current && attempt.current === mine)
         setCheck({
           phase: "failed",
           message: captureFailure("microphone", err) ?? "Your microphone could not start.",
@@ -50,15 +79,37 @@ export function MicrophoneCheck() {
   }
 
   function stop() {
+    attempt.current++;
     test.current?.stop();
     test.current = null;
+    if (echo.current) echo.current.srcObject = null;
     setCheck({ phase: "idle" });
   }
+
+  // Another microphone, or other processing, is a different thing to hear:
+  // open that one in place of the one being heard.
+  const chosen = JSON.stringify(settings);
+  const heard = useRef(chosen);
+  useEffect(() => {
+    if (heard.current === chosen) return;
+    heard.current = chosen;
+    if (test.current) void start();
+    // Only a change of choice restarts it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosen]);
+
+  useEffect(() => {
+    const element = echo.current;
+    if (!element) return;
+    element.muted = !playback;
+    if (playback) void Promise.resolve(element.play?.()).catch(() => {});
+  }, [playback, check.phase]);
 
   // A peak of half the range already reads as speaking loudly.
   const percent = check.phase === "listening" ? Math.min(100, Math.round(check.level * 200)) : 0;
   return (
     <div className="mt-4 space-y-2">
+      <audio ref={echo} autoPlay muted hidden />
       {check.phase === "listening" ? (
         <>
           <p className="text-sm">
@@ -79,6 +130,19 @@ export function MicrophoneCheck() {
             >
               <div className="h-full bg-online" style={{ width: `${percent}%` }} />
             </div>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={playback}
+              onChange={(event) => setPlayback(event.target.checked)}
+            />
+            Play my voice back to me
+          </label>
+          {playback && (
+            <p className="text-xs text-ink-dim">
+              Use headphones, or the speakers feed back into the microphone.
+            </p>
           )}
           <button type="button" className={buttonClass("secondary")} onClick={stop}>
             Stop test

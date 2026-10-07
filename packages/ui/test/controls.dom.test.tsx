@@ -3,13 +3,17 @@ import { cleanup, act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient, type HuddleState } from "@slackoss/client-core";
 import type { Channel, Message, User } from "@slackoss/protocol";
-import { ClientContext } from "../src/context.js";
+import { ClientContext, PlatformContext } from "../src/context.js";
+import { webPlatform } from "../src/platform.js";
 import { HuddleBar } from "../src/components/HuddleBar.js";
 import { MessageItem } from "../src/components/MessageItem.js";
 import { Sidebar } from "../src/components/Sidebar.js";
 import { ConfirmProvider } from "../src/components/Confirm.js";
 import { ToastProvider } from "../src/components/Toast.js";
 import { accessibilityProblems } from "./accessibility.js";
+
+/** Where call preferences are kept, as in the app. */
+const platform = webPlatform();
 
 /** Emoji and pictographs, which used to stand in for the drawn icons. */
 const PICTOGRAPH = /\p{Extended_Pictographic}/u;
@@ -86,9 +90,11 @@ describe("the huddle bar", () => {
       leave: vi.spyOn(client, "leaveHuddle").mockImplementation(() => {}),
     };
     render(
-      <ClientContext.Provider value={client}>
-        <HuddleBar />
-      </ClientContext.Provider>,
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <HuddleBar />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
     );
     return { client, calls, user: userEvent.setup() };
   }
@@ -107,9 +113,11 @@ describe("the huddle bar", () => {
       );
     cleanup();
     render(
-      <ClientContext.Provider value={client}>
-        <HuddleBar onShowCallLog={onShowCallLog} />
-      </ClientContext.Provider>,
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <HuddleBar onShowCallLog={onShowCallLog} />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
     );
     stuck(null);
     const status = within(screen.getByRole("region", { name: "Active huddle" })).getByRole(
@@ -149,7 +157,19 @@ describe("the huddle bar", () => {
       expect(within(controls).getByRole("button", { name, pressed: true })).toBeInTheDocument();
     act(() => mute.focus());
     expect(mute).toHaveAccessibleDescription("Unmute");
-    expect(within(controls).getAllByRole("button")).toHaveLength(4);
+    // Each device menu opens from a small arrow of its own beside its toggle.
+    expect(
+      within(controls)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label") ?? b.textContent),
+    ).toEqual([
+      "Mute microphone",
+      "Microphone and speaker",
+      "Camera",
+      "Camera options",
+      "Share screen",
+      "Leave",
+    ]);
   });
 
   it("says who is in the huddle, and offers Leave in words", async () => {
@@ -207,9 +227,11 @@ describe("message actions", () => {
     render(
       <ToastProvider>
         <ConfirmProvider>
-          <ClientContext.Provider value={client}>
-            <MessageItem message={message} compact={false} onOpenThread={vi.fn()} />
-          </ClientContext.Provider>
+          <PlatformContext.Provider value={platform}>
+            <ClientContext.Provider value={client}>
+              <MessageItem message={message} compact={false} onOpenThread={vi.fn()} />
+            </ClientContext.Provider>
+          </PlatformContext.Provider>
         </ConfirmProvider>
       </ToastProvider>,
     );
@@ -335,26 +357,28 @@ describe("channel rows", () => {
       huddles: { C_GENERAL: ["U_PRIYA"] },
     });
     render(
-      <ClientContext.Provider value={client}>
-        <Sidebar
-          activeChannelId={null}
-          onSelect={vi.fn()}
-          onBrowseChannels={vi.fn()}
-          onNewChannel={vi.fn()}
-          onNewDm={vi.fn()}
-          onFriends={vi.fn()}
-          onSearch={vi.fn()}
-          onSaved={vi.fn()}
-          onScheduled={vi.fn()}
-          onActivity={vi.fn()}
-          onThreads={vi.fn()}
-          onEditProfile={vi.fn()}
-          onInvite={vi.fn()}
-          onSwitchWorkspace={vi.fn()}
-          onAccountSettings={vi.fn()}
-          connectionLabel={null}
-        />
-      </ClientContext.Provider>,
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <Sidebar
+            activeChannelId={null}
+            onSelect={vi.fn()}
+            onBrowseChannels={vi.fn()}
+            onNewChannel={vi.fn()}
+            onNewDm={vi.fn()}
+            onFriends={vi.fn()}
+            onSearch={vi.fn()}
+            onSaved={vi.fn()}
+            onScheduled={vi.fn()}
+            onActivity={vi.fn()}
+            onThreads={vi.fn()}
+            onEditProfile={vi.fn()}
+            onInvite={vi.fn()}
+            onSwitchWorkspace={vi.fn()}
+            onAccountSettings={vi.fn()}
+            connectionLabel={null}
+          />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
     );
     const nav = screen.getByRole("navigation", { name: "Workspace navigation" });
     // jsdom lays nothing out, so it does not put the spaces between flex items

@@ -384,7 +384,7 @@ test(
           .poll(() => page.locator(".ring-online").count(), { timeout: 15_000 })
           .toBeGreaterThan(0);
       }
-      await alice.getByRole("button", { name: "Camera", pressed: false }).click();
+      await alice.getByRole("button", { name: "Camera", exact: true, pressed: false }).click();
       await expect
         .poll(() =>
           bob
@@ -537,6 +537,128 @@ test("a call says which route it connected on, and one that cannot connect says 
         return text;
       })
       .toMatch(/#general: @bobby still not connected to @alice after 15 s\. routes here none;/);
+  } finally {
+    await a.close().catch(() => {});
+    await b.close().catch(() => {});
+  }
+});
+
+test("the microphone and speaker can be changed in a call, from the call and from settings", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  const a = await browser.newContext({ permissions: ["microphone", "camera"] });
+  const b = await browser.newContext({ permissions: ["microphone", "camera"] });
+  try {
+    const alice = await a.newPage();
+    const bob = await b.newPage();
+    const errors: string[] = [];
+    for (const page of [alice, bob]) {
+      page.on("pageerror", (err) => errors.push(err.message));
+      await page.addInitScript(() => {
+        const Original = window.RTCPeerConnection;
+        (window as any).peers = [];
+        window.RTCPeerConnection = class extends Original {
+          constructor(config?: RTCConfiguration) {
+            super(config);
+            (window as any).peers.push(this);
+          }
+        };
+      });
+    }
+    await signIn(alice, "alice");
+    await signIn(bob, "bobby");
+    const bar = (page: Page) => page.getByRole("region", { name: "Active huddle", exact: true });
+    /** What Alice sends from her microphone: the device's name and whether it is live. */
+    const aliceSends = () =>
+      alice.evaluate(() =>
+        ((window as any).peers as RTCPeerConnection[])
+          .flatMap((pc) => pc.getSenders())
+          .filter((s) => s.track?.kind === "audio")
+          .map((s) => `${s.track!.label} ${s.track!.readyState}`),
+      );
+    const bobHearsBytes = () =>
+      bob.evaluate(async () => {
+        let bytes = 0;
+        for (const pc of (window as any).peers as RTCPeerConnection[])
+          (await pc.getStats()).forEach((r) => {
+            if (r.type === "inbound-rtp" && r.kind === "audio") bytes += r.bytesReceived;
+          });
+        return bytes;
+      });
+
+    await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
+    await bob.getByRole("button", { name: "Join the huddle (1)", exact: true }).click();
+    for (const page of [alice, bob])
+      await expect(bar(page).getByRole("status")).toHaveText("2 participants");
+    await expect.poll(bobHearsBytes).toBeGreaterThan(0);
+    expect(await aliceSends()).toEqual(["Fake Default Audio Input live"]);
+
+    // From the call: the arrow beside Mute lists the microphones and speakers.
+    await bar(alice).getByRole("button", { name: "Microphone and speaker", exact: true }).click();
+    const menu = alice.getByRole("menu", { name: "Microphone and speaker", exact: true });
+    await expect(
+      menu.getByRole("menuitemradio", { name: "System default (Fake Default Audio Input)" }),
+    ).toHaveAttribute("aria-checked", "true");
+    await expect(menu.getByRole("menuitemradio", { name: "Fake Audio Output 1" })).toBeVisible();
+    await alice.screenshot({ path: test.info().outputPath("huddle-device-menu.png") });
+    await menu.getByRole("menuitemradio", { name: "Fake Audio Input 2", exact: true }).click();
+
+    // Bob now hears the other microphone, on the same connection.
+    await expect.poll(aliceSends).toEqual(["Fake Audio Input 2 live"]);
+    const before = await bobHearsBytes();
+    await expect.poll(bobHearsBytes).toBeGreaterThan(before);
+    expect(
+      await alice.evaluate(() =>
+        ((window as any).peers as RTCPeerConnection[]).map((pc) => pc.connectionState),
+      ),
+    ).toEqual(["connected"]);
+
+    // From settings, which the same menu leads to: the choice is already there.
+    await bar(alice).getByRole("button", { name: "Microphone and speaker", exact: true }).click();
+    await alice.getByRole("menuitem", { name: "Voice & video settings", exact: true }).click();
+    const panel = alice.getByRole("tabpanel", { name: "Voice & video", exact: true });
+    const microphone = panel.getByRole("combobox", { name: "Microphone", exact: true });
+    await expect(microphone.locator("option:checked")).toHaveText("Fake Audio Input 2");
+    await alice.screenshot({ path: test.info().outputPath("voice-video-settings-top.png") });
+    await panel
+      .getByRole("combobox", { name: "Speaker", exact: true })
+      .selectOption({ label: "Fake Audio Output 1" });
+    // The call's sound moves to that speaker.
+    await expect
+      .poll(() =>
+        alice
+          .locator("audio")
+          .evaluateAll((all) =>
+            all.map((el) => (el as HTMLAudioElement & { sinkId: string }).sinkId),
+          ),
+      )
+      .toContain(await panel.getByRole("combobox", { name: "Speaker", exact: true }).inputValue());
+    await microphone.selectOption({ label: "Fake Audio Input 1" });
+    await expect.poll(aliceSends).toEqual(["Fake Audio Input 1 live"]);
+
+    // The microphone test hears the chosen one, and the fake device's tone moves the meter.
+    await panel.getByRole("button", { name: "Test microphone", exact: true }).click();
+    await expect(panel.locator("strong")).toHaveText("Fake Audio Input 1");
+    await expect
+      .poll(async () =>
+        Number(
+          await panel
+            .getByRole("meter", { name: "Microphone level", exact: true })
+            .getAttribute("aria-valuenow"),
+        ),
+      )
+      .toBeGreaterThan(0);
+    await panel.getByRole("button", { name: "Preview camera", exact: true }).click();
+    await expect
+      .poll(() => panel.locator("video").evaluate((v) => (v as HTMLVideoElement).videoWidth))
+      .toBeGreaterThan(0);
+    await alice.screenshot({ path: test.info().outputPath("voice-video-settings.png") });
+    await alice.keyboard.press("Escape");
+    // Leaving settings closes the test microphone and the preview, and the call carries on.
+    await expect.poll(aliceSends).toEqual(["Fake Audio Input 1 live"]);
+    await expect(bar(alice).getByRole("status")).toHaveText("2 participants");
+    expect(errors).toEqual([]);
   } finally {
     await a.close().catch(() => {});
     await b.close().catch(() => {});

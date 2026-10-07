@@ -3,9 +3,13 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient, type HuddlePeer } from "@slackoss/client-core";
 import type { User } from "@slackoss/protocol";
-import { ClientContext } from "../src/context.js";
+import { ClientContext, PlatformContext } from "../src/context.js";
+import { webPlatform } from "../src/platform.js";
 import { HuddleBar } from "../src/components/HuddleBar.js";
 import { HuddleAudio } from "../src/components/HuddleAudio.js";
+
+/** Where call preferences are kept, as in the app. */
+const platform = webPlatform();
 
 /**
  * Hearing the others in a huddle when the browser will not play sound until
@@ -62,9 +66,11 @@ function bar() {
     },
   });
   render(
-    <ClientContext.Provider value={client}>
-      <HuddleBar />
-    </ClientContext.Provider>,
+    <PlatformContext.Provider value={platform}>
+      <ClientContext.Provider value={client}>
+        <HuddleBar />
+      </ClientContext.Provider>
+    </PlatformContext.Provider>,
   );
   return client;
 }

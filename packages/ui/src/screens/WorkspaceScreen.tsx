@@ -1215,6 +1215,7 @@ function WorkspaceInner({
                   view={huddleView}
                   onViewChange={setHuddleView}
                   onShowCallLog={() => setDialog({ kind: "diagnostics", callLog: true })}
+                  onOpenSettings={() => setDialog({ kind: "account", section: "calls" })}
                 />
               </Suspense>
             )}

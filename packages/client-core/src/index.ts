@@ -5,6 +5,13 @@ export { decideNotification, isMessageOnScreen, notificationBody } from "./notif
 export type { NotifyDecision, OnScreen } from "./notify.js";
 export { HuddleSession, testMicrophone } from "./huddle.js";
 export { CALL_CAUSES } from "./callLog.js";
+export {
+  cameraConstraints,
+  canChooseSpeaker,
+  listMediaDevices,
+  microphoneConstraints,
+} from "./devices.js";
+export type { MediaDeviceLists, MediaDeviceOption, MicrophoneSettings } from "./devices.js";
 export { captureFailure } from "./capture.js";
 export type { CaptureKind } from "./capture.js";
 export {

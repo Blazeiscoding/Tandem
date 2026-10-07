@@ -1,8 +1,69 @@
 import { useState } from "react";
-import { captureFailure } from "@slackoss/client-core";
+import { canChooseSpeaker, captureFailure, type MediaDeviceOption } from "@slackoss/client-core";
 import { useClient, useWorkspace } from "../context.js";
+import { useCallPreferences, type CallDevices } from "../lib/callPreferences.js";
+import { chooseDevices, useMediaDevices } from "../lib/mediaDevices.js";
 import { Icon } from "./Icon.js";
+import { Menu, type MenuItem } from "./Menu.js";
 import { Tooltip } from "./Tooltip.js";
+
+/** The system's default and then each device, the chosen one ticked. */
+function deviceItems(
+  kind: string,
+  section: string,
+  options: MediaDeviceOption[],
+  chosen: string | undefined,
+  systemDefault: string,
+  onChoose: (id: string | undefined) => void,
+): MenuItem[] {
+  return [
+    {
+      id: `${kind}-default`,
+      label: systemDefault ? `System default (${systemDefault})` : "System default",
+      section,
+      checked: !chosen,
+      onSelect: () => onChoose(undefined),
+    },
+    ...options.map((option) => ({
+      id: `${kind}-${option.id}`,
+      label: option.label,
+      checked: option.id === chosen,
+      onSelect: () => onChoose(option.id),
+    })),
+  ];
+}
+
+/**
+ * The small arrow beside the microphone and camera: which device the call
+ * uses, changed without leaving it, and the way to the rest of Voice & video.
+ */
+function DeviceMenu({
+  label,
+  items,
+  disabled,
+}: {
+  label: string;
+  items: MenuItem[];
+  disabled?: boolean;
+}) {
+  return (
+    <Menu
+      label={label}
+      items={items}
+      disabled={disabled}
+      tooltip={label}
+      align="start"
+      width={320}
+      triggerContent={
+        <>
+          <Icon name="chevronUp" size={14} />
+          <span className="sr-only">{label}</span>
+        </>
+      }
+      triggerClassName="-ml-1.5 flex h-10 w-6 items-center justify-center rounded-full text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink disabled:opacity-40"
+    />
+  );
+}
 
 /**
  * Microphone, camera, screen and Leave. The huddle bar shows them, and so does
@@ -11,10 +72,19 @@ import { Tooltip } from "./Tooltip.js";
  * A toggle names what it controls, and aria-pressed, not the name, says whether
  * it is on: a screen reader hears the same button before and after a press.
  */
-export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
+export function HuddleControls({
+  overlay = false,
+  onOpenSettings,
+}: {
+  overlay?: boolean;
+  /** Opens Voice & video settings, from the device menus. */
+  onOpenSettings?: () => void;
+}) {
   const client = useClient();
   const huddle = useWorkspace((s) => s.huddle);
-  const [busy, setBusy] = useState<"screen" | "camera" | null>(null);
+  const calls = useCallPreferences();
+  const devices = useMediaDevices();
+  const [busy, setBusy] = useState<"screen" | "camera" | "microphone" | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   if (!huddle) return null;
 
@@ -23,7 +93,7 @@ export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
    * page that cannot ask says what to do about it, where it used to say
    * nothing either (CALL-01).
    */
-  const guarded = async (which: "screen" | "camera", run: () => Promise<void>) => {
+  const guarded = async (which: "screen" | "camera" | "microphone", run: () => Promise<void>) => {
     setBusy(which);
     setFailure(null);
     try {
@@ -45,6 +115,67 @@ export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
   const lit = overlay
     ? "border-transparent bg-white/90 text-black"
     : "border-transparent bg-ink text-ground";
+
+  const choose = (kind: "microphone" | "camera", patch: CallDevices) =>
+    void guarded(kind, () => chooseDevices(client, calls.devices, patch, calls.setDevices));
+  const settings: MenuItem[] = onOpenSettings
+    ? [
+        {
+          id: "settings",
+          label: "Voice & video settings",
+          icon: "settings",
+          section: true,
+          onSelect: onOpenSettings,
+        },
+      ]
+    : [];
+  const pickerDisabled = busy !== null || !calls.loaded || calls.saving;
+  // Full screen shows only what is inside the stage, and menus open on the
+  // page beneath it, so devices are changed from the bar.
+  const micMenu = !overlay && (
+    <DeviceMenu
+      label="Microphone and speaker"
+      disabled={pickerDisabled}
+      items={[
+        ...deviceItems(
+          "mic",
+          "Microphone",
+          devices.microphones,
+          calls.devices.microphoneId,
+          devices.defaultMicrophone,
+          (microphoneId) => choose("microphone", { microphoneId }),
+        ),
+        ...(canChooseSpeaker()
+          ? deviceItems(
+              "speaker",
+              "Speaker",
+              devices.speakers,
+              calls.devices.speakerId,
+              devices.defaultSpeaker,
+              (speakerId) => void calls.setDevices({ speakerId }),
+            )
+          : []),
+        ...settings,
+      ]}
+    />
+  );
+  const cameraMenu = !overlay && (
+    <DeviceMenu
+      label="Camera options"
+      disabled={pickerDisabled}
+      items={[
+        ...deviceItems(
+          "camera",
+          "Camera",
+          devices.cameras,
+          calls.devices.cameraId,
+          "",
+          (cameraId) => choose("camera", { cameraId }),
+        ),
+        ...settings,
+      ]}
+    />
+  );
 
   return (
     <>
@@ -68,6 +199,7 @@ export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
             <Icon name={huddle.micMuted ? "micOff" : "mic"} />
           </button>
         </Tooltip>
+        {micMenu}
         <Tooltip label={huddle.cameraOn ? "Turn your camera off" : "Turn your camera on"}>
           <button
             aria-label="Camera"
@@ -79,6 +211,7 @@ export function HuddleControls({ overlay = false }: { overlay?: boolean }) {
             <Icon name="camera" />
           </button>
         </Tooltip>
+        {cameraMenu}
         <Tooltip label={huddle.sharingScreen ? "Stop sharing" : "Share your screen"}>
           <button
             aria-label="Share screen"
