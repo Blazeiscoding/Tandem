@@ -138,7 +138,7 @@ export function NewChannelDialog(props: { onClose: () => void; onCreated: (ch: C
         </div>
         <fieldset className="space-y-2">
           <legend className="mb-1.5 text-[13px] font-medium text-ink-dim">Who can see it</legend>
-          {choice(false, "hash", "Public", "Anyone in the workspace can find and join it.")}
+          {choice(false, "hash", "Public", "Everyone in the workspace is added, and anyone can leave.")}
           {choice(true, "lock", "Private", "Only invited members can see it.")}
         </fieldset>
         {error && (

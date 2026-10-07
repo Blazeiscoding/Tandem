@@ -393,6 +393,23 @@ export class Store {
     return r.c;
   }
 
+  /**
+   * Everyone a new public channel takes in: active people, not apps, and a
+   * guest only while still signed in, since an ended guest never comes back.
+   */
+  listPeopleIds(now = Date.now()): ID[] {
+    const rows = this.db
+      .prepare(
+        `SELECT u.id FROM users u
+         WHERE u.deactivated = 0 AND u.is_bot = 0
+           AND (u.role != 'guest' OR EXISTS (
+             SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?))
+         ORDER BY u.id`,
+      )
+      .all(now) as { id: ID }[];
+    return rows.map((r) => r.id);
+  }
+
   /** Ends every guest's session, reporting the tokens so their sockets close too. */
   revokeGuestSessions(): string[] {
     const where = "user_id IN (SELECT id FROM users WHERE role = 'guest')";

@@ -183,7 +183,9 @@ describe("managing a public room", () => {
     expect((await setManager(roomId, owner, true, owner)).status).toBe(403);
     await ok(invite(roomId, admin));
     expect((await setManager(roomId, admin, true, owner)).status).toBe(403);
-    // Someone not in the room has to be invited first.
+    // Someone not in the room has to be invited first. A public room takes in
+    // everyone when it is made, so this one leaves it to be outside.
+    await ok(request(`/api/channels/${roomId}/leave`, guest.token));
     const outside = await setManager(roomId, guest, true, creator);
     expect(outside.status).toBe(409);
     expect(outside.data.error).toBe("channel_membership_required");
