@@ -43,17 +43,21 @@ export function microphoneConstraints(
 
 /** What a huddle asks the browser for when it opens the camera. */
 export function cameraConstraints(deviceId?: string, exact = false): MediaStreamConstraints {
-  return {
-    video: {
-      // 360p went soft as soon as a tile was bigger than a thumbnail. The
-      // encoder still steps down on its own when the network cannot keep up.
-      width: { ideal: 960, max: 1280 },
-      height: { ideal: 540, max: 720 },
-      frameRate: { ideal: 24, max: 30 },
-      ...device(deviceId, exact),
-    },
-    audio: false,
+  // TypeScript's DOM types do not know resizeMode yet; every engine that does
+  // not either ignores it.
+  const video: MediaTrackConstraints & { resizeMode?: string } = {
+    // 360p went soft as soon as a tile was bigger than a thumbnail. The
+    // encoder still steps down on its own when the network cannot keep up.
+    width: { ideal: 960, max: 1280 },
+    height: { ideal: 540, max: 720 },
+    frameRate: { ideal: 24, max: 30 },
+    // Without it Chromium may hand over a camera's full 1080p untouched (a
+    // virtual camera opened while its source is in use did), and a mesh
+    // sends that to everyone.
+    resizeMode: "crop-and-scale",
+    ...device(deviceId, exact),
   };
+  return { video, audio: false };
 }
 
 export interface MediaDeviceOption {

@@ -923,7 +923,10 @@ describe("choosing the microphone and camera (Voice & video)", () => {
     const front = track("video", "front");
     ask.mockResolvedValueOnce(stream(front));
     await session.toggleCamera();
-    expect(ask.mock.calls[1]![0]).toMatchObject({ video: { deviceId: "front" }, audio: false });
+    expect(ask.mock.calls[1]![0]).toMatchObject({
+      video: { deviceId: "front", resizeMode: "crop-and-scale", width: { max: 1280 } },
+      audio: false,
+    });
     expect(pc.transceivers[1]!.sender.track).toBe(front);
 
     const desk = track("video", "desk");
@@ -958,6 +961,65 @@ describe("choosing the microphone and camera (Voice & video)", () => {
     expect(front.stop).not.toHaveBeenCalled();
     expect(session.cameraOn).toBe(true);
     session.destroy();
+  });
+
+  describe("a camera that is busy while another is held (a virtual camera over the webcam)", () => {
+    const busy = () => new DOMException("Could not start video source", "NotReadableError");
+    async function sending(previous: Track) {
+      const call = await inCall(track("audio"), {});
+      call.ask.mockResolvedValueOnce(stream(previous));
+      await call.session.toggleCamera();
+      return call;
+    }
+
+    it("lets go of the one it has and tries again", async () => {
+      const webcam = track("video", "webcam");
+      const { session, ask, pc } = await sending(webcam);
+      const virtual = track("video", "virtual");
+      ask.mockRejectedValueOnce(busy()).mockResolvedValueOnce(stream(virtual));
+
+      await session.setCamera("virtual");
+      expect(webcam.stop).toHaveBeenCalled();
+      expect(pc.transceivers[1]!.sender.track).toBe(virtual);
+      expect(session.cameraOn).toBe(true);
+      expect(session.log.map((l) => l.text)).toContain(
+        "The chosen camera was busy; trying again with this one closed.",
+      );
+      session.destroy();
+    });
+
+    it("puts the old one back when the chosen one still will not start", async () => {
+      const webcam = track("video", "webcam");
+      const { session, ask, pc } = await sending(webcam);
+      const again = track("video", "webcam");
+      ask
+        .mockRejectedValueOnce(busy())
+        .mockRejectedValueOnce(busy())
+        .mockResolvedValueOnce(stream(again));
+
+      await expect(session.setCamera("virtual")).rejects.toMatchObject({
+        name: "NotReadableError",
+      });
+      expect(ask.mock.calls.at(-1)![0]).toMatchObject({ video: { deviceId: "webcam" } });
+      expect(pc.transceivers[1]!.sender.track).toBe(again);
+      expect(session.cameraOn).toBe(true);
+      session.destroy();
+    });
+
+    it("turns the camera off, and says so, when neither will start", async () => {
+      const { session, sent, ask, pc } = await sending(track("video", "webcam"));
+      ask.mockRejectedValue(busy());
+      sent.length = 0;
+
+      await expect(session.setCamera("virtual")).rejects.toMatchObject({
+        name: "NotReadableError",
+      });
+      expect(session.cameraOn).toBe(false);
+      await flush();
+      expect(pc.transceivers[1]!.sender.track).toBeNull();
+      expect(sent.at(-1)!.signal).toMatchObject({ kind: "media", camera: false });
+      session.destroy();
+    });
   });
 
   it("tests the microphone being chosen, exactly, and hands back what it hears", async () => {

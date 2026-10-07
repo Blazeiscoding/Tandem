@@ -810,22 +810,54 @@ export class HuddleSession {
       this.cameraId = deviceId;
       return;
     }
+    const open = (id: string | undefined, exact: boolean) =>
+      navigator.mediaDevices.getUserMedia(cameraConstraints(id, exact));
+    // Turned off, left or chosen again while a camera opened.
+    const overtaken = () =>
+      this.destroyed || choice !== this.cameraChoice || this.cameraTrack !== current;
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(deviceId, true));
+      stream = await open(deviceId, true);
     } catch (err) {
-      this.note(`The chosen camera did not start: ${describeError(err)}.`);
-      throw err;
+      if (!isBusy(err) || overtaken()) {
+        this.note(`The chosen camera did not start: ${describeError(err)}.`);
+        throw err;
+      }
+      // Many cameras open only once at a time, and one built on another (a
+      // virtual camera over the webcam) cannot start while that is held here.
+      // Let go of this one and try again, putting it back if that fails too.
+      this.note("The chosen camera was busy; trying again with this one closed.");
+      const previous = current.getSettings?.().deviceId;
+      current.onended = null;
+      current.stop();
+      try {
+        stream = await open(deviceId, true);
+      } catch (again) {
+        this.note(`The chosen camera did not start: ${describeError(again)}.`);
+        const restored = await open(previous, false).catch(() => null);
+        if (restored?.getVideoTracks()[0] && !overtaken()) await this.adoptCamera(restored);
+        else {
+          restored?.getTracks().forEach((t) => t.stop());
+          if (this.cameraTrack === current) this.stopCamera();
+        }
+        throw again;
+      }
     }
-    const track = stream.getVideoTracks()[0];
-    // Turned off, left or chosen again while this one opened.
-    if (this.destroyed || choice !== this.cameraChoice || this.cameraTrack !== current || !track) {
+    if (overtaken() || !stream.getVideoTracks()[0]) {
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
     this.cameraId = deviceId;
-    current.onended = null;
-    current.stop();
+    await this.adoptCamera(stream);
+  }
+
+  /** Puts a newly opened camera in place of the one being sent, and sends it. */
+  private async adoptCamera(stream: MediaStream): Promise<void> {
+    const track = stream.getVideoTracks()[0]!;
+    if (this.cameraTrack) {
+      this.cameraTrack.onended = null;
+      this.cameraTrack.stop();
+    }
     this.cameraTrack = track;
     this.localCameraStream = stream;
     track.onended = () => this.stopCamera();
@@ -1092,6 +1124,12 @@ function describeError(err: unknown): string {
   if (err instanceof Error)
     return err.name && err.name !== "Error" ? `${err.name}: ${err.message}` : err.message;
   return String(err);
+}
+
+/** A device another app, or another device built on it, is holding. */
+function isBusy(err: unknown): boolean {
+  const name = typeof err === "object" && err !== null && "name" in err ? err.name : "";
+  return name === "NotReadableError" || name === "AbortError";
 }
 
 /** What the browser would have said, had it offered a way to ask at all. */
