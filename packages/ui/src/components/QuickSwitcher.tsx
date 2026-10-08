@@ -47,6 +47,31 @@ const SWITCHER_KIND: Record<SwitcherRow["kind"], string> = {
   search: "search",
 };
 
+/** What was typed, as it is matched: lower case, without the # or @ people write before a name. */
+function needle(typed: string): string {
+  return typed.trim().toLowerCase().replace(/^[#@]/, "");
+}
+
+/**
+ * A row's name with what was typed picked out in full ink, so the eye finds
+ * why it matched. A name that changes length in lower case (a dotted capital
+ * I, say) is shown plain rather than picked out in the wrong place.
+ */
+function Matched({ label, query }: { label: string; query: string }) {
+  const lower = label.toLowerCase();
+  const at = query && lower.length === label.length ? lower.indexOf(query) : -1;
+  if (at < 0) return <>{label}</>;
+  return (
+    <>
+      {label.slice(0, at)}
+      <mark className="bg-transparent font-semibold text-ink">
+        {label.slice(at, at + query.length)}
+      </mark>
+      {label.slice(at + query.length)}
+    </>
+  );
+}
+
 /**
  * Ctrl+K — jump to any channel, DM, or person; and, where the workspace
  * passes them, run a command or search messages for what was typed.
@@ -75,7 +100,7 @@ export function QuickSwitcher(props: {
 
   const results = useMemo(() => {
     // "#des" and "@al" are how people write names here; the sign is not part of one.
-    const query = q.trim().toLowerCase().replace(/^[#@]/, "");
+    const query = needle(q);
     const matches = (text: string) => text.toLowerCase().includes(query);
     const rows: SwitcherRow[] = [];
     // A conversation with one other person is that person, and is listed once,
@@ -275,7 +300,9 @@ export function QuickSwitcher(props: {
                       Search messages for <span className="text-ink">“{r.label}”</span>
                     </span>
                   ) : (
-                    <span className="min-w-0 truncate">{r.label}</span>
+                    <span className="min-w-0 truncate">
+                      <Matched label={r.label} query={needle(q)} />
+                    </span>
                   )}
                   {r.kind === "command" && r.command.shortcut && i !== list.active && (
                     <kbd

@@ -28,7 +28,7 @@ function sheet(enterSends: boolean) {
       .getAllByRole("listitem")
       .map((row) => {
         const keys = [...row.querySelectorAll("kbd")].map((k) => k.textContent).join(" ");
-        return `${keys} → ${row.lastElementChild?.textContent}`;
+        return `${keys} → ${row.firstElementChild?.textContent}`;
       });
   return { rows, writing };
 }
@@ -58,14 +58,14 @@ describe("finding a shortcut", () => {
     const user = userEvent.setup();
     await user.type(find, "next message");
     const rows = screen.getAllByRole("listitem").map((row) => row.textContent);
-    expect(rows).toEqual(["↓Next message"]);
+    expect(rows).toEqual(["Next message↓"]);
     expect(screen.getByRole("heading", { name: "Messages" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Writing" })).toBeNull();
 
     await user.clear(find);
     await user.type(find, "ctrl k");
     expect(screen.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-      "CtrlKJump to a channel or person",
+      "Jump to a channel or personCtrlK",
     ]);
 
     await user.clear(find);

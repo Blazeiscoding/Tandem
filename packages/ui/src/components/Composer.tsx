@@ -5,7 +5,12 @@ import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
-import { formatScheduleTime, localDateTime, schedulePresets } from "../lib/schedule.js";
+import {
+  formatScheduleShort,
+  formatScheduleTime,
+  localDateTime,
+  schedulePresets,
+} from "../lib/schedule.js";
 import { Icon } from "./Icon.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Tooltip } from "./Tooltip.js";
@@ -714,11 +719,12 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             height: dropArea.height,
           }}
         >
-          <div className="flex size-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-copper/60 bg-deep/80 backdrop-blur-sm">
-            <span className="flex size-12 items-center justify-center rounded-2xl bg-copper/15 text-copper">
+          {/* A quiet dropzone: a dotted field, the file icon on a raised tile, two lines. */}
+          <div className="drop-field flex size-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-ink-faint/50 bg-ground/90 backdrop-blur-sm">
+            <span className="mb-2 flex size-12 items-center justify-center rounded-xl border border-edge bg-raised text-copper shadow-[var(--shadow-float)]">
               <Icon name="attach" size={22} />
             </span>
-            <p className="text-[15px] font-medium text-ink">
+            <p className="text-[15px] font-semibold text-ink">
               {guest
                 ? "Guests cannot attach files"
                 : archived
@@ -1089,12 +1095,15 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
                     />
                   </label>
                   <p className="text-[11px] text-ink-faint">Uses your device's time zone.</p>
+                  {/* Named for the time chosen, so the choice is confirmed where it is made. */}
                   <button
                     type="submit"
                     disabled={!customTime}
-                    className="btn-shape h-8 w-full bg-copper text-[13px] font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
+                    className="btn-shape h-8 w-full truncate bg-copper px-2 text-[13px] font-semibold text-ground transition-colors hover:bg-copper-deep disabled:opacity-40"
                   >
-                    Schedule message
+                    {customTime && !Number.isNaN(new Date(customTime).getTime())
+                      ? `Schedule for ${formatScheduleShort(new Date(customTime).getTime())}`
+                      : "Schedule message"}
                   </button>
                 </form>
               </div>
