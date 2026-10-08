@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canChooseSpeaker,
   listMediaDevices,
   microphoneConstraints,
+  openSaved,
   wantsNoiseFilter,
 } from "../src/devices.js";
 
@@ -90,10 +91,46 @@ describe("how much noise to take out (Voice & video)", () => {
 
   it("leaves the browser's own suppression off under the filter, rather than run both", () => {
     const audio = (filtered: boolean, settings = {}) =>
-      (microphoneConstraints(settings, false, filtered).audio as MediaTrackConstraints)
-        .noiseSuppression;
+      (microphoneConstraints(settings, filtered).audio as MediaTrackConstraints).noiseSuppression;
     expect(audio(true)).toBe(false);
     expect(audio(false)).toBe(true);
     expect(audio(false, { noiseSuppression: false })).toBe(false);
+  });
+});
+
+describe("opening a saved device (Voice & video)", () => {
+  const opened = (id: string | undefined) => ({ id }) as unknown as MediaStream;
+  const refusal = (name: string, constraint?: string) =>
+    Object.assign(new Error(""), { name, constraint });
+
+  it("asks for the saved one, and for the default only when it is not connected", async () => {
+    const asked: (string | undefined)[] = [];
+    const missing = vi.fn();
+    const open = async (id: string | undefined) => {
+      asked.push(id);
+      if (id === "headset") throw refusal("OverconstrainedError", "deviceId");
+      return opened(id);
+    };
+    expect(await openSaved("desk-mic", open, missing)).toEqual({ id: "desk-mic" });
+    expect(await openSaved("headset", open, missing)).toEqual({ id: undefined });
+    expect(await openSaved(undefined, open, missing)).toEqual({ id: undefined });
+    expect(asked).toEqual(["desk-mic", "headset", undefined, undefined]);
+    expect(missing).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back for a device that is gone, but not for one that is there and will not start", async () => {
+    const failing = (err: Error) => async (id: string | undefined) => {
+      if (id) throw err;
+      return opened(id);
+    };
+    await expect(openSaved("x", failing(refusal("NotFoundError")))).resolves.toEqual({
+      id: undefined,
+    });
+    for (const err of [
+      refusal("NotReadableError"),
+      refusal("NotAllowedError"),
+      refusal("OverconstrainedError", "width"),
+    ])
+      await expect(openSaved("x", failing(err))).rejects.toBe(err);
   });
 });

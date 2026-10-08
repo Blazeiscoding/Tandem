@@ -712,6 +712,18 @@ test("the microphone and speaker can be changed in a call, from the call and fro
     await alice.keyboard.press("Escape");
     const standard = await bobHearsBytes();
     await expect.poll(bobHearsBytes).toBeGreaterThan(standard);
+
+    // The next call opens the saved choice, not the system's default, which
+    // Chromium opens for a device asked for any way but exactly.
+    await bar(alice).getByRole("button", { name: "Leave", exact: true }).click();
+    await expect.poll(async () => (await aliceSends()).open).toEqual([]);
+    await alice.evaluate(() => {
+      (window as any).peers = [];
+      (window as any).microphones = [];
+    });
+    await alice.getByRole("button", { name: "Join the huddle with bobby", exact: true }).click();
+    await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
+    await expect.poll(aliceSends).toEqual(sending("Fake Audio Input 1"));
     expect(errors).toEqual([]);
   } finally {
     await a.close().catch(() => {});

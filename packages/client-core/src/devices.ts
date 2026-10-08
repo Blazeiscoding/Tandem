@@ -39,14 +39,44 @@ export interface FilteredMicrophone {
 export type NoiseFilter = (microphone: MediaStream) => Promise<FilteredMicrophone>;
 
 /**
- * Names the device the browser should open. A saved choice asks for it
- * loosely, so a headset left at home falls back to the default rather than
- * failing the call; a choice made just now asks exactly, so a device that
- * will not open says so instead of quietly opening another.
+ * Names the device the browser should open, exactly. Chromium passes over a
+ * device asked for any other way (`deviceId: id`, even `{ ideal: id }`) and
+ * opens the system's default whether or not that one is connected, which is
+ * how every saved choice was once ignored; `openSaved` falls back instead.
  */
-function device(deviceId: string | undefined, exact: boolean) {
-  if (!deviceId) return {};
-  return { deviceId: exact ? { exact: deviceId } : deviceId };
+function device(deviceId: string | undefined) {
+  return deviceId ? { deviceId: { exact: deviceId } } : {};
+}
+
+/** Whether the browser refused because the device asked for is not connected. */
+function isMissingDevice(err: unknown): boolean {
+  const { name, constraint } = (typeof err === "object" && err !== null ? err : {}) as {
+    name?: unknown;
+    constraint?: unknown;
+  };
+  return name === "NotFoundError" || (name === "OverconstrainedError" && constraint === "deviceId");
+}
+
+/**
+ * Opens a saved device, or the system's default while it is not connected
+ * (a headset left at home) rather than failing the call. `open` is given the
+ * saved one first and, only if that is missing, nothing for the default. A
+ * choice made just now does not come here, so a device that will not open
+ * says so instead of quietly opening another.
+ */
+export async function openSaved(
+  deviceId: string | undefined,
+  open: (deviceId: string | undefined) => Promise<MediaStream>,
+  onMissing?: () => void,
+): Promise<MediaStream> {
+  if (!deviceId) return open(undefined);
+  try {
+    return await open(deviceId);
+  } catch (err) {
+    if (!isMissingDevice(err)) throw err;
+    onMissing?.();
+    return open(undefined);
+  }
 }
 
 /**
@@ -56,7 +86,6 @@ function device(deviceId: string | undefined, exact: boolean) {
  */
 export function microphoneConstraints(
   settings: MicrophoneSettings = {},
-  exact = false,
   filtered = false,
 ): MediaStreamConstraints {
   return {
@@ -65,14 +94,14 @@ export function microphoneConstraints(
       echoCancellation: settings.echoCancellation ?? true,
       noiseSuppression: !filtered && (settings.noiseSuppression ?? true),
       autoGainControl: settings.autoGainControl ?? true,
-      ...device(settings.deviceId, exact),
+      ...device(settings.deviceId),
     },
     video: false,
   };
 }
 
 /** What a huddle asks the browser for when it opens the camera. */
-export function cameraConstraints(deviceId?: string, exact = false): MediaStreamConstraints {
+export function cameraConstraints(deviceId?: string): MediaStreamConstraints {
   // TypeScript's DOM types do not know resizeMode yet; every engine that does
   // not either ignores it.
   const video: MediaTrackConstraints & { resizeMode?: string } = {
@@ -85,7 +114,7 @@ export function cameraConstraints(deviceId?: string, exact = false): MediaStream
     // virtual camera opened while its source is in use did), and a mesh
     // sends that to everyone.
     resizeMode: "crop-and-scale",
-    ...device(deviceId, exact),
+    ...device(deviceId),
   };
   return { video, audio: false };
 }

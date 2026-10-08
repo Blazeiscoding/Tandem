@@ -12,6 +12,7 @@ import { CALL_CAUSES, type CallLogLine } from "./callLog.js";
 import {
   cameraConstraints,
   microphoneConstraints,
+  openSaved,
   wantsNoiseFilter,
   type FilteredMicrophone,
   type MicrophoneSettings,
@@ -211,11 +212,12 @@ export class HuddleSession {
    * Opens the microphone with these settings, through the strong noise
    * filter when it is chosen and the app has one. A filter that will not
    * start costs the call nothing: the microphone opens again with the
-   * browser's own suppression, and the call log says so.
+   * browser's own suppression, and the call log says so. A saved microphone
+   * that is not connected opens the default; one `chosenNow` does not.
    */
   private async openMicrophone(
     settings: MicrophoneSettings,
-    exact: boolean,
+    chosenNow: boolean,
   ): Promise<MicrophoneFeed> {
     const filter = wantsNoiseFilter(settings) ? this.options.noiseFilter : undefined;
     const plain = (stream: MediaStream): MicrophoneFeed => ({
@@ -223,9 +225,19 @@ export class HuddleSession {
       device: stream.getAudioTracks()[0],
       stop: () => stream.getTracks().forEach((track) => track.stop()),
     });
-    const device = await navigator.mediaDevices.getUserMedia(
-      microphoneConstraints(settings, exact, !!filter),
-    );
+    let missing = false;
+    const open = (filtered: boolean) => {
+      const ask = (deviceId: string | undefined) =>
+        navigator.mediaDevices.getUserMedia(
+          microphoneConstraints({ ...settings, deviceId }, filtered),
+        );
+      if (chosenNow) return ask(settings.deviceId);
+      return openSaved(missing ? undefined : settings.deviceId, ask, () => {
+        missing = true;
+        this.note("The chosen microphone is not connected; using the system's default.");
+      });
+    };
+    const device = await open(!!filter);
     if (!filter) {
       this.note(
         settings.noiseSuppression === false
@@ -250,9 +262,7 @@ export class HuddleSession {
       this.note(
         `Strong noise suppression did not start (${describeError(err)}); using the browser's own.`,
       );
-      return plain(
-        await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, exact)),
-      );
+      return plain(await open(false));
     }
   }
 
@@ -851,7 +861,11 @@ export class HuddleSession {
     this.acquiringCamera = true;
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(this.cameraId));
+      stream = await openSaved(
+        this.cameraId,
+        (id) => navigator.mediaDevices.getUserMedia(cameraConstraints(id)),
+        () => this.note("The chosen camera is not connected; using the system's default."),
+      );
     } finally {
       this.acquiringCamera = false;
     }
@@ -884,14 +898,14 @@ export class HuddleSession {
       this.cameraId = deviceId;
       return;
     }
-    const open = (id: string | undefined, exact: boolean) =>
-      navigator.mediaDevices.getUserMedia(cameraConstraints(id, exact));
+    const open = (id: string | undefined) =>
+      navigator.mediaDevices.getUserMedia(cameraConstraints(id));
     // Turned off, left or chosen again while a camera opened.
     const overtaken = () =>
       this.destroyed || choice !== this.cameraChoice || this.cameraTrack !== current;
     let stream: MediaStream;
     try {
-      stream = await open(deviceId, true);
+      stream = await open(deviceId);
     } catch (err) {
       if (!isBusy(err) || overtaken()) {
         this.note(`The chosen camera did not start: ${describeError(err)}.`);
@@ -905,10 +919,10 @@ export class HuddleSession {
       current.onended = null;
       current.stop();
       try {
-        stream = await open(deviceId, true);
+        stream = await open(deviceId);
       } catch (again) {
         this.note(`The chosen camera did not start: ${describeError(again)}.`);
-        const restored = await open(previous, false).catch(() => null);
+        const restored = await openSaved(previous, open).catch(() => null);
         if (restored?.getVideoTracks()[0] && !overtaken()) await this.adoptCamera(restored);
         else {
           restored?.getTracks().forEach((t) => t.stop());
@@ -1247,9 +1261,7 @@ export async function testMicrophone(
 ): Promise<MicrophoneTest> {
   if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
   const filter = wantsNoiseFilter(settings) ? noiseFilter : undefined;
-  let device = await navigator.mediaDevices.getUserMedia(
-    microphoneConstraints(settings, true, !!filter),
-  );
+  let device = await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, !!filter));
   let filtered: FilteredMicrophone | null = null;
   if (filter) {
     try {
@@ -1257,7 +1269,7 @@ export async function testMicrophone(
     } catch {
       // As in a call: the browser's own suppression stands in.
       device.getTracks().forEach((track) => track.stop());
-      device = await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, true));
+      device = await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings));
     }
   }
   const stream = filtered?.stream ?? device;
