@@ -314,6 +314,13 @@ test(
             (window as any).peers.push(this);
           }
         };
+        // The fake microphone plays a tone, not speech, and strong noise
+        // suppression takes a tone out as noise. The browser's own leaves it
+        // for the level meter to report. Taken in once, as a saved choice.
+        localStorage.setItem(
+          "slackoss:call-preferences",
+          JSON.stringify({ joinMuted: false, noiseFilter: false }),
+        );
       });
     }
     try {
@@ -671,8 +678,16 @@ test("the microphone and speaker can be changed in a call, from the call and fro
     await microphone.selectOption({ label: "Fake Audio Input 1" });
     await expect.poll(aliceSends).toEqual(sending("Fake Audio Input 1"));
 
-    // The microphone test hears the chosen one, and the fake device's tone moves the meter.
+    // The microphone test hears the chosen one through strong noise
+    // suppression, and names the microphone rather than the filter.
     await panel.getByRole("button", { name: "Test microphone", exact: true }).click();
+    await expect(panel.locator("strong")).toHaveText("Fake Audio Input 1");
+    await expect(panel.getByText(/could not start here/)).toHaveCount(0);
+    // The fake device's tone is noise to strong suppression; on the browser's
+    // own it moves the meter. The test opens again on the new choice, and the
+    // radio shows it once the call's microphone has opened again too.
+    await noise("Standard").click();
+    await expect(noise("Standard")).toBeChecked();
     await expect(panel.locator("strong")).toHaveText("Fake Audio Input 1");
     await expect
       .poll(async () =>
@@ -688,9 +703,6 @@ test("the microphone and speaker can be changed in a call, from the call and fro
       .poll(() => panel.locator("video").evaluate((v) => (v as HTMLVideoElement).videoWidth))
       .toBeGreaterThan(0);
     await alice.screenshot({ path: test.info().outputPath("voice-video-settings.png") });
-    // The radio shows the change once the call's microphone has opened again.
-    await noise("Standard").click();
-    await expect(noise("Standard")).toBeChecked();
     await alice.keyboard.press("Escape");
     // Leaving settings closes the test microphone and the preview, and the call carries on.
     await expect.poll(aliceSends).toEqual(sending("Fake Audio Input 1"));

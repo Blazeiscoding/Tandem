@@ -1280,7 +1280,8 @@ export async function testMicrophone(
     }
   }
   return {
-    label: stream.getAudioTracks()[0]?.label ?? "",
+    // The device's name: the filter's output is named for the audio node.
+    label: device.getAudioTracks()[0]?.label ?? "",
     stream,
     metered: timer !== null,
     filtered: filtered !== null,

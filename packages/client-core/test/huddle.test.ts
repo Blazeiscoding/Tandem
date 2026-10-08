@@ -1117,8 +1117,8 @@ describe("choosing the microphone and camera (Voice & video)", () => {
     });
 
     it("is what a microphone test plays back, and lets go of both when stopped", async () => {
-      const device = track("audio");
-      const cleaned = track("audio");
+      const device = { ...track("audio"), label: "USB Headset" };
+      const cleaned = { ...track("audio"), label: "MediaStreamAudioDestinationNode" };
       const { noiseFilter, stops } = filter(cleaned);
       const ask = vi
         .spyOn(navigator.mediaDevices, "getUserMedia")
@@ -1127,6 +1127,8 @@ describe("choosing the microphone and camera (Voice & video)", () => {
       expect(ask.mock.calls[0]![0]).toMatchObject({ audio: { noiseSuppression: false } });
       expect((test.stream as unknown as FakeMediaStream).tracks).toEqual([cleaned]);
       expect(test.filtered).toBe(true);
+      // Named as the microphone, not as the filter.
+      expect(test.label).toBe("USB Headset");
       test.stop();
       expect(stops[0]).toHaveBeenCalled();
       expect(device.stop).toHaveBeenCalled();
