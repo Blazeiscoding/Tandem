@@ -393,6 +393,23 @@ export class Store {
     return r.c;
   }
 
+  /**
+   * Everyone a new public channel takes in: active people, not apps, and a
+   * guest only while still signed in, since an ended guest never comes back.
+   */
+  listPeopleIds(now = Date.now()): ID[] {
+    const rows = this.db
+      .prepare(
+        `SELECT u.id FROM users u
+         WHERE u.deactivated = 0 AND u.is_bot = 0
+           AND (u.role != 'guest' OR EXISTS (
+             SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?))
+         ORDER BY u.id`,
+      )
+      .all(now) as { id: ID }[];
+    return rows.map((r) => r.id);
+  }
+
   /** Ends every guest's session, reporting the tokens so their sockets close too. */
   revokeGuestSessions(): string[] {
     const where = "user_id IN (SELECT id FROM users WHERE role = 'guest')";
@@ -3620,8 +3637,16 @@ export class Store {
     };
     if (query.terms.length === 0) return this.hydrateMessages(page([], limit));
 
-    // Quote every term so user input can never break FTS5 syntax.
-    const fts = query.terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" ");
+    // Quote every term so user input can never break FTS5 syntax. The last
+    // one matches as the start of a word, so a search run as it is typed
+    // finds "mockups" from "mock"; one with no letter or digit has no word
+    // to start.
+    const fts = query.terms
+      .map((t, i) => {
+        const phrase = `"${t.replaceAll('"', '""')}"`;
+        return i === query.terms.length - 1 && /[\p{L}\p{N}]/u.test(t) ? `${phrase}*` : phrase;
+      })
+      .join(" ");
     // A message is found by the name of a file attached to it too, when every
     // term is in that one name (IMP-02). Only terms with a letter or digit in
     // them: "." alone would otherwise find every file there is.

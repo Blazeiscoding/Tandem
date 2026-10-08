@@ -175,6 +175,70 @@ describe("removing someone from a room", () => {
   });
 });
 
+describe("public rooms take in everyone", () => {
+  const joined = (channelId: string, userId: string) => (f: ServerToClient) =>
+    f.type === "event" &&
+    f.envelope.event.type === "member.joined" &&
+    f.envelope.event.channelId === channelId &&
+    f.envelope.event.userId === userId;
+  const guestJoin = async (displayName: string): Promise<Person> => {
+    const res = await fetch(`${base}/api/auth/guest`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ displayName }),
+    });
+    const data = (await res.json()) as any;
+    return { token: data.token, id: data.user.id };
+  };
+
+  it("adds everyone here when one is made, and tells them at once", async () => {
+    server.setAccessPolicy("guest_allowed");
+    const gone = await guestJoin("Gone");
+    // Turning guests off ends every guest's session; this one never returns.
+    server.setAccessPolicy("account_required");
+    server.setAccessPolicy("guest_allowed");
+    const visitor = await guestJoin("Visitor");
+    const cleo = await register("cleo");
+    await request(`/api/admin/users/${cleo.id}`, owner.token, "PATCH", { deactivated: true });
+    const app = await request("/api/apps", owner.token, "POST", { name: "Deploys" });
+    const anaSocket = await connect(ana);
+
+    const room = await request("/api/channels", owner.token, "POST", {
+      type: "public",
+      name: "lobby",
+    });
+    const roomId = room.data.channel.id as string;
+
+    await anaSocket.heard(joined(roomId, ana.id));
+    const members = server.store.memberIds(roomId);
+    expect([...members].sort()).toEqual([owner.id, ana.id, ben.id, visitor.id].sort());
+    for (const outsider of [gone.id, cleo.id, app.data.botUser.id as string])
+      expect(members).not.toContain(outsider);
+  });
+
+  it("puts someone new in every open public room, but no archived or private one", async () => {
+    const make = async (type: "public" | "private", name: string) =>
+      (await request("/api/channels", owner.token, "POST", { type, name, memberIds: [] })).data
+        .channel.id as string;
+    const lobby = await make("public", "lobby");
+    const old = await make("public", "old");
+    await request(`/api/channels/${old}`, owner.token, "PATCH", { archived: true });
+    const leads = await make("private", "leads");
+    const general = server.store.getChannelByName("general")!.id;
+
+    const dana = await register("dana");
+    server.setAccessPolicy("guest_allowed");
+    const visitor = await guestJoin("Visitor");
+
+    for (const person of [dana, visitor]) {
+      expect(server.store.isMember(general, person.id)).toBe(true);
+      expect(server.store.isMember(lobby, person.id)).toBe(true);
+      expect(server.store.isMember(old, person.id)).toBe(false);
+      expect(server.store.isMember(leads, person.id)).toBe(false);
+    }
+  });
+});
+
 describe("group conversations", () => {
   const startGroup = (by: Person, others: Person[]) =>
     request("/api/channels", by.token, "POST", {

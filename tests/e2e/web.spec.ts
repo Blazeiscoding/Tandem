@@ -863,8 +863,9 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
     ).toBe(true);
   }
   await expect(page.getByText(messages[2]!.text, { exact: true })).toBeVisible();
-  const searchToggle = page.getByRole("button", { name: "Search messages", exact: true });
-  await expectTooltipInsideViewport(page, searchToggle, "Search messages");
+  // A field at this width; at a phone's, a button that opens search.
+  const searchField = page.getByRole("searchbox", { name: "Search messages", exact: true });
+  await expectTooltipInsideViewport(page, searchField, "Search messages");
   const pinnedToggle = page.getByRole("button", { name: "Pinned messages", exact: true });
   await pinnedToggle.focus();
   const pinnedTooltip = page.getByRole("tooltip").filter({ hasText: "Pinned messages" });
@@ -1061,17 +1062,23 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
   // Search, scheduled messages and channel details are downloaded the first
   // time they open, so each has to arrive, past the content security policy,
   // and work.
-  await page.getByRole("button", { name: "Search messages", exact: true }).click();
+  // Typed in the header's field, a search runs on Enter.
+  const headerSearch = page.getByRole("searchbox", { name: "Search messages", exact: true });
+  await headerSearch.fill("zebracrossingquartz");
+  await headerSearch.press("Enter");
   const search = page.getByRole("dialog", { name: "Search messages", exact: true });
   const searchBox = search.getByRole("textbox", { name: "Search messages", exact: true });
-  await expect(searchBox).toBeVisible();
+  await expect(searchBox).toHaveValue("zebracrossingquartz");
   // A search that finds nothing says so where the dialog says what it is
   // doing, and says what to try instead.
-  await searchBox.fill("zebracrossingquartz");
-  await searchBox.press("Enter");
   await expect(search.getByRole("status").filter({ hasText: "Nothing matched" })).toHaveText(
     "Nothing matched. Try different words.",
   );
+  // It follows further typing without being asked again, a word found from
+  // its start.
+  await searchBox.fill("welc");
+  await expect(search.getByRole("status").filter({ hasText: "results" })).toContainText("“welc”");
+  await expect(search.getByText(/A little space for big ideas/)).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(search).toHaveCount(0);
   // Scheduled messages are yours, so they are in the menu on your name. Chosen
@@ -1155,6 +1162,8 @@ test("Tandem keeps a capped live timeline pinned and supports keyboard and narro
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(searchField).toBeHidden();
+  const searchToggle = page.getByRole("button", { name: "Search messages", exact: true });
   await expectTooltipInsideViewport(page, searchToggle, "Search messages");
   // At phone width a notice still fits the window.
   await page.route("**/api/messages/*/save", (route) => route.abort("connectionfailed"));
