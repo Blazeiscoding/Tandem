@@ -5,7 +5,7 @@ import { useClient, useWorkspace } from "../context.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { Menu, type MenuItem } from "./Menu.js";
 import { Avatar } from "./Avatar.js";
-import { formatDay } from "../lib/format.js";
+import { formatWhen } from "../lib/format.js";
 import { accountError } from "../lib/account.js";
 import { useCopy } from "../lib/useCopy.js";
 import { AuditHistory } from "./AuditHistory.js";
@@ -22,6 +22,7 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
   const client = useClient();
   const self = useWorkspace((s) => s.self);
   const liveUsers = useWorkspace((s) => s.users);
+  const presence = useWorkspace((s) => s.presence);
   const [people, setPeople] = useState<Person[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<ID | null>(null);
@@ -312,9 +313,13 @@ export function PeopleDialog({ onClose }: { onClose: () => void }) {
                               : person.canInvite && !person.isBot
                                 ? "Member · can invite"
                                 : "Member"}
-                      {person.lastSeenAt && !person.deactivated && (
-                        <> · last seen {formatDay(person.lastSeenAt)}</>
-                      )}
+                      {/* Someone here now is here now, not "last seen today". */}
+                      {!person.deactivated &&
+                        (presence[person.id] === "online" ? (
+                          <> · active now</>
+                        ) : (
+                          person.lastSeenAt && <> · last seen {formatWhen(person.lastSeenAt)}</>
+                        ))}
                     </div>
                   </div>
 

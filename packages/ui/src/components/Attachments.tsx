@@ -213,7 +213,8 @@ function FileCard({ file }: { file: FileMeta }) {
   );
 }
 
-function iconFor(mime: string, name: string): IconName {
+/** A file's kind as an icon, for one without a picture to show. */
+export function iconFor(mime: string, name: string): IconName {
   if (mime.startsWith("video/")) return "film";
   if (mime.startsWith("audio/")) return "music";
   if (mime === "application/pdf") return "fileText";

@@ -58,3 +58,18 @@ export function findEmoji(query: string): (typeof EMOJI)[number][] {
   const q = query.toLowerCase().trim();
   return EMOJI.filter(([emoji, label]) => label.toLowerCase().includes(q) || emoji === q);
 }
+
+/**
+ * Emoji for a word typed after a colon, as ":rock" offers 🚀: those with a
+ * word that starts so, in the chooser's order. A word's start, so ":ar" does
+ * not offer a heart.
+ */
+export function emojiStartingWith(word: string, limit = 6): (typeof EMOJI)[number][] {
+  const q = word.toLowerCase();
+  return EMOJI.filter(([, label]) =>
+    label
+      .toLowerCase()
+      .split(" ")
+      .some((w) => w.startsWith(q)),
+  ).slice(0, limit);
+}

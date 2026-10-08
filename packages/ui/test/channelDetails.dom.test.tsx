@@ -147,7 +147,9 @@ describe("channel details", () => {
   it("asks before removing someone, saying what they keep", async () => {
     const { api, dialog, user } = details();
     await user.click(dialog.getByRole("tab", { name: /Members/ }));
-    await user.click(await dialog.findByRole("button", { name: "Remove Alex Chen" }));
+    // What can be done to someone is in the menu at the end of their row.
+    await user.click(await dialog.findByRole("button", { name: "Actions for Alex Chen" }));
+    await user.click(screen.getByRole("menuitem", { name: "Remove from #design" }));
     expect(
       dialog.getByText(
         "Remove Alex Chen from #design? This public channel remains readable, and they can rejoin. Their messages remain.",
@@ -159,7 +161,8 @@ describe("channel details", () => {
     api.remove.mockRejectedValueOnce(
       new ApiError(403, "channel_removal_forbidden", "channel_removal_forbidden"),
     );
-    await user.click(dialog.getByRole("button", { name: "Remove Alex Chen" }));
+    await user.click(dialog.getByRole("button", { name: "Actions for Alex Chen" }));
+    await user.click(screen.getByRole("menuitem", { name: "Remove from #design" }));
     await user.click(dialog.getByRole("button", { name: "Confirm removal" }));
     expect(await dialog.findByRole("alert")).toHaveTextContent(
       "You cannot remove this person from this channel.",
@@ -174,9 +177,8 @@ describe("channel details", () => {
   it("asks before making someone a manager, saying what they may then do", async () => {
     const { api, dialog, user } = details();
     await user.click(dialog.getByRole("tab", { name: /Members/ }));
-    await user.click(
-      await dialog.findByRole("button", { name: "Make channel manager: Alex Chen" }),
-    );
+    await user.click(await dialog.findByRole("button", { name: "Actions for Alex Chen" }));
+    await user.click(screen.getByRole("menuitem", { name: "Make channel manager" }));
     expect(
       dialog.getByText(/Make Alex Chen a manager of #design\? They can edit, rename and archive/),
     ).toBeVisible();

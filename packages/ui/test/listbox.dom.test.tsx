@@ -188,6 +188,33 @@ describe("the composer's suggestions", () => {
     await user.keyboard("{Tab}");
     expect(box).toHaveValue("/rename ");
   });
+
+  it("finish a word after a colon as an emoji, and leave a time alone", async () => {
+    const { box, client, user } = await renderComposer();
+    const send = vi.spyOn(client, "send").mockReturnValue(true);
+    await user.type(box, "Shipped :rock");
+    const emoji = screen.getByRole("listbox", { name: "Emoji" });
+    const options = within(emoji).getAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual(["🚀Rocket launch"]);
+    expect(pointedAt(box)).toBe(options[0]);
+    // Enter chooses the emoji rather than sending half a word.
+    await user.keyboard("{Enter}");
+    expect(box).toHaveValue("Shipped 🚀 ");
+    expect(send).not.toHaveBeenCalled();
+
+    await user.clear(box);
+    await user.type(box, "at 10:30 :t");
+    expect(screen.queryByRole("listbox", { name: "Emoji" })).not.toBeInTheDocument();
+    await user.type(box, "h");
+    expect(
+      within(screen.getByRole("listbox", { name: "Emoji" }))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["👍Thumbs up yes", "🙏Thanks please", "🤔Thinking question"]);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox", { name: "Emoji" })).not.toBeInTheDocument();
+    expect(box).toHaveValue("at 10:30 :th");
+  });
 });
 
 describe("choosing an emoji", () => {

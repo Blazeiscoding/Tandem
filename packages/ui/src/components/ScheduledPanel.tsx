@@ -193,7 +193,7 @@ export function ScheduledPanel(props: {
               <>
                 Nothing queued. Write a message, then choose{" "}
                 <Icon name="clock" size={13} className="inline align-[-2px]" /> Send later beside
-                the attach button.
+                the send button.
               </>
             ) : null
           }

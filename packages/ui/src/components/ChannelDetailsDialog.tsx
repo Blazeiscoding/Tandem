@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   channelPermissions,
   canRemoveChannelMember,
@@ -13,6 +13,8 @@ import { Avatar } from "./Avatar.js";
 import { Dialog, inputCls } from "./Dialog.js";
 import { ListStatus } from "./ListStatus.js";
 import { buttonClass } from "./Button.js";
+import { Menu, type MenuItem } from "./Menu.js";
+import { Icon } from "./Icon.js";
 
 type Tab = "about" | "members" | "notifications";
 const TABS: readonly Tab[] = ["about", "members", "notifications"];
@@ -88,6 +90,7 @@ export function ChannelDetailsDialog(props: {
   const [membersLoading, setMembersLoading] = useState(true);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [managerChange, setManagerChange] = useState<{ userId: ID; manager: boolean } | null>(null);
+  const fieldId = useId();
 
   useEffect(() => {
     let active = true;
@@ -115,6 +118,9 @@ export function ChannelDetailsDialog(props: {
   if (!channel) return null;
   const isRoom = channel.type === "public" || channel.type === "private";
   const permissions = channelPermissions(self ?? undefined, channel, !!membership);
+  // Nothing to save until something differs from what the channel says now.
+  const changed =
+    name.trim() !== channel.name || topic !== channel.topic || description !== channel.description;
 
   async function saveAbout(e: React.FormEvent) {
     e.preventDefault();
@@ -240,16 +246,22 @@ export function ChannelDetailsDialog(props: {
         ))}
       </div>
 
-      <div {...tabs.panelProps}>
+      {/* Tall enough for the tallest tab, so switching tabs does not resize the dialog. */}
+      <div {...tabs.panelProps} className="sm:min-h-[424px]">
         {tab === "notifications" ? (
           <NotificationSettings channelId={props.channelId} />
         ) : tab === "about" ? (
           isRoom ? (
             <form onSubmit={saveAbout} className="space-y-3">
-              <label className="block text-sm">
-                Channel name
+              <div>
+                <label
+                  htmlFor={`${fieldId}-name`}
+                  className="mb-1.5 block text-[13px] font-medium text-ink-dim"
+                >
+                  Channel name
+                </label>
                 <input
-                  aria-label="Channel name"
+                  id={`${fieldId}-name`}
                   className={inputCls}
                   value={name}
                   required
@@ -260,7 +272,7 @@ export function ChannelDetailsDialog(props: {
                     setSaved(false);
                   }}
                 />
-              </label>
+              </div>
               {!permissions.manage && (
                 <p className="text-sm text-ink-faint">
                   Channel details are managed by its creator, channel managers and workspace
@@ -268,8 +280,14 @@ export function ChannelDetailsDialog(props: {
                 </p>
               )}
               <div>
-                <label className="mb-1.5 block text-[13px] font-medium text-ink-dim">Topic</label>
+                <label
+                  htmlFor={`${fieldId}-topic`}
+                  className="mb-1.5 block text-[13px] font-medium text-ink-dim"
+                >
+                  Topic
+                </label>
                 <input
+                  id={`${fieldId}-topic`}
                   aria-label="Channel topic"
                   maxLength={250}
                   value={topic}
@@ -283,10 +301,14 @@ export function ChannelDetailsDialog(props: {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-[13px] font-medium text-ink-dim">
+                <label
+                  htmlFor={`${fieldId}-description`}
+                  className="mb-1.5 block text-[13px] font-medium text-ink-dim"
+                >
                   Description
                 </label>
                 <textarea
+                  id={`${fieldId}-description`}
                   aria-label="Channel description"
                   maxLength={500}
                   value={description}
@@ -302,7 +324,11 @@ export function ChannelDetailsDialog(props: {
               </div>
               <div className="flex items-center gap-3">
                 {permissions.manage && (
-                  <button type="submit" disabled={busy} className={buttonClass("primary")}>
+                  <button
+                    type="submit"
+                    disabled={busy || !changed}
+                    className={buttonClass("primary")}
+                  >
                     {busy ? "Saving…" : saved ? "Saved" : "Save changes"}
                   </button>
                 )}
@@ -446,13 +472,16 @@ export function ChannelDetailsDialog(props: {
                 )}
               </div>
             )}
-            <button
-              disabled={membersLoading || busy}
-              onClick={() => setMembersAttempt((n) => n + 1)}
-              className="mb-3 text-sm underline"
-            >
-              Refresh members
-            </button>
+            <div className="mb-2 flex justify-end">
+              <button
+                disabled={membersLoading || busy}
+                onClick={() => setMembersAttempt((n) => n + 1)}
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-ink-faint transition-colors hover:bg-ink/[0.05] hover:text-ink disabled:opacity-40"
+              >
+                <Icon name="refresh" size={12} />
+                Refresh members
+              </button>
+            </div>
             <ListStatus
               loading={membersLoading}
               placeholder={!membersLoaded}
@@ -474,116 +503,133 @@ export function ChannelDetailsDialog(props: {
             >
               {memberIds.map((id) => {
                 const u = users[id];
-                return (
-                  <li key={id}>
-                    <button
-                      onClick={() => props.onOpenProfile(id)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-ink/[0.05]"
-                    >
-                      <Avatar user={u} size={28} />
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {u?.displayName ?? "unknown"}
-                        {id === selfId && <span className="text-ink-faint"> (you)</span>}
-                        {id === channel.creatorId && (
-                          <span className="ml-2 text-xs text-ink-faint">Creator</span>
-                        )}
-                        {channel.managerIds?.includes(id) && (
-                          <span className="ml-2 text-xs text-copper">Channel manager</span>
-                        )}
-                      </span>
-                      {u?.statusEmoji && <span>{u.statusEmoji}</span>}
-                      <span
-                        className={`size-2 rounded-full ${
-                          presence[id] === "online" ? "bg-online" : "bg-edge"
-                        }`}
-                      />
-                    </button>
-                    {channel.managerIds !== undefined &&
-                      canSetChannelManager(
-                        self ?? undefined,
-                        u,
-                        channel,
-                        !!membership,
-                        !channel.managerIds.includes(id),
-                      ) &&
-                      (managerChange?.userId === id ? (
-                        <div className="mb-2 rounded-lg border border-edge p-3 text-sm">
-                          <p className="mb-2">
-                            {managerChange.manager
-                              ? `Make ${u?.displayName} a manager of #${channel.name}? They can edit, rename and archive this room and remove ordinary members. They cannot appoint other managers.`
-                              : `Remove ${u?.displayName}'s manager role? They remain a member of this channel.`}
-                          </p>
-                          <button
-                            disabled={busy || membersLoading || membersError}
-                            className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
-                            onClick={() => void changeManager(id, managerChange.manager)}
-                          >
-                            Confirm role change
-                          </button>
-                          <button
-                            disabled={busy}
-                            className="ml-3"
-                            onClick={() => setManagerChange(null)}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          disabled={busy || membersLoading || membersError}
-                          className="mb-2 ml-2 text-xs font-medium text-ink underline decoration-ink-faint/60"
-                          aria-label={`${channel.managerIds.includes(id) ? "Remove manager role from" : "Make channel manager:"} ${u?.displayName}`}
-                          onClick={() => {
+                const manager = channel.managerIds?.includes(id) ?? false;
+                const canManage =
+                  channel.managerIds !== undefined &&
+                  canSetChannelManager(self ?? undefined, u, channel, !!membership, !manager);
+                const canRemove = canRemoveChannelMember(
+                  self ?? undefined,
+                  u,
+                  channel,
+                  !!membership,
+                );
+                // What can be done to someone is in one menu at the end of their row,
+                // as in People, rather than two links under every name.
+                const actions: MenuItem[] = [
+                  ...(canManage
+                    ? [
+                        {
+                          id: "manager",
+                          label: manager ? "Remove manager role" : "Make channel manager",
+                          icon: "user" as const,
+                          onSelect: () => {
                             setRemovingId(null);
-                            setManagerChange({
-                              userId: id,
-                              manager: !channel.managerIds?.includes(id),
-                            });
-                          }}
-                        >
-                          {channel.managerIds.includes(id)
-                            ? "Remove manager role"
-                            : "Make channel manager"}
-                        </button>
-                      ))}
-                    {canRemoveChannelMember(self ?? undefined, u, channel, !!membership) &&
-                      (removingId === id ? (
-                        <div className="mb-2 rounded-lg border border-edge p-3 text-sm">
-                          <p className="mb-2">
-                            Remove {u?.displayName} from #{channel.name}?{" "}
-                            {channel.type === "public"
-                              ? "This public channel remains readable, and they can rejoin."
-                              : "They will lose access to this private channel and its call until invited back."}{" "}
-                            Their messages remain.
-                          </p>
-                          <button
-                            disabled={busy || membersLoading || membersError}
-                            onClick={() => void removeMember(id)}
-                            className="text-alert underline"
-                          >
-                            Confirm removal
-                          </button>
-                          <button
-                            disabled={busy}
-                            onClick={() => setRemovingId(null)}
-                            className="ml-3"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          disabled={busy || membersLoading || membersError}
-                          aria-label={`Remove ${u?.displayName}`}
-                          onClick={() => {
+                            setManagerChange({ userId: id, manager: !manager });
+                          },
+                        },
+                      ]
+                    : []),
+                  ...(canRemove
+                    ? [
+                        {
+                          id: "remove",
+                          label: `Remove from ${isRoom ? `#${channel.name}` : "this conversation"}`,
+                          icon: "trash" as const,
+                          destructive: true,
+                          section: canManage ? (true as const) : undefined,
+                          onSelect: () => {
                             setManagerChange(null);
                             setRemovingId(id);
-                          }}
-                          className="mb-2 ml-2 text-xs text-alert underline"
+                          },
+                        },
+                      ]
+                    : []),
+                ];
+                return (
+                  <li key={id}>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => props.onOpenProfile(id)}
+                        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-ink/[0.05]"
+                      >
+                        <Avatar user={u} size={28} />
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {u?.displayName ?? "unknown"}
+                          {id === selfId && <span className="text-ink-faint"> (you)</span>}
+                          {id === channel.creatorId && (
+                            <span className="ml-2 text-xs text-ink-faint">Creator</span>
+                          )}
+                          {manager && (
+                            <span className="ml-2 text-xs text-copper">Channel manager</span>
+                          )}
+                        </span>
+                        {u?.statusEmoji && <span>{u.statusEmoji}</span>}
+                        <span
+                          className={`size-2 rounded-full ${
+                            presence[id] === "online" ? "bg-online" : "bg-edge"
+                          }`}
+                        />
+                      </button>
+                      {actions.length > 0 ? (
+                        <Menu
+                          label={`Actions for ${u?.displayName ?? "unknown"}`}
+                          items={actions}
+                          disabled={busy || membersLoading || membersError}
+                          width={280}
+                          triggerClassName="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.06] hover:text-ink disabled:opacity-40"
+                        />
+                      ) : (
+                        <span aria-hidden="true" className="size-8 shrink-0" />
+                      )}
+                    </div>
+                    {managerChange?.userId === id && (
+                      <div className="mb-2 mt-1 rounded-lg border border-edge p-3 text-sm">
+                        <p className="mb-2">
+                          {managerChange.manager
+                            ? `Make ${u?.displayName} a manager of #${channel.name}? They can edit, rename and archive this room and remove ordinary members. They cannot appoint other managers.`
+                            : `Remove ${u?.displayName}'s manager role? They remain a member of this channel.`}
+                        </p>
+                        <button
+                          disabled={busy || membersLoading || membersError}
+                          className="font-medium text-ink underline decoration-ink-faint/60 hover:decoration-ink"
+                          onClick={() => void changeManager(id, managerChange.manager)}
                         >
-                          Remove
+                          Confirm role change
                         </button>
-                      ))}
+                        <button
+                          disabled={busy}
+                          className="ml-3"
+                          onClick={() => setManagerChange(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                    {removingId === id && (
+                      <div className="mb-2 mt-1 rounded-lg border border-edge p-3 text-sm">
+                        <p className="mb-2">
+                          Remove {u?.displayName} from #{channel.name}?{" "}
+                          {channel.type === "public"
+                            ? "This public channel remains readable, and they can rejoin."
+                            : "They will lose access to this private channel and its call until invited back."}{" "}
+                          Their messages remain.
+                        </p>
+                        <button
+                          disabled={busy || membersLoading || membersError}
+                          onClick={() => void removeMember(id)}
+                          className="text-alert underline"
+                        >
+                          Confirm removal
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() => setRemovingId(null)}
+                          className="ml-3"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                   </li>
                 );
               })}

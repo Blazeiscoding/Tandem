@@ -11,11 +11,16 @@ import { FriendActions } from "./FriendsDialog.js";
 import { buttonClass } from "./Button.js";
 import { STATUS_PRESETS } from "../lib/status.js";
 
-/** Someone else's profile, with a shortcut to open a DM with them. */
+/**
+ * Someone's profile card, with a shortcut to open a DM with them; or your own,
+ * with the way to change it, so it is not a dead end.
+ */
 export function ProfileDialog(props: {
   userId: ID;
   onClose: () => void;
   onOpenDm: (channelId: ID) => void;
+  /** Opens Account settings at your profile. */
+  onEditProfile?: () => void;
 }) {
   const client = useClient();
   const user = useWorkspace((s) => s.users[props.userId]);
@@ -71,7 +76,7 @@ export function ProfileDialog(props: {
             <Avatar user={user} size={80} />
             <span
               role="img"
-              aria-label={online ? "Active now" : "Away"}
+              aria-label={online ? "Active now" : "Offline"}
               className={`absolute bottom-2 right-2 size-5 rounded-full ring-4 ring-raised ${
                 online ? "bg-online" : "bg-ink-faint"
               }`}
@@ -91,7 +96,7 @@ export function ProfileDialog(props: {
               aria-hidden="true"
               className={`size-2 rounded-full ${online ? "bg-online" : "bg-ink-faint"}`}
             />
-            {online ? "Active now" : "Away"}
+            {online ? "Active now" : "Offline"}
           </div>
           {(user.statusEmoji || user.statusText) && (
             <p className="mt-3 border-t border-edge pt-3 text-sm">
@@ -109,6 +114,11 @@ export function ProfileDialog(props: {
           <p role="alert" className="mt-3 text-sm text-alert">
             {dmError}
           </p>
+        )}
+        {user.id === selfId && props.onEditProfile && (
+          <button onClick={props.onEditProfile} className={buttonClass("primary", "mt-3 w-full")}>
+            Edit profile and status
+          </button>
         )}
         {user.id !== selfId && (
           <button
@@ -199,7 +209,9 @@ export function ProfileForm() {
             onChange={(e) => setStatusEmoji(e.target.value)}
             maxLength={32}
             placeholder="🙂"
-            className={`${inputCls} w-16 text-center`}
+            // One emoji's width: the shared class is full width, which split the
+            // row in half with the status text.
+            className={`${inputCls.replace("w-full", "")} w-14 shrink-0 text-center text-base`}
           />
           <input
             aria-label="Status text"
