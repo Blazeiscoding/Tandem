@@ -86,7 +86,8 @@ export function FormattingToolbar({
         aria-label="Message formatting"
         className={
           inline
-            ? "flex min-w-0 flex-wrap items-center gap-0.5 text-sm text-ink-dim"
+            ? // Never narrower than its own buttons: squeezed, "Aa" and the emoji button stacked.
+              "flex max-w-full shrink-0 flex-wrap items-center gap-0.5 text-sm text-ink-dim"
             : "flex flex-wrap items-center gap-0.5 border-b border-edge/60 px-2 py-1 text-sm text-ink-dim"
         }
       >

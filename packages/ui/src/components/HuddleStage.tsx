@@ -177,19 +177,32 @@ function Video({
   stream,
   mirrored,
   fit,
+  onAspect,
 }: {
   stream: MediaStream;
   mirrored?: boolean;
   /** A face fills its tile; a shared screen has to be shown whole. */
   fit: "cover" | "contain";
+  /** Told the picture's shape when it is known and whenever it changes, as a shared window is resized. */
+  onAspect?: (aspect: number) => void;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const report = useRef(onAspect);
+  report.current = onAspect;
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.srcObject = stream;
     void el.play()?.catch(() => {});
+    const measure = () => {
+      if (el.videoWidth > 0 && el.videoHeight > 0) report.current?.(el.videoWidth / el.videoHeight);
+    };
+    el.addEventListener("loadedmetadata", measure);
+    el.addEventListener("resize", measure);
+    measure();
     return () => {
+      el.removeEventListener("loadedmetadata", measure);
+      el.removeEventListener("resize", measure);
       el.srcObject = null;
     };
   }, [stream]);
@@ -207,7 +220,15 @@ function Video({
 }
 
 /** Everything inside a tile but its frame: the picture, the name, who is talking. */
-function TileBody({ item, height }: { item: StageItem; height: number }) {
+function TileBody({
+  item,
+  height,
+  onAspect,
+}: {
+  item: StageItem;
+  height: number;
+  onAspect?: (aspect: number) => void;
+}) {
   // Scaled to the tile, so a face in a big tile is not a postage stamp.
   const avatar = Math.round(Math.min(112, Math.max(32, height * 0.34)));
   return (
@@ -217,6 +238,7 @@ function TileBody({ item, height }: { item: StageItem; height: number }) {
           stream={item.stream}
           mirrored={item.self && item.kind === "person"}
           fit={item.kind === "screen" ? "contain" : "cover"}
+          onAspect={onAspect}
         />
       ) : (
         <div
@@ -455,21 +477,29 @@ function Spotlight({
   const thumbWidth = Math.round(thumbHeight * ASPECT);
   const mainWidth = side && others.length > 0 ? width - thumbWidth - GAP : width;
   const mainHeight = !side && others.length > 0 ? height - thumbHeight - GAP : height;
-  // A face keeps its shape; a screen gets the whole area and is fitted inside it.
-  const face = main.kind === "person" ? bestFit(1, mainWidth, mainHeight) : null;
+  // The picture's own shape, once the video says what it is. A screen is
+  // rarely 16:9, and a frame of the wrong shape showed it in wide black bars.
+  const [screenAspect, setScreenAspect] = useState<number | null>(null);
+  const presenting = main.kind === "screen" && main.self;
+  const aspect = main.kind === "screen" ? (screenAspect ?? ASPECT) : ASPECT;
+  const box = presenting ? null : bestFit(1, mainWidth, mainHeight, GAP, aspect);
 
   let body: ReactNode;
-  if (main.kind === "screen" && main.self) {
+  if (presenting) {
     body = <Presenting item={main} width={mainWidth} height={mainHeight} />;
   } else {
     body = (
       <div
         role="group"
         aria-label={describe(main)}
-        className={`group/tile ${tileFrame(main)}`}
-        style={face ? { width: face.width, height: face.width / ASPECT } : undefined}
+        className={`group/tile ${tileFrame(main)} ${main.kind === "screen" ? "shadow-2xl ring-1 ring-edge" : ""}`}
+        style={box ? { width: box.width, height: Math.floor(box.width / aspect) } : undefined}
       >
-        <TileBody item={main} height={face ? face.width / ASPECT : mainHeight} />
+        <TileBody
+          item={main}
+          height={box ? box.width / aspect : mainHeight}
+          onAspect={main.kind === "screen" ? setScreenAspect : undefined}
+        />
         {pinned && <TileButton label={`Unpin ${main.name}`} icon="pin" onClick={onUnpin} active />}
         {hasVolume(main) && <TileVolume userId={main.userId} name={main.name} />}
       </div>
@@ -477,15 +507,22 @@ function Spotlight({
   }
 
   return (
-    <div className={`flex size-full ${side ? "flex-row" : "flex-col"}`} style={{ gap: GAP }}>
-      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center">{body}</div>
+    // The picture and the strip sit together in the middle, so the strip is
+    // beside the share rather than out at the stage's far edge.
+    <div
+      className={`flex size-full items-center justify-center ${side ? "flex-row" : "flex-col"}`}
+      style={{ gap: GAP }}
+    >
+      <div
+        className={`flex min-h-0 min-w-0 items-center justify-center ${presenting ? "size-full flex-1" : ""}`}
+      >
+        {body}
+      </div>
       {others.length > 0 && (
         <ul
           aria-label="Everyone else"
           className={`flex shrink-0 gap-2 ${
-            side
-              ? "flex-col overflow-y-auto [&>li:first-child]:mt-auto [&>li:last-child]:mb-auto"
-              : "flex-row overflow-x-auto [&>li:first-child]:ml-auto [&>li:last-child]:mr-auto"
+            side ? "max-h-full flex-col overflow-y-auto" : "max-w-full flex-row overflow-x-auto"
           }`}
           style={side ? { width: thumbWidth } : { height: thumbHeight }}
         >
@@ -663,13 +700,32 @@ export function HuddleStage({
     handle.addEventListener("pointercancel", up);
   };
 
-  const focus = main
+  const focusText = main
     ? main.kind === "screen"
       ? main.self
         ? "You're sharing your screen"
         : `${main.user?.displayName ?? "Someone"} is sharing their screen`
       : `${main.name} is pinned`
     : "Huddle video";
+  // Who is on the main view, at a glance: their face, the sentence, and a
+  // badge while it is a screen.
+  const focus = (
+    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      {main?.user && <Avatar user={main.user} size={22} />}
+      <p className={`min-w-0 truncate text-sm ${main ? "font-medium text-ink" : "text-ink-dim"}`}>
+        {focusText}
+      </p>
+      {main?.kind === "screen" && (
+        <span
+          aria-hidden="true"
+          className="flex shrink-0 items-center gap-1.5 rounded-full bg-copper/15 px-2 py-0.5 text-[11px] font-semibold text-copper"
+        >
+          <span className="size-1.5 animate-pulse rounded-full bg-copper motion-reduce:animate-none" />
+          Presenting
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <section
@@ -682,8 +738,8 @@ export function HuddleStage({
       }`}
       style={expanded ? undefined : { height: `${current * 100}%` }}
     >
-      <div className="flex h-11 shrink-0 items-center gap-1 pl-4 pr-2">
-        <p className="min-w-0 flex-1 truncate text-sm text-ink-dim">{focus}</p>
+      <div className="flex h-12 shrink-0 items-center gap-1 pl-4 pr-2">
+        {focus}
         {(firstShare || pinnedItem) && (
           <StageButton
             label="Grid view"
