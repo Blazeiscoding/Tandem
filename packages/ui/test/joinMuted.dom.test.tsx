@@ -8,6 +8,7 @@ import { AccountDialog } from "../src/components/AccountDialog.js";
 import { HuddleButton } from "../src/components/HuddleBar.js";
 import type { Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
+import { noiseFilter } from "../src/lib/noiseFilter.js";
 
 /**
  * Joining huddles with the microphone off (CALL-01): a choice kept on this
@@ -76,7 +77,7 @@ describe("joining huddles with the microphone off", () => {
     // Let the saved choice load before joining.
     await new Promise((resolve) => setTimeout(resolve, 0));
     await user.click(screen.getByRole("button", { name: "Start a huddle" }));
-    expect(join).toHaveBeenCalledWith("C_GENERAL", { muted: true });
+    expect(join).toHaveBeenCalledWith("C_GENERAL", { muted: true, noiseFilter });
   });
 
   it("joins with the microphone on otherwise", async () => {
@@ -85,6 +86,6 @@ describe("joining huddles with the microphone off", () => {
     const join = vi.spyOn(client, "joinHuddle").mockResolvedValue();
     render(wrap(<HuddleButton channelId="C_GENERAL" />));
     await user.click(screen.getByRole("button", { name: "Start a huddle" }));
-    expect(join).toHaveBeenCalledWith("C_GENERAL", { muted: false });
+    expect(join).toHaveBeenCalledWith("C_GENERAL", { muted: false, noiseFilter });
   });
 });

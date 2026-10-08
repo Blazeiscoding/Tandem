@@ -10,8 +10,15 @@ export {
   canChooseSpeaker,
   listMediaDevices,
   microphoneConstraints,
+  wantsNoiseFilter,
 } from "./devices.js";
-export type { MediaDeviceLists, MediaDeviceOption, MicrophoneSettings } from "./devices.js";
+export type {
+  FilteredMicrophone,
+  MediaDeviceLists,
+  MediaDeviceOption,
+  MicrophoneSettings,
+  NoiseFilter,
+} from "./devices.js";
 export { captureFailure } from "./capture.js";
 export type { CaptureKind } from "./capture.js";
 export {

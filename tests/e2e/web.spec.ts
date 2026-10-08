@@ -564,19 +564,42 @@ test("the microphone and speaker can be changed in a call, from the call and fro
             (window as any).peers.push(this);
           }
         };
+        // Strong noise suppression sends the filter's output, which has no
+        // device name, so every microphone opened is kept to be named from.
+        const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        (window as any).microphones = [];
+        navigator.mediaDevices.getUserMedia = async (constraints) => {
+          const stream = await open(constraints);
+          (window as any).microphones.push(...stream.getAudioTracks());
+          return stream;
+        };
       });
     }
     await signIn(alice, "alice");
     await signIn(bob, "bobby");
     const bar = (page: Page) => page.getByRole("region", { name: "Active huddle", exact: true });
-    /** What Alice sends from her microphone: the device's name and whether it is live. */
+    /**
+     * What Alice sends from her microphone: the name of each device she has
+     * open, and whether the track her call sends is live.
+     */
     const aliceSends = () =>
-      alice.evaluate(() =>
-        ((window as any).peers as RTCPeerConnection[])
+      alice.evaluate(() => ({
+        open: ((window as any).microphones as MediaStreamTrack[])
+          .filter((track) => track.readyState === "live")
+          .map((track) => `${track.label} live`),
+        sent: ((window as any).peers as RTCPeerConnection[])
           .flatMap((pc) => pc.getSenders())
           .filter((s) => s.track?.kind === "audio")
-          .map((s) => `${s.track!.label} ${s.track!.readyState}`),
-      );
+          .map((s) => s.track!.readyState),
+      }));
+    /** Only `microphone` open, and live sound going out from it. */
+    const sending = (microphone: string) => ({ open: [`${microphone} live`], sent: ["live"] });
+    /** Alice's call log, in the Diagnostics dialog from the account menu. */
+    const aliceLog = async () => {
+      await alice.getByRole("button", { name: /, your account$/ }).click();
+      await alice.getByRole("menuitem", { name: "Diagnostics", exact: true }).click();
+      return alice.getByLabel("Diagnostics report", { exact: true });
+    };
     const bobHearsBytes = () =>
       bob.evaluate(async () => {
         let bytes = 0;
@@ -592,7 +615,10 @@ test("the microphone and speaker can be changed in a call, from the call and fro
     await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
     await expect(bar(bob).getByRole("status")).toHaveText("With alice");
     await expect.poll(bobHearsBytes).toBeGreaterThan(0);
-    expect(await aliceSends()).toEqual(["Fake Default Audio Input live"]);
+    expect(await aliceSends()).toEqual(sending("Fake Default Audio Input"));
+    // Her microphone goes through strong noise suppression unless she chose otherwise.
+    await expect(await aliceLog()).toContainText("Noise suppression: strong.");
+    await alice.keyboard.press("Escape");
 
     // From the call: the arrow beside Mute lists the microphones and speakers.
     await bar(alice).getByRole("button", { name: "Microphone and speaker", exact: true }).click();
@@ -605,7 +631,7 @@ test("the microphone and speaker can be changed in a call, from the call and fro
     await menu.getByRole("menuitemradio", { name: "Fake Audio Input 2", exact: true }).click();
 
     // Bob now hears the other microphone, on the same connection.
-    await expect.poll(aliceSends).toEqual(["Fake Audio Input 2 live"]);
+    await expect.poll(aliceSends).toEqual(sending("Fake Audio Input 2"));
     const before = await bobHearsBytes();
     await expect.poll(bobHearsBytes).toBeGreaterThan(before);
     expect(
@@ -620,6 +646,14 @@ test("the microphone and speaker can be changed in a call, from the call and fro
     const panel = alice.getByRole("tabpanel", { name: "Voice & video", exact: true });
     const microphone = panel.getByRole("combobox", { name: "Microphone", exact: true });
     await expect(microphone.locator("option:checked")).toHaveText("Fake Audio Input 2");
+    // Noise suppression is one of three, strong until chosen otherwise.
+    const noise = (level: string) =>
+      panel
+        .getByRole("group", { name: "Noise suppression", exact: true })
+        .getByRole("radio", { name: new RegExp(`^${level}\\b`) });
+    await expect(noise("Strong")).toBeChecked();
+    await expect(noise("Standard")).not.toBeChecked();
+    await expect(noise("Off")).not.toBeChecked();
     await alice.screenshot({ path: test.info().outputPath("voice-video-settings-top.png") });
     await panel
       .getByRole("combobox", { name: "Speaker", exact: true })
@@ -635,7 +669,7 @@ test("the microphone and speaker can be changed in a call, from the call and fro
       )
       .toContain(await panel.getByRole("combobox", { name: "Speaker", exact: true }).inputValue());
     await microphone.selectOption({ label: "Fake Audio Input 1" });
-    await expect.poll(aliceSends).toEqual(["Fake Audio Input 1 live"]);
+    await expect.poll(aliceSends).toEqual(sending("Fake Audio Input 1"));
 
     // The microphone test hears the chosen one, and the fake device's tone moves the meter.
     await panel.getByRole("button", { name: "Test microphone", exact: true }).click();
@@ -654,10 +688,18 @@ test("the microphone and speaker can be changed in a call, from the call and fro
       .poll(() => panel.locator("video").evaluate((v) => (v as HTMLVideoElement).videoWidth))
       .toBeGreaterThan(0);
     await alice.screenshot({ path: test.info().outputPath("voice-video-settings.png") });
+    // The radio shows the change once the call's microphone has opened again.
+    await noise("Standard").click();
+    await expect(noise("Standard")).toBeChecked();
     await alice.keyboard.press("Escape");
     // Leaving settings closes the test microphone and the preview, and the call carries on.
-    await expect.poll(aliceSends).toEqual(["Fake Audio Input 1 live"]);
+    await expect.poll(aliceSends).toEqual(sending("Fake Audio Input 1"));
     await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
+    // Now with the browser's own suppression, and Bob still hears her.
+    await expect(await aliceLog()).toContainText("Noise suppression: the browser's own.");
+    await alice.keyboard.press("Escape");
+    const standard = await bobHearsBytes();
+    await expect.poll(bobHearsBytes).toBeGreaterThan(standard);
     expect(errors).toEqual([]);
   } finally {
     await a.close().catch(() => {});

@@ -48,6 +48,7 @@ const MICROPHONE_KEYS: (keyof CallDevices)[] = [
   "microphoneId",
   "echoCancellation",
   "noiseSuppression",
+  "noiseFilter",
   "autoGainControl",
 ];
 

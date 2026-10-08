@@ -7,11 +7,36 @@ export interface MicrophoneSettings {
   deviceId?: string;
   /** Takes the other people's voices back out of the microphone. */
   echoCancellation?: boolean;
-  /** Takes out steady background noise: fans, hum, keyboards. */
+  /** Takes out background noise; off sends the microphone as it is. */
   noiseSuppression?: boolean;
+  /**
+   * Strong noise suppression: a small neural network that takes out typing
+   * and clatter as well as steady sound, in place of the browser's own,
+   * which only takes out steady sound such as fans and hum. On unless turned
+   * off, and never while `noiseSuppression` is.
+   */
+  noiseFilter?: boolean;
   /** Evens out a voice that is too quiet or too loud. */
   autoGainControl?: boolean;
 }
+
+/** Whether the microphone's sound goes through the strong noise filter. */
+export function wantsNoiseFilter(settings: MicrophoneSettings = {}): boolean {
+  return settings.noiseSuppression !== false && settings.noiseFilter !== false;
+}
+
+/** A microphone with its background noise taken out, as it is sent. */
+export interface FilteredMicrophone {
+  stream: MediaStream;
+  /** Lets go of what the filter made; the microphone itself is the caller's. */
+  stop(): void;
+}
+
+/**
+ * Takes background noise out of a microphone. Supplied by the app, which
+ * knows how to load the filter's code; rejects where it cannot run.
+ */
+export type NoiseFilter = (microphone: MediaStream) => Promise<FilteredMicrophone>;
 
 /**
  * Names the device the browser should open. A saved choice asks for it
@@ -24,16 +49,21 @@ function device(deviceId: string | undefined, exact: boolean) {
   return { deviceId: exact ? { exact: deviceId } : deviceId };
 }
 
-/** What a huddle asks the browser for when it opens the microphone. */
+/**
+ * What a huddle asks the browser for when it opens the microphone. With the
+ * strong filter to follow, the browser's own suppression is left off rather
+ * than run twice.
+ */
 export function microphoneConstraints(
   settings: MicrophoneSettings = {},
   exact = false,
+  filtered = false,
 ): MediaStreamConstraints {
   return {
     audio: {
       channelCount: 1,
       echoCancellation: settings.echoCancellation ?? true,
-      noiseSuppression: settings.noiseSuppression ?? true,
+      noiseSuppression: !filtered && (settings.noiseSuppression ?? true),
       autoGainControl: settings.autoGainControl ?? true,
       ...device(settings.deviceId, exact),
     },

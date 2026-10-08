@@ -9,6 +9,7 @@ import { WorkspaceScreen } from "../src/screens/WorkspaceScreen.js";
 import { useCallPreferences } from "../src/lib/callPreferences.js";
 import { writeRoute } from "../src/lib/route.js";
 import type { Platform } from "../src/platform.js";
+import { noiseFilter } from "../src/lib/noiseFilter.js";
 
 const owner: User = {
   id: "U_OWNER",
@@ -87,7 +88,9 @@ describe("preference-aware huddle admission (N04)", () => {
     expect(join).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Start a huddle" })).toBeDisabled();
     await act(async () => saved.resolve({ joinMuted: true }));
-    await waitFor(() => expect(join).toHaveBeenCalledWith(general.id, { muted: true }));
+    await waitFor(() =>
+      expect(join).toHaveBeenCalledWith(general.id, { muted: true, noiseFilter }),
+    );
     expect(get).toHaveBeenCalledWith("call-preferences", { strict: true });
   });
 
@@ -123,7 +126,9 @@ describe("preference-aware huddle admission (N04)", () => {
       );
     expect(join).not.toHaveBeenCalled();
     await act(async () => saved.resolve({ joinMuted: true }));
-    await waitFor(() => expect(join).toHaveBeenCalledWith(general.id, { muted: true }));
+    await waitFor(() =>
+      expect(join).toHaveBeenCalledWith(general.id, { muted: true, noiseFilter }),
+    );
   });
 
   it("does not start a call when the workspace closes while preferences are pending", async () => {
@@ -255,7 +260,9 @@ describe("preference-aware huddle admission (N04)", () => {
       const { join, wrap } = setup(async () => saved);
       render(wrap(<HuddleButton channelId={general.id} />));
       await userEvent.setup().click(screen.getByRole("button", { name: "Start a huddle" }));
-      await waitFor(() => expect(join).toHaveBeenCalledWith(general.id, { muted: true }));
+      await waitFor(() =>
+        expect(join).toHaveBeenCalledWith(general.id, { muted: true, noiseFilter }),
+      );
     },
   );
 
@@ -284,12 +291,12 @@ describe("preference-aware huddle admission (N04)", () => {
       ),
     ).toBeVisible();
     await userEvent.setup().click(screen.getByRole("button", { name: "Start a huddle" }));
-    expect(join).toHaveBeenLastCalledWith(general.id, { muted: true });
+    expect(join).toHaveBeenLastCalledWith(general.id, { muted: true, noiseFilter });
     fail = false;
     await act(async () => current.retryLoad());
     expect(screen.getByText("Loaded")).toBeVisible();
     await act(async () => current.joinHuddle(client, general.id));
-    expect(join).toHaveBeenLastCalledWith(general.id, { muted: false });
+    expect(join).toHaveBeenLastCalledWith(general.id, { muted: false, noiseFilter });
   });
 
   it.each(["older-first", "newer-first"])(
@@ -326,12 +333,14 @@ describe("preference-aware huddle admission (N04)", () => {
         await act(async () => newer.resolve({ joinMuted: true }));
       } else {
         await act(async () => newer.resolve({ joinMuted: true }));
-        await waitFor(() => expect(join).toHaveBeenCalledWith(general.id, { muted: true }));
+        await waitFor(() =>
+          expect(join).toHaveBeenCalledWith(general.id, { muted: true, noiseFilter }),
+        );
         await act(async () => older.resolve({ joinMuted: false }));
       }
       await act(async () => joining);
       expect(current.joinMuted).toBe(true);
-      expect(join).toHaveBeenCalledWith(general.id, { muted: true });
+      expect(join).toHaveBeenCalledWith(general.id, { muted: true, noiseFilter });
     },
   );
 
@@ -357,10 +366,12 @@ describe("preference-aware huddle admission (N04)", () => {
     const set = vi.spyOn(platform.storage, "set");
     await act(async () => current.setJoinMuted(false));
     expect(set).toHaveBeenCalledWith("call-preferences", { joinMuted: false });
-    await waitFor(() => expect(join).toHaveBeenCalledWith(general.id, { muted: false }));
+    await waitFor(() =>
+      expect(join).toHaveBeenCalledWith(general.id, { muted: false, noiseFilter }),
+    );
     await act(async () => stale.resolve({ joinMuted: true }));
     expect(current.joinMuted).toBe(false);
     await act(async () => joining);
-    expect(join).toHaveBeenCalledWith(general.id, { muted: false });
+    expect(join).toHaveBeenCalledWith(general.id, { muted: false, noiseFilter });
   });
 });

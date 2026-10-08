@@ -35,6 +35,8 @@ export default defineConfig({
   },
   renderer: {
     define,
+    // As in the web build: the call noise filter's model goes in as a data URL.
+    assetsInclude: ["**/*.wasm"],
     plugins: [react(), tailwindcss()],
     build: { minify: true, cssMinify: true },
   },

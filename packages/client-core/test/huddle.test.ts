@@ -1022,6 +1022,129 @@ describe("choosing the microphone and camera (Voice & video)", () => {
     });
   });
 
+  describe("strong noise suppression", () => {
+    /** A filter that hands back `cleaned` as the microphone's sound, and can be told to fail. */
+    function filter(...cleaned: Track[]) {
+      const stops: ReturnType<typeof vi.fn>[] = [];
+      const noiseFilter = vi.fn(async (_microphone: MediaStream) => {
+        const next = cleaned.shift();
+        if (!next) throw new Error("no AudioWorklet here");
+        const stop = vi.fn();
+        stops.push(stop);
+        return { stream: stream(next), stop };
+      });
+      return { noiseFilter, stops };
+    }
+
+    it("sends the microphone through it, with the browser's own left off", async () => {
+      const device = track("audio");
+      const cleaned = track("audio");
+      const { noiseFilter } = filter(cleaned);
+      const { session, ask, pc } = await inCall(device, { noiseFilter });
+      expect(ask.mock.calls[0]![0]).toMatchObject({ audio: { noiseSuppression: false } });
+      expect((noiseFilter.mock.calls[0]![0] as unknown as FakeMediaStream).tracks).toEqual([
+        device,
+      ]);
+      expect(pc.transceivers[0]!.sender.track).toBe(cleaned);
+      expect(session.log.map((line) => line.text)).toContain("Noise suppression: strong.");
+      // Muting silences what is sent, which is the cleaned sound.
+      session.toggleMic();
+      expect(cleaned.enabled).toBe(false);
+      session.destroy();
+    });
+
+    it("cleans a microphone opened again after the device went, still muted", async () => {
+      const device = track("audio");
+      const { noiseFilter, stops } = filter(track("audio"), track("audio"));
+      const { session, ask, pc } = await inCall(device, { noiseFilter });
+      session.toggleMic();
+      const replacement = track("audio");
+      ask.mockResolvedValueOnce(stream(replacement));
+
+      // The device itself ending is what says it went, not the filter's output.
+      device.onended!();
+      await vi.waitFor(() => expect(noiseFilter).toHaveBeenCalledTimes(2));
+      await flush();
+      expect(stops[0]).toHaveBeenCalled();
+      expect(device.stop).toHaveBeenCalled();
+      const sent = pc.transceivers[0]!.sender.track as Track;
+      expect(sent).not.toBe(replacement);
+      expect(sent.enabled).toBe(false);
+      session.destroy();
+      expect(stops[1]).toHaveBeenCalled();
+      expect(replacement.stop).toHaveBeenCalled();
+    });
+
+    it("uses the browser's own when it will not start, and says why", async () => {
+      const unfiltered = track("audio");
+      const fallback = track("audio");
+      const { noiseFilter } = filter();
+      const session = new HuddleSession("C1", "A", { send: () => {} }, undefined, { noiseFilter });
+      const ask = vi
+        .spyOn(navigator.mediaDevices, "getUserMedia")
+        .mockResolvedValueOnce(stream(unfiltered))
+        .mockResolvedValueOnce(stream(fallback));
+      await session.startLocalAudio();
+      expect(ask.mock.calls[0]![0]).toMatchObject({ audio: { noiseSuppression: false } });
+      // Opened again with the browser's suppression, rather than sent raw.
+      expect(ask.mock.calls[1]![0]).toMatchObject({ audio: { noiseSuppression: true } });
+      expect(unfiltered.stop).toHaveBeenCalled();
+      expect(session.log.map((line) => line.text)).toContain(
+        "Strong noise suppression did not start (no AudioWorklet here); using the browser's own.",
+      );
+      session.syncParticipants(["A", "B"]);
+      await flush();
+      expect(FakePeerConnection.instances[0]!.transceivers[0]!.sender.track).toBe(fallback);
+      session.destroy();
+    });
+
+    it("is left out for the browser's own suppression, and for none", async () => {
+      for (const [microphone, said] of [
+        [{ noiseFilter: false }, "Noise suppression: the browser's own."],
+        [{ noiseSuppression: false }, "Noise suppression: off."],
+      ] as const) {
+        const { noiseFilter } = filter(track("audio"));
+        const { session, ask } = await inCall(track("audio"), { noiseFilter, microphone });
+        expect(noiseFilter).not.toHaveBeenCalled();
+        expect(ask.mock.calls[0]![0]).toMatchObject({
+          audio: { noiseSuppression: microphone.noiseSuppression ?? true },
+        });
+        expect(session.log.map((line) => line.text)).toContain(said);
+        session.destroy();
+        vi.restoreAllMocks();
+        FakePeerConnection.instances = [];
+      }
+    });
+
+    it("is what a microphone test plays back, and lets go of both when stopped", async () => {
+      const device = track("audio");
+      const cleaned = track("audio");
+      const { noiseFilter, stops } = filter(cleaned);
+      const ask = vi
+        .spyOn(navigator.mediaDevices, "getUserMedia")
+        .mockResolvedValue(stream(device));
+      const test = await testMicrophone(() => {}, {}, noiseFilter);
+      expect(ask.mock.calls[0]![0]).toMatchObject({ audio: { noiseSuppression: false } });
+      expect((test.stream as unknown as FakeMediaStream).tracks).toEqual([cleaned]);
+      expect(test.filtered).toBe(true);
+      test.stop();
+      expect(stops[0]).toHaveBeenCalled();
+      expect(device.stop).toHaveBeenCalled();
+    });
+
+    it("leaves a microphone test on the browser's own when it will not start", async () => {
+      const fallback = track("audio");
+      const { noiseFilter } = filter();
+      vi.spyOn(navigator.mediaDevices, "getUserMedia")
+        .mockResolvedValueOnce(stream(track("audio")))
+        .mockResolvedValueOnce(stream(fallback));
+      const test = await testMicrophone(() => {}, {}, noiseFilter);
+      expect((test.stream as unknown as FakeMediaStream).tracks).toEqual([fallback]);
+      expect(test.filtered).toBe(false);
+      test.stop();
+    });
+  });
+
   it("tests the microphone being chosen, exactly, and hands back what it hears", async () => {
     const opened = stream(track("audio", "usb-mic"));
     const ask = vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(opened);

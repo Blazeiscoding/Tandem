@@ -9,6 +9,7 @@ import { HuddleControls } from "../src/components/HuddleControls.js";
 import { HuddleButton } from "../src/components/HuddleBar.js";
 import type { Platform } from "../src/platform.js";
 import { accessibilityProblems } from "./accessibility.js";
+import { noiseFilter } from "../src/lib/noiseFilter.js";
 
 /**
  * Choosing the microphone, speaker and camera (Voice & video): from settings
@@ -172,19 +173,37 @@ describe("Voice & video settings", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("cleans up the microphone's sound as chosen, on until turned off", async () => {
+  it("cleans up the microphone's sound as chosen, strong and on until chosen otherwise", async () => {
     const { set, setMicrophone, user } = await settings({ joinMuted: false }, inHuddle);
-    const noise = screen.getByRole("checkbox", { name: /Noise suppression/ });
-    expect(noise).toBeChecked();
+    const strong = screen.getByRole("radio", { name: /^Strong/ });
+    const standard = screen.getByRole("radio", { name: /^Standard/ });
+    const off = screen.getByRole("radio", { name: /^Off/ });
+    expect(strong).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Echo cancellation/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Automatic volume/ })).toBeChecked();
-    await user.click(noise);
-    expect(setMicrophone).toHaveBeenCalledWith({ noiseSuppression: false });
-    expect(set).toHaveBeenCalledWith("call-preferences", {
+
+    // The browser's own suppression in place of the strong filter.
+    await user.click(standard);
+    expect(setMicrophone).toHaveBeenLastCalledWith({ noiseSuppression: true, noiseFilter: false });
+    expect(set).toHaveBeenLastCalledWith("call-preferences", {
       joinMuted: false,
-      noiseSuppression: false,
+      noiseSuppression: true,
+      noiseFilter: false,
     });
-    await waitFor(() => expect(noise).not.toBeChecked());
+    await waitFor(() => expect(standard).toBeChecked());
+
+    await user.click(off);
+    expect(setMicrophone).toHaveBeenLastCalledWith({ noiseSuppression: false, noiseFilter: false });
+    await waitFor(() => expect(off).toBeChecked());
+
+    await user.click(strong);
+    expect(setMicrophone).toHaveBeenLastCalledWith({ noiseSuppression: true, noiseFilter: true });
+    await waitFor(() => expect(strong).toBeChecked());
+  });
+
+  it("keeps noise suppression off for someone who turned it off before there was a choice", async () => {
+    await settings({ joinMuted: false, noiseSuppression: false });
+    expect(screen.getByRole("radio", { name: /^Off/ })).toBeChecked();
   });
 
   it("changes the camera of a call in progress, and plays through the chosen speaker", async () => {
@@ -244,6 +263,7 @@ describe("joining with the chosen devices", () => {
       speakerId: "spk-usb",
       echoCancellation: false,
       noiseSuppression: "loud",
+      noiseFilter: "yes",
       autoGainControl: 3,
     });
     const join = vi.spyOn(client, "joinHuddle").mockResolvedValue();
@@ -254,6 +274,7 @@ describe("joining with the chosen devices", () => {
       muted: false,
       microphone: { deviceId: "mic-usb", echoCancellation: false },
       cameraId: "cam-desk",
+      noiseFilter,
     });
   });
 });

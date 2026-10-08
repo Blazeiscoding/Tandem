@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@sapphi-red/web-noise-suppressor": "0.4.1",
     "@slackoss/client-core": "workspace:*",
     "@slackoss/protocol": "workspace:*",
     "zustand": "^5.0.7"

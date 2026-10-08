@@ -21,7 +21,7 @@ import { Api, ApiError, type CommandHint } from "./api.js";
 import { FileCache } from "./fileCache.js";
 import { captureFailure } from "./capture.js";
 import type { CallLogLine, HuddleSession, HuddleState } from "./huddle.js";
-import type { MicrophoneSettings } from "./devices.js";
+import type { MicrophoneSettings, NoiseFilter } from "./devices.js";
 
 class HuddleJoinRefusedError extends Error {}
 
@@ -2777,7 +2777,12 @@ export class WorkspaceClient {
    */
   async joinHuddle(
     channelId: ID,
-    options: { muted?: boolean; microphone?: MicrophoneSettings; cameraId?: string } = {},
+    options: {
+      muted?: boolean;
+      microphone?: MicrophoneSettings;
+      cameraId?: string;
+      noiseFilter?: NoiseFilter;
+    } = {},
   ): Promise<void> {
     this.leaveHuddle();
     const attempt = this.huddleAttempt;
@@ -2812,6 +2817,7 @@ export class WorkspaceClient {
         refreshConfig: () => this.api.rtcConfig(),
         microphone: options.microphone,
         cameraId: options.cameraId,
+        noiseFilter: options.noiseFilter,
         onReport: (peer, report) => {
           if (this.huddleReports && this.session === session)
             this.sendSocket({ type: "huddle.report", channelId, peer, report });

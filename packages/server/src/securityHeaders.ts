@@ -5,7 +5,9 @@
  * `script-src 'self'` costs nothing and is the directive that actually matters:
  * it means injected markup cannot become running code, which is the failure a
  * chat application is most exposed to, since its whole job is displaying text
- * other people wrote.
+ * other people wrote. `'wasm-unsafe-eval'` beside it lets the app compile
+ * WebAssembly it ships (strong noise suppression for calls) and nothing else:
+ * JavaScript `eval` and `new Function` stay refused.
  *
  * `connect-src` is deliberately open. The browser client is a static app that
  * can be pointed at any workspace — that is how someone signs in to a server
@@ -16,7 +18,7 @@
  */
 const DIRECTIVES: Record<string, string> = {
   "default-src": "'self'",
-  "script-src": "'self'",
+  "script-src": "'self' 'wasm-unsafe-eval'",
   // React sets styles through the DOM rather than as markup, which CSP does not
   // govern, but the bundler is free to emit a style element and this costs
   // little: style injection cannot execute anything.
