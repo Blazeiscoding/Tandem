@@ -1491,6 +1491,9 @@ test("the composer shows mentions as names while typing, and sends them as ids",
   await expect(composer).toHaveValue("Lunch @here now?");
   await page.keyboard.press("Enter");
   await expect.poll(latest).toBe("Lunch <!here> now?");
+  // The server can hold the message before this device has kept the send;
+  // until it has, the box is read-only and would drop what is typed next.
+  await expect(composer).toBeEditable();
 
   // The completion is the browser's own edit: Undo takes it back to what was
   // typed, and Redo brings back the mention, not the letters of its name.
@@ -1511,6 +1514,7 @@ test("the composer shows mentions as names while typing, and sends them as ids",
   await expect(composer).toHaveValue("ask @bobby 日本");
   await page.keyboard.press("Enter");
   await expect.poll(latest).toBe(`ask <@${bobby}> 日本`);
+  await expect(composer).toBeEditable();
 
   // Backspace takes a whole mention, and bolding one keeps it a mention.
   await composer.pressSequentially("@bo", { delay: 10 });
