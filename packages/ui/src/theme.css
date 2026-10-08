@@ -555,49 +555,6 @@ textarea::placeholder {
   mask-image: linear-gradient(to bottom, black 35%, transparent 95%);
 }
 
-/*
- * chaicode.com's badge: a pill whose 1 px edge has an orange glint running
- * round it. Still for anyone who asks for less motion.
- */
-@property --glint-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-.glint-badge {
-  position: relative;
-  isolation: isolate;
-  background: var(--card-fill);
-}
-.glint-badge::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  padding: 1px;
-  border-radius: inherit;
-  background:
-    conic-gradient(
-      from var(--glint-angle),
-      transparent 0deg,
-      transparent 250deg,
-      var(--color-copper) 320deg,
-      transparent 360deg
-    ),
-    linear-gradient(var(--card-edge), var(--card-edge));
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: glint 3.2s linear infinite;
-}
-@keyframes glint {
-  to {
-    --glint-angle: 360deg;
-  }
-}
-
 /* A soft field of light behind the sign-in card, drifting slowly. */
 .aurora {
   position: absolute;
