@@ -380,10 +380,17 @@ export const MessageTimeline = memo(function MessageTimeline({
       ref={scroller}
       onScroll={onScroll}
       aria-label="Message history"
-      className="timeline-scroll min-h-0 flex-1 overflow-y-auto pb-3"
+      className="timeline-scroll flex min-h-0 flex-1 flex-col overflow-y-auto pb-3"
       aria-busy={loadingHistory !== null}
     >
-      <div ref={content} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown}>
+      {/* A short conversation sits on the composer, as in any chat, rather than
+          at the top with an empty page between it and where you write. */}
+      <div
+        ref={content}
+        onFocus={roving.onFocus}
+        onKeyDown={roving.onKeyDown}
+        className="mt-auto shrink-0"
+      >
         <ListStatus
           className="px-4"
           // A cached conversation refreshing on open says nothing; paging
@@ -683,8 +690,9 @@ function ChannelIntro({
         {isRoom ? (
           channel.description || (
             <>
-              This is the very beginning of <span className="highlight">#{channel.name}</span>. Say
-              something to get it going.
+              This is the very beginning of <span className="highlight">#{channel.name}</span>.
+              {/* Asked of an empty channel only: once people have written, it is going. */}
+              {empty && " Say something to get it going."}
             </>
           )
         ) : person ? (

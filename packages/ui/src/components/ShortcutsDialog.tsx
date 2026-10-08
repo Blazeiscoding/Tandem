@@ -77,8 +77,10 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
       items: group.items.filter(([keys, what]) => matches(query, keys, what)),
     }))
     .filter((group) => group.items.length > 0);
+  // Laid out as Linear's shortcut gallery is: what it does first, read down the
+  // left, and its keys as keycaps lined up on the right.
   return (
-    <Dialog title="Keyboard shortcuts" onClose={onClose} width={460}>
+    <Dialog title="Keyboard shortcuts" onClose={onClose} width={500}>
       <label className="mb-4 block text-sm">
         <span className="sr-only">Find a shortcut</span>
         <input
@@ -93,24 +95,27 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
       <p role="status" className="mb-2 text-sm text-ink-faint empty:hidden">
         {shown.length === 0 ? "No shortcut matches. Try another word." : ""}
       </p>
-      <div className="space-y-4">
+      <div className="space-y-5">
         {shown.map((group) => (
           <section key={group.title}>
-            <h3 className="mb-1.5 text-[13px] font-semibold text-ink">{group.title}</h3>
-            <ul className="space-y-1">
+            <h3 className="mb-2 text-[13px] font-semibold text-ink">{group.title}</h3>
+            <ul className="divide-y divide-edge overflow-hidden rounded-xl border border-edge">
               {group.items.map(([keys, what]) => (
-                <li key={keys} className="flex items-baseline gap-3 text-sm">
-                  <span className="flex shrink-0 gap-1">
+                <li
+                  key={keys}
+                  className="flex min-h-9 items-center justify-between gap-4 px-3 py-1 text-sm"
+                >
+                  <span className="text-ink-dim">{what}</span>
+                  <span className="flex shrink-0 items-center gap-1">
                     {keys.split(" ").map((k) => (
                       <kbd
                         key={k}
-                        className="rounded border border-edge bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-dim"
+                        className="inline-flex h-6 min-w-6 items-center justify-center rounded border border-b-2 border-edge bg-lifted px-1.5 font-mono text-[11px] text-ink"
                       >
                         {k}
                       </kbd>
                     ))}
                   </span>
-                  <span className="text-ink-dim">{what}</span>
                 </li>
               ))}
             </ul>

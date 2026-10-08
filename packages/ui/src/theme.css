@@ -42,8 +42,10 @@
  *   avatars, dots and pills. theme.test.ts fails on any other.
  * - Elevation: hairline borders first, shadows only for what floats (menus,
  *   dialogs, toolbars).
- * - Motion: 120–180 ms, ease-out, nothing travels more than a few pixels.
- *   Nothing opened from the keyboard many times a day animates.
+ * - Motion: 120–180 ms, ease-out, nothing travels more than a few pixels,
+ *   except a segmented control's thumb, which slides to the segment chosen so
+ *   the eye follows the choice. Nothing opened from the keyboard many times a
+ *   day animates.
  * - Focus: a ring in the accent, --focus-ring-width wide, 2 px out.
  *
  * Every ink clears 4.5:1 on every surface in both themes, and text written on
@@ -460,6 +462,46 @@ textarea::placeholder {
 }
 
 /*
+ * A segmented control's thumb: one raised pill under the chosen segment that
+ * slides to the next one chosen. The track is `p-1 gap-1`, so the thumb sits
+ * 4 px in and each step is a segment plus the 4 px gap. The segments set
+ * --segments and --segment.
+ */
+.segment-thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px - (var(--segments) - 1) * 4px) / var(--segments));
+  border-radius: 6px;
+  background: var(--color-lifted);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transform: translateX(calc(var(--segment) * (100% + 4px)));
+  transition: transform 180ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/*
+ * The field being filled in, lit from above like a stage: a warm wash and a
+ * soft ring in the accent. The wash is faint enough that text on it reads as
+ * it does on the plain field.
+ */
+.field-spot {
+  transition:
+    border-color 150ms ease-out,
+    box-shadow 150ms ease-out;
+}
+.field-spot:focus {
+  background-image: radial-gradient(
+    90% 180% at 50% -70%,
+    color-mix(in oklab, var(--color-copper) 16%, transparent),
+    transparent 70%
+  );
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--color-copper) 14%, transparent),
+    0 12px 28px -16px color-mix(in oklab, var(--color-copper) 60%, transparent);
+}
+
+/*
  * Discord's server icons: round until pointed at or chosen, then a rounded
  * square, with a pill at the rail's edge that grows from a dot (unread) to a
  * nub (pointed at) to a bar (the one on screen).
@@ -606,6 +648,16 @@ textarea::placeholder {
   background-image: radial-gradient(var(--color-ink) 0.5px, transparent 0.5px);
   background-size: 3px 3px;
   mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+/* Files dragged over a conversation land on a dotted field. */
+.drop-field {
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--color-ink) 16%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 14px 14px;
+  background-position: center;
 }
 
 /* The dots that say someone is typing. */

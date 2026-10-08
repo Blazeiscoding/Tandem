@@ -48,6 +48,27 @@ export function schedulePresets(now = new Date()): SchedulePreset[] {
   return out;
 }
 
+/**
+ * "Tomorrow at 9:00 AM" or "Mon, Jan 5 at 9:00 AM": a scheduled time short
+ * enough to name on the button that schedules it. The year is said only when
+ * it is not this one.
+ */
+export function formatScheduleShort(ts: number, today = new Date()): string {
+  const date = new Date(ts);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (date.toDateString() === today.toDateString()) return `Today at ${time}`;
+  if (date.toDateString() === tomorrow.toDateString()) return `Tomorrow at ${time}`;
+  const day = date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(date.getFullYear() === today.getFullYear() ? {} : { year: "numeric" }),
+  });
+  return `${day} at ${time}`;
+}
+
 /** "Tomorrow at 9:00 AM" — how a scheduled time reads in the UI. */
 export function formatScheduleTime(ts: number, today = new Date()): string {
   const date = new Date(ts);

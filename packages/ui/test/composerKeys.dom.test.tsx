@@ -175,7 +175,7 @@ describe("a scheduled send that cannot upload its files", () => {
     fireEvent.change(screen.getByLabelText("Choose a date and time"), {
       target: { value: "2099-01-05T09:00" },
     });
-    await user.click(screen.getByRole("button", { name: "Schedule message" }));
+    await user.click(screen.getByRole("button", { name: /^Schedule for .*2099 at / }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Workspace attachment storage is full. Your draft is kept. Ask the host to free space or raise the limit, then retry.",
@@ -238,7 +238,7 @@ describe("scheduling a reply that is also for the channel", () => {
     fireEvent.change(screen.getByLabelText("Choose a date and time"), {
       target: { value: "2099-01-05T09:00" },
     });
-    await user.click(screen.getByRole("button", { name: "Schedule message" }));
+    await user.click(screen.getByRole("button", { name: /^Schedule for .*2099 at / }));
     await waitFor(() => expect(schedule).toHaveBeenCalledOnce());
     return { body: schedule.mock.calls[0]![1], checkbox, box };
   }
@@ -275,7 +275,7 @@ describe("a scheduled send past the queue's limit", () => {
     fireEvent.change(screen.getByLabelText("Choose a date and time"), {
       target: { value: "2099-01-05T09:00" },
     });
-    await user.click(screen.getByRole("button", { name: "Schedule message" }));
+    await user.click(screen.getByRole("button", { name: /^Schedule for .*2099 at / }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "You already have 200 messages waiting to be sent. Send or cancel some before scheduling more. Your draft is kept.",

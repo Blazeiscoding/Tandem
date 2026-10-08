@@ -96,6 +96,26 @@ describe("jumping to a conversation", () => {
     expect(await accessibilityProblems(screen.getByRole("dialog"))).toEqual([]);
   });
 
+  it("picks out what was typed in each match, whatever its case or sign", async () => {
+    const user = userEvent.setup();
+    switcherWith();
+    const box = screen.getByRole("combobox", { name: "Channel or person" });
+    const picked = () =>
+      within(screen.getByRole("listbox", { name: "Matches" }))
+        .getAllByRole("option")
+        .map((option) => option.querySelector("mark")?.textContent ?? null);
+    expect(picked().every((mark) => mark === null)).toBe(true);
+    await user.type(box, "#DES");
+    expect(picked()).toEqual(["des"]);
+    await user.clear(box);
+    await user.type(box, "@chen");
+    // The group conversation with Alex and Alex directly, each with the name picked out.
+    expect(picked()).toEqual(["Chen", "Chen"]);
+    expect(screen.getByRole("option", { name: "Alex Chen, person" })).toHaveTextContent(
+      "Alex Chen",
+    );
+  });
+
   it("lists a person once, whether or not you already talk to them directly", () => {
     const { options } = switcherWith();
     expect(options()).toEqual([

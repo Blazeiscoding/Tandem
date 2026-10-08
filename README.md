@@ -22,7 +22,7 @@ reserved for the one primary action, bundled Onest and Geist Mono type, drawn
 line icons, quick motion that respects reduced-motion settings, menus split by
 what they concern (the workspace's name, or your own), keyboard-accessible
 controls, narrow-window navigation, and a capped live timeline that follows new
-messages without growing indefinitely.
+messages without growing indefinitely and, while short, sits on the composer.
 To regenerate the checked-in desktop icons from the SVG, install Playwright's
 Chromium and run `node scripts/generate-icons.mjs`. Normal packaging uses the
 checked-in assets and does not need this step.

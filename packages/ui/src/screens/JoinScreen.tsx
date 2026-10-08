@@ -199,17 +199,22 @@ export function JoinScreen({
       {platform.kind === "desktop" && <div className="titlebar-drag relative h-10 shrink-0" />}
       <main className="relative flex flex-1 overflow-y-auto px-4 py-8 sm:px-8">
         <div className="join-layout m-auto w-full max-w-[440px] animate-rise-in">
-          <header className="mb-8 flex flex-col items-center text-center">
-            <div className="mb-6 flex items-center gap-2.5 font-brand text-[17px] font-semibold tracking-tight">
+          {/* Signing in, the card is the page, as Clerk's is: one line above it, not three. */}
+          <header className={`flex flex-col items-center text-center ${authing ? "mb-6" : "mb-8"}`}>
+            <div
+              className={`flex items-center gap-2.5 font-brand text-[17px] font-semibold tracking-tight ${authing ? "mb-3" : "mb-6"}`}
+            >
               <span className="drop-shadow-[0_6px_18px_color-mix(in_oklab,var(--color-copper)_45%,transparent)]">
                 <BrandMark size={30} />
               </span>
               Tandem
             </div>
-            <span className="glint-badge mb-5 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-medium text-ink-dim">
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-online" />
-              Open source · Self-hosted
-            </span>
+            {!authing && (
+              <span className="glint-badge mb-5 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-medium text-ink-dim">
+                <span aria-hidden="true" className="size-1.5 rounded-full bg-online" />
+                Open source · Self-hosted
+              </span>
+            )}
             {authing ? (
               <p className="text-[15px] text-ink-dim">
                 Your people. Your place. <span className="highlight">Your server.</span>
@@ -259,10 +264,13 @@ export function JoinScreen({
               onHostClick={onHostClick}
             />
           )}
-          <footer className="mt-8 flex items-center justify-center gap-2 text-[12px] text-ink-faint">
-            <Icon name="lock" size={12} />
-            Your messages and files stay on your server
-          </footer>
+          {/* Signing in, the card's own footer says this about the server it names. */}
+          {!authing && (
+            <footer className="mt-8 flex items-center justify-center gap-2 text-[12px] text-ink-faint">
+              <Icon name="lock" size={12} />
+              Your messages and files stay on your server
+            </footer>
+          )}
         </div>
       </main>
     </div>
@@ -810,13 +818,13 @@ function AuthCard(props: {
   }
 
   const inputCls =
-    "h-10 w-full rounded-xl border border-edge bg-ground px-3.5 text-sm outline-none transition-colors placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper";
+    "field-spot h-10 w-full rounded-xl border border-edge bg-ground px-3.5 text-sm outline-none placeholder:text-ink-faint hover:border-ink-faint/40 focus:border-copper";
   const labelCls = "mb-1.5 block text-[13px] font-medium text-ink-dim";
   const hintCls = "mt-1.5 text-xs text-ink-faint";
   const submitCls = buttonClass("primary", "h-10 w-full rounded-xl");
 
   return (
-    <div className="card-warm rounded-3xl p-6 sm:p-7">
+    <div className="card-warm overflow-hidden rounded-3xl p-6 sm:p-7">
       <div className="mb-6 flex flex-col items-center text-center">
         <span
           aria-hidden="true"
@@ -896,16 +904,25 @@ function AuthCard(props: {
           {hasUsers && (
             <div
               {...tabs.listProps}
-              className="mb-5 flex gap-1 rounded-xl border border-edge bg-ground p-1"
+              className="relative mb-5 flex gap-1 rounded-xl border border-edge bg-ground p-1"
             >
+              {/* One thumb that slides to the chosen form, rather than one that blinks across. */}
+              <span
+                aria-hidden="true"
+                className="segment-thumb"
+                style={
+                  {
+                    "--segments": modes.length,
+                    "--segment": Math.max(0, (modes as readonly Mode[]).indexOf(mode)),
+                  } as React.CSSProperties
+                }
+              />
               {modes.map((m) => (
                 <button
                   key={m}
                   {...tabs.tabProps(m)}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                    mode === m
-                      ? "bg-lifted text-ink shadow-[0_1px_2px_rgb(0_0_0/0.25)]"
-                      : "text-ink-faint hover:text-ink"
+                  className={`relative flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                    mode === m ? "text-ink" : "text-ink-faint hover:text-ink"
                   }`}
                 >
                   {MODE_LABELS[m]}
@@ -1059,13 +1076,20 @@ function AuthCard(props: {
           </div>
         </>
       )}
-      <button
-        onClick={props.onBack}
-        className="mx-auto mt-5 flex items-center gap-1.5 text-[13px] text-ink-faint transition-colors hover:text-ink"
-      >
-        <Icon name="arrow" size={13} style={{ transform: "rotate(180deg)" }} />
-        All workspaces
-      </button>
+      {/* Clerk's footer band, out to the card's edges: the way back, and where what you write is kept. */}
+      <div className="-mx-6 -mb-6 mt-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-[var(--card-edge)] bg-ink/[0.03] px-6 py-3.5 sm:-mx-7 sm:-mb-7 sm:px-7">
+        <button
+          onClick={props.onBack}
+          className="flex items-center gap-1.5 text-[13px] text-ink-dim transition-colors hover:text-ink"
+        >
+          <Icon name="arrow" size={13} style={{ transform: "rotate(180deg)" }} />
+          All workspaces
+        </button>
+        <span className="flex items-center gap-1.5 text-[12px] text-ink-faint">
+          <Icon name="lock" size={12} />
+          Messages and files stay on this server
+        </span>
+      </div>
     </div>
   );
 }
