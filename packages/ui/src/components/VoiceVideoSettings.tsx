@@ -13,17 +13,40 @@ import { inputCls } from "./Dialog.js";
 import { MicrophoneCheck } from "./MicrophoneCheck.js";
 import { buttonClass } from "./Button.js";
 
-/** The ways the browser can clean up a microphone's sound, all on unless turned off. */
+/** How much background noise to take out, as Discord offers it. */
+const NOISE = [
+  {
+    level: "strong",
+    label: "Strong",
+    hint: "Takes out typing, clicks and clatter as well as fans and hum. Uses a little more of your computer.",
+    patch: { noiseSuppression: true, noiseFilter: true },
+  },
+  {
+    level: "standard",
+    label: "Standard",
+    hint: "Your browser's own: takes out steady sound such as fans and hum.",
+    patch: { noiseSuppression: true, noiseFilter: false },
+  },
+  {
+    level: "off",
+    label: "Off",
+    hint: "Sends your microphone as it is, for music or a microphone that cleans up its own sound.",
+    patch: { noiseSuppression: false, noiseFilter: false },
+  },
+] as const;
+
+/** Which of those is chosen; strong unless someone chose otherwise. */
+function noiseLevel(devices: CallDevices): (typeof NOISE)[number]["level"] {
+  if (devices.noiseSuppression === false) return "off";
+  return devices.noiseFilter === false ? "standard" : "strong";
+}
+
+/** The other ways the browser can clean up a microphone's sound, on unless turned off. */
 const PROCESSING = [
   {
     key: "echoCancellation",
     label: "Echo cancellation",
     hint: "Stops others hearing themselves when you use speakers rather than headphones.",
-  },
-  {
-    key: "noiseSuppression",
-    label: "Noise suppression",
-    hint: "Takes out steady background sound: fans, hum, typing.",
   },
   {
     key: "autoGainControl",
@@ -46,6 +69,8 @@ export function VoiceVideoSettings() {
   const [busy, setBusy] = useState(false);
   const speakers = canChooseSpeaker();
   const { devices: chosen } = calls;
+  const noise = noiseLevel(chosen);
+  const noiseName = useId();
 
   async function choose(kind: CaptureKind, patch: CallDevices) {
     setBusy(true);
@@ -121,6 +146,26 @@ export function VoiceVideoSettings() {
           <SpeakerTest speakerId={chosen.speakerId ?? ""} />
         </div>
       )}
+
+      <fieldset className="space-y-3">
+        <legend className="text-sm font-semibold">Noise suppression</legend>
+        {NOISE.map(({ level, label, hint, patch }) => (
+          <label key={level} className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name={noiseName}
+              className="mt-1"
+              checked={noise === level}
+              disabled={disabled}
+              onChange={() => void choose("microphone", patch)}
+            />
+            <span>
+              {label}
+              <span className="block text-xs text-ink-dim">{hint}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
 
       <fieldset className="space-y-3">
         <legend className="text-sm font-semibold">Voice processing</legend>

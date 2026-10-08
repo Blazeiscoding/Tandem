@@ -9,7 +9,14 @@ import {
   type ID,
 } from "@slackoss/protocol";
 import { CALL_CAUSES, type CallLogLine } from "./callLog.js";
-import { cameraConstraints, microphoneConstraints, type MicrophoneSettings } from "./devices.js";
+import {
+  cameraConstraints,
+  microphoneConstraints,
+  wantsNoiseFilter,
+  type FilteredMicrophone,
+  type MicrophoneSettings,
+  type NoiseFilter,
+} from "./devices.js";
 
 export type { CallLogLine } from "./callLog.js";
 
@@ -51,6 +58,18 @@ export interface HuddleSessionOptions {
   microphone?: MicrophoneSettings;
   /** The camera chosen there; missing for the system's default. */
   cameraId?: string;
+  /** Strong noise suppression, where the app has it, for when it is chosen. */
+  noiseFilter?: NoiseFilter;
+}
+
+/** A microphone as the call sends it: the device's own sound, or that sound cleaned. */
+interface MicrophoneFeed {
+  /** What everyone hears. */
+  stream: MediaStream;
+  /** The device itself, whose ending means it went: unplugged, or its permission. */
+  device: MediaStreamTrack | undefined;
+  /** Closes the device and anything made from it. */
+  stop(): void;
 }
 
 export interface HuddleState {
@@ -115,7 +134,7 @@ export class HuddleSession {
   private acquiringScreen = false;
   private peers = new Map<ID, Peer>();
   private connected = new Set<ID>();
-  private localStream: MediaStream | null = null;
+  private mic: MicrophoneFeed | null = null;
   /** The person's latest choice, even while the microphone is being replaced. */
   private muted = false;
   private micLost = false;
@@ -172,36 +191,94 @@ export class HuddleSession {
   async startLocalAudio(muted = false): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
     this.muted = muted;
-    let stream: MediaStream;
+    let feed: MicrophoneFeed;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints(this.microphone));
+      feed = await this.openMicrophone(this.microphone, false);
     } catch (err) {
       this.note(`The microphone did not start: ${describeError(err)}.`);
       throw err;
     }
     this.note(`The microphone started${muted ? ", muted" : ""}.`);
     if (this.destroyed) {
-      stream.getTracks().forEach((track) => track.stop());
+      feed.stop();
       return;
     }
-    this.adoptMicrophone(stream);
+    this.adoptMicrophone(feed);
     this.startLevelPolling();
   }
 
-  /** Makes this the microphone everyone hears, and watches for it stopping. */
-  private adoptMicrophone(stream: MediaStream): void {
-    const track = stream.getAudioTracks()[0];
-    if (track) {
-      track.enabled = !this.muted;
-      // Stopping a track ourselves does not end it this way, so this is only
-      // ever the device going, or its permission.
-      track.onended = () => void this.recoverMicrophone();
+  /**
+   * Opens the microphone with these settings, through the strong noise
+   * filter when it is chosen and the app has one. A filter that will not
+   * start costs the call nothing: the microphone opens again with the
+   * browser's own suppression, and the call log says so.
+   */
+  private async openMicrophone(
+    settings: MicrophoneSettings,
+    exact: boolean,
+  ): Promise<MicrophoneFeed> {
+    const filter = wantsNoiseFilter(settings) ? this.options.noiseFilter : undefined;
+    const plain = (stream: MediaStream): MicrophoneFeed => ({
+      stream,
+      device: stream.getAudioTracks()[0],
+      stop: () => stream.getTracks().forEach((track) => track.stop()),
+    });
+    const device = await navigator.mediaDevices.getUserMedia(
+      microphoneConstraints(settings, exact, !!filter),
+    );
+    if (!filter) {
+      this.note(
+        settings.noiseSuppression === false
+          ? "Noise suppression: off."
+          : "Noise suppression: the browser's own.",
+      );
+      return plain(device);
     }
-    this.localStream = stream;
+    try {
+      const filtered = await filter(device);
+      this.note("Noise suppression: strong.");
+      return {
+        stream: filtered.stream,
+        device: device.getAudioTracks()[0],
+        stop: () => {
+          filtered.stop();
+          device.getTracks().forEach((track) => track.stop());
+        },
+      };
+    } catch (err) {
+      device.getTracks().forEach((track) => track.stop());
+      this.note(
+        `Strong noise suppression did not start (${describeError(err)}); using the browser's own.`,
+      );
+      return plain(
+        await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, exact)),
+      );
+    }
+  }
+
+  /** What everyone hears from this side. */
+  private get localStream(): MediaStream | null {
+    return this.mic?.stream ?? null;
+  }
+
+  /** Makes this the microphone everyone hears, and watches for it stopping. */
+  private adoptMicrophone(feed: MicrophoneFeed): void {
+    const track = feed.stream.getAudioTracks()[0];
+    if (track) track.enabled = !this.muted;
+    // Stopping a track ourselves does not end it this way, so this is only
+    // ever the device going, or its permission.
+    if (feed.device) feed.device.onended = () => void this.recoverMicrophone();
+    this.mic = feed;
     this.micLost = false;
     void this.audioContext?.close().catch(() => {});
     this.audioContext = null;
-    this.watchLocalLevel(stream);
+    this.watchLocalLevel(feed.stream);
+  }
+
+  /** Closes the microphone in use, without taking that for the device going. */
+  private releaseMicrophone(): void {
+    if (this.mic?.device) this.mic.device.onended = null;
+    this.mic?.stop();
   }
 
   /**
@@ -214,7 +291,7 @@ export class HuddleSession {
    * device is plugged in. Resolves whether there is a microphone now.
    */
   async recoverMicrophone(): Promise<boolean> {
-    if (this.destroyed || !this.localStream) return false;
+    if (this.destroyed || !this.mic) return false;
     if (this.recoveringMic) return this.recoveringMic;
     const attempt = this.replaceMicrophone();
     this.recoveringMic = attempt;
@@ -226,21 +303,15 @@ export class HuddleSession {
 
   private async replaceMicrophone(): Promise<boolean> {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(
-        microphoneConstraints(this.microphone),
-      );
+      const feed = await this.openMicrophone(this.microphone, false);
       if (this.destroyed) {
-        stream.getTracks().forEach((track) => track.stop());
+        feed.stop();
         return false;
       }
-      for (const track of this.localStream?.getTracks() ?? []) track.stop();
-      this.adoptMicrophone(stream);
+      this.releaseMicrophone();
+      this.adoptMicrophone(feed);
       this.stopWaitingForMicrophone();
-      await Promise.all(
-        [...this.peers.values()].map((peer) =>
-          peer.audioTx?.sender.replaceTrack(stream.getAudioTracks()[0] ?? null).catch(() => {}),
-        ),
-      );
+      await this.sendMicrophone(feed);
       return true;
     } catch {
       if (this.destroyed) return false;
@@ -263,36 +334,39 @@ export class HuddleSession {
   async setMicrophone(settings: MicrophoneSettings): Promise<void> {
     if (this.destroyed) return;
     const choice = ++this.micChoice;
-    if (!this.localStream) {
+    if (!this.mic) {
       this.microphone = settings;
       return;
     }
-    let stream: MediaStream;
+    let feed: MicrophoneFeed;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, true));
+      feed = await this.openMicrophone(settings, true);
     } catch (err) {
       this.note(`The chosen microphone did not start: ${describeError(err)}.`);
       throw err;
     }
     if (this.destroyed || choice !== this.micChoice) {
-      stream.getTracks().forEach((track) => track.stop());
+      feed.stop();
       return;
     }
     this.microphone = settings;
     this.note("Changed to the chosen microphone.");
-    for (const track of this.localStream?.getTracks() ?? []) {
-      track.onended = null;
-      track.stop();
-    }
-    this.adoptMicrophone(stream);
+    this.releaseMicrophone();
+    this.adoptMicrophone(feed);
     this.stopWaitingForMicrophone();
-    await Promise.all(
-      [...this.peers.values()].map((peer) =>
-        peer.audioTx?.sender.replaceTrack(stream.getAudioTracks()[0] ?? null).catch(() => {}),
-      ),
-    );
+    await this.sendMicrophone(feed);
     this.announceMedia();
     this.onChange?.();
+  }
+
+  /** Sends this microphone to everyone in place of the one before. */
+  private async sendMicrophone(feed: MicrophoneFeed): Promise<void> {
+    const track = feed.stream.getAudioTracks()[0] ?? null;
+    await Promise.all(
+      [...this.peers.values()].map((peer) =>
+        peer.audioTx?.sender.replaceTrack(track).catch(() => {}),
+      ),
+    );
   }
 
   private readonly onDeviceChange = () => void this.recoverMicrophone();
@@ -986,8 +1060,8 @@ export class HuddleSession {
     this.screenTrack?.stop();
     this.screenTrack = null;
     this.localScreenStream = null;
-    for (const track of this.localStream?.getTracks() ?? []) track.stop();
-    this.localStream = null;
+    this.releaseMicrophone();
+    this.mic = null;
     this.onChange = null;
   }
 }
@@ -1153,22 +1227,40 @@ export interface MicrophoneTest {
   stream: MediaStream;
   /** False where the browser cannot measure sound, so no level will come. */
   metered: boolean;
+  /** Whether what it hears went through the strong noise filter. */
+  filtered: boolean;
   /** Closes the microphone. Safe to call more than once. */
   stop(): void;
 }
 
 /**
  * Opens the microphone the way a huddle would with the settings being tried,
- * and reports how loud it is several times a second, until stopped, so
- * someone can check it before a call. Nothing is sent anywhere. Rejects as
+ * through the strong noise filter when it is chosen, and reports how loud it
+ * is several times a second, until stopped, so someone can check it before a
+ * call and hear what others would. Nothing is sent anywhere. Rejects as
  * `startLocalAudio` does, for `captureFailure` to word.
  */
 export async function testMicrophone(
   onLevel: (level: number) => void,
   settings: MicrophoneSettings = {},
+  noiseFilter?: NoiseFilter,
 ): Promise<MicrophoneTest> {
   if (!navigator.mediaDevices?.getUserMedia) throw unsupported("microphone");
-  const stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, true));
+  const filter = wantsNoiseFilter(settings) ? noiseFilter : undefined;
+  let device = await navigator.mediaDevices.getUserMedia(
+    microphoneConstraints(settings, true, !!filter),
+  );
+  let filtered: FilteredMicrophone | null = null;
+  if (filter) {
+    try {
+      filtered = await filter(device);
+    } catch {
+      // As in a call: the browser's own suppression stands in.
+      device.getTracks().forEach((track) => track.stop());
+      device = await navigator.mediaDevices.getUserMedia(microphoneConstraints(settings, true));
+    }
+  }
+  const stream = filtered?.stream ?? device;
   let context: AudioContext | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   const Ctx = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
@@ -1188,13 +1280,17 @@ export async function testMicrophone(
     }
   }
   return {
-    label: stream.getAudioTracks()[0]?.label ?? "",
+    // The device's name: the filter's output is named for the audio node.
+    label: device.getAudioTracks()[0]?.label ?? "",
     stream,
     metered: timer !== null,
+    filtered: filtered !== null,
     stop() {
       if (timer) clearInterval(timer);
       timer = null;
-      stream.getTracks().forEach((track) => track.stop());
+      filtered?.stop();
+      filtered = null;
+      device.getTracks().forEach((track) => track.stop());
       void context?.close().catch(() => {});
       context = null;
     },

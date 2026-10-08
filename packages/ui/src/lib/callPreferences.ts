@@ -3,6 +3,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { MicrophoneSettings, WorkspaceClient } from "@slackoss/client-core";
 import { usePlatform } from "../context.js";
 import type { Platform } from "../platform.js";
+import { noiseFilter } from "./noiseFilter.js";
 
 /**
  * The devices a huddle uses and how it cleans up the microphone's sound,
@@ -14,6 +15,8 @@ export interface CallDevices {
   speakerId?: string;
   echoCancellation?: boolean;
   noiseSuppression?: boolean;
+  /** Strong noise suppression in place of the browser's own; see MicrophoneSettings. */
+  noiseFilter?: boolean;
   autoGainControl?: boolean;
 }
 
@@ -51,7 +54,7 @@ function devicesOf(saved: Record<string, unknown>): CallDevices {
     const value = saved[key];
     if (typeof value === "string" && value) devices[key] = value;
   }
-  for (const key of ["echoCancellation", "noiseSuppression", "autoGainControl"]) {
+  for (const key of ["echoCancellation", "noiseSuppression", "noiseFilter", "autoGainControl"]) {
     const value = saved[key];
     if (typeof value === "boolean") devices[key] = value;
   }
@@ -131,6 +134,7 @@ function createPreferences(platform: Platform) {
         muted: joinMuted,
         ...(Object.keys(microphone).length > 0 ? { microphone } : {}),
         ...(devices.cameraId ? { cameraId: devices.cameraId } : {}),
+        noiseFilter,
       });
     },
   }));

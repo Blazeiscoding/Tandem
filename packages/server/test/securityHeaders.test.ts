@@ -19,8 +19,10 @@ describe("the policy itself", () => {
   it("will not let injected markup become running code", () => {
     // The directive that matters for a chat application, whose whole job is
     // displaying text other people wrote.
-    expect(directive(CONTENT_SECURITY_POLICY, "script-src")).toBe("'self'");
-    expect(CONTENT_SECURITY_POLICY).not.toContain("unsafe-eval");
+    // WebAssembly the app ships may be compiled, for the call noise filter;
+    // JavaScript eval may not.
+    expect(directive(CONTENT_SECURITY_POLICY, "script-src")).toBe("'self' 'wasm-unsafe-eval'");
+    expect(CONTENT_SECURITY_POLICY).not.toContain("'unsafe-eval'");
     expect(directive(CONTENT_SECURITY_POLICY, "object-src")).toBe("'none'");
     expect(directive(CONTENT_SECURITY_POLICY, "base-uri")).toBe("'self'");
   });
@@ -43,7 +45,7 @@ describe("the policy itself", () => {
     // Writing it there would be ignored rather than enforced, which reads as
     // protection that is not there.
     expect(CONTENT_SECURITY_POLICY_META).not.toContain("frame-ancestors");
-    expect(CONTENT_SECURITY_POLICY_META).toContain("script-src 'self'");
+    expect(CONTENT_SECURITY_POLICY_META).toContain("script-src 'self' 'wasm-unsafe-eval'");
   });
 });
 

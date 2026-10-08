@@ -2,16 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import {
   captureFailure,
   testMicrophone,
+  wantsNoiseFilter,
   type MicrophoneSettings,
   type MicrophoneTest,
 } from "@slackoss/client-core";
 import { useSpeaker } from "../lib/mediaDevices.js";
+import { noiseFilter } from "../lib/noiseFilter.js";
 import { buttonClass } from "./Button.js";
 
 type Check =
   | { phase: "idle" }
   | { phase: "starting" }
-  | { phase: "listening"; label: string; metered: boolean; level: number }
+  | { phase: "listening"; label: string; metered: boolean; filtered: boolean; level: number }
   | { phase: "failed"; message: string };
 
 /**
@@ -57,17 +59,27 @@ export function MicrophoneCheck({
     test.current = null;
     setCheck({ phase: "starting" });
     try {
-      const opened = await testMicrophone((level) => {
-        if (alive.current && attempt.current === mine)
-          setCheck((now) => (now.phase === "listening" ? { ...now, level } : now));
-      }, settings);
+      const opened = await testMicrophone(
+        (level) => {
+          if (alive.current && attempt.current === mine)
+            setCheck((now) => (now.phase === "listening" ? { ...now, level } : now));
+        },
+        settings,
+        noiseFilter,
+      );
       if (!alive.current || attempt.current !== mine) {
         opened.stop();
         return;
       }
       test.current = opened;
       if (echo.current) echo.current.srcObject = opened.stream;
-      setCheck({ phase: "listening", label: opened.label, metered: opened.metered, level: 0 });
+      setCheck({
+        phase: "listening",
+        label: opened.label,
+        metered: opened.metered,
+        filtered: opened.filtered,
+        level: 0,
+      });
       onOpened?.();
     } catch (err) {
       if (alive.current && attempt.current === mine)
@@ -119,6 +131,12 @@ export function MicrophoneCheck({
               : " It opened, but this browser cannot show how loud it is."}{" "}
             Nothing is sent to anyone.
           </p>
+          {wantsNoiseFilter(settings) && !check.filtered && (
+            <p className="text-sm text-ink-dim">
+              Strong noise suppression could not start here, so this is your browser's own. A huddle
+              does the same.
+            </p>
+          )}
           {check.metered && (
             <div
               role="meter"

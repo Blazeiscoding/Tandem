@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { canChooseSpeaker, listMediaDevices } from "../src/devices.js";
+import {
+  canChooseSpeaker,
+  listMediaDevices,
+  microphoneConstraints,
+  wantsNoiseFilter,
+} from "../src/devices.js";
 
 /** What Chromium's `enumerateDevices` gives on Windows, stand-ins for the default included. */
 function devices(list: { kind: MediaDeviceKind; deviceId: string; label: string }[]) {
@@ -70,5 +75,25 @@ describe("the devices to choose from (Voice & video)", () => {
     } finally {
       g.HTMLMediaElement = before;
     }
+  });
+});
+
+describe("how much noise to take out (Voice & video)", () => {
+  it("uses the strong filter unless it, or suppression altogether, was turned off", () => {
+    expect(wantsNoiseFilter()).toBe(true);
+    expect(wantsNoiseFilter({ noiseFilter: true })).toBe(true);
+    expect(wantsNoiseFilter({ noiseFilter: false })).toBe(false);
+    // Turned off before there was a strong filter: still off.
+    expect(wantsNoiseFilter({ noiseSuppression: false })).toBe(false);
+    expect(wantsNoiseFilter({ noiseSuppression: false, noiseFilter: true })).toBe(false);
+  });
+
+  it("leaves the browser's own suppression off under the filter, rather than run both", () => {
+    const audio = (filtered: boolean, settings = {}) =>
+      (microphoneConstraints(settings, false, filtered).audio as MediaTrackConstraints)
+        .noiseSuppression;
+    expect(audio(true)).toBe(false);
+    expect(audio(false)).toBe(true);
+    expect(audio(false, { noiseSuppression: false })).toBe(false);
   });
 });

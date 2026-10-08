@@ -19,5 +19,8 @@ const stampBuild: Plugin = {
 
 export default defineConfig({
   define: { __TANDEM_BUILD__: JSON.stringify(identity) },
+  // The call noise filter's model is bundled into its chunk as a data URL
+  // (`?inline`), which Vite does for assets it knows; WebAssembly is not one.
+  assetsInclude: ["**/*.wasm"],
   plugins: [react(), tailwindcss(), stampBuild, precompress()],
 });
