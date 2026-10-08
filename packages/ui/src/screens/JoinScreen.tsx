@@ -209,12 +209,6 @@ export function JoinScreen({
               </span>
               Tandem
             </div>
-            {!authing && (
-              <span className="glint-badge mb-5 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-medium text-ink-dim">
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-online" />
-                Open source · Self-hosted
-              </span>
-            )}
             {authing ? (
               <p className="text-[15px] text-ink-dim">
                 Your people. Your place. <span className="highlight">Your server.</span>
