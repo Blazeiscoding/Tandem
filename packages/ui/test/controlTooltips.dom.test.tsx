@@ -173,10 +173,18 @@ describe("compact controls explain themselves with the shared tooltip", () => {
         ],
       },
     });
+    // Where how loud each person is to you is kept.
+    const platform: Platform = {
+      kind: "web",
+      storage: { get: async () => null, set: async () => {} },
+      notify: () => {},
+    };
     render(
-      <ClientContext.Provider value={c}>
-        <HuddleStage view="docked" onViewChange={() => {}} />
-      </ClientContext.Provider>,
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={c}>
+          <HuddleStage view="docked" onViewChange={() => {}} />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
     );
     const region = screen.getByRole("region", { name: "Huddle video" });
     expect(region.querySelector("[title]")).toBeNull();

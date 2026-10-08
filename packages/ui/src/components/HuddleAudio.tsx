@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { HuddlePeer } from "@slackoss/client-core";
 import type { ID } from "@slackoss/protocol";
 import { useSpeaker } from "../lib/mediaDevices.js";
+import { gainOf, type PersonVolume } from "../lib/callVolumes.js";
 
 type PlaybackFailure = "gesture" | "failed";
 
@@ -16,30 +17,113 @@ type PlaybackCallbacks = {
   report: (id: ID, failure: PlaybackFailure | null) => void;
 };
 
-/** Attach each microphone stream even when the call has no video. */
+/** Someone's voice made louder than it arrives, and the graph that does it. */
+interface Boost {
+  /** What it boosts; a boost of an earlier stream is not used for the next. */
+  source: MediaStream;
+  context: AudioContext;
+  gain: GainNode;
+  /** What the element plays in place of the source. */
+  stream: MediaStream;
+}
+
+/** How long a stopped audio graph is given to start before a gesture is asked for. */
+const RESUME_WAIT_MS = 500;
+
+/**
+ * Louder than someone arrives, which an element's volume cannot go: their
+ * stream through a gain, into a stream the element plays instead, so the
+ * chosen speaker still applies. Only while `stream` is given.
+ */
+function useBoost(stream: MediaStream | null, gain: number): Boost | null {
+  const [boost, setBoost] = useState<Boost | null>(null);
+  useEffect(() => {
+    const Context = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
+    if (!stream || !Context) return;
+    let context: AudioContext | null = null;
+    try {
+      context = new Context({ latencyHint: "interactive" });
+      const amp = context.createGain();
+      const out = context.createMediaStreamDestination();
+      context.createMediaStreamSource(stream).connect(amp).connect(out);
+      setBoost({ source: stream, context, gain: amp, stream: out.stream });
+    } catch {
+      // Played as it arrives, which is as loud as an element goes.
+      void context?.close().catch(() => {});
+      return;
+    }
+    return () => {
+      setBoost(null);
+      void context?.close().catch(() => {});
+    };
+  }, [stream]);
+  const usable = boost && boost.source === stream ? boost : null;
+  useEffect(() => {
+    if (!usable) return;
+    // Eased, so dragging the slider does not click.
+    usable.gain.gain.setTargetAtTime(gain, usable.context.currentTime, 0.02);
+  }, [usable, gain]);
+  return usable;
+}
+
+/** Whether a stopped graph starts, without waiting on a resume that waits for a gesture. */
+async function running(context: AudioContext): Promise<boolean> {
+  if (context.state === "running") return true;
+  await Promise.race([
+    context.resume().catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, RESUME_WAIT_MS)),
+  ]);
+  return (context.state as AudioContextState) === "running";
+}
+
+/**
+ * Attach each microphone stream even when the call has no video, as loud as
+ * you chose for that person: `gain` times as loud as they arrive.
+ */
 function PeerAudio({
   peer,
   speakerId,
+  gain,
   register,
   report,
-}: { peer: HuddlePeer; speakerId: string } & PlaybackCallbacks) {
+}: { peer: HuddlePeer; speakerId: string; gain: number } & PlaybackCallbacks) {
   const ref = useRef<HTMLAudioElement>(null);
+  const keeper = useRef<HTMLAudioElement>(null);
   useSpeaker(ref, speakerId);
+  const boost = useBoost(gain > 1 ? peer.audioStream : null, gain);
+  const playing = boost?.stream ?? peer.audioStream;
+  useEffect(() => {
+    // Up to as loud as they arrive, the element's own volume does it.
+    if (ref.current) ref.current.volume = boost ? 1 : Math.min(1, Math.max(0, gain));
+  }, [boost, gain]);
+  useEffect(() => {
+    // Chromium gives an audio graph silence from a call's stream unless an
+    // element is playing that stream too: this one, muted.
+    const element = keeper.current;
+    if (!element || !boost) return;
+    element.srcObject = boost.source;
+    void Promise.resolve(element.play()).catch(() => {});
+    return () => {
+      element.srcObject = null;
+    };
+  }, [boost]);
   useEffect(() => {
     const element = ref.current;
-    if (!element || !peer.audioStream) return;
+    if (!element || !playing) return;
     let active = true;
     let attempt = 0;
-    element.srcObject = peer.audioStream;
+    element.srcObject = playing;
     const play = () => {
       const ticket = ++attempt;
       const settled = (failure: PlaybackFailure | null) => {
         if (active && ticket === attempt) report(peer.userId, failure);
       };
       try {
-        // The retry calls play directly from the button's user gesture.
-        void Promise.resolve(element.play()).then(
-          () => settled(null),
+        // The retry calls play directly from the button's user gesture, and
+        // starts a boost's graph from it too.
+        const graph = boost ? running(boost.context) : Promise.resolve(true);
+        void Promise.all([Promise.resolve(element.play()), graph]).then(
+          ([, started]) => settled(started ? null : "gesture"),
           (error: unknown) => settled(playbackFailure(error)),
         );
       } catch (error) {
@@ -54,18 +138,26 @@ function PeerAudio({
       report(peer.userId, null);
       element.srcObject = null;
     };
-  }, [peer.audioStream, peer.userId, register, report]);
-  return <audio ref={ref} autoPlay hidden />;
+  }, [playing, boost, peer.userId, register, report]);
+  return (
+    <>
+      <audio ref={ref} autoPlay hidden />
+      {boost && <audio ref={keeper} autoPlay muted hidden />}
+    </>
+  );
 }
 
 /** One gesture retries all blocked peers, without restarting audible streams. */
 export function HuddleAudio({
   peers,
   speakerId = "",
+  volumes = {},
 }: {
   peers: HuddlePeer[];
   /** The speaker chosen in Voice & video settings; "" for the system's default. */
   speakerId?: string;
+  /** How loud you chose each person to be; anyone missing is as they arrive. */
+  volumes?: Record<ID, PersonVolume>;
 }) {
   const retries = useRef(new Map<ID, () => void>());
   const [blocked, setBlocked] = useState<Map<ID, PlaybackFailure>>(() => new Map());
@@ -111,6 +203,7 @@ export function HuddleAudio({
           key={peer.userId}
           peer={peer}
           speakerId={speakerId}
+          gain={gainOf(volumes[peer.userId])}
           register={register}
           report={report}
         />

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceClient, type HuddlePeer } from "@slackoss/client-core";
 import type { User } from "@slackoss/protocol";
 import { ClientContext, PlatformContext } from "../src/context.js";
-import { webPlatform } from "../src/platform.js";
+import { webPlatform, type Platform } from "../src/platform.js";
 import { HuddleBar } from "../src/components/HuddleBar.js";
 import { HuddleAudio } from "../src/components/HuddleAudio.js";
 
@@ -205,5 +205,161 @@ describe("recovering huddle audio", () => {
     rerender(<HuddleAudio peers={[peer("A")]} />);
     await act(async () => reject(new Error("Old stream failed")));
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+});
+
+/** An audio graph that only records what it was asked to do. */
+class FakeContext {
+  static made: FakeContext[] = [];
+  state: AudioContextState = "running";
+  currentTime = 0;
+  source: MediaStream | null = null;
+  out = { stream: { id: "boosted" } as unknown as MediaStream };
+  amp = {
+    gain: { setTargetAtTime: vi.fn() },
+    connect: (next: unknown) => next,
+  };
+  close = vi.fn(async () => {});
+  resume = vi.fn(() => Promise.resolve());
+  constructor() {
+    FakeContext.made.push(this);
+  }
+  createGain() {
+    return this.amp;
+  }
+  createMediaStreamDestination() {
+    return this.out;
+  }
+  createMediaStreamSource(stream: MediaStream) {
+    this.source = stream;
+    return { connect: (next: unknown) => next };
+  }
+}
+
+describe("as loud as you chose each person to be", () => {
+  beforeEach(() => {
+    FakeContext.made = [];
+    vi.stubGlobal("AudioContext", FakeContext);
+    play.mockResolvedValue();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("turns someone down, or off, with the element's own volume", async () => {
+    const a = peer("A");
+    const { container, rerender } = render(
+      <HuddleAudio peers={[a]} volumes={{ A: { volume: 40, muted: false } }} />,
+    );
+    const audio = container.querySelector("audio")!;
+    expect(audio.volume).toBeCloseTo(0.4);
+    expect(audio.srcObject).toBe(a.audioStream);
+    rerender(<HuddleAudio peers={[a]} volumes={{ A: { volume: 40, muted: true } }} />);
+    expect(audio.volume).toBe(0);
+    // Nobody else is touched, and no audio graph is needed for any of it.
+    rerender(<HuddleAudio peers={[a, peer("B")]} volumes={{ A: { volume: 40, muted: true } }} />);
+    expect(container.querySelectorAll("audio")[1]!.volume).toBe(1);
+    expect(FakeContext.made).toEqual([]);
+  });
+
+  it("turns someone up past how they arrive through a gain, holding their stream in a muted element", async () => {
+    const a = peer("A");
+    const { container, rerender } = render(
+      <HuddleAudio peers={[a]} volumes={{ A: { volume: 150, muted: false } }} />,
+    );
+    await waitFor(() => expect(container.querySelectorAll("audio")).toHaveLength(2));
+    const [audio, keeper] = container.querySelectorAll("audio");
+    const graph = FakeContext.made[0]!;
+    expect(graph.source).toBe(a.audioStream);
+    expect(audio!.srcObject).toBe(graph.out.stream);
+    expect(audio!.volume).toBe(1);
+    expect(keeper!.muted).toBe(true);
+    expect(keeper!.srcObject).toBe(a.audioStream);
+    expect(graph.amp.gain.setTargetAtTime).toHaveBeenLastCalledWith(1.5, 0, expect.any(Number));
+
+    rerender(<HuddleAudio peers={[a]} volumes={{ A: { volume: 200, muted: false } }} />);
+    expect(graph.amp.gain.setTargetAtTime).toHaveBeenLastCalledWith(2, 0, expect.any(Number));
+    expect(FakeContext.made).toHaveLength(1);
+
+    // Back down: the element alone again, and the graph let go.
+    rerender(<HuddleAudio peers={[a]} volumes={{ A: { volume: 80, muted: false } }} />);
+    await waitFor(() => expect(container.querySelectorAll("audio")).toHaveLength(1));
+    expect(graph.close).toHaveBeenCalled();
+    expect(audio!.srcObject).toBe(a.audioStream);
+    expect(audio!.volume).toBeCloseTo(0.8);
+  });
+
+  it("asks for a gesture when the graph will not start without one", async () => {
+    class Stopped extends FakeContext {
+      override state: AudioContextState = "suspended";
+      override resume = vi.fn(() => new Promise<void>(() => {}));
+    }
+    vi.stubGlobal("AudioContext", Stopped);
+    render(<HuddleAudio peers={[peer("A")]} volumes={{ A: { volume: 180, muted: false } }} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Your browser is holding back the huddle's sound.",
+    );
+  });
+});
+
+describe("each person's volume, from the bar", () => {
+  function barOn() {
+    const platform = {
+      kind: "web",
+      storage: { get: async () => null, set: async () => {} },
+      notify: () => {},
+    } as unknown as Platform;
+    const client = new WorkspaceClient("http://127.0.0.1:9", "test-token-not-a-credential");
+    const sam = person("U_SAM", "Sam");
+    client.store.setState({
+      self: sam,
+      users: { U_SAM: sam, U_PRIYA: person("U_PRIYA", "Priya") },
+      status: "online",
+      huddle: {
+        channelId: "C_GENERAL",
+        micMuted: false,
+        cameraOn: false,
+        sharingScreen: false,
+        localCameraStream: null,
+        localScreenStream: null,
+        speaking: false,
+        micLost: false,
+        peers: [priya],
+      },
+    });
+    const utils = render(
+      <PlatformContext.Provider value={platform}>
+        <ClientContext.Provider value={client}>
+          <HuddleBar />
+        </ClientContext.Provider>
+      </PlatformContext.Provider>,
+    );
+    return { ...utils, user: userEvent.setup() };
+  }
+
+  it("is set for each of the others in the list of who is there, and muted for you alone", async () => {
+    play.mockResolvedValue();
+    const { container, user } = barOn();
+    const audio = container.querySelector("audio")!;
+    await user.click(screen.getByRole("button", { name: "Everyone in the huddle (2)" }));
+    const list = screen.getByRole("list", { name: "In the huddle" });
+    // Yours is not yours to set: only the others have a volume.
+    expect(within(list).getAllByRole("slider")).toHaveLength(1);
+    const volume = within(list).getByRole("slider", { name: "Priya's volume" });
+    expect(volume).toHaveValue("100");
+    expect(volume).toHaveAttribute("aria-valuetext", "100%");
+
+    fireEvent.change(volume, { target: { value: "60" } });
+    expect(volume).toHaveAttribute("aria-valuetext", "60%");
+    expect(audio.volume).toBeCloseTo(0.6);
+
+    const mute = within(list).getByRole("button", { name: "Mute Priya for you" });
+    await user.click(mute);
+    expect(mute).toHaveAttribute("aria-pressed", "true");
+    expect(audio.volume).toBe(0);
+    expect(within(list).getByRole("listitem", { name: "Priya, muted for you" })).toBeVisible();
+    // Her volume is kept, and moving it is wanting to hear her again.
+    expect(volume).toHaveValue("60");
+    fireEvent.change(volume, { target: { value: "70" } });
+    expect(mute).toHaveAttribute("aria-pressed", "false");
+    expect(audio.volume).toBeCloseTo(0.7);
   });
 });

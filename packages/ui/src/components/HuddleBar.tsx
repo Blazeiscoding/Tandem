@@ -11,15 +11,21 @@ import { Tooltip } from "./Tooltip.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
 import { namesList } from "../lib/catchUp.js";
 import { useCallPreferences } from "../lib/callPreferences.js";
+import { useCallVolumes } from "../lib/callVolumes.js";
+import { PersonVolume } from "./PersonVolume.js";
 
 /** Someone in the call, as the bar and its roster need them. */
 interface Person {
   key: string;
+  /** Someone else in the call, whose volume is yours to set; absent for you. */
+  peerId?: ID;
   user: User | undefined;
   /** "You" or a display name. */
   name: string;
   speaking: boolean;
   muted: boolean;
+  /** Muted by you, for you alone. */
+  mutedForYou?: boolean;
   connecting: boolean;
   /** Connecting has taken long enough to know something is wrong. */
   stuck: boolean;
@@ -31,6 +37,8 @@ const FACES = 4;
 /** What is true of someone besides their name, for a label or the roster. */
 function stateOf(p: Person): string | null {
   if (p.connecting) return p.stuck ? "can't connect" : "connecting…";
+  // Before talking: it is why you cannot hear them.
+  if (p.mutedForYou) return "muted for you";
   if (p.speaking) return "talking";
   if (p.muted) return "muted";
   return null;
@@ -50,10 +58,16 @@ function HuddleFace({ person, size = 24 }: { person: Person; size?: number }) {
       } ${person.connecting ? "opacity-40" : ""}`}
     >
       <Avatar user={person.user} size={size} />
-      {person.muted && (
-        <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-raised p-0.5 text-ink-dim">
-          <Icon name="micOff" size={9} />
+      {person.mutedForYou ? (
+        <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-raised p-0.5 text-alert">
+          <Icon name="volumeOff" size={9} />
         </span>
+      ) : (
+        person.muted && (
+          <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-raised p-0.5 text-ink-dim">
+            <Icon name="micOff" size={9} />
+          </span>
+        )
       )}
     </span>
   );
@@ -61,8 +75,8 @@ function HuddleFace({ person, size = 24 }: { person: Person; size?: number }) {
 
 /**
  * Everyone in the call, by name, with who is talking, muted or still
- * connecting. The faces in the bar are too small to tell people apart by, so
- * they open this.
+ * connecting, and how loud each of the others is to you. The faces in the bar
+ * are too small to tell people apart by, so they open this.
  */
 function HuddlePeople({ people }: { people: Person[] }) {
   const [open, setOpen] = useState(false);
@@ -91,7 +105,12 @@ function HuddlePeople({ people }: { people: Person[] }) {
         </button>
       </Tooltip>
       {open && (
-        <Popover label="Everyone in the huddle" anchor={anchor} onClose={() => setOpen(false)}>
+        <Popover
+          label="Everyone in the huddle"
+          anchor={anchor}
+          onClose={() => setOpen(false)}
+          width={300}
+        >
           <p className="px-4 pb-1 pt-3 text-xs font-semibold text-ink-faint">
             In the huddle · {people.length}
           </p>
@@ -102,18 +121,29 @@ function HuddlePeople({ people }: { people: Person[] }) {
                 <li
                   key={p.key}
                   aria-label={state ? `${p.name}, ${state}` : p.name}
-                  className="flex items-center gap-2.5 rounded-lg px-2 py-1.5"
+                  className="rounded-lg px-2 py-1.5"
                 >
-                  <HuddleFace person={p} size={28} />
-                  <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
-                  {state && (
-                    <span
-                      className={`shrink-0 text-xs ${
-                        p.stuck ? "text-alert" : p.speaking ? "text-online" : "text-ink-faint"
-                      }`}
-                    >
-                      {state[0]!.toUpperCase() + state.slice(1)}
-                    </span>
+                  <div className="flex items-center gap-2.5">
+                    <HuddleFace person={p} size={28} />
+                    <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
+                    {state && (
+                      <span
+                        className={`shrink-0 text-xs ${
+                          p.stuck || p.mutedForYou
+                            ? "text-alert"
+                            : p.speaking
+                              ? "text-online"
+                              : "text-ink-faint"
+                        }`}
+                      >
+                        {state[0]!.toUpperCase() + state.slice(1)}
+                      </span>
+                    )}
+                  </div>
+                  {p.peerId && (
+                    <div className="pl-7">
+                      <PersonVolume userId={p.peerId} name={p.name} />
+                    </div>
                   )}
                 </li>
               );
@@ -147,6 +177,7 @@ export function HuddleBar({
   const channels = useWorkspace((s) => s.channels);
   const selfId = useWorkspace((s) => s.self?.id);
   const speakerId = useCallPreferences().devices.speakerId;
+  const { volumes } = useCallVolumes();
 
   if (!huddle) return null;
   const channel = channels[huddle.channelId];
@@ -171,10 +202,12 @@ export function HuddleBar({
     },
     ...huddle.peers.map((p) => ({
       key: p.userId,
+      peerId: p.userId,
       user: users[p.userId],
       name: users[p.userId]?.displayName ?? "Someone",
       speaking: p.connected && p.speaking,
       muted: p.connected && p.micMuted,
+      mutedForYou: volumes[p.userId]?.muted ?? false,
       connecting: !p.connected,
       stuck: !p.connected && !!p.trouble,
     })),
@@ -227,7 +260,7 @@ export function HuddleBar({
 
       <HuddlePeople people={people} />
 
-      <HuddleAudio peers={huddle.peers} speakerId={speakerId} />
+      <HuddleAudio peers={huddle.peers} speakerId={speakerId} volumes={volumes} />
 
       {view === "hidden" && onViewChange && huddleHasVideo(huddle) && (
         <button

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { WorkspaceClient, type HuddlePeer, type HuddleState } from "@slackoss/client-core";
 import type { Channel, User } from "@slackoss/protocol";
 import { ClientContext, PlatformContext } from "../src/context.js";
-import { webPlatform } from "../src/platform.js";
+import { webPlatform, type Platform } from "../src/platform.js";
 import { HuddleBar } from "../src/components/HuddleBar.js";
 import { bestFit, HuddleStage, type HuddleView } from "../src/components/HuddleStage.js";
 import { accessibilityProblems } from "./accessibility.js";
@@ -78,11 +78,11 @@ function huddleClient(huddle: Partial<HuddleState>) {
   return client;
 }
 
-function stage(huddle: Partial<HuddleState>, view: HuddleView = "docked") {
+function stage(huddle: Partial<HuddleState>, view: HuddleView = "docked", on = platform) {
   const client = huddleClient(huddle);
   const onViewChange = vi.fn();
   const utils = render(
-    <PlatformContext.Provider value={platform}>
+    <PlatformContext.Provider value={on}>
       <ClientContext.Provider value={client}>
         <HuddleStage view={view} onViewChange={onViewChange} />
       </ClientContext.Provider>
@@ -90,7 +90,7 @@ function stage(huddle: Partial<HuddleState>, view: HuddleView = "docked") {
   );
   const rerender = (next: HuddleView) =>
     utils.rerender(
-      <PlatformContext.Provider value={platform}>
+      <PlatformContext.Provider value={on}>
         <ClientContext.Provider value={client}>
           <HuddleStage view={next} onViewChange={onViewChange} />
         </ClientContext.Provider>
@@ -120,6 +120,35 @@ describe("the huddle stage", () => {
         .getAllByRole("group")
         .map((tile) => tile.getAttribute("aria-label")),
     ).toEqual(["You", "Priya Shah, camera off, muted"]);
+    expect(await accessibilityProblems(region())).toEqual([]);
+  });
+
+  it("sets how loud someone is to you from their tile, in the tile so it shows in full screen", async () => {
+    // A device of its own, so nobody stays muted for the tests after.
+    const device = {
+      kind: "web",
+      storage: { get: async () => null, set: async () => {} },
+      notify: () => {},
+    } as unknown as Platform;
+    const { user } = stage({ localCameraStream: stream(), cameraOn: true }, "docked", device);
+    const everyone = within(region()).getByRole("list", { name: "Everyone in the huddle" });
+    // Yours is not yours to set.
+    expect(within(everyone).getAllByRole("button", { name: /^Volume for / })).toHaveLength(1);
+    const open = within(everyone).getByRole("button", { name: "Volume for Priya Shah" });
+    expect(open).toHaveAttribute("aria-expanded", "false");
+    await user.click(open);
+    expect(open).toHaveAttribute("aria-expanded", "true");
+    const tile = within(everyone).getByRole("group", { name: "Priya Shah, camera off" });
+    // Inside her tile, not portalled out of the stage.
+    const volume = within(tile).getByRole("slider", { name: "Priya Shah's volume" });
+    expect(volume).toHaveValue("100");
+    await user.click(within(tile).getByRole("button", { name: "Mute Priya Shah for you" }));
+    expect(
+      within(everyone).getByRole("group", { name: "Priya Shah, camera off, muted for you" }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(within(everyone).queryByRole("slider")).not.toBeInTheDocument();
+    expect(open).toHaveFocus();
     expect(await accessibilityProblems(region())).toEqual([]);
   });
 

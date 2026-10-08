@@ -719,6 +719,103 @@ test("the microphone and speaker can be changed in a call, from the call and fro
   }
 });
 
+test("each person's volume is yours alone: turned down, up past as sent, or muted for you", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  const a = await browser.newContext({ permissions: ["microphone", "camera"] });
+  const b = await browser.newContext({ permissions: ["microphone", "camera"] });
+  try {
+    const alice = await a.newPage();
+    const bob = await b.newPage();
+    const errors: string[] = [];
+    for (const page of [alice, bob]) {
+      page.on("pageerror", (err) => errors.push(err.message));
+      await page.addInitScript(() => {
+        // The fake microphone plays a tone, which strong noise suppression
+        // takes out as noise; on the browser's own it is there to measure.
+        localStorage.setItem(
+          "slackoss:call-preferences",
+          JSON.stringify({ joinMuted: false, noiseFilter: false }),
+        );
+      });
+    }
+    await signIn(alice, "alice");
+    await signIn(bob, "bobby");
+    const bar = (page: Page) => page.getByRole("region", { name: "Active huddle", exact: true });
+    await alice.getByRole("button", { name: "Start a huddle", exact: true }).click();
+    await bob.getByRole("button", { name: "Join the huddle with alice", exact: true }).click();
+    await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
+    await expect(bar(bob).getByRole("status")).toHaveText("With alice");
+
+    /**
+     * How `page` plays the other person: the element's volume, whether a
+     * muted element holds their stream for a boost, and the loudest moment of
+     * what the element plays, over long enough to catch the tone's beep.
+     */
+    const plays = (page: Page) =>
+      page.evaluate(async () => {
+        const audios = [...document.querySelectorAll("audio")].filter((el) => el.srcObject);
+        const heard = audios.find((el) => !el.muted)!;
+        const context = new AudioContext();
+        await context.resume();
+        const analyser = context.createAnalyser();
+        context.createMediaStreamSource(heard.srcObject as MediaStream).connect(analyser);
+        const samples = new Float32Array(analyser.fftSize);
+        let loudest = 0;
+        for (let i = 0; i < 30; i++) {
+          analyser.getFloatTimeDomainData(samples);
+          for (const v of samples) loudest = Math.max(loudest, Math.abs(v));
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        await context.close();
+        return {
+          volume: heard.volume,
+          held: audios.some((el) => el.muted),
+          loudest,
+        };
+      });
+
+    // The list of who is there sets how loud each of the others is.
+    await bar(bob).getByRole("button", { name: "Everyone in the huddle (2)", exact: true }).click();
+    const list = bob.getByRole("list", { name: "In the huddle", exact: true });
+    const volume = list.getByRole("slider", { name: "alice's volume", exact: true });
+    await expect(volume).toHaveValue("100");
+    await expect.poll(async () => (await plays(bob)).loudest).toBeGreaterThan(0);
+    const asSent = await plays(bob);
+    expect(asSent).toMatchObject({ volume: 1, held: false });
+
+    await volume.fill("50");
+    await expect.poll(async () => (await plays(bob)).volume).toBe(0.5);
+
+    // Past as sent, through a gain: a muted element holds her stream, without
+    // which Chromium would give the gain silence, and she is louder.
+    await volume.fill("200");
+    await expect.poll(async () => (await plays(bob)).held).toBe(true);
+    const boosted = await plays(bob);
+    expect(boosted.volume).toBe(1);
+    expect(boosted.loudest).toBeGreaterThan(asSent.loudest * 1.4);
+
+    await list.getByRole("button", { name: "Mute alice for you", exact: true }).click();
+    await expect(list.getByRole("listitem", { name: "alice, muted for you" })).toBeVisible();
+    await expect.poll(async () => (await plays(bob)).volume).toBe(0);
+    await bob.keyboard.press("Escape");
+
+    // Bob's choice is Bob's: Alice still hears him as he is sent, and she is
+    // still in the call as far as anyone else is concerned.
+    expect(await plays(alice)).toMatchObject({ volume: 1, held: false });
+    await expect(bar(alice).getByRole("status")).toHaveText("With bobby");
+    // Kept on his device for the calls after this one.
+    await expect
+      .poll(async () => Object.values((await deviceValue<object>(bob, "call-volumes")) ?? {}))
+      .toEqual([{ volume: 200, muted: true }]);
+    expect(errors).toEqual([]);
+  } finally {
+    await a.close().catch(() => {});
+    await b.close().catch(() => {});
+  }
+});
+
 test("scrolls back through a long channel without unbounded growth or losing its place", async ({
   browser,
 }) => {
