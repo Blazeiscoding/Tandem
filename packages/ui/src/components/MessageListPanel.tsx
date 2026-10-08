@@ -369,14 +369,20 @@ export function RefreshButton(props: { busy: boolean; onClick: () => void }) {
 }
 
 /** A step to a neighbouring panel, beside a panel's name. */
+/**
+ * A way across to a neighbouring panel. Its arrow and name say where it goes:
+ * a bare "Scheduled" pill under a "Saved" title read as this list's status.
+ */
 export function PanelLink(props: { icon: IconName; label: string; onClick: () => void }) {
   return (
     <button
       onClick={props.onClick}
+      aria-label={`Open ${props.label.toLowerCase()} messages`}
       className="mr-1 flex h-7 items-center gap-1.5 rounded-full border border-edge px-2.5 text-[12px] font-medium text-ink-faint transition-colors hover:bg-ink/[0.05] hover:text-ink"
     >
       <Icon name={props.icon} size={12} />
       {props.label}
+      <Icon name="arrow" size={12} />
     </button>
   );
 }

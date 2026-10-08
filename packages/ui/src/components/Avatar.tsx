@@ -1,10 +1,15 @@
 import type { User } from "@slackoss/protocol";
 import { avatarColor, initials } from "../lib/format.js";
 
-/** A person's initials on a colour of their own, round as in Discord. */
+/**
+ * A person's initials on a colour of their own, round as in Discord. Hidden
+ * from screen readers: the name is always written beside it, or on the button
+ * it sits in, and "M C Maya Chen" says the person twice.
+ */
 export function Avatar({ user, size = 36 }: { user: User | undefined; size?: number }) {
   return (
     <div
+      aria-hidden="true"
       className="flex shrink-0 select-none items-center justify-center rounded-full font-semibold text-white"
       style={{
         width: size,

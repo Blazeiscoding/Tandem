@@ -495,6 +495,8 @@ export const MessageItem = memo(function MessageItem({
             label="More actions"
             tooltip="More actions"
             items={moreItems}
+            // Wide enough that "Mark unread from this message" stays on one line.
+            width={272}
             onOpenChange={setMoreOpen}
             triggerClassName="flex size-7 items-center justify-center rounded-md text-ink-dim transition-colors hover:bg-ink/[0.08] hover:text-ink"
           />
@@ -543,7 +545,7 @@ export const MessageItem = memo(function MessageItem({
           />
         </div>
       )}
-      {picking && <ReactionPicker onPick={react} onClose={() => setPicking(false)} />}
+      {picking && <ReactionPicker anchor={row} onPick={react} onClose={() => setPicking(false)} />}
     </div>
   );
 });

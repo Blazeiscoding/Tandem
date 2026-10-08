@@ -1114,15 +1114,11 @@ function WorkspaceInner({
           </div>
         )}
         <header className="channel-header titlebar-drag flex h-12 shrink-0 items-center gap-1 pl-2 pr-2 shadow-[0_1px_0_var(--color-edge)]">
-          <button
-            id="open-navigation"
-            className="mobile-nav-toggle rounded-lg p-2 text-ink-dim hover:bg-ink/[0.06]"
-            aria-label="Open navigation"
-            aria-expanded={sidebarOpen}
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Icon name="menu" />
-          </button>
+          <NavigationToggle
+            activeChannelId={activeChannelId}
+            open={sidebarOpen}
+            onOpen={() => setSidebarOpen(true)}
+          />
           <button
             onClick={() => activeChannelId && setDialog({ kind: "channel-details" })}
             className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-ink/[0.04]"
@@ -1392,7 +1388,12 @@ function WorkspaceInner({
       )}
       {dialog.kind === "profile" && (
         <LazyDialog loading="Loading profile" onClose={closeDialog}>
-          <ProfileDialog userId={dialog.userId} onClose={closeDialog} onOpenDm={openChannel} />
+          <ProfileDialog
+            userId={dialog.userId}
+            onClose={closeDialog}
+            onOpenDm={openChannel}
+            onEditProfile={() => setDialog({ kind: "account", section: "profile" })}
+          />
         </LazyDialog>
       )}
       {dialog.kind === "channel-details" && activeChannelId && (
@@ -1431,6 +1432,70 @@ function TitleBar() {
         {name}
       </span>
     </div>
+  );
+}
+
+/**
+ * The phone's button that opens the sidebar. The sidebar is out of sight
+ * there, so the button carries what it would show: a red count for mentions
+ * waiting in other conversations, or a dot when only unread messages are.
+ * The conversation on screen and muted ones do not count, as on the rail.
+ */
+function NavigationToggle(props: {
+  activeChannelId: ID | null;
+  open: boolean;
+  onOpen: () => void;
+}) {
+  const { activeChannelId } = props;
+  const mentions = useWorkspace((s) =>
+    Object.entries(s.mentionCounts).reduce(
+      (sum, [id, count]) => (id === activeChannelId ? sum : sum + count),
+      0,
+    ),
+  );
+  const unread = useWorkspace((s) =>
+    Object.keys(s.memberships).some(
+      (id) =>
+        id !== activeChannelId &&
+        !s.prefs[id]?.muted &&
+        !s.channels[id]?.archived &&
+        (s.channelLastSeq[id] ?? 0) > (s.memberships[id] ?? 0),
+    ),
+  );
+  const described = mentions > 0 || unread;
+  return (
+    <button
+      id="open-navigation"
+      className="mobile-nav-toggle relative rounded-lg p-2 text-ink-dim hover:bg-ink/[0.06]"
+      aria-label="Open navigation"
+      aria-describedby={described ? "open-navigation-waiting" : undefined}
+      aria-expanded={props.open}
+      onClick={props.onOpen}
+    >
+      <Icon name="menu" />
+      {mentions > 0 ? (
+        <span
+          aria-hidden="true"
+          className="badge-mention tabular absolute right-0 top-0 min-w-4 rounded-full px-1 text-center text-[10px] font-bold leading-4 ring-2 ring-ground"
+        >
+          {mentions > 99 ? "99+" : mentions}
+        </span>
+      ) : (
+        unread && (
+          <span
+            aria-hidden="true"
+            className="absolute right-1 top-1 size-2 rounded-full bg-ink ring-2 ring-ground"
+          />
+        )
+      )}
+      {described && (
+        <span id="open-navigation-waiting" className="sr-only">
+          {mentions > 0
+            ? `${mentions} ${mentions === 1 ? "mention" : "mentions"} elsewhere`
+            : "Unread messages elsewhere"}
+        </span>
+      )}
+    </button>
   );
 }
 

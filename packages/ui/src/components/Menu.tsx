@@ -32,6 +32,12 @@ interface MenuProps {
   /** Small trigger for tight rows; default fits a full-width row. */
   triggerClassName?: string;
   triggerContent?: React.ReactNode;
+  /**
+   * The trigger's own accessible name, for one whose content says only part of
+   * it. Said in one piece: a visually hidden span beside the content reads with
+   * a stray space before its comma, as "My Workspace , workspace menu".
+   */
+  triggerLabel?: string;
   disabled?: boolean;
   /** A hint on the trigger, for one that shows only an icon. */
   tooltip?: string;
@@ -62,6 +68,7 @@ export function Menu({
   items,
   triggerClassName,
   triggerContent,
+  triggerLabel,
   disabled,
   tooltip,
   align = "end",
@@ -84,7 +91,7 @@ export function Menu({
       type="button"
       aria-haspopup="menu"
       aria-expanded={open}
-      aria-label={typeof triggerContent === "undefined" ? label : undefined}
+      aria-label={triggerLabel ?? (typeof triggerContent === "undefined" ? label : undefined)}
       disabled={disabled}
       onClick={() => setOpen(true)}
       className={

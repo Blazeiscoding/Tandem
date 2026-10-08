@@ -564,13 +564,13 @@ function WorkspaceMenu(props: {
   return (
     <Menu
       label="Workspace"
+      triggerLabel={`${props.name}, workspace menu`}
       items={items}
       align="start"
       triggerClassName="group/ws flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors hover:bg-ink/[0.06]"
       triggerContent={
         <>
           <span className="min-w-0 flex-1 truncate">{props.name}</span>
-          <span className="sr-only">, workspace menu</span>
           <Icon
             name="chevronDown"
             size={16}
@@ -688,6 +688,7 @@ function AccountMenu(props: {
     <div className="min-w-0 flex-1">
       <Menu
         label="Your account"
+        triggerLabel={`${self?.displayName ?? "…"}, ${status}, your account`}
         items={items}
         align="start"
         triggerClassName="flex w-full min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition-colors hover:bg-ink/[0.05]"
@@ -705,7 +706,6 @@ function AccountMenu(props: {
               </span>
               <span className="block truncate text-[12px] text-ink-faint">{status}</span>
             </span>
-            <span className="sr-only">, your account</span>
           </>
         }
       />
@@ -740,9 +740,11 @@ function SnoozeControl() {
     <Menu
       label="Pause notifications"
       tooltip="Pause notifications"
-      items={snoozeOptions(new Date()).map((o) => ({
+      // Headed, so "30 minutes" reads as how long to pause, not a reminder.
+      items={snoozeOptions(new Date()).map((o, index) => ({
         id: o.label,
         label: o.label,
+        section: index === 0 ? "Pause notifications" : undefined,
         onSelect: () => client.snoozeNotificationsUntil(o.until()),
       }))}
       triggerClassName="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-ink/[0.05] hover:text-ink"

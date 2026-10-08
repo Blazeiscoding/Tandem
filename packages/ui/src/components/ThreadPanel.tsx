@@ -11,6 +11,7 @@ import { Tooltip } from "./Tooltip.js";
 import { ListStatus } from "./ListStatus.js";
 import type { ReadingPosition } from "../lib/route.js";
 import { rememberThreadPosition, rememberedThreadPosition } from "../lib/threadPosition.js";
+import { channelTitle } from "../lib/format.js";
 
 interface Props {
   channelId: ID;
@@ -43,6 +44,13 @@ export function ThreadPanel({
   const replies = useWorkspace((s) => s.threads[rootId]);
   const follows = useWorkspace((s) => s.threadFollows[rootId]?.following ?? false);
   const pending = useWorkspace((s) => s.pending).filter((p) => p.threadRootId === rootId);
+  // Where the thread is: a phone shows it over the conversation it came from.
+  const where = useWorkspace((s) => {
+    const channel = s.channels[channelId];
+    if (!channel) return "";
+    const title = channelTitle(channel, s.users, s.self?.id);
+    return channel.type === "public" || channel.type === "private" ? `#${title}` : title;
+  });
   const [lightboxFile, setLightboxFile] = useState<FileMeta | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   // The root and its replies are one Tab stop, as the channel's messages are.
@@ -184,7 +192,12 @@ export function ThreadPanel({
       className="flex w-[380px] max-w-full shrink-0 flex-col border-l border-edge"
     >
       <header className="flex h-12 shrink-0 items-center gap-1 pl-4 pr-2 shadow-[0_1px_0_var(--color-edge)]">
-        <h2 className="flex-1 text-[15px] font-semibold">Thread</h2>
+        <h2 className="flex min-w-0 flex-1 items-baseline gap-2 text-[15px] font-semibold">
+          Thread{" "}
+          {where && (
+            <span className="truncate text-[13px] font-normal text-ink-faint">{where}</span>
+          )}
+        </h2>
         {root && (
           <Tooltip
             label={

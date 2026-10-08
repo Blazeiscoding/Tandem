@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { SessionInfo, StorageUsage } from "@slackoss/protocol";
 import { ApiError } from "@slackoss/client-core";
-import { formatBytes } from "../lib/format.js";
+import { formatBytes, formatFull, formatWhen } from "../lib/format.js";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { accountError, deviceLabel } from "../lib/account.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
@@ -250,7 +250,9 @@ export function AccountDialog({
           id={`${tabsId}-panel`}
           role="tabpanel"
           aria-labelledby={`${tabsId}-tab-${section}`}
-          className="min-w-0 flex-1"
+          // As tall as the dialog allows, so moving between sections does not
+          // resize the dialog under the pointer.
+          className="min-w-0 flex-1 sm:min-h-[min(560px,calc(78vh-150px))]"
         >
           {error && (
             <p
@@ -437,18 +439,27 @@ export function AccountDialog({
                           <span className="ml-1 text-xs text-online">This device</span>
                         )}
                       </p>
+                      {/* Said as the rest of the app says times, with the exact
+                          one on hover, rather than to the second twice over. */}
                       <p className="mt-1 text-xs text-ink-faint">
-                        Last active {new Date(session.lastSeenAt).toLocaleString()}
-                      </p>
-                      <p className="mt-0.5 text-xs text-ink-faint">
-                        Signed in {new Date(session.createdAt).toLocaleString()}
+                        {session.current ? (
+                          "Active now"
+                        ) : (
+                          <span title={formatFull(session.lastSeenAt)}>
+                            Last active {formatWhen(session.lastSeenAt)}
+                          </span>
+                        )}
+                        {" · "}
+                        <span title={formatFull(session.createdAt)}>
+                          signed in {formatWhen(session.createdAt)}
+                        </span>
                       </p>
                     </div>
                     {!session.current && (
                       <button
                         className={buttonClass("secondary")}
                         disabled={busy || confirmation !== null}
-                        aria-label={`Sign out ${deviceLabel(session.userAgent)}, signed in ${new Date(session.createdAt).toLocaleString()}`}
+                        aria-label={`Sign out ${deviceLabel(session.userAgent)}, signed in ${formatWhen(session.createdAt)}`}
                         onClick={() => askToConfirm({ kind: "device", session })}
                       >
                         Sign out

@@ -4,6 +4,7 @@ import { ApiError, OUTBOX_LIMIT } from "@slackoss/client-core";
 import { useClient, usePlatform, useWorkspace } from "../context.js";
 import { Avatar } from "./Avatar.js";
 import { formatBytes } from "../lib/format.js";
+import { emojiStartingWith } from "../lib/emoji.js";
 import { useComposerPreferences } from "../lib/composerPreferences.js";
 import {
   formatScheduleShort,
@@ -12,6 +13,7 @@ import {
   schedulePresets,
 } from "../lib/schedule.js";
 import { Icon } from "./Icon.js";
+import { iconFor } from "./Attachments.js";
 import { Mrkdwn } from "./Mrkdwn.js";
 import { Tooltip } from "./Tooltip.js";
 import { Popover } from "./Popover.js";
@@ -78,6 +80,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   const savedDraft = useWorkspace((s) => s.drafts[draftKey] ?? "");
   const [text, setText] = useState(savedDraft);
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
+  /** A word typed after a colon, such as ":rock", offering emoji to finish it. */
+  const [emojiQuery, setEmojiQuery] = useState<{ start: number; query: string } | null>(null);
   const [attached, setAttached] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -122,6 +126,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setText(synced.current);
     setAttached([]);
     setMentionQuery(null);
+    setEmojiQuery(null);
     setPreview(false);
     setAttachmentNote(null);
     setSendRefusal(null);
@@ -330,6 +335,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   function rewrite(next: string, start?: number, end = start) {
     if (scheduleLock.current || recoveryBlocksSend) return;
     setMentionQuery(null);
+    setEmojiQuery(null);
     field.edit(next, start, end);
   }
 
@@ -397,6 +403,11 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }, [text, commands, guest]);
   const commandList = useListbox(commandCandidates.length);
   const mentionList = useListbox(mentionQuery ? candidates.length : 0);
+  const emojiCandidates = useMemo(
+    () => (emojiQuery ? emojiStartingWith(emojiQuery.query) : []),
+    [emojiQuery],
+  );
+  const emojiList = useListbox(emojiCandidates.length);
 
   function insertCommand(command: string) {
     const next = `/${command} `;
@@ -413,6 +424,23 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     } else {
       setMentionQuery(null);
     }
+    // Two letters after a colon, as Slack waits for, so a time such as 10:30
+    // or a ":)" is left alone; and none inside a code block.
+    const colon = /(^|\s):([\p{L}\p{N}_+-]{2,})$/u.exec(upToCaret);
+    if (!m && colon && !insideCodeBlock(value, caret)) {
+      setEmojiQuery({ start: caret - colon[2]!.length - 1, query: colon[2]! });
+      emojiList.choose(0);
+    } else {
+      setEmojiQuery(null);
+    }
+  }
+
+  /** Finishes ":rock" as 🚀, in place of the word typed. */
+  function completeEmoji(emoji: string) {
+    if (scheduleLock.current || recoveryBlocksSend) return;
+    if (!emojiQuery || !box.current) return;
+    const next = field.replaceSelection(`${emoji} `, emojiQuery.start, box.current.selectionStart);
+    rewrite(next.stored, next.caret);
   }
 
   function insertMention(candidate: Candidate) {
@@ -458,6 +486,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
     setAlsoToChannel(false);
     setAttached([]);
     setMentionQuery(null);
+    setEmojiQuery(null);
     setAttachmentNote(null);
     // The words stay here, and in the saved draft, until the device keeps the
     // send itself: until then a closed window would lose them (GL-02).
@@ -698,6 +727,20 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         return;
       }
     }
+    if (emojiQuery && emojiCandidates.length > 0) {
+      if (emojiList.move(e)) return;
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        completeEmoji(emojiCandidates[emojiList.active]![0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setEmojiQuery(null);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.altKey && enterSends) {
       // A new line of the code, not half a code block sent; Ctrl/Cmd+Enter sends.
       if (insideCodeBlock(e.currentTarget.value, e.currentTarget.selectionStart)) return;
@@ -802,6 +845,29 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           ))}
         </ul>
       )}
+      {!scheduling && emojiQuery && emojiCandidates.length > 0 && (
+        <ul
+          {...emojiList.listProps}
+          aria-label="Emoji"
+          className="surface-float absolute bottom-full left-5 right-5 z-10 mb-2 animate-pop-in overflow-hidden rounded-xl p-1"
+        >
+          {emojiCandidates.map(([emoji, label], i) => (
+            <li
+              key={label}
+              {...emojiList.optionProps(i)}
+              onClick={() => completeEmoji(emoji)}
+              className={`flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm ${
+                i === emojiList.active ? "bg-ink/[0.07]" : ""
+              }`}
+            >
+              <span aria-hidden="true" className="w-[22px] text-center text-lg leading-none">
+                {emoji}
+              </span>
+              <span className="font-medium">{label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {scheduleError && (
         <p role="alert" className="mb-2 text-sm text-ink-dim">
           {scheduleError}
@@ -899,20 +965,11 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         {attached.length > 0 && (
           <ul className="flex flex-wrap gap-2 border-b border-edge p-2.5">
             {attached.map((f, i) => (
-              <li
+              <StagedFile
                 key={`${f.name}-${i}`}
-                className="flex items-center gap-2 rounded-lg border border-edge bg-ground py-1 pl-2 pr-1 text-sm"
-              >
-                <span className="max-w-[180px] truncate">{f.name}</span>
-                <span className="font-mono text-[11px] text-ink-faint">{formatBytes(f.size)}</span>
-                <button
-                  onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
-                  aria-label={`Remove ${f.name}`}
-                  className="rounded p-0.5 text-ink-faint transition-colors hover:text-alert"
-                >
-                  <Icon name="close" size={14} />
-                </button>
-              </li>
+                file={f}
+                onRemove={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
+              />
             ))}
           </ul>
         )}
@@ -924,7 +981,12 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
           rows={1}
           placeholder={dragging ? "Drop files to attach" : placeholder}
           aria-label={placeholder}
-          {...(mentionQuery && candidates.length ? mentionList : commandList).ownerProps}
+          {...(mentionQuery && candidates.length
+            ? mentionList
+            : emojiQuery && emojiCandidates.length
+              ? emojiList
+              : commandList
+          ).ownerProps}
           onPaste={(e) => {
             const data = e.clipboardData;
             // Some browsers offer a pasted image only as an item, not among the files.
@@ -960,7 +1022,10 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             }
           }}
           onKeyDown={onKeyDown}
-          onBlur={() => setMentionQuery(null)}
+          onBlur={() => {
+            setMentionQuery(null);
+            setEmojiQuery(null);
+          }}
           className="block max-h-[220px] w-full resize-none bg-transparent px-4 pb-1 pt-3 text-[15px] leading-normal outline-none placeholder:text-ink-faint"
         />
         {attachmentNote && (
@@ -1122,5 +1187,50 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
         />
       </fieldset>
     </div>
+  );
+}
+
+/**
+ * A file waiting to be sent: a picture shows itself, so the right one is
+ * attached before it goes, and anything else shows its kind.
+ */
+function StagedFile({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file.type.startsWith("image/") || typeof URL.createObjectURL !== "function") return;
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => {
+      setUrl(null);
+      URL.revokeObjectURL(next);
+    };
+  }, [file]);
+  return (
+    <li className="flex items-center gap-2 rounded-lg border border-edge bg-ground p-1 pr-1 text-sm">
+      {url ? (
+        <img
+          src={url}
+          alt=""
+          // A picture that will not decode shows its kind instead.
+          onError={() => setUrl(null)}
+          className="size-9 shrink-0 rounded-md object-cover"
+        />
+      ) : (
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-ink/[0.06] text-ink-faint">
+          <Icon name={iconFor(file.type, file.name)} size={16} />
+        </span>
+      )}
+      <span className="min-w-0 leading-tight">
+        <span className="block max-w-[160px] truncate">{file.name}</span>
+        <span className="block font-mono text-[11px] text-ink-faint">{formatBytes(file.size)}</span>
+      </span>
+      <button
+        onClick={onRemove}
+        aria-label={`Remove ${file.name}`}
+        className="self-start rounded p-0.5 text-ink-faint transition-colors hover:text-alert"
+      >
+        <Icon name="close" size={14} />
+      </button>
+    </li>
   );
 }

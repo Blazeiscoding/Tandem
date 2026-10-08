@@ -10,6 +10,7 @@ import { useConfirm } from "./Confirm.js";
 import { useShareableServer } from "./ShareableServer.js";
 import { buttonClass } from "./Button.js";
 import { Icon } from "./Icon.js";
+import { useTabs } from "../lib/useTabs.js";
 
 export function NewChannelDialog(props: { onClose: () => void; onCreated: (ch: Channel) => void }) {
   const client = useClient();
@@ -257,78 +258,156 @@ export function GuestAccountDialog(props: {
   );
 }
 
+const BROWSE_TABS = ["active", "archived"] as const;
+
 export function BrowseChannelsDialog(props: { onClose: () => void; onOpen: (id: ID) => void }) {
   const client = useClient();
   const channels = useWorkspace((s) => s.channels);
   const memberships = useWorkspace((s) => s.memberships);
   const [q, setQ] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
+  const [tab, setTab] = useState<(typeof BROWSE_TABS)[number]>("active");
+  const [joining, setJoining] = useState<ID | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Active and archived are two lists, not one with more in it, so they are
+  // tabs as in Friends rather than a checkbox that quietly swaps the list.
+  const tabs = useTabs({
+    label: "Which channels",
+    tabs: BROWSE_TABS,
+    selected: tab,
+    onSelect: (next) => {
+      setTab(next);
+      setError(null);
+    },
+  });
 
-  const rooms = useMemo(
+  const all = useMemo(
     () =>
       Object.values(channels)
-        .filter((c) => (c.type === "public" || c.type === "private") && c.archived === showArchived)
-        .filter((c) => c.name.includes(q.toLowerCase()))
+        .filter((c) => c.type === "public" || c.type === "private")
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [channels, q, showArchived],
+    [channels],
   );
+  const archivedCount = all.filter((c) => c.archived).length;
+  const needle = q.trim().toLowerCase();
+  // A channel is found by what it is about as well as its name.
+  const rooms = all.filter(
+    (c) =>
+      c.archived === (tab === "archived") &&
+      (!needle ||
+        c.name.includes(needle) ||
+        c.description.toLowerCase().includes(needle) ||
+        c.topic.toLowerCase().includes(needle)),
+  );
+
+  async function join(channel: Channel) {
+    if (joining) return;
+    setJoining(channel.id);
+    setError(null);
+    try {
+      await client.api.joinChannel(channel.id);
+      props.onOpen(channel.id);
+    } catch {
+      setError(`Could not join #${channel.name}. Check your connection and try again.`);
+      setJoining(null);
+    }
+  }
 
   return (
     <Dialog title="All channels" onClose={props.onClose} width={480}>
-      <label className="mb-3 flex gap-2 text-sm">
+      <div
+        {...tabs.listProps}
+        className="mb-3 flex gap-1 rounded-xl border border-edge bg-deep/40 p-1"
+      >
+        {BROWSE_TABS.map((value) => (
+          <button
+            key={value}
+            {...tabs.tabProps(value)}
+            className={`flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${tab === value ? "bg-lifted text-ink shadow-[0_1px_2px_rgb(0_0_0/0.2)]" : "text-ink-faint hover:text-ink"}`}
+          >
+            {value === "active"
+              ? "Active"
+              : `Archived${archivedCount ? ` (${archivedCount})` : ""}`}
+          </button>
+        ))}
+      </div>
+      {/* A steady height, so switching tabs or filtering does not jump the dialog. */}
+      <div {...tabs.panelProps} className="sm:min-h-[300px]">
         <input
-          type="checkbox"
-          checked={showArchived}
-          onChange={(e) => setShowArchived(e.target.checked)}
+          autoFocus
+          aria-label="Filter channels"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Filter by name or description"
+          className={`${inputCls} mb-3`}
         />
-        Show archived channels
-      </label>
-      <input
-        autoFocus
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Filter channels"
-        className={`${inputCls} mb-3`}
-      />
-      <ul className="space-y-1">
-        {rooms.map((ch) => {
-          const joined = ch.id in memberships;
-          return (
-            <li
-              key={ch.id}
-              className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-ink/[0.05]"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium">#{ch.name}</div>
-                {ch.description && (
-                  <div className="truncate text-xs text-ink-faint">{ch.description}</div>
-                )}
-              </div>
-              {joined || ch.archived ? (
-                <button
-                  onClick={() => props.onOpen(ch.id)}
-                  className="rounded-lg border border-edge px-3 py-1 text-sm font-medium text-ink-dim transition-colors hover:bg-ink/[0.05] hover:text-ink"
-                >
-                  Open
-                </button>
-              ) : (
-                <button
-                  onClick={async () => {
-                    await client.api.joinChannel(ch.id);
-                    props.onOpen(ch.id);
-                  }}
-                  className="btn-shape bg-copper px-3 py-1 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep"
-                >
-                  Join
-                </button>
-              )}
-            </li>
-          );
-        })}
-        {rooms.length === 0 && (
-          <p className="py-6 text-center text-sm text-ink-faint">No channels match.</p>
+        {error && (
+          <p role="alert" className="mb-3 text-sm text-alert">
+            {error}
+          </p>
         )}
-      </ul>
+        {rooms.length > 0 ? (
+          <ul className="space-y-1">
+            {rooms.map((ch) => {
+              const joined = ch.id in memberships;
+              return (
+                <li
+                  key={ch.id}
+                  className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-ink/[0.05]"
+                >
+                  <span className="flex size-4 shrink-0 justify-center text-ink-faint">
+                    {ch.type === "private" ? (
+                      <>
+                        <Icon name="lock" size={14} />
+                        <span className="sr-only">Private</span>
+                      </>
+                    ) : (
+                      <Icon name="hash" size={14} />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="truncate font-medium">{ch.name}</span>
+                      {joined && <span className="shrink-0 text-xs text-ink-faint">Joined</span>}
+                    </div>
+                    {(ch.description || ch.topic) && (
+                      <div className="truncate text-xs text-ink-faint">
+                        {ch.description || ch.topic}
+                      </div>
+                    )}
+                  </div>
+                  {joined || ch.archived ? (
+                    <button
+                      onClick={() => props.onOpen(ch.id)}
+                      aria-label={`Open #${ch.name}`}
+                      className="rounded-lg border border-edge px-3 py-1 text-sm font-medium text-ink-dim transition-colors hover:bg-ink/[0.05] hover:text-ink"
+                    >
+                      Open
+                    </button>
+                  ) : (
+                    <button
+                      // Not `disabled`, so focus stays put while it joins.
+                      aria-disabled={joining !== null || undefined}
+                      aria-label={`Join #${ch.name}`}
+                      onClick={() => void join(ch)}
+                      className="btn-shape bg-copper px-3 py-1 text-sm font-semibold text-ground transition-colors hover:bg-copper-deep aria-disabled:opacity-60"
+                    >
+                      {joining === ch.id ? "Joining…" : "Join"}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="py-6 text-center text-sm text-ink-faint">
+            {needle
+              ? "No channels match."
+              : tab === "archived"
+                ? "No channels have been archived."
+                : "There are no channels yet."}
+          </p>
+        )}
+      </div>
     </Dialog>
   );
 }
