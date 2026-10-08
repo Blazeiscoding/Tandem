@@ -324,6 +324,17 @@
       "concepts": ["join preferences", "latest intent", "async fencing", "N04", "device choices"]
     },
     {
+      "path": "packages/ui/src/lib/callVolumes.ts",
+      "summary": "Keeps how loud each person in a call is to you, as Discord's user volume.",
+      "details": [
+        "A per-Platform shared Zustand store of { volume 0-200 percent, muted } by user id, under call-volumes on this device, for every call and workspace. Only people turned up, down or muted are kept; anyone set back to 100% and unmuted is dropped.",
+        "Muting keeps the volume for when they are unmuted. Saved entries are validated one by one: a volume is clamped and rounded, anything unreadable is as sent, and one bad entry does not lose the rest.",
+        "A slider drag is written once it rests (400 ms), and never before the saved volumes have been read, so a change made while reading cannot replace everyone else's; a change made while reading wins over what was read.",
+        "gainOf turns a choice into how many times as loud someone is played: 0 when muted, up to 2."
+      ],
+      "concepts": ["per-person volume", "local mute", "debounced write", "read before write"]
+    },
+    {
       "path": "packages/ui/src/lib/mediaDevices.ts",
       "summary": "Lists devices for the pickers and applies a device choice to a call in progress.",
       "details": [
@@ -1075,6 +1086,7 @@
       "summary": "Shows call presence, speaking rings and the header join/start control.",
       "details": [
         "HuddleFace resolves participants and speaking state, while the compact bar hosts controls and a way to restore hidden video.",
+        "The list of who is there (Everyone in the huddle) gives each of the others a PersonVolume row. Someone muted for you is said to be, ahead of talking, with a crossed speaker on their face. The bar hands everyone's volume to HuddleAudio.",
         "HuddleButton starts or joins through the shared call-preference store and provides meaningful error state. N04 makes this header path agree with Getting started about mute initialization.",
         "Once a peer's connection has a diagnosed trouble, the bar says Can't connect to them and offers Why? See the call log."
       ],
@@ -1096,9 +1108,20 @@
       "details": [
         "Peer audio elements attach microphone streams even when the call has no camera or the video stage is hidden.",
         "Playback refusal produces a recovery action; one user gesture retries blocked peers while already audible streams are left intact. This avoids duplicate audio from video elements.",
-        "Each peer's audio element plays through the speaker chosen in Voice & video settings."
+        "Each peer's audio element plays through the speaker chosen in Voice & video settings.",
+        "Each person plays as loud as you chose. Up to 100% the element's own volume does it, so the usual path is untouched. Past 100% their stream goes through a Web Audio gain into a stream the same element plays, so the chosen speaker still applies. A second, muted element holds their stream meanwhile, since Chromium gives an audio graph silence from a call's stream that no element plays (measured: 0 without it).",
+        "A boost's graph that will not start without a gesture is reported like a refused play, so Turn on sound starts it."
       ],
-      "concepts": ["remote audio", "autoplay recovery", "media attachment"]
+      "concepts": ["remote audio", "autoplay recovery", "media attachment", "per-person volume"]
+    },
+    {
+      "path": "packages/ui/src/components/PersonVolume.tsx",
+      "summary": "One person's volume in a call: mute for you, and a slider from silent to 200%.",
+      "details": [
+        "A toggle button (aria-pressed) mutes the person for you alone, and a range input in steps of 5 sets their volume, with a tick at 100% from a datalist and the percent beside it, or Off.",
+        "Moving the slider unmutes them, since it means wanting to hear them. Used in the bar's list of who is there and inside a stage tile."
+      ],
+      "concepts": ["per-person volume", "local mute", "range input"]
     },
     {
       "path": "packages/ui/src/components/HuddleStage.tsx",
@@ -1106,7 +1129,8 @@
       "details": [
         "stageItems prioritizes screen shares then participants; bestFit tries column counts to find the largest 16:9 tiles for the actual container dimensions.",
         "Video surfaces stay muted because HuddleAudio owns voices. Local self-video and remote camera/share streams display without opening a second media capture.",
-        "Resize observation updates layout, and accessible tiles/actions expose focus, fullscreen and share controls. Lazy loading keeps the stage out of initial conversation downloads until needed."
+        "Resize observation updates layout, and accessible tiles/actions expose focus, fullscreen and share controls. Lazy loading keeps the stage out of initial conversation downloads until needed.",
+        "Another person's tile, in the gallery or the main view, has a volume button beside Pin. Its PersonVolume opens inside the tile rather than as a popover, because popovers portal to the page beneath a fullscreen element. A tile says when its person is muted for you."
       ],
       "concepts": ["adaptive video grid", "media presentation", "single audio owner", "lazy chunk"]
     },
@@ -1432,9 +1456,10 @@
         },
         {
           "title": "Present audio and video once",
-          "description": "HuddleAudio owns remote voices; video tiles stay muted. Speaking transitions update the compact bar, while the lazy stage fits cameras and shares to the available container.",
+          "description": "HuddleAudio owns remote voices, each as loud as you chose; video tiles stay muted. Speaking transitions update the compact bar, while the lazy stage fits cameras and shares to the available container.",
           "files": [
             "packages/ui/src/components/HuddleAudio.tsx",
+            "packages/ui/src/lib/callVolumes.ts",
             "packages/ui/src/components/HuddleBar.tsx",
             "packages/ui/src/components/HuddleStage.tsx"
           ]

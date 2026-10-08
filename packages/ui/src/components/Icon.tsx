@@ -47,6 +47,10 @@ const paths = {
   mic: "M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4",
   micOff:
     "M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.9-.7M19 10v1a7 7 0 0 1-10.8 5.9M5 11a7 7 0 0 0 10 6.3M12 18v4M3 3l18 18",
+  /** A speaker with sound coming out: how loud someone is to you. */
+  volume: "M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14",
+  /** A speaker crossed out: someone muted for you alone. */
+  volumeOff: "M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6",
   camera:
     "M15 10l4.5-2.7a.6.6 0 0 1 .9.5v8.4a.6.6 0 0 1-.9.5L15 14M4 6h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z",
   screen: "M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 21h6M12 16v5",

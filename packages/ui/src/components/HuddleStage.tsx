@@ -16,6 +16,8 @@ import { HuddleControls } from "./HuddleControls.js";
 import { Icon, type IconName } from "./Icon.js";
 import { Tooltip } from "./Tooltip.js";
 import { huddleHasVideo, type HuddleView } from "../lib/huddleView.js";
+import { useCallVolumes, type PersonVolume as Volume } from "../lib/callVolumes.js";
+import { PersonVolume } from "./PersonVolume.js";
 
 export { huddleHasVideo, type HuddleView };
 
@@ -63,6 +65,8 @@ interface StageItem {
   self: boolean;
   speaking: boolean;
   muted: boolean;
+  /** Muted by you, for you alone. */
+  mutedForYou?: boolean;
   connecting: boolean;
   /** Connecting has taken long enough to know something is wrong. */
   stuck?: boolean;
@@ -73,6 +77,7 @@ function stageItems(
   huddle: HuddleState,
   users: Record<ID, User>,
   selfId: ID | undefined,
+  volumes: Record<ID, Volume> = {},
 ): StageItem[] {
   const nameOf = (id: ID) => users[id]?.displayName ?? "Someone";
   const me = selfId ? users[selfId] : undefined;
@@ -127,6 +132,7 @@ function stageItems(
       self: false,
       speaking: p.speaking,
       muted: p.micMuted,
+      mutedForYou: volumes[p.userId]?.muted ?? false,
       connecting: !p.connected,
       stuck: !p.connected && !!p.trouble,
     });
@@ -139,6 +145,7 @@ function describe(item: StageItem): string {
   const parts = [item.name];
   if (!item.stream) parts.push("camera off");
   if (item.muted) parts.push("muted");
+  if (item.mutedForYou) parts.push("muted for you");
   if (item.connecting) parts.push(item.stuck ? "can't connect" : "connecting");
   return parts.join(", ");
 }
@@ -240,6 +247,7 @@ function TileBody({ item, height }: { item: StageItem; height: number }) {
       >
         {item.kind === "screen" && <Icon name="screen" size={13} />}
         {item.muted && <Icon name="micOff" size={13} className="text-alert" />}
+        {item.mutedForYou && <Icon name="volumeOff" size={13} className="text-alert" />}
         <span className="truncate">{item.name}</span>
       </span>
       {/* Drawn over the picture, since a border under the video would be hidden by it. */}
@@ -253,6 +261,10 @@ function TileBody({ item, height }: { item: StageItem; height: number }) {
   );
 }
 
+/** Someone else, on camera or not, whose volume is yours to set. */
+const hasVolume = (item: StageItem): item is StageItem & { userId: ID } =>
+  item.kind === "person" && !item.self && item.userId !== undefined;
+
 const tileFrame = (item: StageItem, radius = "rounded-2xl") =>
   `relative block size-full overflow-hidden ${radius} ${
     item.kind === "screen" ? "bg-black" : "bg-lifted"
@@ -265,21 +277,71 @@ function TileButton(props: {
   onClick: () => void;
   /** Shown all the time, in the accent: the tile is pinned, and this lets it go. */
   active?: boolean;
+  /** In the corner, or beside the one there. */
+  place?: "corner" | "beside";
+  /** Whether what it opens is open; it stays in sight while it is. */
+  expanded?: boolean;
 }) {
   return (
     <Tooltip label={props.label}>
       <button
         aria-label={props.label}
+        aria-expanded={props.expanded}
         onClick={props.onClick}
-        className={`absolute right-2 top-2 flex size-8 items-center justify-center rounded-lg backdrop-blur-sm transition-opacity focus-visible:opacity-100 pointer-coarse:opacity-100 ${
+        className={`absolute ${props.place === "beside" ? "right-11" : "right-2"} top-2 flex size-8 items-center justify-center rounded-lg backdrop-blur-sm transition-opacity focus-visible:opacity-100 pointer-coarse:opacity-100 ${
           props.active
             ? "bg-copper text-ground hover:bg-copper-deep"
-            : "bg-black/55 text-white opacity-0 hover:bg-black/75 group-hover/tile:opacity-100"
+            : `bg-black/55 text-white hover:bg-black/75 group-hover/tile:opacity-100 ${
+                props.expanded ? "opacity-100" : "opacity-0"
+              }`
         }`}
       >
         <Icon name={props.icon} size={15} />
       </button>
     </Tooltip>
+  );
+}
+
+/**
+ * How loud someone is to you, from their tile. It opens in the tile rather
+ * than as a popover, so it is there in full screen too, where only the stage
+ * is shown.
+ */
+function TileVolume({ userId, name }: { userId: ID; name: string }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: Event) => {
+      if (!(event.target instanceof Node) || !wrap.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", away, true);
+    return () => document.removeEventListener("pointerdown", away, true);
+  }, [open]);
+  return (
+    <div ref={wrap} className="contents">
+      <TileButton
+        label={`Volume for ${name}`}
+        icon="volume"
+        place="beside"
+        expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      />
+      {open && (
+        <div
+          className="surface-float absolute inset-x-2 top-1/2 mx-auto max-w-64 -translate-y-1/2 rounded-xl px-2 py-1"
+          onDoubleClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.stopPropagation();
+            setOpen(false);
+            wrap.current?.querySelector<HTMLElement>("button[aria-expanded]")?.focus();
+          }}
+        >
+          <PersonVolume userId={userId} name={name} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -313,6 +375,7 @@ function Gallery({
           >
             <TileBody item={item} height={tileHeight} />
             <TileButton label={`Pin ${item.name}`} icon="pin" onClick={() => onPin(item.key)} />
+            {hasVolume(item) && <TileVolume userId={item.userId} name={item.name} />}
           </div>
         </li>
       ))}
@@ -408,6 +471,7 @@ function Spotlight({
       >
         <TileBody item={main} height={face ? face.width / ASPECT : mainHeight} />
         {pinned && <TileButton label={`Unpin ${main.name}`} icon="pin" onClick={onUnpin} active />}
+        {hasVolume(main) && <TileVolume userId={main.userId} name={main.name} />}
       </div>
     );
   }
@@ -493,6 +557,7 @@ export function HuddleStage({
   const huddle = useWorkspace((s) => s.huddle);
   const users = useWorkspace((s) => s.users);
   const selfId = useWorkspace((s) => s.self?.id);
+  const { volumes } = useCallVolumes();
   const stage = useRef<HTMLElement | null>(null);
   const [measure, area] = useElementSize();
   const [pinned, setPinned] = useState<string | null>(null);
@@ -543,7 +608,7 @@ export function HuddleStage({
 
   if (!huddle || view === "hidden" || !huddleHasVideo(huddle)) return null;
 
-  const items = stageItems(huddle, users, selfId);
+  const items = stageItems(huddle, users, selfId, volumes);
   const pinnedItem = pinned ? items.find((i) => i.key === pinned) : undefined;
   const firstShare =
     items.find((i) => i.kind === "screen" && !i.self) ?? items.find((i) => i.kind === "screen");
