@@ -380,7 +380,7 @@ function CameraPreview({ cameraId, onOpened }: { cameraId?: string; onOpened: ()
     setState("starting");
     setFailure(null);
     navigator.mediaDevices
-      .getUserMedia(cameraConstraints(cameraId, true))
+      .getUserMedia(cameraConstraints(cameraId))
       .then((opened) => {
         if (!alive) {
           opened.getTracks().forEach((track) => track.stop());

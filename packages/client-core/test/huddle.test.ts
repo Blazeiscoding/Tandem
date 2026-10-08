@@ -842,21 +842,83 @@ describe("choosing the microphone and camera (Voice & video)", () => {
     return { session, sent, ask, pc: FakePeerConnection.instances[0]! };
   }
 
-  it("opens the chosen microphone, cleaned up as chosen, and lets an absent one fall back", async () => {
+  /** What Chromium rejects with when the device asked for exactly is not connected. */
+  const unplugged = () =>
+    Object.assign(new Error(""), { name: "OverconstrainedError", constraint: "deviceId" });
+
+  it("opens the chosen microphone, exactly and cleaned up as chosen", async () => {
     const { session, ask } = await inCall(track("audio"), {
       microphone: { deviceId: "usb-mic", noiseSuppression: false },
     });
-    // Asked for loosely: a headset left at home must not cost the call.
+    // Chromium opens the default for a device asked for any other way.
     expect(ask.mock.calls[0]![0]).toEqual({
       audio: {
         channelCount: 1,
-        deviceId: "usb-mic",
+        deviceId: { exact: "usb-mic" },
         echoCancellation: true,
         noiseSuppression: false,
         autoGainControl: true,
       },
       video: false,
     });
+    session.destroy();
+  });
+
+  it("joins on the default microphone when the chosen one is not connected", async () => {
+    const session = new HuddleSession("C1", "A", { send: () => {} }, undefined, {
+      microphone: { deviceId: "headset", echoCancellation: false },
+    });
+    const ask = vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockRejectedValueOnce(unplugged())
+      .mockResolvedValue(stream(track("audio", "default")));
+
+    await session.startLocalAudio();
+
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(ask.mock.calls[1]![0]).toEqual({
+      audio: {
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    expect(session.log.map((l) => l.text)).toContain(
+      "The chosen microphone is not connected; using the system's default.",
+    );
+    session.destroy();
+  });
+
+  it("does not open the default in place of a chosen microphone that is there but will not start", async () => {
+    const session = new HuddleSession("C1", "A", { send: () => {} }, undefined, {
+      microphone: { deviceId: "headset" },
+    });
+    const ask = vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockRejectedValueOnce(new DOMException("busy", "NotReadableError"));
+
+    await expect(session.startLocalAudio()).rejects.toMatchObject({ name: "NotReadableError" });
+    expect(ask).toHaveBeenCalledTimes(1);
+    session.destroy();
+  });
+
+  it("turns on the default camera when the chosen one is not connected", async () => {
+    const { session, ask, pc } = await inCall(track("audio"), { cameraId: "desk" });
+    const builtIn = track("video", "built-in");
+    ask.mockRejectedValueOnce(unplugged()).mockResolvedValueOnce(stream(builtIn));
+
+    await session.toggleCamera();
+
+    expect(ask.mock.calls[1]![0]).toMatchObject({ video: { deviceId: { exact: "desk" } } });
+    expect((ask.mock.calls[2]![0] as { video: MediaTrackConstraints }).video).not.toHaveProperty(
+      "deviceId",
+    );
+    expect(pc.transceivers[1]!.sender.track).toBe(builtIn);
+    expect(session.log.map((l) => l.text)).toContain(
+      "The chosen camera is not connected; using the system's default.",
+    );
     session.destroy();
   });
 
@@ -882,7 +944,7 @@ describe("choosing the microphone and camera (Voice & video)", () => {
     // Losing it later asks for the chosen one again before the default.
     next.onended!();
     await flush();
-    expect(ask.mock.calls[2]![0]).toMatchObject({ audio: { deviceId: "usb-mic" } });
+    expect(ask.mock.calls[2]![0]).toMatchObject({ audio: { deviceId: { exact: "usb-mic" } } });
     session.destroy();
   });
 
@@ -924,7 +986,7 @@ describe("choosing the microphone and camera (Voice & video)", () => {
     ask.mockResolvedValueOnce(stream(front));
     await session.toggleCamera();
     expect(ask.mock.calls[1]![0]).toMatchObject({
-      video: { deviceId: "front", resizeMode: "crop-and-scale", width: { max: 1280 } },
+      video: { deviceId: { exact: "front" }, resizeMode: "crop-and-scale", width: { max: 1280 } },
       audio: false,
     });
     expect(pc.transceivers[1]!.sender.track).toBe(front);
@@ -945,7 +1007,7 @@ describe("choosing the microphone and camera (Voice & video)", () => {
     expect(ask).toHaveBeenCalledTimes(3);
     ask.mockResolvedValueOnce(stream(track("video", "front")));
     await session.toggleCamera();
-    expect(ask.mock.calls[3]![0]).toMatchObject({ video: { deviceId: "front" } });
+    expect(ask.mock.calls[3]![0]).toMatchObject({ video: { deviceId: { exact: "front" } } });
     session.destroy();
   });
 
@@ -1000,7 +1062,7 @@ describe("choosing the microphone and camera (Voice & video)", () => {
       await expect(session.setCamera("virtual")).rejects.toMatchObject({
         name: "NotReadableError",
       });
-      expect(ask.mock.calls.at(-1)![0]).toMatchObject({ video: { deviceId: "webcam" } });
+      expect(ask.mock.calls.at(-1)![0]).toMatchObject({ video: { deviceId: { exact: "webcam" } } });
       expect(pc.transceivers[1]!.sender.track).toBe(again);
       expect(session.cameraOn).toBe(true);
       session.destroy();
