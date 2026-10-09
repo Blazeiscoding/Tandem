@@ -413,11 +413,11 @@ function NavRow(props: {
       aria-current={props.open ? "true" : undefined}
       className={`flex h-[34px] w-full items-center gap-3 rounded-lg px-2 text-[15px] font-medium transition-colors ${
         props.open
-          ? "bg-ink/[0.09] text-ink"
+          ? "channel-row-active text-ink"
           : "text-ink-faint hover:bg-ink/[0.06] hover:text-ink-dim"
       }`}
     >
-      <Icon name={props.icon} size={18} className={props.open ? "text-ink" : "text-ink-faint"} />
+      <Icon name={props.icon} size={18} className={props.open ? "text-copper" : "text-ink-faint"} />
       <span className="min-w-0 flex-1 truncate text-left">{props.label}</span>
       {props.children}
     </button>
@@ -834,7 +834,7 @@ function ChannelRow(props: {
         aria-current={props.active ? "page" : undefined}
         className={`channel-row flex h-[34px] w-full items-center gap-2 rounded-lg px-2 text-left text-[15px] font-medium transition-colors ${
           props.active
-            ? "bg-ink/[0.09] text-ink"
+            ? "channel-row-active text-ink"
             : props.muted
               ? "text-ink-faint hover:bg-ink/[0.06]"
               : props.unread
@@ -845,7 +845,7 @@ function ChannelRow(props: {
         <span
           className={`flex shrink-0 items-center justify-center ${
             props.roomy ? "w-5" : "w-4"
-          } ${props.active || showUnread ? "text-ink-dim" : "text-ink-faint"}`}
+          } ${props.active ? "text-copper" : showUnread ? "text-ink-dim" : "text-ink-faint"}`}
         >
           {props.icon}
         </span>{" "}

@@ -193,6 +193,7 @@ export function JoinScreen({
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-deep">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="aurora" />
         <div className="hex-glow" />
         <div className="grain" />
       </div>
@@ -211,7 +212,8 @@ export function JoinScreen({
             </div>
             {authing ? (
               <p className="text-[15px] text-ink-dim">
-                Your people. Your place. <span className="highlight">Your server.</span>
+                Your people. Your place.{" "}
+                <span className="text-vibrant font-semibold">Your server.</span>
               </p>
             ) : (
               <>
@@ -818,7 +820,7 @@ function AuthCard(props: {
   const submitCls = buttonClass("primary", "h-10 w-full rounded-xl");
 
   return (
-    <div className="card-warm overflow-hidden rounded-3xl p-6 sm:p-7">
+    <div className="card-warm glass-card overflow-hidden rounded-3xl p-6 sm:p-7">
       <div className="mb-6 flex flex-col items-center text-center">
         <span
           aria-hidden="true"

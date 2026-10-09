@@ -676,7 +676,7 @@ function ChannelIntro({
         {person ? (
           <Avatar user={person} size={68} />
         ) : (
-          <span className="flex size-[68px] items-center justify-center rounded-full bg-lifted text-ink">
+          <span className="intro-tile flex size-[68px] items-center justify-center rounded-2xl">
             <Icon
               name={isRoom ? (channel.type === "private" ? "lock" : "hash") : "friends"}
               size={36}

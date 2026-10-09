@@ -234,7 +234,7 @@ export function HuddleBar({
     <div
       role="region"
       aria-label="Active huddle"
-      className="mx-4 mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-online/25 bg-online/[0.06] px-4 py-2.5"
+      className="huddle-live mx-4 mb-2 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-2.5"
     >
       {/* The minimum width is what sends the controls to a line of their own on a phone. */}
       <div className="flex min-w-40 flex-1 items-center gap-2.5">

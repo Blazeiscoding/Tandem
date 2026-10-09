@@ -238,7 +238,7 @@ export function AccountDialog({
               onClick={() => choose(s.id)}
               className={`shrink-0 rounded-md px-3 py-1.5 text-left text-sm font-medium transition-colors ${
                 section === s.id
-                  ? "bg-ink/[0.08] text-ink"
+                  ? "channel-row-active text-ink"
                   : "text-ink-faint hover:bg-ink/[0.04] hover:text-ink"
               }`}
             >

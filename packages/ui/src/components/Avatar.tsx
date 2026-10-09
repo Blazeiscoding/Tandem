@@ -10,7 +10,7 @@ export function Avatar({ user, size = 36 }: { user: User | undefined; size?: num
   return (
     <div
       aria-hidden="true"
-      className="flex shrink-0 select-none items-center justify-center rounded-full font-semibold text-white"
+      className="avatar-face flex shrink-0 select-none items-center justify-center rounded-full font-semibold text-white"
       style={{
         width: size,
         height: size,
