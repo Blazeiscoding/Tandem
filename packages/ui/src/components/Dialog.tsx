@@ -25,8 +25,8 @@ export function Dialog({
       onClose={onClose}
       dismissible={dismissible}
       describedBy={describedBy}
-      backdropClassName="flex items-start justify-center bg-black/50 px-3 pt-[12vh] backdrop-blur-[2px] animate-fade-in"
-      className="max-h-[78vh] max-w-full animate-pop-in overflow-y-auto rounded-2xl border border-[var(--card-edge)] bg-raised p-6 shadow-[var(--shadow-dialog)] outline-none"
+      backdropClassName="flex items-start justify-center dialog-backdrop px-3 pt-[12vh] animate-fade-in"
+      className="max-h-[78vh] max-w-full animate-pop-in overflow-y-auto rounded-2xl dialog-surface border border-[var(--card-edge)] p-6 outline-none"
       style={{ width }}
     >
       <div className="-mr-2 -mt-1.5 mb-4 flex items-center justify-between gap-3">

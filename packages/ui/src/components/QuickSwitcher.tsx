@@ -180,8 +180,8 @@ export function QuickSwitcher(props: {
     <Modal
       title="Jump to"
       onClose={props.onClose}
-      backdropClassName="flex items-start justify-center bg-black/45 px-3 pt-[14vh] backdrop-blur-[2px]"
-      className="w-[560px] max-w-full overflow-hidden rounded-2xl border border-[var(--card-edge)] bg-raised shadow-[var(--shadow-dialog)] outline-none"
+      backdropClassName="flex items-start justify-center dialog-backdrop px-3 pt-[14vh]"
+      className="w-[560px] max-w-full dialog-surface overflow-hidden rounded-2xl border border-[var(--card-edge)] outline-none"
     >
       <div className="flex items-center gap-3 border-b border-edge px-4">
         <Icon name="search" size={18} className="text-ink-faint" />
@@ -279,7 +279,7 @@ export function QuickSwitcher(props: {
                   onClick={() => void open(r)}
                   className={`relative flex h-9 w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 text-left text-sm ${
                     i === list.active
-                      ? "bg-ink/[0.07] text-ink after:absolute after:right-3 after:text-[12px] after:text-ink-faint after:content-['↵']"
+                      ? "channel-row-active text-ink after:absolute after:right-3 after:text-[12px] after:text-ink-faint after:content-['↵']"
                       : "text-ink-dim"
                   }`}
                 >

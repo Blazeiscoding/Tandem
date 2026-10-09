@@ -944,10 +944,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       )}
       <fieldset
         disabled={archived || scheduling || recoveryBlocksSend}
-        className={`min-w-0 rounded-lg border bg-lifted transition-[border-color,box-shadow] duration-150 ${
-          dragging
-            ? "border-copper bg-copper/5"
-            : "border-transparent focus-within:border-ink-faint/25"
+        className={`composer-box min-w-0 rounded-xl border bg-lifted transition-[border-color,box-shadow] duration-150 ${
+          dragging ? "border-copper bg-copper/5" : "border-[var(--card-edge)]"
         }`}
       >
         {preview && (

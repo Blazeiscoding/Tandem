@@ -142,6 +142,21 @@
   --focus-ring-width: 2px;
   /* How far the conversation card sits in from the window's edges. */
   --inset: 8px;
+  /*
+   * The vibrant layer (see the end of this file). The accent as light falls
+   * on it, for the one primary action; the glow it casts; the alert's fill;
+   * a hairline of light along the top of anything raised; and the three
+   * washes of colour the backgrounds are lit with. Text on the gradients
+   * takes the ground colour and clears 4.5:1 at both ends.
+   */
+  --accent-grad: linear-gradient(135deg, #ffa25a 0%, #f97316 48%, #ef5a1a 100%);
+  --accent-glow: rgba(249, 115, 22, 0.45);
+  --alert-grad: linear-gradient(135deg, #ff9089 0%, #f8716c 50%, #f05a55 100%);
+  --sheen: inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --aura-1: rgba(249, 115, 22, 0.14);
+  --aura-2: rgba(139, 92, 246, 0.12);
+  --aura-3: rgba(236, 72, 153, 0.08);
+  --text-grad: linear-gradient(100deg, #ffb26b 0%, #f97316 45%, #f472b6 100%);
 }
 
 /* White, chosen, or the system's choice on a device that prefers light. */
@@ -196,12 +211,24 @@
   }
 }
 
-/* White's shadows are softer: on a light page a heavy shadow reads as dirt. */
+/*
+ * White's shadows are softer: on a light page a heavy shadow reads as dirt.
+ * Its vibrant layer is steeped darker, so white text on the gradients still
+ * reads, and its washes are paler.
+ */
 :root[data-theme="light"] {
   --shadow-float:
     0 0 0 1px rgb(17 17 20 / 0.06), 0 2px 4px -1px rgb(17 17 20 / 0.06),
     0 12px 32px -8px rgb(17 17 20 / 0.16);
   --shadow-dialog: 0 0 0 1px rgb(17 17 20 / 0.06), 0 32px 80px -16px rgb(17 17 20 / 0.28);
+  --accent-grad: linear-gradient(135deg, #b9530f 0%, #a3470c 55%, #8f3e0a 100%);
+  --accent-glow: rgba(163, 71, 12, 0.32);
+  --alert-grad: linear-gradient(135deg, #d0353a 0%, #c42b30 55%, #b0262b 100%);
+  --sheen: inset 0 1px 0 rgb(255 255 255 / 0.75);
+  --aura-1: rgba(249, 115, 22, 0.1);
+  --aura-2: rgba(139, 92, 246, 0.08);
+  --aura-3: rgba(236, 72, 153, 0.06);
+  --text-grad: linear-gradient(100deg, #a3470c 0%, #b4400f 45%, #be185d 100%);
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"] {
@@ -209,6 +236,14 @@
       0 0 0 1px rgb(17 17 20 / 0.06), 0 2px 4px -1px rgb(17 17 20 / 0.06),
       0 12px 32px -8px rgb(17 17 20 / 0.16);
     --shadow-dialog: 0 0 0 1px rgb(17 17 20 / 0.06), 0 32px 80px -16px rgb(17 17 20 / 0.28);
+    --accent-grad: linear-gradient(135deg, #b9530f 0%, #a3470c 55%, #8f3e0a 100%);
+    --accent-glow: rgba(163, 71, 12, 0.32);
+    --alert-grad: linear-gradient(135deg, #d0353a 0%, #c42b30 55%, #b0262b 100%);
+    --sheen: inset 0 1px 0 rgb(255 255 255 / 0.75);
+    --aura-1: rgba(249, 115, 22, 0.1);
+    --aura-2: rgba(139, 92, 246, 0.08);
+    --aura-3: rgba(236, 72, 153, 0.06);
+    --text-grad: linear-gradient(100deg, #a3470c 0%, #b4400f 45%, #be185d 100%);
   }
 }
 
@@ -859,4 +894,272 @@ textarea::placeholder {
   .message-row a {
     -webkit-touch-callout: default;
   }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * The vibrant layer, after the sites vibrant.design collects: surfaces lit
+ * from above by a hairline of light, the accent as a gradient with a glow for
+ * the one primary action, frosted floating panels, and soft washes of colour
+ * behind the places people arrive at. It sits on top of the rules above and
+ * changes no layout, so every screen takes it as it is.
+ * ---------------------------------------------------------------------------
+ */
+
+/*
+ * The primary action, wherever it is drawn: a Button, or any button or link
+ * filled with the accent. Lit along its top edge, shaded along its foot, and
+ * casting a little of its own colour. A disabled one stays flat.
+ */
+:is(button, a, label)[class~="bg-copper"]:not(:disabled) {
+  background-image: var(--accent-grad);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    inset 0 -1px 0 rgb(0 0 0 / 0.12),
+    0 6px 20px -8px var(--accent-glow);
+  transition:
+    filter 140ms ease-out,
+    box-shadow 140ms ease-out,
+    transform 80ms ease-out;
+}
+:is(button, a, label)[class~="bg-copper"]:not(:disabled):hover {
+  filter: brightness(1.07) saturate(1.05);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.32),
+    inset 0 -1px 0 rgb(0 0 0 / 0.12),
+    0 10px 28px -8px var(--accent-glow);
+}
+:is(button, a)[class~="bg-alert"]:not(:disabled) {
+  background-image: var(--alert-grad);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.24),
+    0 6px 20px -10px color-mix(in oklab, var(--color-alert) 70%, transparent);
+}
+
+/* A bar that fills as something is done: the accent as light. */
+.progress-fill {
+  background-image: var(--accent-grad);
+  box-shadow: 0 0 12px -2px var(--accent-glow);
+}
+
+/* Text that carries the brand: the accent running into rose. One phrase at a time. */
+.text-vibrant {
+  background-image: var(--text-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Floating panels catch the light along their top edge. */
+.surface-float {
+  box-shadow: var(--sheen), var(--shadow-float);
+}
+
+/*
+ * A dialog: the raised surface, with the accent and a violet wash glowing in
+ * from above, and the hairline of light along its top.
+ */
+.dialog-surface {
+  background:
+    radial-gradient(
+      110% 60% at 50% -25%,
+      color-mix(in oklab, var(--color-copper) 9%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(70% 50% at 105% -5%, var(--aura-2), transparent 65%), var(--color-raised);
+  box-shadow: var(--sheen), var(--shadow-dialog);
+}
+/* What a dialog sits over: dimmed, and softly out of focus. */
+.dialog-backdrop {
+  background: radial-gradient(60% 50% at 50% 20%, rgb(0 0 0 / 0.35), rgb(0 0 0 / 0.6)), transparent;
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+  backdrop-filter: blur(6px) saturate(1.1);
+}
+
+/*
+ * A card set on the page, such as sign-in: frosted glass with an edge that
+ * catches the accent at one corner and violet at the other.
+ */
+.glass-card {
+  position: relative;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-raised) 84%, transparent),
+    color-mix(in oklab, var(--color-ground) 72%, transparent)
+  );
+  border-color: transparent;
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  backdrop-filter: blur(20px) saturate(1.3);
+  box-shadow:
+    var(--sheen),
+    0 0 0 1px var(--card-edge),
+    0 40px 100px -40px rgb(0 0 0 / 0.65);
+}
+.glass-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    155deg,
+    color-mix(in oklab, var(--color-copper) 60%, transparent),
+    transparent 32%,
+    transparent 68%,
+    color-mix(in oklab, #8b5cf6 45%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/*
+ * The conversation pane, lit faintly from its top corners: the accent on one
+ * side, violet on the other. Behind everything in it, and gone by the time
+ * the first message is reached.
+ */
+.workspace-main {
+  position: relative;
+  isolation: isolate;
+}
+.workspace-main::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 360px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 100% at 92% -25%, var(--aura-1), transparent 70%),
+    radial-gradient(45% 90% at 12% -35%, var(--aura-2), transparent 70%);
+}
+.workspace-main .channel-header {
+  background: transparent;
+}
+
+/* The sidebar: a faint wash of the accent at its head, fading out within a few rows. */
+.workspace-sidebar {
+  background-image: radial-gradient(140% 28% at 0% 0%, var(--aura-1), transparent 70%);
+}
+
+/* The open conversation's row: lit with the accent, with a fine accent edge. */
+.channel-row-active {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-copper) 17%, transparent),
+    color-mix(in oklab, var(--color-copper) 5%, transparent)
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-copper) 20%, transparent);
+}
+
+/* The workspace on screen glows in its own colour on the rail. */
+.squircle {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
+}
+.squircle[aria-current="page"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.25),
+    0 8px 22px -8px var(--accent-glow);
+}
+
+/*
+ * A count that names you glows a little, so it is found at a glance. Given
+ * as Tailwind's own shadow, and in the components layer, so a badge that
+ * also has a ring (the rail's, set apart from the icon it sits on) keeps the
+ * ring and adds the glow, rather than losing one to the other.
+ */
+@layer components {
+  .badge-mention {
+    --tw-shadow: 0 2px 10px -2px rgb(218 55 60 / 0.65);
+    box-shadow: var(--tw-shadow);
+  }
+}
+
+/* With forced colours on, gradient text would vanish: it goes back to plain text. */
+@media (forced-colors: active) {
+  .text-vibrant {
+    background: none;
+    color: CanvasText;
+  }
+}
+
+/* The composer: lit along its top, and ringed with the accent while you write. */
+.composer-box {
+  box-shadow: var(--sheen);
+}
+.composer-box:focus-within {
+  border-color: color-mix(in oklab, var(--color-copper) 45%, transparent);
+  box-shadow:
+    var(--sheen),
+    0 0 0 3px color-mix(in oklab, var(--color-copper) 12%, transparent),
+    0 14px 34px -22px var(--accent-glow);
+}
+
+/* The top of a conversation: its mark on the accent, glowing. */
+.intro-tile {
+  background-image: var(--accent-grad);
+  color: var(--color-ground);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 14px 36px -12px var(--accent-glow);
+}
+
+/* A live huddle: green light running across the bar, and a glow under it. */
+.huddle-live {
+  border-color: color-mix(in oklab, var(--color-online) 32%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-online) 12%, transparent),
+    color-mix(in oklab, var(--color-online) 3%, transparent) 60%,
+    color-mix(in oklab, #22d3ee 6%, transparent)
+  );
+  box-shadow:
+    var(--sheen),
+    0 10px 30px -22px var(--color-online);
+}
+
+/* A segmented control's thumb catches the light like a key. */
+.segment-thumb {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-ink) 7%, var(--color-lifted)),
+    var(--color-lifted)
+  );
+  box-shadow:
+    var(--sheen),
+    0 1px 2px rgb(0 0 0 / 0.25),
+    0 0 0 1px var(--card-edge);
+}
+
+/* Cards on the page pick up the light at their top edge too; a component, so a utility still wins. */
+@layer components {
+  .card-warm {
+    box-shadow: var(--sheen);
+  }
+}
+
+/* Faces: a fine ring of light, so a dark avatar does not sink into a dark page. */
+.avatar-face {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+}
+
+/* The mark over an empty list: the accent, glowing softly from inside its tile. */
+.empty-tile {
+  background:
+    radial-gradient(
+      circle at 30% 20%,
+      color-mix(in oklab, var(--color-copper) 26%, transparent),
+      color-mix(in oklab, var(--color-copper) 7%, transparent) 70%
+    ),
+    var(--color-raised);
+  border: 1px solid color-mix(in oklab, var(--color-copper) 28%, transparent);
+  box-shadow:
+    var(--sheen),
+    0 12px 32px -14px var(--accent-glow);
 }
