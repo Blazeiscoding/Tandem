@@ -750,7 +750,7 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
   }
 
   return (
-    <div ref={shell} className="composer-shell relative shrink-0 px-4 pb-5">
+    <div ref={shell} className="composer-shell @container relative shrink-0 px-4 pb-5">
       {dropArea && (
         <div
           aria-hidden="true"
@@ -944,10 +944,8 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
       )}
       <fieldset
         disabled={archived || scheduling || recoveryBlocksSend}
-        className={`min-w-0 rounded-lg border bg-lifted transition-[border-color,box-shadow] duration-150 ${
-          dragging
-            ? "border-copper bg-copper/5"
-            : "border-transparent focus-within:border-ink-faint/25"
+        className={`composer-box min-w-0 rounded-xl border bg-lifted transition-[border-color,box-shadow] duration-150 ${
+          dragging ? "border-copper bg-copper/5" : "border-[var(--card-edge)]"
         }`}
       >
         {preview && (
@@ -1042,7 +1040,20 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             {text.length > MESSAGE_LIMIT ? " · Shorten your message to send it." : ""}
           </p>
         )}
-        <div className="relative flex items-center gap-0.5 px-2 pb-2">
+        {threadRootId && (
+          // On a line of its own, as in Slack: in a thread panel the toolbar
+          // row has no width to spare, and the checkbox wrapped beside it.
+          <label className="mx-4 mb-1 flex w-fit cursor-pointer items-center gap-2 text-[13px] text-ink-dim">
+            <input
+              type="checkbox"
+              checked={alsoToChannel}
+              onChange={(e) => setAlsoToChannel(e.target.checked)}
+              className="accent-[var(--color-copper)]"
+            />
+            Also send to channel
+          </label>
+        )}
+        <div className="relative flex flex-wrap items-center gap-0.5 px-2 pb-2">
           {!guest && (
             <Tooltip label="Attach a file">
               <button
@@ -1065,19 +1076,9 @@ export function Composer({ channelId, threadRootId, placeholder, autoFocus }: Pr
             preview={preview}
             onTogglePreview={() => setPreview((v) => !v)}
           />
-          {threadRootId && (
-            <label className="ml-2 flex items-center gap-1.5 text-[12px] text-ink-faint">
-              <input
-                type="checkbox"
-                checked={alsoToChannel}
-                onChange={(e) => setAlsoToChannel(e.target.checked)}
-                className="accent-[var(--color-copper)]"
-              />
-              Also send to channel
-            </label>
-          )}
           <span className="ml-auto flex min-w-0 items-center gap-0.5">
-            <span className="composer-hint mr-2 min-w-0 truncate text-[12px] text-ink-faint">
+            {/* Only where it fits whole: a narrow composer, such as a thread's, cut it off mid-word. */}
+            <span className="composer-hint mr-2 hidden min-w-0 truncate text-[12px] text-ink-faint @lg:inline">
               {scheduleNote ??
                 (text.trim() || attached.length > 0
                   ? enterSends

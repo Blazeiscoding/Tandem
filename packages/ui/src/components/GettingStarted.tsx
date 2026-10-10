@@ -130,7 +130,7 @@ export function GettingStarted(props: {
       <div className="mt-1 flex items-center gap-2">
         <div aria-hidden="true" className="h-1 flex-1 overflow-hidden rounded-full bg-ink/[0.08]">
           <div
-            className="h-full rounded-full bg-copper transition-[width] duration-500"
+            className="progress-fill h-full rounded-full bg-copper transition-[width] duration-500"
             style={{ width: `${(done / steps.length) * 100}%` }}
           />
         </div>

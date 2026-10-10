@@ -53,8 +53,8 @@ export function ProfileDialog(props: {
     <Modal
       title="Profile"
       onClose={props.onClose}
-      backdropClassName="flex animate-fade-in items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
-      className="w-[340px] max-w-full animate-pop-in overflow-hidden rounded-2xl border border-edge bg-raised shadow-[var(--shadow-dialog)] outline-none"
+      backdropClassName="flex animate-fade-in items-center justify-center dialog-backdrop p-4"
+      className="w-[340px] max-w-full animate-pop-in dialog-surface overflow-hidden rounded-2xl border border-[var(--card-edge)] outline-none"
     >
       <div
         className="relative h-[92px]"

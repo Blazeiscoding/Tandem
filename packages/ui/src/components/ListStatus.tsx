@@ -75,7 +75,7 @@ export function ListStatus(props: Props) {
             <div className="flex flex-col items-center px-6 pb-6 pt-12 text-center">
               <span
                 aria-hidden="true"
-                className="card-warm mb-4 flex size-12 items-center justify-center rounded-2xl text-copper"
+                className="empty-tile mb-4 flex size-12 items-center justify-center rounded-2xl text-copper"
               >
                 <Icon name={props.emptyIcon} size={20} />
               </span>
