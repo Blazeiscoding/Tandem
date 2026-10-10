@@ -26,8 +26,7 @@ nsis:
   oneClick: true
   deleteAppDataOnUninstall: false
 mac:
-  # build/icon.png is 256px; macOS needs at least 512.
-  icon: ../web/public/icon-512.png
+  icon: build/icon-mac.png
   target:
     - dmg
   category: public.app-category.productivity
